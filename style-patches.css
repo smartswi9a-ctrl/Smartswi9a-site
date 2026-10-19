@@ -1,6 +1,6 @@
 /* ============================================================
    STYLE-PATCHES.CSS - SMART SWI9A
-   Version 1.6.0 — Prix barré bulletproof (fix mobile)
+   Version 1.7.0 — Ajout styles miniature vidéo (galerie produit)
    ============================================================ */
 
 /* ============================================================
@@ -421,13 +421,6 @@ main#main {
 
 /* ------------------------------------------------------------
    ✅ FIX v1.6.0 : PRIX BARRÉ — TECHNIQUE BULLETPROOF
-   ------------------------------------------------------------
-   Problème : text-decoration: line-through sur un élément
-   inline-block dans un flex container n'est PAS toujours rendu
-   sur iOS Safari et certains Chrome Android.
-
-   Solution : on dessine la ligne NOUS-MÊMES avec un pseudo-
-   élément ::after. Ça marche sur 100% des navigateurs.
    ------------------------------------------------------------ */
 .product-old-price {
     position: relative !important;
@@ -452,7 +445,6 @@ main#main {
     opacity: 0.85 !important;
 }
 
-/* Même technique pour les autres prix barrés (panier, cartes, etc.) */
 .p-price small,
 .cart-item-old-price,
 .cart-suggestion-old {
@@ -932,6 +924,68 @@ p, h1, h2, h3, h4, h5, h6 {
 }
 
 /* ============================================================
+   21. ✅ NOUVEAU : MINIATURE VIDÉO (Galerie produit)
+   ============================================================ */
+.thumb-video {
+    position: relative !important;
+    width: 60px !important;
+    height: 60px !important;
+    border-radius: var(--radius-sm) !important;
+    border: 2px solid var(--border) !important;
+    cursor: pointer !important;
+    overflow: hidden !important;
+    transition: border-color 0.2s, transform 0.2s !important;
+    flex-shrink: 0 !important;
+    background: #000 !important;
+}
+
+.thumb-video img {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+    display: block !important;
+    opacity: 0.7 !important; /* Assombrit l'image pour faire ressortir le bouton Play */
+}
+
+.thumb-video .play-icon-overlay {
+    position: absolute !important;
+    inset: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    pointer-events: none !important;
+}
+
+.thumb-video .play-icon-overlay > div {
+    width: 28px !important;
+    height: 28px !important;
+    background: rgba(165, 123, 46, 0.9) !important;
+    border-radius: 50% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.4) !important;
+}
+
+.thumb-video:hover,
+.thumb-video.active {
+    border-color: var(--gold) !important;
+    transform: scale(1.05) !important;
+}
+
+/* Responsive : Miniatures plus petites sur mobile */
+@media (max-width: 600px) {
+    .thumb-video {
+        width: 50px !important;
+        height: 50px !important;
+    }
+    .thumb-video .play-icon-overlay > div {
+        width: 22px !important;
+        height: 22px !important;
+    }
+}
+
+/* ============================================================
    LOG
    ============================================================ */
-/* style-patches.css v1.6.0 — Prix barré bulletproof */
+/* style-patches.css v1.7.0 — Ajout styles miniature vidéo */
