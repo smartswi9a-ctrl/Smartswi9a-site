@@ -1,7 +1,7 @@
 // js/product-detail.js
 // ============================================================
 // PAGE PRODUIT DYNAMIQUE - SMART SWI9A
-// Version 1.8.0 — Vidéo sans autoplay + dimensions maîtrisées
+// Version 1.8.1 — FIX : Sécurité innerHTML, trim() vidéo, ordre pause
 // ============================================================
 
 import { collection, query, where, getDocs } from "firebase/firestore";
@@ -232,12 +232,12 @@ function renderMediaGallery(product) {
     const mainImageUrl = getProductImageUrl(product);
     galleryContainer.innerHTML = '';
     
-    // Nettoyer le wrapper pour le préparer
-    wrapper.innerHTML = '';
+    // ✅ FIX : Mettre en pause AVANT de vider le conteneur
     if (currentVideoElement) {
         currentVideoElement.pause();
         currentVideoElement = null;
     }
+    wrapper.innerHTML = '';
 
     // Fonction pour afficher une image dans le grand cadre
     const showImage = (src, activeThumb) => {
@@ -245,8 +245,9 @@ function renderMediaGallery(product) {
             currentVideoElement.pause();
             currentVideoElement = null;
         }
+        // ✅ FIX : escapeHTML pour sécuriser l'URL
         wrapper.innerHTML = `
-            <img id="mainImage" class="main-media-element" src="${src}" alt="${escapeHTML(getProductName(product))}" loading="eager">
+            <img id="mainImage" class="main-media-element" src="${escapeHTML(src)}" alt="${escapeHTML(getProductName(product))}" loading="eager">
         `;
         
         const newMainImg = document.getElementById('mainImage');
@@ -258,8 +259,9 @@ function renderMediaGallery(product) {
 
     // Fonction pour afficher la vidéo dans le grand cadre
     const showVideo = (videoUrl, activeThumb) => {
+        // ✅ FIX : escapeHTML pour sécuriser les URLs vidéo et poster
         wrapper.innerHTML = `
-            <video id="mainVideo" class="main-media-element" src="${videoUrl}" controls preload="metadata" playsinline poster="${mainImageUrl}" style="background: #000;"></video>
+            <video id="mainVideo" class="main-media-element" src="${escapeHTML(videoUrl)}" controls preload="metadata" playsinline poster="${escapeHTML(mainImageUrl)}" style="background: #000;"></video>
         `;
         currentVideoElement = document.getElementById('mainVideo');
 
@@ -290,7 +292,8 @@ function renderMediaGallery(product) {
     });
 
     // 2. Ajouter la vidéo si elle existe
-    const hasVideo = product.video && product.video.trim() !== '';
+    // ✅ FIX : typeof product.video === 'string' pour éviter le crash si la donnée est corrompue
+    const hasVideo = typeof product.video === 'string' && product.video.trim() !== '';
     let videoThumb = null;
 
     if (hasVideo) {
@@ -301,7 +304,7 @@ function renderMediaGallery(product) {
         videoThumb.className = 'thumb-video';
         // On utilise la première image comme fond pour la miniature vidéo
         videoThumb.innerHTML = `
-            <img src="${mainImageUrl}" style="filter: brightness(0.5);">
+            <img src="${escapeHTML(mainImageUrl)}" style="filter: brightness(0.5);">
             <div class="play-icon-overlay">
                 <div>
                     <svg viewBox="0 0 24 24" fill="white" width="14" height="14" style="margin-left: 2px;"><path d="M8 5v14l11-7z"/></svg>
@@ -723,10 +726,14 @@ function renderRelatedProducts(product) {
         const price = p.price;
         const oldPrice = p.oldPrice;
 
+        // ✅ FIX : escapeHTML sur l'URL et gestion des quotes dans onerror
+        const safeImg = escapeHTML(img);
+        const safeFallback = getFallbackImage(name).replace(/'/g, "%27");
+
         html += `
             <div class="product-card" data-id="${pid}" data-slug="${escapeHTML(p.slug || '')}" style="cursor:pointer;">
                 <div class="product-img">
-                    <img src="${img}" alt="${name}" loading="lazy" onerror="this.src='${getFallbackImage(name)}'">
+                    <img src="${safeImg}" alt="${name}" loading="lazy" onerror="this.onerror=null; this.src='${safeFallback}'">
                     <button class="favorite-btn ${isFav ? 'is-fav' : ''}" data-id="${pid}">${isFav ? '❤️' : '🤍'}</button>
                 </div>
                 <div class="product-body" style="padding:0.8rem;">
@@ -769,4 +776,4 @@ function attachProductEvents(product) {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ product-detail.js chargé — v1.8.0 (Vidéo sans autoplay + dimensions maîtrisées)');
+console.log('✅ product-detail.js chargé — v1.8.1 (Sécurité innerHTML + trim fix)');
