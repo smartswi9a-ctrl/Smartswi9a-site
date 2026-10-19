@@ -1,12 +1,14 @@
 // js/ui-core.js
 // ============================================================
 // UI CORE - SMART SWI9A
-// Version 1.1.0 — Toast, focus trap, modales, confirmAction
+// Version 1.1.1 — Sécurisation XSS de confirmAction (escapeHTML)
 // ============================================================
 // Module "bas niveau" SANS dépendances métier.
 // Rôle : casser les cycles d'imports entre ui.js / cart.js / auth.js / orders.js
 // Fournit : toast, focus trap, modales, confirmAction.
 // ============================================================
+
+import { escapeHTML } from "./utils.js";
 
 // ============================================================
 // TOAST
@@ -133,23 +135,34 @@ export function confirmAction(message, options = {}) {
 
         const confirmColor = '#ffffff';
 
+        // ✅ SÉCURITÉ : Échappement de toutes les variables injectées
+        const safeMessage = escapeHTML(message);
+        const safeConfirmText = escapeHTML(confirmText);
+        const safeCancelText = escapeHTML(cancelText);
+        
+        // Extraction de l'emoji et du texte du titre
+        const titleEmojiMatch = title.match(/^[^\s]+/);
+        const titleEmoji = titleEmojiMatch ? titleEmojiMatch[0] : '⚠️';
+        const titleText = title.replace(/^[^\s]+\s?/, '') || 'Confirmation';
+        const safeTitleText = escapeHTML(titleText);
+
         overlay.innerHTML = `
             <div class="modal" style="max-width:420px;text-align:center;padding:1.8rem;">
-                <div style="font-size:2.5rem;margin-bottom:0.6rem;line-height:1;">${title.match(/^[^\s]+/)?.[0] || '⚠️'}</div>
+                <div style="font-size:2.5rem;margin-bottom:0.6rem;line-height:1;">${titleEmoji}</div>
                 <h3 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:0.8rem;font-size:1.15rem;">
-                    ${title.replace(/^[^\s]+\s?/, '') || 'Confirmation'}
+                    ${safeTitleText}
                 </h3>
                 <p style="font-size:0.95rem;color:var(--text);margin-bottom:1.5rem;line-height:1.5;word-break:break-word;">
-                    ${message}
+                    ${safeMessage}
                 </p>
                 <div style="display:flex;gap:0.5rem;justify-content:center;flex-wrap:wrap;">
                     <button type="button" class="confirm-cancel-btn"
                         style="min-width:110px;padding:0.7rem 1.2rem;background:transparent;border:1px solid var(--border);color:var(--text-muted);border-radius:30px;font-weight:600;cursor:pointer;font-size:0.9rem;transition:all 0.2s;">
-                        ${cancelText}
+                        ${safeCancelText}
                     </button>
                     <button type="button" class="confirm-ok-btn"
                         style="min-width:110px;padding:0.7rem 1.2rem;background:${confirmBg};color:${confirmColor};border:none;border-radius:30px;font-weight:700;cursor:pointer;font-size:0.9rem;transition:all 0.2s;">
-                        ${confirmText}
+                        ${safeConfirmText}
                     </button>
                 </div>
             </div>
@@ -272,8 +285,12 @@ export function openImageLightbox(imageUrl) {
         display: flex; align-items: center; justify-content: center;
         padding: 1rem; cursor: zoom-out;
     `;
+    
+    // ✅ SÉCURITÉ : Échappement de l'URL
+    const safeUrl = escapeHTML(imageUrl);
+
     overlay.innerHTML = `
-        <img src="${imageUrl}" alt="Image agrandie"
+        <img src="${safeUrl}" alt="Image agrandie"
              style="max-width:95%; max-height:95%; object-fit:contain; border-radius:8px; box-shadow: 0 20px 60px rgba(0,0,0,0.6);">
         <button style="position:absolute;top:1rem;right:1rem;background:var(--bg-card);border:1px solid var(--border);width:44px;height:44px;border-radius:50%;color:var(--text);font-size:1.4rem;cursor:pointer;">✕</button>
     `;
@@ -318,4 +335,4 @@ export async function copyToClipboard(text) {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ ui-core.js chargé — toast, modales, lightbox, clipboard');
+console.log('✅ ui-core.js chargé — toast, modales, lightbox, clipboard (Sécurisé)');
