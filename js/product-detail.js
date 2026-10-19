@@ -1,11 +1,7 @@
 // js/product-detail.js
 // ============================================================
 // PAGE PRODUIT DYNAMIQUE - SMART SWI9A
-// Version 1.5.0 — Ajout support vidéo (Façade / Lazy Load)
-// ============================================================
-// Dépend de : config, utils, store, firebase, auth, products,
-//             ui-core, cart, whatsapp, reviews
-// URL      : /produit?slug=xxx  (Firebase cleanUrls)
+// Version 1.7.0 — Vidéo affichée par défaut dans le grand cadre
 // ============================================================
 
 import { collection, query, where, getDocs } from "firebase/firestore";
@@ -26,6 +22,7 @@ import { showToast, openImageLightbox } from "./ui-core.js";
 // ÉTAT LOCAL
 // ============================================================
 let currentProduct = null;
+let currentVideoElement = null;
 
 // ============================================================
 // LECTURE DU SLUG
@@ -74,10 +71,9 @@ export async function renderProductDetail() {
 
     updateMetaTags(product);
     renderBreadcrumbs(product);
-    renderImageSection(product);
     
-    // ✅ AJOUT : Rendu de la vidéo
-    renderProductVideo(product);
+    // ✅ Rendu unifié des images et de la vidéo
+    renderMediaGallery(product);
 
     renderInfoSection(product);
     renderFeaturesSection(product);
@@ -225,121 +221,109 @@ function renderBreadcrumbs(product) {
 }
 
 // ============================================================
-// SECTION IMAGES
+// SECTION GALERIE MÉDIA (Images + Vidéo unifiées)
 // ============================================================
-function renderImageSection(product) {
-    const mainImg = document.getElementById('mainImage');
+function renderMediaGallery(product) {
+    const wrapper = document.getElementById('mainMediaWrapper');
     const galleryContainer = document.getElementById('galleryThumbnails');
-    if (!mainImg) return;
+    
+    if (!wrapper || !galleryContainer) return;
 
     const mainImageUrl = getProductImageUrl(product);
-    mainImg.src = mainImageUrl;
-    mainImg.alt = escapeHTML(getProductName(product));
-
-    mainImg.style.cursor = 'zoom-in';
-    if (mainImg._lightboxClick) {
-        mainImg.removeEventListener('click', mainImg._lightboxClick);
+    galleryContainer.innerHTML = '';
+    
+    // Nettoyer le wrapper pour le préparer
+    wrapper.innerHTML = '';
+    if (currentVideoElement) {
+        currentVideoElement.pause();
+        currentVideoElement = null;
     }
-    mainImg._lightboxClick = () => openImageLightbox(mainImg.src);
-    mainImg.addEventListener('click', mainImg._lightboxClick);
 
-    if (galleryContainer) {
-        galleryContainer.innerHTML = '';
-        const images = (product.gallery && product.gallery.length > 0)
-            ? [product.img, ...product.gallery]
-            : [product.img];
+    // Fonction pour afficher une image dans le grand cadre
+    const showImage = (src, activeThumb) => {
+        if (currentVideoElement) {
+            currentVideoElement.pause();
+            currentVideoElement = null;
+        }
+        wrapper.innerHTML = `
+            <img id="mainImage" src="${src}" alt="${escapeHTML(getProductName(product))}" loading="eager" style="max-width: 100% !important; max-height: 70vh !important; object-fit: contain !important; display: block !important; cursor: zoom-in;">
+        `;
+        
+        const newMainImg = document.getElementById('mainImage');
+        newMainImg.addEventListener('click', () => openImageLightbox(newMainImg.src));
 
-        images.forEach((imgUrl, index) => {
-            if (!imgUrl) return;
-            const thumb = document.createElement('img');
-            thumb.src = imgUrl.startsWith('http') || imgUrl.startsWith('/') ? imgUrl : '/' + imgUrl;
-            thumb.alt = `${getProductName(product)} - ${index + 1}`;
-            thumb.loading = 'lazy';
-            if (index === 0) thumb.classList.add('active');
+        galleryContainer.querySelectorAll('.thumb-img, .thumb-video').forEach(el => el.classList.remove('active'));
+        if (activeThumb) activeThumb.classList.add('active');
+    };
 
-            thumb.addEventListener('click', () => {
-                mainImg.src = thumb.src;
-                galleryContainer.querySelectorAll('img').forEach(i => i.classList.remove('active'));
-                thumb.classList.add('active');
-            });
+    // Fonction pour afficher la vidéo dans le grand cadre
+    const showVideo = (videoUrl, activeThumb) => {
+        wrapper.innerHTML = `
+            <video id="mainVideo" src="${videoUrl}" controls autoplay muted playsinline style="width: 100%; max-height: 70vh; border-radius: var(--radius-md); background: #000; object-fit: contain;"></video>
+        `;
+        currentVideoElement = document.getElementById('mainVideo');
 
-            galleryContainer.appendChild(thumb);
-        });
-    }
-}
+        galleryContainer.querySelectorAll('.thumb-img, .thumb-video').forEach(el => el.classList.remove('active'));
+        if (activeThumb) activeThumb.classList.add('active');
+    };
 
-// ============================================================
-// ✅ NOUVEAU : SECTION VIDÉO (Façade / Lazy Load)
-// ============================================================
-function renderProductVideo(product) {
-    const container = document.getElementById('productVideoContainer');
-    if (!container) return;
+    // 1. Créer les miniatures des photos
+    const images = (product.gallery && product.gallery.length > 0)
+        ? [product.img, ...product.gallery]
+        : [product.img];
+    
+    let firstImageThumb = null;
 
-    // Reset du conteneur
-    container.innerHTML = '';
-    container.style.display = 'none';
+    images.forEach((imgUrl, index) => {
+        if (!imgUrl) return;
+        const thumb = document.createElement('img');
+        thumb.className = 'thumb-img';
+        thumb.src = imgUrl.startsWith('http') || imgUrl.startsWith('/') ? imgUrl : '/' + imgUrl;
+        thumb.alt = `${getProductName(product)} - ${index + 1}`;
+        thumb.loading = 'lazy';
+        
+        thumb.addEventListener('click', () => showImage(thumb.src, thumb));
 
-    // Si le produit n'a pas de vidéo, on s'arrête là
-    if (!product.video || product.video.trim() === '') return;
+        if (index === 0) firstImageThumb = thumb;
 
-    // Construction de l'URL complète
-    const baseUrl = VIDEO_BASE_URL.endsWith('/') ? VIDEO_BASE_URL : VIDEO_BASE_URL + '/';
-    const videoFile = product.video.trim();
-    const videoUrl = baseUrl + videoFile;
+        galleryContainer.appendChild(thumb);
+    });
 
-    // Image de miniature (on utilise l'image principale du produit)
-    const thumbnailUrl = getProductImageUrl(product);
+    // 2. Ajouter la vidéo si elle existe
+    const hasVideo = product.video && product.video.trim() !== '';
+    let videoThumb = null;
 
-    // Affichage du conteneur
-    container.style.display = 'block';
+    if (hasVideo) {
+        const baseUrl = VIDEO_BASE_URL.endsWith('/') ? VIDEO_BASE_URL : VIDEO_BASE_URL + '/';
+        const videoUrl = baseUrl + product.video.trim();
 
-    // Création de la "Façade" (Miniature + Bouton Play)
-    container.innerHTML = `
-        <div id="videoFacade" style="position: relative; cursor: pointer; border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--border); background: #000; aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center; margin-top: 0.5rem;">
-            <img src="${thumbnailUrl}" alt="Vidéo de démonstration" style="width: 100%; height: 100%; object-fit: cover; opacity: 0.7; transition: opacity 0.2s;">
-            
-            <!-- Bouton Play central -->
-            <div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none;">
-                <div style="width: 70px; height: 70px; background: rgba(165, 123, 46, 0.9); border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 15px rgba(0,0,0,0.4); transition: transform 0.2s;">
-                    <svg viewBox="0 0 24 24" fill="white" width="36" height="36" style="margin-left: 5px;"><path d="M8 5v14l11-7z"/></svg>
+        videoThumb = document.createElement('div');
+        videoThumb.className = 'thumb-video';
+        // On utilise la première image comme fond pour la miniature vidéo
+        videoThumb.innerHTML = `
+            <img src="${mainImageUrl}" style="filter: brightness(0.5);">
+            <div class="play-icon-overlay">
+                <div>
+                    <svg viewBox="0 0 24 24" fill="white" width="14" height="14" style="margin-left: 2px;"><path d="M8 5v14l11-7z"/></svg>
                 </div>
             </div>
-            
-            <!-- Badge Vidéo -->
-            <div style="position: absolute; bottom: 12px; left: 12px; background: rgba(0,0,0,0.8); color: white; padding: 0.3rem 0.8rem; border-radius: 20px; font-size: 0.8rem; font-weight: bold; display: flex; align-items: center; gap: 5px; backdrop-filter: blur(4px);">
-                🎥 Démo
-            </div>
-        </div>
-    `;
-
-    // Événement au survol (desktop)
-    const facade = document.getElementById('videoFacade');
-    const img = facade.querySelector('img');
-    const playBtn = facade.querySelector('div > div');
-
-    facade.addEventListener('mouseenter', () => {
-        img.style.opacity = '0.9';
-        playBtn.style.transform = 'scale(1.1)';
-    });
-    facade.addEventListener('mouseleave', () => {
-        img.style.opacity = '0.7';
-        playBtn.style.transform = 'scale(1)';
-    });
-
-    // Événement au clic : On remplace la façade par la vraie balise <video>
-    facade.addEventListener('click', () => {
-        container.innerHTML = `
-            <video 
-                src="${videoUrl}" 
-                controls 
-                autoplay 
-                playsinline
-                style="width: 100%; border-radius: var(--radius-md); background: #000; display: block; aspect-ratio: 16/9; object-fit: contain;">
-                Votre navigateur ne supporte pas la lecture de vidéos.
-            </video>
         `;
-        console.log('🎥 Lecture vidéo démarrée :', videoUrl);
-    });
+
+        videoThumb.addEventListener('click', () => showVideo(videoUrl, videoThumb));
+
+        // Placer la vidéo en première position
+        galleryContainer.insertBefore(videoThumb, galleryContainer.firstChild);
+        
+        // ✅ AFFICHER LA VIDÉO PAR DÉFAUT DANS LE GRAND CADRE
+        showVideo(videoUrl, videoThumb);
+        
+        // Retirer l'état actif de la première image
+        if (firstImageThumb) firstImageThumb.classList.remove('active');
+
+    } else {
+        // S'il n'y a pas de vidéo, afficher l'image principale par défaut
+        showImage(mainImageUrl, firstImageThumb);
+    }
 }
 
 // ============================================================
@@ -785,4 +769,4 @@ function attachProductEvents(product) {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ product-detail.js chargé — v1.5.0 (Ajout support vidéo)');
+console.log('✅ product-detail.js chargé — v1.7.0 (Vidéo par défaut)');
