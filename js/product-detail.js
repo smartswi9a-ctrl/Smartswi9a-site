@@ -1,7 +1,7 @@
 // js/product-detail.js
 // ============================================================
 // PAGE PRODUIT DYNAMIQUE - SMART SWI9A
-// Version 1.4.2 — FIX: Prix barré sur mobile (inline-block)
+// Version 1.5.0 — Ajout support vidéo (Façade / Lazy Load)
 // ============================================================
 // Dépend de : config, utils, store, firebase, auth, products,
 //             ui-core, cart, whatsapp, reviews
@@ -10,7 +10,7 @@
 
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "./firebase.js";
-import { CONFIG } from "./config.js";
+import { CONFIG, VIDEO_BASE_URL } from "./config.js";
 import {
     t, escapeHTML, getProductName, getProductDesc, getProductFeatures,
     getProductImageUrl, getFallbackImage, renderStars,
@@ -75,6 +75,10 @@ export async function renderProductDetail() {
     updateMetaTags(product);
     renderBreadcrumbs(product);
     renderImageSection(product);
+    
+    // ✅ AJOUT : Rendu de la vidéo
+    renderProductVideo(product);
+
     renderInfoSection(product);
     renderFeaturesSection(product);
     await renderReviewsSection(product);
@@ -265,6 +269,80 @@ function renderImageSection(product) {
 }
 
 // ============================================================
+// ✅ NOUVEAU : SECTION VIDÉO (Façade / Lazy Load)
+// ============================================================
+function renderProductVideo(product) {
+    const container = document.getElementById('productVideoContainer');
+    if (!container) return;
+
+    // Reset du conteneur
+    container.innerHTML = '';
+    container.style.display = 'none';
+
+    // Si le produit n'a pas de vidéo, on s'arrête là
+    if (!product.video || product.video.trim() === '') return;
+
+    // Construction de l'URL complète
+    const baseUrl = VIDEO_BASE_URL.endsWith('/') ? VIDEO_BASE_URL : VIDEO_BASE_URL + '/';
+    const videoFile = product.video.trim();
+    const videoUrl = baseUrl + videoFile;
+
+    // Image de miniature (on utilise l'image principale du produit)
+    const thumbnailUrl = getProductImageUrl(product);
+
+    // Affichage du conteneur
+    container.style.display = 'block';
+
+    // Création de la "Façade" (Miniature + Bouton Play)
+    container.innerHTML = `
+        <div id="videoFacade" style="position: relative; cursor: pointer; border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--border); background: #000; aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center; margin-top: 0.5rem;">
+            <img src="${thumbnailUrl}" alt="Vidéo de démonstration" style="width: 100%; height: 100%; object-fit: cover; opacity: 0.7; transition: opacity 0.2s;">
+            
+            <!-- Bouton Play central -->
+            <div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none;">
+                <div style="width: 70px; height: 70px; background: rgba(165, 123, 46, 0.9); border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 15px rgba(0,0,0,0.4); transition: transform 0.2s;">
+                    <svg viewBox="0 0 24 24" fill="white" width="36" height="36" style="margin-left: 5px;"><path d="M8 5v14l11-7z"/></svg>
+                </div>
+            </div>
+            
+            <!-- Badge Vidéo -->
+            <div style="position: absolute; bottom: 12px; left: 12px; background: rgba(0,0,0,0.8); color: white; padding: 0.3rem 0.8rem; border-radius: 20px; font-size: 0.8rem; font-weight: bold; display: flex; align-items: center; gap: 5px; backdrop-filter: blur(4px);">
+                🎥 Démo
+            </div>
+        </div>
+    `;
+
+    // Événement au survol (desktop)
+    const facade = document.getElementById('videoFacade');
+    const img = facade.querySelector('img');
+    const playBtn = facade.querySelector('div > div');
+
+    facade.addEventListener('mouseenter', () => {
+        img.style.opacity = '0.9';
+        playBtn.style.transform = 'scale(1.1)';
+    });
+    facade.addEventListener('mouseleave', () => {
+        img.style.opacity = '0.7';
+        playBtn.style.transform = 'scale(1)';
+    });
+
+    // Événement au clic : On remplace la façade par la vraie balise <video>
+    facade.addEventListener('click', () => {
+        container.innerHTML = `
+            <video 
+                src="${videoUrl}" 
+                controls 
+                autoplay 
+                playsinline
+                style="width: 100%; border-radius: var(--radius-md); background: #000; display: block; aspect-ratio: 16/9; object-fit: contain;">
+                Votre navigateur ne supporte pas la lecture de vidéos.
+            </video>
+        `;
+        console.log('🎥 Lecture vidéo démarrée :', videoUrl);
+    });
+}
+
+// ============================================================
 // SECTION INFO
 // ============================================================
 function renderInfoSection(product) {
@@ -287,7 +365,6 @@ function renderInfoSection(product) {
     if (oldPriceEl) {
         if (isPromo) {
             oldPriceEl.textContent = `${product.oldPrice} ${t('currency')}`;
-            // ✅ FIX : 'inline-block' au lieu de 'inline' pour que le barré s'affiche sur mobile
             oldPriceEl.style.display = 'inline-block'; 
         } else {
             oldPriceEl.style.display = 'none';
@@ -623,8 +700,6 @@ function attachReviewEvents(product) {
 
 // ============================================================
 // PRODUITS SIMILAIRES (avec shuffle aléatoire)
-// ------------------------------------------------------------
-// ✅ FIX BUG #10c : utilise /produit?slug= (cleanUrls)
 // ============================================================
 function renderRelatedProducts(product) {
     const container = document.getElementById('relatedProductsRoot');
@@ -688,7 +763,6 @@ function renderRelatedProducts(product) {
         card.addEventListener('click', (e) => {
             if (e.target.closest('.favorite-btn')) return;
             const slug = card.dataset.slug;
-            // ✅ FIX BUG #10c : URL cleanUrls
             if (slug) window.location.href = `/produit?slug=${encodeURIComponent(slug)}`;
         });
         const favBtn = card.querySelector('.favorite-btn');
@@ -711,4 +785,4 @@ function attachProductEvents(product) {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ product-detail.js chargé — v1.4.2 (fix prix barré)');
+console.log('✅ product-detail.js chargé — v1.5.0 (Ajout support vidéo)');
