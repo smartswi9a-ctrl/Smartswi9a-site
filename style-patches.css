@@ -1,6 +1,6 @@
 /* ============================================================
    STYLE-PATCHES.CSS - SMART SWI9A
-   Version 1.8.0 — Vidéo contrainte aux dimensions de la photo
+   Version 1.9.1 — Conteneur strictement fixe (Carré) + vidéo entière
    ============================================================ */
 
 /* ============================================================
@@ -469,22 +469,42 @@ main#main {
 }
 
 /* ------------------------------------------------------------
-   ✅ FIX v1.8.0 : VIDÉO CONTRAINTE AUX DIMENSIONS DE LA PHOTO
+   ✅ FIX v1.9.1 : CONTENEUR FIXE (Aspect-Ratio 1:1) 
+   ET VIDÉO ENTIÈREMENT VISIBLE (object-fit: contain)
    ------------------------------------------------------------ */
+.product-main-img-wrapper {
+    width: 100% !important;
+    aspect-ratio: 1 / 1 !important; /* ✅ Verrouille la taille du conteneur (Carré) */
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    background: #000 !important; /* Fond noir pour la vidéo */
+    border-radius: var(--radius-md) !important;
+    overflow: hidden !important;
+    position: relative !important;
+    margin: 0 auto !important;
+}
+
+/* Appliqué à l'image ET à la vidéo */
 .product-main-img-wrapper img,
 .product-main-img-wrapper video,
 .main-media-element,
-#mainImage {
+#mainImage,
+#mainVideo {
     width: 100% !important;
+    height: 100% !important;
     max-width: 100% !important;
-    max-height: 70vh !important;
-    height: auto !important;
-    object-fit: contain !important;
+    max-height: 100% !important;
+    object-fit: contain !important; /* ✅ Ne coupe jamais le média, ajoute des bandes noires */
     display: block !important;
-    background: var(--bg-surface);
-    border-radius: var(--radius-md);
+    background: #000 !important;
+    margin: 0 auto !important;
+    border-radius: var(--radius-md) !important;
 }
 
+/* ------------------------------------------------------------
+   Reste de la page produit (inchangé)
+   ------------------------------------------------------------ */
 .product-details-secondary {
     padding-bottom: 3rem !important;
     margin-top: 1rem;
@@ -499,17 +519,6 @@ main#main {
     word-break: break-word !important;
     padding-bottom: 2rem !important;
     margin-bottom: 1rem !important;
-}
-
-.product-main-img-wrapper {
-    width: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--bg-surface);
-    border-radius: var(--radius-md);
-    overflow: hidden;
-    min-height: 260px;
 }
 
 .product-thumbnails {
@@ -991,4 +1000,4 @@ p, h1, h2, h3, h4, h5, h6 {
 /* ============================================================
    LOG
    ============================================================ */
-/* style-patches.css v1.8.0 — Vidéo contrainte aux dimensions de la photo */
+/* style-patches.css v1.9.1 — Conteneur strictement fixe (Carré) + vidéo entière */
