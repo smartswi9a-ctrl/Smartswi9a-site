@@ -1,7 +1,7 @@
 // js/admin.js
 // ============================================================
 // PANNEAU ADMINISTRATION - SMART SWI9A
-// Version 4.1.0 — Ajout support vidéo (Cloudflare R2)
+// Version 4.2.0 — Vidéo : badge liste, bouton effacer, deleteField
 // ============================================================
 
 import { auth, db, storage } from "./firebase.js";
@@ -11,7 +11,7 @@ import {
 import {
     collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
     query, where, writeBatch, Timestamp, getCountFromServer,
-    orderBy, limit, increment, addDoc
+    orderBy, limit, increment, addDoc, deleteField // ✅ AJOUT DE deleteField
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { ROLES, ORDER_STATUS, CATEGORIES, CONFIG, normalizeOrderStatus } from "./config.js";
@@ -74,7 +74,6 @@ const COUPON_TYPES = {
 // ============================================================
 // HELPERS COMPTABILITÉ
 // ============================================================
-// ✅ FIX v4.0.2 : 2 décimales maximum (au lieu de 0) — précision comptable
 function formatMAD(n) {
     const num = Number(n) || 0;
     return new Intl.NumberFormat('fr-FR', {
@@ -216,7 +215,6 @@ async function loadTransactions() {
 function initAdminAlerts() {
     refreshAdminAlerts();
     if (alertInterval) clearInterval(alertInterval);
-    // ✅ FIX v4.0.2 : polling 60s au lieu de 30s (moins de lectures Firestore)
     alertInterval = setInterval(refreshAdminAlerts, 60000);
 
     document.getElementById('closeAlertBannerBtn')?.addEventListener('click', () => {
@@ -331,6 +329,7 @@ function formatTooltipList(arr, max = 5) {
     if (arr.length <= max) return arr.join(', ');
     return arr.slice(0, max).join(', ') + ` +${arr.length - max} autre(s)`;
 }
+
 // ============================================================
 // INITIALISATION
 // ============================================================
@@ -923,6 +922,7 @@ async function loadStats() {
         }
     } catch (e) { console.error('❌ loadStats:', e); }
 }
+
 // ============================================================
 // PRODUITS
 // ============================================================
@@ -963,12 +963,10 @@ function populateCategoriesFilter() {
     }
 }
 
-// ✅ FIX v4.0.2 : helper unique pour attacher le listener du bouton
-// "Enlever le filtre" — évite tout risque de duplication future
 function attachClearTempFilterListener() {
     const btn = document.getElementById('clearTempFilterBtn');
     if (!btn) return;
-    if (btn._listenerAttached) return;  // garde-fou anti-doublon
+    if (btn._listenerAttached) return;
     btn._listenerAttached = true;
     btn.addEventListener('click', () => {
         tempStockFilter = null;
@@ -993,7 +991,6 @@ function renderProductsList(products) {
 
     if (products.length === 0) {
         container.innerHTML = filterIndicator + `<div class="admin-empty">${t('noProductsFound')}</div>`;
-        // ✅ FIX v4.0.2 : utilise le helper
         attachClearTempFilterListener();
         return;
     }
@@ -1019,10 +1016,16 @@ function renderProductsList(products) {
         else if (stock <= 4) { stockColor = 'var(--warning)'; stockEmoji = '⚠️'; }
         else if (stock >= 20) { stockColor = 'var(--success)'; stockEmoji = '✅'; }
 
+        // ✅ BADGE VIDÉO
+        const hasVideo = p.video && p.video.trim() !== '';
+        const videoBadge = hasVideo 
+            ? `<span style="background:var(--gold);color:#fff;font-size:0.65rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;" title="Vidéo R2: ${escapeHTML(p.video)}">🎥</span>` 
+            : '';
+
         html += `
             <div class="admin-list-item" data-product-id="${p.id}">
                 <div class="admin-list-item-info">
-                    <strong>${name}</strong>
+                    <strong>${name}${videoBadge}</strong>
                     <div style="font-size:0.8rem;color:var(--text-muted);margin-top:0.2rem;">
                         📂 ${category} · 💰 ${price} MAD ${isPromo ? `<small style="text-decoration:line-through;color:var(--text-dim);">${oldPrice}</small>` : ''} · <span style="color:${stockColor};font-weight:700;">${stockEmoji} ${stock}</span>
                     </div>
@@ -1045,7 +1048,6 @@ function renderProductsList(products) {
     }
     container.innerHTML = html;
 
-    // ✅ FIX v4.0.2 : utilise le helper
     attachClearTempFilterListener();
 
     container.querySelectorAll('[data-action="restock-product"]').forEach(btn => {
@@ -1215,6 +1217,16 @@ function attachProductFormEvents() {
             });
         });
     }
+    
+    // ✅ BOUTON EFFACER VIDÉO
+    const clearVideoBtn = document.getElementById('clearVideoBtn');
+    if (clearVideoBtn) {
+        clearVideoBtn.addEventListener('click', () => {
+            document.getElementById('pVideo').value = '';
+            showToast('🗑️ Champ vidéo vidé (sera supprimé à l\'enregistrement)');
+        });
+    }
+
     document.getElementById('saveProductBtn')?.addEventListener('click', saveProduct);
     document.getElementById('cancelProductEdit')?.addEventListener('click', resetProductForm);
 }
@@ -1223,7 +1235,6 @@ function resetProductForm() {
     document.getElementById('productFormTitle').textContent = '➕ ' + t('adminAddProduct');
     document.getElementById('productEditId').value = '';
     
-    // ✅ AJOUT DE 'pVideo' DANS LA LISTE DES CHAMPS À VIDER
     ['pNameFr', 'pNameAr', 'pNameEn', 'pSlug', 'pPrice', 'pOldPrice', 'pPurchasePrice', 'pStock', 'pRating',
      'pDescFr', 'pDescAr', 'pDescEn', 'pFeaturesFr', 'pFeaturesAr', 'pFeaturesEn', 'pImg', 'pGallery', 'pVideo']
         .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
@@ -1266,7 +1277,6 @@ async function editProduct(id) {
         document.getElementById('pImg').value = p.img || '';
         document.getElementById('pGallery').value = (p.gallery || []).join(', ');
         
-        // ✅ AJOUT : Remplir le champ vidéo
         document.getElementById('pVideo').value = p.video || '';
         
         const ip = document.getElementById('pImgPreview');
@@ -1320,6 +1330,8 @@ async function saveProduct() {
             gallery.push(await getDownloadURL(gRef));
         }
 
+        const videoValue = document.getElementById('pVideo').value.trim();
+
         const productData = {
             nameFr,
             nameAr: document.getElementById('pNameAr').value.trim(),
@@ -1339,7 +1351,7 @@ async function saveProduct() {
             featuresAr: document.getElementById('pFeaturesAr').value.split('\n').map(l => l.trim()).filter(l => l),
             featuresEn: document.getElementById('pFeaturesEn').value.split('\n').map(l => l.trim()).filter(l => l),
             img: imgUrl, gallery, 
-            video: document.getElementById('pVideo').value.trim(), // ✅ AJOUT DU CHAMP VIDÉO
+            video: videoValue || deleteField(), // ✅ SUPPRESSION DU CHAMP DANS FIRESTORE SI VIDE
             updatedAt: Timestamp.now()
         };
 
@@ -1358,6 +1370,8 @@ async function saveProduct() {
             productData.createdAt = Timestamp.now();
             productData.salesCount = 0;
             productData.ratingCount = 0;
+            // Note : deleteField() n'est pas nécessaire à la création, on peut juste omettre le champ
+            if (!videoValue) delete productData.video; 
             await setDoc(doc(db, "products", newId), productData);
             showToast('✅ ' + t('success'));
         }
@@ -2110,6 +2124,7 @@ function filterCouponsList() {
     }
     renderCouponsList(filtered);
 }
+
 // ============================================================
 // MIGRATION VILLES
 // ============================================================
@@ -3065,4 +3080,4 @@ initAdmin();
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ admin.js chargé — v4.1.0 (Ajout support vidéo R2)');
+console.log('✅ admin.js chargé — v4.2.0 (Vidéo : badge liste + bouton effacer + deleteField)');
