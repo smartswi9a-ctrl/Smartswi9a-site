@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="fr" dir="ltr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+
+    <title>Mon Panier | Smart Swi9a</title>
+    <meta name="description" content="Votre panier Smart Swi9a - Finalisez votre commande en un clic. Livraison rapide 24-72h, paiement à la livraison.">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="theme-color" content="#f8f6f2">
+    <!-- ✅ FIX DARK MODE — force le mode clair uniquement -->
+    <meta name="color-scheme" content="only light">
+    <meta name="supported-color-schemes" content="light">
+    <link rel="canonical" href="https://smartswi9a.top/panier">
+
+    <link rel="alternate" hreflang="ar" href="https://smartswi9a.top/panier?lang=ar">
+    <link rel="alternate" hreflang="fr" href="https://smartswi9a.top/panier?lang=fr">
+    <link rel="alternate" hreflang="en" href="https://smartswi9a.top/panier?lang=en">
+    <link rel="alternate" hreflang="x-default" href="https://smartswi9a.top/panier">
+
+    <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon-16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">
+    <link rel="manifest" href="/site.webmanifest">
+
+    <meta property="og:title" content="Mon Panier | Smart Swi9a">
+    <meta property="og:description" content="Finalisez votre commande en un clic.">
+    <meta property="og:image" content="https://smartswi9a.top/assets/og-image.jpg">
+    <meta property="og:url" content="https://smartswi9a.top/panier">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Smart Swi9a">
+    <meta property="og:locale" content="fr_FR">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+    <link rel="preconnect" href="https://firebasestorage.googleapis.com" crossorigin>
+
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+    <script type="importmap">
+    {
+        "imports": {
+            "firebase/app": "https://www.gstatic.com/firebasejs/11.0.0/firebase-app.js",
+            "firebase/auth": "https://www.gstatic.com/firebasejs/11.0.0/firebase-auth.js",
+            "firebase/firestore": "https://www.gstatic.com/firebasejs/11.0.0/firebase-firestore.js",
+            "firebase/storage": "https://www.gstatic.com/firebasejs/11.0.0/firebase-storage.js"
+        }
+    }
+    </script>
+
+    <link rel="preload" href="/style.css" as="style">
+    <link rel="preload" href="/translations.js" as="script">
+
+    <link rel="stylesheet" href="/style.css">
+    <link rel="stylesheet" href="/style-patches.css">
+    <script src="/translations.js"></script>
+
+    <style>
+        .cart-page-coupon-box {
+            background: linear-gradient(135deg, rgba(var(--gold-rgb), 0.06), rgba(var(--gold-rgb), 0.02));
+            border: 1px dashed var(--border-gold);
+            border-radius: var(--radius-md);
+            padding: 0.9rem;
+            margin-bottom: 1rem;
+            transition: border-color var(--transition-fast);
+        }
+        .cart-page-coupon-box:hover {
+            border-color: var(--gold);
+        }
+
+        .cart-page-coupon-title {
+            font-family: var(--font-secondary);
+            font-size: 0.95rem;
+            color: var(--gold);
+            font-weight: 700;
+            margin-bottom: 0.6rem;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .cart-page-coupon-input-row {
+            display: flex;
+            gap: 0.4rem;
+        }
+
+        .cart-page-coupon-input {
+            flex: 1;
+            min-width: 0;
+            padding: 0.65rem 0.9rem;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            background: var(--bg-surface);
+            color: var(--text);
+            font-family: 'Courier New', monospace;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            font-size: 0.9rem;
+            transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+        }
+        .cart-page-coupon-input::placeholder {
+            font-family: var(--font-primary);
+            font-weight: 400;
+            letter-spacing: 0;
+            text-transform: none;
+            color: var(--text-dim);
+        }
+        .cart-page-coupon-input:focus {
+            border-color: var(--gold);
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(var(--gold-rgb), 0.15);
+        }
+        .cart-page-coupon-input:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .cart-page-coupon-apply-btn {
+            padding: 0.65rem 1rem;
+            background: linear-gradient(135deg, var(--gold), #7d5a1d);
+            color: #ffffff;
+            border: none;
+            border-radius: var(--radius-sm);
+            font-weight: 700;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            white-space: nowrap;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.3rem;
+            min-width: 90px;
+        }
+        .cart-page-coupon-apply-btn:hover:not(:disabled) {
+            transform: scale(1.02);
+            box-shadow: var(--shadow-gold);
+        }
+        .cart-page-coupon-apply-btn:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .cart-page-coupon-msg {
+            margin-top: 0.5rem;
+            font-size: 0.82rem;
+            line-height: 1.4;
+            min-height: 1.2em;
+            font-weight: 600;
+        }
+        .cart-page-coupon-msg.error {
+            color: var(--danger);
+        }
+        .cart-page-coupon-msg.success {
+            color: var(--success);
+        }
+
+        .cart-page-coupon-applied {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.6rem;
+            background: linear-gradient(135deg, rgba(46, 204, 113, 0.10), rgba(46, 204, 113, 0.03));
+            border: 1px solid var(--success);
+            border-radius: var(--radius-sm);
+            padding: 0.6rem 0.8rem;
+            margin-bottom: 0.5rem;
+            flex-wrap: wrap;
+            animation: couponSlideIn 0.3s ease-out;
+        }
+
+        @keyframes couponSlideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-6px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .cart-page-coupon-applied-info {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            min-width: 0;
+            flex: 1;
+        }
+
+        .cart-page-coupon-applied-code {
+            font-family: 'Courier New', monospace;
+            font-weight: 800;
+            font-size: 0.88rem;
+            color: var(--success);
+            background: #ffffff;
+            padding: 0.2rem 0.65rem;
+            border-radius: 30px;
+            border: 1px solid var(--success);
+            letter-spacing: 1px;
+            white-space: nowrap;
+        }
+
+        .cart-page-coupon-applied-label {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        .cart-page-coupon-applied-value {
+            font-weight: 800;
+            font-size: 0.9rem;
+            color: var(--success);
+            white-space: nowrap;
+        }
+
+        .cart-page-coupon-remove-btn {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.9rem;
+            flex-shrink: 0;
+            padding: 0;
+        }
+        .cart-page-coupon-remove-btn:hover {
+            background: var(--danger-bg);
+            border-color: var(--danger);
+            color: var(--danger);
+            transform: scale(1.1);
+        }
+
+        .cart-page-summary-row.discount {
+            color: var(--success);
+            font-weight: 700;
+        }
+
+        [dir="rtl"] .cart-page-coupon-input-row {
+            flex-direction: row-reverse;
+        }
+        [dir="rtl"] .cart-page-coupon-applied {
+            flex-direction: row-reverse;
+        }
+        [dir="rtl"] .cart-page-coupon-applied-info {
+            flex-direction: row-reverse;
+            justify-content: flex-end;
+        }
+        [dir="rtl"] .cart-page-coupon-input {
+            text-align: right;
+            direction: ltr;
+        }
+        [dir="rtl"] .cart-page-coupon-title {
+            flex-direction: row-reverse;
+            justify-content: flex-end;
+        }
+
+        @media (max-width: 480px) {
+            .cart-page-coupon-box {
+                padding: 0.8rem;
+            }
+            .cart-page-coupon-title {
+                font-size: 0.9rem;
+            }
+            .cart-page-coupon-input {
+                font-size: 0.85rem;
+                padding: 0.6rem 0.7rem;
+            }
+            .cart-page-coupon-apply-btn {
+                font-size: 0.78rem;
+                padding: 0.6rem 0.75rem;
+                min-width: 80px;
+            }
+            .cart-page-coupon-applied {
+                padding: 0.55rem 0.7rem;
+            }
+            .cart-page-coupon-applied-code {
+                font-size: 0.82rem;
+            }
+            .cart-page-coupon-applied-value {
+                font-size: 0.85rem;
+            }
+        }
+
+        @media (max-width: 360px) {
+            .cart-page-coupon-input-row {
+                flex-direction: column;
+            }
+            .cart-page-coupon-apply-btn {
+                width: 100%;
+            }
+            [dir="rtl"] .cart-page-coupon-input-row {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <a class="skip-link" href="#main">Aller au contenu</a>
+
+    <div class="toast" id="cartToast" role="status" aria-live="polite"></div>
+
+    <div class="bg-particles" aria-hidden="true"></div>
+    <div class="bg-grid" aria-hidden="true"></div>
+
+    <button class="back-to-top" id="backToTopBtn" data-aria-key="ariaBackToTop" aria-label="Retour en haut">⬆</button>
+
+    <nav id="navbar" role="navigation" data-aria-key="ariaNavMain" aria-label="Navigation principale">
+        <div class="nav-left">
+            <a href="/" class="logo" aria-label="Smart Swi9a - Accueil">
+                <span class="logo-text">SMART SWI9A</span>
+            </a>
+        </div>
+        <ul class="nav-links" id="navLinks" role="menubar">
+            <li role="none"><a href="/#produits" role="menuitem" data-key="navProducts">Produits</a></li>
+            <li role="none"><a href="/#avantages" role="menuitem" data-key="navFeatures">Avantages</a></li>
+            <li role="none"><a href="/blog" role="menuitem" data-key="navBlog">Blog</a></li>
+            <li role="none"><a href="/villesmaroc.html" role="menuitem" data-key="navCities">Villes</a></li>
+            <li role="none"><a href="/#avis" role="menuitem" data-key="navReviews">Avis</a></li>
+            <li role="none"><a href="/#a-propos" role="menuitem" data-key="navAbout">À propos</a></li>
+        </ul>
+        <div class="nav-right">
+            <select id="langSelect" data-action="lang:change" data-aria-key="ariaLangChange" aria-label="Changer la langue">
+                <option value="ar">🇲🇦 AR</option>
+                <option value="fr" selected>🇫🇷 FR</option>
+                <option value="en">🇬🇧 EN</option>
+            </select>
+            <button class="btn-account" id="accountBtn" data-action="account:open" data-aria-key="ariaAccount" aria-label="Mon compte">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                <span data-key="navAccount">Mon compte</span>
+            </button>
+            <button class="burger-btn" id="burgerBtn" aria-expanded="false" aria-controls="mobileMenu" data-aria-key="ariaMenu" aria-label="Menu">
+                <span></span><span></span><span></span>
+            </button>
+        </div>
+        <div class="nav-mobile" id="mobileMenu" role="menu" aria-label="Menu mobile">
+            <a href="/#produits" role="menuitem" data-key="navProducts">Produits</a>
+            <a href="/#avantages" role="menuitem" data-key="navFeatures">Avantages</a>
+            <a href="/blog" role="menuitem" data-key="navBlog">Blog</a>
+            <a href="/villesmaroc.html" role="menuitem" data-key="navCities">Villes</a>
+            <a href="/#avis" role="menuitem" data-key="navReviews">Avis</a>
+            <a href="/#a-propos" role="menuitem" data-key="navAbout">À propos</a>
+            <a href="#" id="mobileAccountBtn" data-action="account:open">🔐 <span data-key="navAccount">Mon compte</span></a>
+        </div>
+    </nav>
+
+    <main class="container cart-page-main" id="main">
+
+        <nav class="breadcrumbs" data-aria-key="ariaBreadcrumb" aria-label="Fil d'Ariane">
+            <a href="/" data-key="productBreadcrumbHome">Accueil</a>
+            <span>›</span>
+            <span style="color:var(--text-muted);" data-key="cartTitle">Panier</span>
+        </nav>
+
+        <a href="/#produits" class="back-link">
+            <span style="font-size:1.2rem;">←</span> <span data-key="productBackToProducts">Retour aux produits</span>
+        </a>
+
+        <div id="cartPageLoading" class="cart-page-loading">
+            <div class="spinner"></div>
+            <p style="margin-top:1rem;color:var(--text-muted);">⏳ <span data-key="loading">Chargement...</span></p>
+        </div>
+
+        <div id="cartPageContent" style="display:none;"></div>
+
+        <div id="cartSuggestionsRoot"></div>
+    </main>
+
+    <footer class="site-footer" role="contentinfo">
+        <div class="footer-logo">SMART SWI9A</div>
+        <p style="margin:0.5rem 0;" data-key="footerDesc">Votre boutique tech au Maroc. Livraison rapide, paiement à la livraison.</p>
+        <div class="footer-contact">
+            <a href="https://wa.me/212656613303" dir="ltr">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+                +212 6 56 61 33 03
+            </a>
+            <a href="mailto:smartswi9a@gmail.com">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                smartswi9a@gmail.com
+            </a>
+        </div>
+        <div class="footer-social-links">
+            <a href="https://www.facebook.com/share/1dWNTuva1K/" target="_blank" rel="noopener noreferrer" aria-label="Facebook">
+                <svg class="social-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>Facebook
+            </a>
+            <a href="https://instagram.com/smartswi9a" target="_blank" rel="noopener noreferrer" aria-label="Instagram">
+                <svg class="social-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>Instagram
+            </a>
+            <a href="https://tiktok.com/@smartswi9a" target="_blank" rel="noopener noreferrer" aria-label="TikTok">
+                <svg class="social-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/></svg>TikTok
+            </a>
+            <a href="https://wa.me/212656613303" target="_blank" rel="noopener noreferrer" aria-label="WhatsApp">
+                <svg class="social-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>WhatsApp
+            </a>
+        </div>
+        <p style="margin-top:0.8rem;font-size:0.75rem;opacity:0.5;" data-key="footerCopyright">© 2026 Smart Swi9a 🇲🇦 — Tous droits réservés</p>
+    </footer>
+
+    <script src="/js/navbar.js"></script>
+
+    <script type="module" src="/js/app.js"></script>
+    <script type="module" src="/js/panier.js"></script>
+</body>
+</html>

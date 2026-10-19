@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Générateur villes.json multilingue</title>
+    <style>
+        body { font-family: system-ui, sans-serif; padding: 2rem; background: #f5f5f5; max-width: 1200px; margin: 0 auto; }
+        h1 { color: #a57b2e; }
+        textarea { width: 100%; height: 200px; font-family: monospace; font-size: 12px; padding: 1rem; border-radius: 8px; border: 1px solid #ccc; }
+        button { padding: 1rem 2rem; font-size: 1rem; background: #a57b2e; color: white; border: none; border-radius: 30px; cursor: pointer; font-weight: 700; margin: 1rem 0; }
+        button:hover { background: #7d5a1d; }
+        .info { background: #fff3cd; border-left: 4px solid #ffc107; padding: 1rem; border-radius: 8px; margin: 1rem 0; }
+        .success { background: #d4edda; border-left: 4px solid #28a745; padding: 1rem; border-radius: 8px; margin: 1rem 0; }
+        #preview { max-height: 400px; overflow-y: auto; background: #1e1e1e; color: #4ec9b0; padding: 1rem; border-radius: 8px; font-family: monospace; font-size: 12px; white-space: pre; }
+    </style>
+</head>
+<body>
+    <h1>🏙️ Générateur villes.json multilingue</h1>
+
+    <div class="info">
+        <strong>Instructions :</strong><br>
+        1. Ouvrez votre fichier <code>villes.json</code> actuel<br>
+        2. Copiez tout le contenu et collez-le ci-dessous<br>
+        3. Cliquez sur "🚀 Générer le nouveau villes.json"<br>
+        4. Téléchargez le fichier généré
+    </div>
+
+    <h3>📥 Collez l'ancien villes.json :</h3>
+    <textarea id="input" placeholder='[{"id":1,"key":"casablanca","name":"الدار البيضاء","price":30,"delay":"24h"}, ...]'></textarea>
+
+    <button id="generateBtn">🚀 Générer le nouveau villes.json</button>
+    <button id="downloadBtn" style="display:none;background:#28a745;">💾 Télécharger villes.json</button>
+
+    <div id="status"></div>
+
+    <h3 id="previewTitle" style="display:none;">👀 Aperçu (les 10 premières villes) :</h3>
+    <div id="preview" style="display:none;"></div>
+
+    <script>
+        const LOWERCASE = new Set(['de', 'du', 'des', 'la', 'le', 'les', 'et', 'sur',
+            'el', 'ben', 'bni', 'oulad', 'sidi', 'ain', 'bir', 'dar', 'souk', 'kasba', 'jorf', 'bou', 'aïn']);
+
+        function smartTitleCase(str) {
+            if (!str) return '';
+            return String(str).toLowerCase().split(/\s+/).map((word, idx) => {
+                if (!word) return '';
+                if (idx > 0 && LOWERCASE.has(word)) return word;
+                return word.charAt(0).toUpperCase() + word.slice(1);
+            }).join(' ');
+        }
+
+        const FR_OVERRIDES = {
+            'fes': 'Fès', 'meknes': 'Meknès', 'tetouan': 'Tétouan', 'sale': 'Salé',
+            'laayoune': 'Laâyoune', 'ain harouda': 'Aïn Harouda', 'beni mellal': 'Béni Mellal',
+            'khenifra': 'Khénifra', 'sidi kacem': 'Sidi Kacem', 'sidi slimane': 'Sidi Slimane',
+            'souk el arbaa': 'Souk El Arbaa', 'el ksiba': 'El Ksiba', 'el hajeb': 'El Hajeb',
+            'al hoceima': 'Al Hoceïma', 'errachidia': 'Errachidia', 'ouarzazate': 'Ouarzazate',
+            'tinghir': 'Tinghir', 'zagora': 'Zagora', 'guelmim': 'Guelmim', 'tan-tan': 'Tan-Tan',
+            'el kelaa des sraghna': 'El Kelâa des Sraghna', 'kasba tadla': 'Kasba Tadla',
+            'fquih ben salah': 'Fquih Ben Salah', 'oulad frej': 'Oulad Frej',
+            'souk sebt oulad nemma': 'Souk Sebt Oulad Nemma', 'jorf el melha': 'Jorf El Melha',
+            'ksar el kebir': 'Ksar El Kébir', 'el jorf': 'El Jorf', 'mdiq': "M'diq",
+            'chefchaouen': 'Chefchaouen', 'ouazzane': 'Ouezzane',
+            'lahraouiyine': 'Lahraouiyine', 'nouaceur': 'Nouaceur', 'tikiouine': 'Tikiouine',
+            'skhirat': 'Skhirat', 'temara': 'Témara', 'sidi yahya gharb': 'Sidi Yahya El Gharb',
+            'mechra bel ksiri': 'Mechra Bel Ksiri', 'moulay bousselham': 'Moulay Bousselham',
+            'sidi bennour': 'Sidi Bennour', 'sebt el guerdane': 'Sebt El Guerdane',
+            'aourir': 'Aourir', 'tamanar': 'Tamanar', 'tahanaout': 'Tahannaout',
+            'tameslohte': 'Tamesloht', 'sidi bou othmane': 'Sidi Bou Othmane',
+            'martil': 'Martil', 'fnideq': 'Fnideq', 'asilah': 'Asilah',
+            'larache': 'Larache', 'sidi smail': 'Sidi Smail', 'youssoufia': 'Youssoufia',
+            'azilal': 'Azilal', 'demnate': 'Demnate', 'oued zem': 'Oued Zem',
+            'khouribga': 'Khouribga', 'bejaad': 'Bejaâd', 'settat': 'Settat',
+            'berrechid': 'Berrechid', 'benslimane': 'Benslimane', 'bouznika': 'Bouznika',
+            'ben guerir': 'Ben Guerir', 'khemis zemamra': 'Khemis Zemamra',
+            'echemmaia': 'Echemmaia', 'sidi bouzid': 'Sidi Bouzid',
+            'ain taoujdate': 'Aïn Taoujdate', 'oulad m barek': "Oulad M'Barek",
+            'zaouiat cheikh': 'Zaouiat Cheikh', 'ait oumghar': 'Aït Oumghar',
+            'ifrane': 'Ifrane', 'azrou': 'Azrou',
+            'mrirt': 'Mrirt', 'midelt': 'Midelt', 'berkane': 'Berkane',
+            'driouch': 'Driouch', 'midar': 'Midar', 'taourirt': 'Taourirt',
+            'jerada': 'Jerada', 'figuig': 'Figuig', 'bouarfa': 'Bouarfa',
+            'guercif': 'Guercif', 'taza': 'Taza', 'imzouren': 'Imzouren',
+            'bni bouayach': 'Bni Bouayach', 'ajdir': 'Ajdir', 'targuist': 'Targuist',
+            'aknoul': 'Aknoul', 'taounate': 'Taounate', 'ghafsai': 'Ghafsai',
+            'tahla': 'Tahla', 'tissa': 'Tissa', 'erfoud': 'Erfoud',
+            'rissani': 'Rissani', 'agdz': 'Agdz', 'taznakht': 'Taznakht',
+            'kelaa mgouna': "Kelâa M'Gouna", 'boumalne dades': 'Boumalne Dadès',
+            'skoura': 'Skoura', 'tata': 'Tata', 'tissint': 'Tissint',
+            'foum zguid': 'Foum Zguid', 'akka': 'Akka', 'boujdour': 'Boujdour',
+            'dakhla': 'Dakhla', 'smara': 'Smara', 'tarfaya': 'Tarfaya',
+            'sidi ifni': 'Sidi Ifni', 'bab berred': 'Bab Berred', 'bab taza': 'Bab Taza',
+            'dalia': 'Dalia', 'benhmed': 'Ben Ahmed', 'tassoultant': 'Tassoultante',
+            'lahbichat': 'Lahbichat', 'douar lhna': 'Douar Lhna', 'tamsonsurt': 'Tamsonsurt',
+            'loudaya': 'Loudaya', 'sminou': 'Sminou', 'ounagha': 'Ounagha',
+            'attaouia': 'Attaouia', 'chouiter': 'Chouiter', 'rich': 'Rich',
+            'boumia': 'Boumia', 'zaida': 'Zaida', 'tounfiet': 'Tounfiet',
+            'missour': 'Missour', 'outat lhaj': 'Outat El Haj', 'tinejdad': 'Tinejdad',
+            'bodnib': 'Boudnib', 'bouarg': 'Bouarg', 'laaroui': 'Laâroui',
+            'arkmane': 'Arkmane', 'bni drar': 'Bni Drar', 'bni wkil': 'Bni Oukil',
+            'laayoune cergia': 'Laâyoune Cergia', 'ahfir': 'Ahfir', 'aklim': 'Aklim',
+            'selouane': 'Selouane', 'zaio': 'Zaïo', 'sidi slimane charae': 'Sidi Slimane Charaâ',
+            'boudinar': 'Boudinar', 'dar el kebdani': 'Dar El Kebdani',
+            'al aaroui': 'Al Aroui', 'bni ansar': 'Bni Ansar', 'zeghanghane': 'Zeghanghane',
+            'hassi berkane': 'Hassi Berkane', 'jaadar': 'Jaadar', 'beni ensar': 'Beni Ensar',
+            'tiztoutine': 'Tiztoutine', 'ain zohra': 'Aïn Zohra', 'temsamane': 'Temsamane',
+            'azghenghan': 'Azghanghan', 'kassita': 'Kassita', 'tafoughalt': 'Tafoughalt',
+            'ain erroua': 'Aïn Erroua', 'hassi oulad': 'Hassi Oulad', 'sidi bouafif': 'Sidi Bouafif',
+            'farkhana': 'Farkhana', 'bni chiker': 'Bni Chiker', 'tawima': 'Taouima',
+            'ait bouayach': 'Aït Bouayach', 'rouadi': 'Rouadi', 'trougout': 'Trougout',
+            'mhajer': 'Mhajer', 'sidi bouhria': 'Sidi Bouhria',
+            'ben taieb': 'Ben Taïeb', 'tizroutine': 'Tizroutine', 'dar kebdani': 'Dar El Kebdani',
+            'afra': 'Afra', 'ihddaden': 'Ihddaden', 'ait yassine': 'Aït Yassine',
+            'tamdit': 'Tamdit', 'ouled settout': 'Ouled Settout', 'mrija': 'Mrija',
+            'ain sfa': 'Aïn Sfa', 'ain bni mathar': 'Aïn Bni Mathar', 'talsint': 'Talsint',
+            'figuig ville': 'Figuig', 'bni tajjit': 'Bni Tajjit', 'bouanane': 'Bouanane',
+            'tendrara': 'Tendrara', 'ain chair': 'Aïn Chaïr', 'oum laachar': 'Oum Laâchar',
+            'bni guil': 'Bni Guil', 'ouled bouarfa': 'Ouled Bouarfa', 'ain chouater': 'Aïn Chouater',
+            'bousaada': 'Bousaâda', 'el arjoune': 'El Arjoune', 'sidi rached': 'Sidi Rached',
+            'bni khaled': 'Bni Khaled', 'kerouna': 'Kerouna', 'tizi ouzli': 'Tizi Ouzli',
+            'ain leuh': 'Aïn Leuh', 'el menzel': 'El Menzel', 'sidi youssef ben ahmed': 'Sidi Youssef Ben Ahmed',
+            'jbabra': 'Jbabra', 'sidi hadjeb': 'Sidi El Hajeb', 'bni ahmed': 'Bni Ahmed',
+            'matmata': 'Matmata', 'msila': 'Msila', 'boulemane': 'Boulemane',
+            'guigou': 'Guigou', 'errahma ville': 'Errahma',
+            'tit mellil': 'Tit Mellil', 'had soualem': 'Had Soualem', 'dar bouazza': 'Dar Bouazza',
+            'sidi rahhal': 'Sidi Rahhal'
+        };
+
+        const EN_OVERRIDES = {
+            'fes': 'Fez', 'meknes': 'Meknes', 'tetouan': 'Tetouan', 'sale': 'Salé',
+            'marrakech': 'Marrakesh', 'tanger': 'Tangier', 'laayoune': 'Laayoune',
+            'ksar el kebir': 'Ksar El Kebir', 'el jadida': 'El Jadida',
+            'mdiq': "M'diq", 'chefchaouen': 'Chefchaouen', 'ouazzane': 'Ouezzane',
+            'al hoceima': 'Al Hoceima', 'beni mellal': 'Beni Mellal',
+            'ouarzazate': 'Ouarzazate', 'el kelaa des sraghna': 'El Kelaa des Sraghna',
+            'fquih ben salah': 'Fquih Ben Salah', 'zaouiat cheikh': 'Zaouiat Cheikh',
+            'moulay bousselham': 'Moulay Bousselham', 'mechra bel ksiri': 'Mechra Bel Ksiri'
+        };
+
+        function getFrName(key, arName) {
+            const k = String(key || '').toLowerCase().trim();
+            if (FR_OVERRIDES[k]) return FR_OVERRIDES[k];
+            if (k) return smartTitleCase(k);
+            return arName || '';
+        }
+
+        function getEnName(key, frName) {
+            const k = String(key || '').toLowerCase().trim();
+            if (EN_OVERRIDES[k]) return EN_OVERRIDES[k];
+            if (k) return smartTitleCase(k);
+            return frName || '';
+        }
+
+        document.getElementById('generateBtn').addEventListener('click', () => {
+            const input = document.getElementById('input').value.trim();
+            const status = document.getElementById('status');
+
+            if (!input) {
+                status.innerHTML = '<div class="info" style="background:#f8d7da;border-color:#dc3545;">⚠️ Collez d\'abord l\'ancien villes.json</div>';
+                return;
+            }
+
+            try {
+                const oldCities = JSON.parse(input);
+                if (!Array.isArray(oldCities)) throw new Error('Le JSON doit être un tableau []');
+
+                const newCities = oldCities.map(city => {
+                    const nameAr = String(city.nameAr || city.name || '').trim();
+                    const nameFr = String(city.nameFr || getFrName(city.key, nameAr)).trim();
+                    const nameEn = String(city.nameEn || getEnName(city.key, nameFr)).trim();
+
+                    return {
+                        id: Number(city.id),
+                        key: String(city.key || '').toLowerCase().trim(),
+                        nameAr,
+                        nameFr,
+                        nameEn,
+                        price: Number(city.price) || 30,
+                        delay: String(city.delay || '48h').trim()
+                    };
+                });
+
+                const jsonOutput = JSON.stringify(newCities, null, 2);
+
+                document.getElementById('previewTitle').style.display = 'block';
+                const preview = document.getElementById('preview');
+                preview.style.display = 'block';
+                preview.textContent = newCities.slice(0, 10).map(c =>
+                    `${c.id.toString().padStart(3)} | ${c.nameAr.padEnd(20)} | ${c.nameFr.padEnd(20)} | ${c.nameEn}`
+                ).join('\n');
+
+                status.innerHTML = `<div class="success">
+                    ✅ <strong>${newCities.length} villes générées avec succès !</strong><br>
+                    Chaque ville possède : <code>nameAr</code>, <code>nameFr</code>, <code>nameEn</code>
+                </div>`;
+
+                const blob = new Blob([jsonOutput], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const downloadBtn = document.getElementById('downloadBtn');
+                downloadBtn.style.display = 'inline-block';
+                downloadBtn.onclick = () => {
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'villes.json';
+                    a.click();
+                };
+
+            } catch (e) {
+                status.innerHTML = `<div class="info" style="background:#f8d7da;border-color:#dc3545;">❌ Erreur : ${e.message}</div>`;
+            }
+        });
+    </script>
+</body>
+</html>

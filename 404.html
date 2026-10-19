@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="fr" dir="ltr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>404 - Page introuvable | Smart Swi9a</title>
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="theme-color" content="#f8f6f2">
+    <!-- ✅ FIX DARK MODE — force le mode clair uniquement -->
+    <meta name="color-scheme" content="only light">
+    <meta name="supported-color-schemes" content="light">
+
+    <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon-16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;800&family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="/style.css">
+    <link rel="stylesheet" href="/style-patches.css">
+    <script src="/translations.js"></script>
+
+    <style>
+        body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100dvh;
+            margin: 0;
+            padding: 1rem;
+            background: var(--bg);
+            text-align: center;
+            padding-top: 1rem;
+        }
+        .error-box {
+            max-width: 500px;
+            width: 100%;
+        }
+        .error-code {
+            font-family: var(--font-secondary);
+            font-size: clamp(4rem, 20vw, 8rem);
+            font-weight: 800;
+            color: var(--gold);
+            line-height: 1;
+            margin: 0;
+            text-shadow: 0 4px 20px rgba(165, 123, 46, 0.25);
+        }
+        .error-title {
+            font-family: var(--font-secondary);
+            font-size: clamp(1.2rem, 4vw, 1.8rem);
+            color: var(--text);
+            margin: 1rem 0;
+        }
+        .error-message {
+            color: var(--text-muted);
+            margin-bottom: 2rem;
+            font-size: 1rem;
+            line-height: 1.6;
+        }
+        .btn-return {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            padding: 0.9rem 2rem;
+            background: linear-gradient(135deg, var(--gold), #7d5a1d);
+            color: #ffffff;
+            border-radius: 50px;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 0.95rem;
+            transition: all var(--transition-spring);
+        }
+        .btn-return:hover {
+            transform: scale(1.05);
+            box-shadow: var(--shadow-gold);
+        }
+        .btn-secondary-404 {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            padding: 0.7rem 1.5rem;
+            background: transparent;
+            color: var(--gold);
+            border: 2px solid var(--gold);
+            border-radius: 50px;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 0.85rem;
+            margin-left: 0.5rem;
+            transition: all var(--transition-spring);
+        }
+        .btn-secondary-404:hover {
+            background: var(--gold);
+            color: #ffffff;
+        }
+        .error-actions {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+    </style>
+</head>
+<body>
+    <div class="error-box">
+        <div class="error-code">404</div>
+        <h1 class="error-title" data-key="pageNotFoundTitle">Oups ! Page introuvable</h1>
+        <p class="error-message" data-key="pageNotFoundMsg">La page que vous cherchez n'existe pas ou a été déplacée.</p>
+        <div class="error-actions">
+            <a href="/" class="btn-return" data-key="productBreadcrumbHome">🏠 Retour à l'accueil</a>
+            <a href="/#produits" class="btn-secondary-404" data-key="navProducts">🛍️ Voir nos produits</a>
+        </div>
+    </div>
+
+    <!-- ✅ NAVBAR AUTONOME -->
+    <script src="/js/navbar.js"></script>
+
+    <script type="module">
+        import { initLang, t } from '/js/utils.js';
+        import { applyTranslations } from '/js/events.js';
+
+        document.addEventListener('DOMContentLoaded', () => {
+            initLang();
+            applyTranslations();
+        });
+    </script>
+</body>
+</html>

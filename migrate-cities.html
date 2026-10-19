@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Migration villes → Firestore</title>
+    <script type="importmap">
+    {
+        "imports": {
+            "firebase/app": "https://www.gstatic.com/firebasejs/11.0.0/firebase-app.js",
+            "firebase/auth": "https://www.gstatic.com/firebasejs/11.0.0/firebase-auth.js",
+            "firebase/firestore": "https://www.gstatic.com/firebasejs/11.0.0/firebase-firestore.js"
+        }
+    }
+    </script>
+    <style>
+        body { font-family: monospace; padding: 2rem; background: #111; color: #0f0; }
+        button { padding: 1rem 2rem; font-size: 1.2rem; cursor: pointer; }
+        #log { margin-top: 2rem; white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+    <h1>🚀 Migration villes.json → Firestore</h1>
+    <p>Assurez-vous d'être connecté en tant qu'ADMIN sur /admin.html (même domaine, même session Firebase).</p>
+    <p>✨ <strong>Nouvelle structure :</strong> nameAr + nameFr + nameEn (multilingue)</p>
+    <button id="migrateBtn">▶️ Lancer la migration</button>
+    <div id="log"></div>
+
+    <script type="module">
+        import { db, auth } from "/js/firebase.js";
+        import { doc, writeBatch, getDocs, collection, deleteDoc } from "firebase/firestore";
+
+        const log = (msg) => {
+            const el = document.getElementById('log');
+            el.textContent += msg + '\n';
+            console.log(msg);
+        };
+
+        document.getElementById('migrateBtn').addEventListener('click', async () => {
+            document.getElementById('migrateBtn').disabled = true;
+
+            // 1. Vérifier auth
+            if (!auth.currentUser) {
+                log('❌ Vous devez être connecté. Allez sur /admin.html et connectez-vous d\'abord.');
+                return;
+            }
+            log(`✅ Connecté : ${auth.currentUser.email}`);
+            log(`🆔 UID : ${auth.currentUser.uid}`);
+
+            // 2. Charger villes.json
+            log('\n⏳ Chargement de villes.json...');
+            let cities;
+            try {
+                const res = await fetch('/villes.json');
+                cities = await res.json();
+                log(`✅ ${cities.length} villes chargées`);
+            } catch (e) {
+                log(`❌ Erreur fetch : ${e.message}`);
+                return;
+            }
+
+            // 3. Vérifier s'il y a déjà des villes en Firestore
+            const existingSnap = await getDocs(collection(db, "cities"));
+            if (!existingSnap.empty) {
+                log(`⚠️ ${existingSnap.size} villes existent déjà dans Firestore.`);
+                if (!confirm(`Il y a déjà ${existingSnap.size} villes. Écraser (supprimer + recréer) ?`)) {
+                    log('❌ Migration annulée par l\'utilisateur');
+                    document.getElementById('migrateBtn').disabled = false;
+                    return;
+                }
+
+                // 3.b — Supprimer les anciennes villes par batch (nouvelle structure)
+                log(`\n⏳ Suppression des ${existingSnap.size} anciennes villes...`);
+                const oldDocs = existingSnap.docs;
+                const DELETE_BATCH_SIZE = 400;
+                for (let i = 0; i < oldDocs.length; i += DELETE_BATCH_SIZE) {
+                    const batch = writeBatch(db);
+                    const chunk = oldDocs.slice(i, i + DELETE_BATCH_SIZE);
+                    chunk.forEach(d => batch.delete(d.ref));
+                    try {
+                        await batch.commit();
+                        log(`  ✓ ${Math.min(i + DELETE_BATCH_SIZE, oldDocs.length)}/${oldDocs.length} anciennes villes supprimées`);
+                    } catch (e) {
+                        log(`❌ Erreur suppression batch ${i} : ${e.message}`);
+                        document.getElementById('migrateBtn').disabled = false;
+                        return;
+                    }
+                }
+            }
+
+            // 4. Migration par batchs (max 500 writes par batch)
+            log('\n⏳ Migration en cours (nouvelle structure)...');
+            const BATCH_SIZE = 400;
+            let processed = 0;
+
+            for (let i = 0; i < cities.length; i += BATCH_SIZE) {
+                const batch = writeBatch(db);
+                const chunk = cities.slice(i, i + BATCH_SIZE);
+
+                for (const city of chunk) {
+                    // Valider la structure minimale
+                    if (!city.id || (!city.name && !city.nameAr && !city.nameFr)) {
+                        log(`⚠️ Ville invalide ignorée : ${JSON.stringify(city)}`);
+                        continue;
+                    }
+
+                    const ref = doc(db, "cities", String(city.id));
+
+                    // ✅ Structure enrichie multilingue
+                    batch.set(ref, {
+                        id: Number(city.id),
+                        key: String(city.key || '').toLowerCase().trim(),
+                        name: String(city.nameAr || city.name || '').trim(),
+                        nameAr: String(city.nameAr || city.name || '').trim(),
+                        nameFr: String(city.nameFr || city.name || '').trim(),
+                        nameEn: String(city.nameEn || city.nameFr || city.name || '').trim(),
+                        price: Number(city.price) || 30,
+                        delay: String(city.delay || '48h').trim()
+                    });
+                }
+
+                try {
+                    await batch.commit();
+                    processed += chunk.length;
+                    log(`  ✓ ${processed}/${cities.length} villes migrées`);
+                } catch (e) {
+                    log(`❌ Erreur batch ${i} : ${e.message}`);
+                    log('   → Vérifiez les Firestore Rules');
+                    document.getElementById('migrateBtn').disabled = false;
+                    return;
+                }
+            }
+
+            // 5. Vérification finale
+            const finalSnap = await getDocs(collection(db, "cities"));
+            log(`\n🎉 Migration terminée !`);
+            log(`✅ ${finalSnap.size} villes dans Firestore`);
+            log(`\n📋 Structure par ville :`);
+            log(`   • name    → nom arabe (compat) `);
+            log(`   • nameAr  → nom arabe`);
+            log(`   • nameFr  → nom français`);
+            log(`   • nameEn  → nom anglais`);
+            log(`   • key     → clé latin (recherche)`);
+            log(`\n💡 Vous pouvez supprimer migrate-cities.html maintenant.`);
+            log(`💡 Videz le cache navigateur (CACHE_VERSION=3 force le rechargement).`);
+            log(`💡 Ou attendez 24h pour le rafraîchissement auto du cache.`);
+
+            document.getElementById('migrateBtn').textContent = '✅ Terminé';
+        });
+    </script>
+</body>
+</html>

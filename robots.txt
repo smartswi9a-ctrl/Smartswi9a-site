@@ -1,0 +1,47 @@
+# ============================================================
+# robots.txt - SMART SWI9A
+# Version 1.2.0 — Fix : autorisation explicite images + JSON
+# ============================================================
+# Dernière mise à jour : Octobre 2026
+
+User-agent: *
+Allow: /
+Allow: /assets/
+Allow: /villes.json
+Allow: /produits.json
+Allow: /robots.txt
+Allow: /sitemap.xml
+
+# Pages privées (à ne pas indexer)
+Disallow: /admin
+Disallow: /admin.html
+Disallow: /reset-password
+Disallow: /reset-password.html
+Disallow: /404.html
+Disallow: /migrate-cities.html
+Disallow: /logo-generator.html
+Disallow: /generer-villes.html
+Disallow: /panier
+Disallow: /panier.html
+
+# Dossier technique JS
+Disallow: /js/
+
+# Sourcemaps (si présentes)
+Disallow: /assets/*.map
+
+# Bloquer les robots malveillants connus
+User-agent: AhrefsBot
+Disallow: /
+
+User-agent: SemrushBot
+Disallow: /
+
+User-agent: MJ12bot
+Disallow: /
+
+User-agent: DotBot
+Disallow: /
+
+# Sitemap
+Sitemap: https://smartswi9a.top/sitemap.xml
