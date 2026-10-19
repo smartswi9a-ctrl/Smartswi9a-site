@@ -1,7 +1,7 @@
 // js/admin.js
 // ============================================================
 // PANNEAU ADMINISTRATION - SMART SWI9A
-// Version 4.2.0 — Vidéo : badge liste, bouton effacer, deleteField
+// Version 4.2.1 — FIX : Sécurité typeof sur les champs vidéo/img
 // ============================================================
 
 import { auth, db, storage } from "./firebase.js";
@@ -1016,8 +1016,8 @@ function renderProductsList(products) {
         else if (stock <= 4) { stockColor = 'var(--warning)'; stockEmoji = '⚠️'; }
         else if (stock >= 20) { stockColor = 'var(--success)'; stockEmoji = '✅'; }
 
-        // ✅ BADGE VIDÉO
-        const hasVideo = p.video && p.video.trim() !== '';
+        // ✅ FIX : BADGE VIDÉO (typeof)
+        const hasVideo = typeof p.video === 'string' && p.video.trim() !== '';
         const videoBadge = hasVideo 
             ? `<span style="background:var(--gold);color:#fff;font-size:0.65rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;" title="Vidéo R2: ${escapeHTML(p.video)}">🎥</span>` 
             : '';
@@ -1280,7 +1280,11 @@ async function editProduct(id) {
         document.getElementById('pVideo').value = p.video || '';
         
         const ip = document.getElementById('pImgPreview');
-        if (p.img) { ip.src = p.img.startsWith('http') ? p.img : '/' + p.img; ip.style.display = 'block'; }
+        // ✅ FIX : typeof p.img === 'string'
+        if (p.img && typeof p.img === 'string') { 
+            ip.src = p.img.startsWith('http') ? p.img : '/' + p.img; 
+            ip.style.display = 'block'; 
+        }
         else ip.style.display = 'none';
         const gp = document.getElementById('pGalleryPreview');
         gp.innerHTML = '';
@@ -1659,7 +1663,11 @@ async function editBlogPost(id) {
         document.getElementById('bAuthor').value = p.author || 'Smart Swi9a';
         document.getElementById('bTags').value = (p.tags || []).join(', ');
         const ip = document.getElementById('bImagePreview');
-        if (p.image) { ip.src = p.image.startsWith('http') ? p.image : '/' + p.image; ip.style.display = 'block'; }
+        // ✅ FIX : typeof p.image === 'string'
+        if (p.image && typeof p.image === 'string') { 
+            ip.src = p.image.startsWith('http') ? p.image : '/' + p.image; 
+            ip.style.display = 'block'; 
+        }
         else ip.style.display = 'none';
         document.getElementById('saveBlogBtnText').textContent = t('save');
         document.getElementById('cancelBlogEdit').style.display = 'inline-flex';
@@ -3080,4 +3088,4 @@ initAdmin();
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ admin.js chargé — v4.2.0 (Vidéo : badge liste + bouton effacer + deleteField)');
+console.log('✅ admin.js chargé — v4.2.1 (Sécurité typeof sur vidéo/img)');
