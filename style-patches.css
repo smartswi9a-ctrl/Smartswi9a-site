@@ -1,6 +1,6 @@
 /* ============================================================
    STYLE-PATCHES.CSS - SMART SWI9A
-   Version 1.7.0 — Ajout styles miniature vidéo (galerie produit)
+   Version 1.8.0 — Vidéo contrainte aux dimensions de la photo
    ============================================================ */
 
 /* ============================================================
@@ -469,8 +469,22 @@ main#main {
 }
 
 /* ------------------------------------------------------------
-   Reste de la page produit (inchangé)
+   ✅ FIX v1.8.0 : VIDÉO CONTRAINTE AUX DIMENSIONS DE LA PHOTO
    ------------------------------------------------------------ */
+.product-main-img-wrapper img,
+.product-main-img-wrapper video,
+.main-media-element,
+#mainImage {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: 70vh !important;
+    height: auto !important;
+    object-fit: contain !important;
+    display: block !important;
+    background: var(--bg-surface);
+    border-radius: var(--radius-md);
+}
+
 .product-details-secondary {
     padding-bottom: 3rem !important;
     margin-top: 1rem;
@@ -496,17 +510,6 @@ main#main {
     border-radius: var(--radius-md);
     overflow: hidden;
     min-height: 260px;
-}
-
-.product-main-img-wrapper img,
-#mainImage {
-    width: 100% !important;
-    max-width: 100% !important;
-    max-height: 70vh !important;
-    height: auto !important;
-    object-fit: contain !important;
-    display: block !important;
-    background: var(--bg-surface);
 }
 
 .product-thumbnails {
@@ -988,4 +991,4 @@ p, h1, h2, h3, h4, h5, h6 {
 /* ============================================================
    LOG
    ============================================================ */
-/* style-patches.css v1.7.0 — Ajout styles miniature vidéo */
+/* style-patches.css v1.8.0 — Vidéo contrainte aux dimensions de la photo */
