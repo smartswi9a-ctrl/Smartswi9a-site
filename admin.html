@@ -589,9 +589,12 @@
                 <input type="file" id="pGalleryFiles" accept="image/*" multiple style="margin-top:0.5rem;">
                 <div class="admin-gallery-preview" id="pGalleryPreview"></div>
 
-                <!-- ✅ NOUVEAU : CHAMP VIDÉO -->
+                <!-- ✅ CHAMP VIDÉO AVEC BOUTON EFFACER -->
                 <label>🎥 Vidéo de démonstration (Nom du fichier R2)</label>
-                <input type="text" id="pVideo" placeholder="Ex: demo-montre.mp4" title="Entrez uniquement le nom du fichier tel qu'il est dans votre bucket R2">
+                <div style="display:flex;gap:0.5rem;align-items:center;">
+                    <input type="text" id="pVideo" placeholder="Ex: demo-montre.mp4" title="Entrez uniquement le nom du fichier tel qu'il est dans votre bucket R2" style="flex:1;">
+                    <button type="button" id="clearVideoBtn" class="admin-btn-secondary" style="white-space:nowrap; padding: 0.6rem 1rem;" title="Effacer la vidéo">❌ Effacer</button>
+                </div>
                 <small style="color:var(--text-muted);font-size:0.75rem;display:block;margin-top:0.2rem;">Le fichier doit déjà être uploadé sur votre bucket Cloudflare R2.</small>
 
                 <div style="display:flex;gap:0.5rem;margin-top:1rem;flex-wrap:wrap;">
