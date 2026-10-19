@@ -1,7 +1,7 @@
 // js/admin.js
 // ============================================================
 // PANNEAU ADMINISTRATION - SMART SWI9A
-// Version 4.0.2 — FIX : formatMAD (2 décimales) + polling 60s + simulateur
+// Version 4.1.0 — Ajout support vidéo (Cloudflare R2)
 // ============================================================
 
 import { auth, db, storage } from "./firebase.js";
@@ -1222,9 +1222,12 @@ function attachProductFormEvents() {
 function resetProductForm() {
     document.getElementById('productFormTitle').textContent = '➕ ' + t('adminAddProduct');
     document.getElementById('productEditId').value = '';
+    
+    // ✅ AJOUT DE 'pVideo' DANS LA LISTE DES CHAMPS À VIDER
     ['pNameFr', 'pNameAr', 'pNameEn', 'pSlug', 'pPrice', 'pOldPrice', 'pPurchasePrice', 'pStock', 'pRating',
-     'pDescFr', 'pDescAr', 'pDescEn', 'pFeaturesFr', 'pFeaturesAr', 'pFeaturesEn', 'pImg', 'pGallery']
+     'pDescFr', 'pDescAr', 'pDescEn', 'pFeaturesFr', 'pFeaturesAr', 'pFeaturesEn', 'pImg', 'pGallery', 'pVideo']
         .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+        
     document.getElementById('pCategory').value = 'accessories';
     document.getElementById('pIsNew').checked = false;
     document.getElementById('pImgFile').value = '';
@@ -1262,6 +1265,10 @@ async function editProduct(id) {
         document.getElementById('pFeaturesEn').value = (p.featuresEn || []).join('\n');
         document.getElementById('pImg').value = p.img || '';
         document.getElementById('pGallery').value = (p.gallery || []).join(', ');
+        
+        // ✅ AJOUT : Remplir le champ vidéo
+        document.getElementById('pVideo').value = p.video || '';
+        
         const ip = document.getElementById('pImgPreview');
         if (p.img) { ip.src = p.img.startsWith('http') ? p.img : '/' + p.img; ip.style.display = 'block'; }
         else ip.style.display = 'none';
@@ -1331,7 +1338,9 @@ async function saveProduct() {
             featuresFr: document.getElementById('pFeaturesFr').value.split('\n').map(l => l.trim()).filter(l => l),
             featuresAr: document.getElementById('pFeaturesAr').value.split('\n').map(l => l.trim()).filter(l => l),
             featuresEn: document.getElementById('pFeaturesEn').value.split('\n').map(l => l.trim()).filter(l => l),
-            img: imgUrl, gallery, updatedAt: Timestamp.now()
+            img: imgUrl, gallery, 
+            video: document.getElementById('pVideo').value.trim(), // ✅ AJOUT DU CHAMP VIDÉO
+            updatedAt: Timestamp.now()
         };
 
         if (editId) {
@@ -2878,11 +2887,6 @@ async function exportProductsCSV() {
 
 // ============================================================
 // SIMULATEUR — SÉLECTION DES PRODUITS
-// ------------------------------------------------------------
-// ✅ FIX v4.0.2 : listeners des boutons attachés de façon
-// idempotente via un guard sur CHAQUE bouton (btn._initialized).
-// Cela garantit qu'ils fonctionnent même si renderFinanceProductSelection
-// est appelée plusieurs fois (changement d'onglet, reset, etc.).
 // ============================================================
 function renderFinanceProductSelection() {
     const container = document.getElementById('financeProductSelector');
@@ -2915,7 +2919,6 @@ function renderFinanceProductSelection() {
     });
     container.innerHTML = html;
 
-    // ✅ FIX v4.0.2 : helper idempotent (guard par bouton)
     attachFinanceSimulatorBtns();
 }
 
@@ -3062,4 +3065,4 @@ initAdmin();
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ admin.js chargé — v4.0.2 (3 correctifs appliqués : formatMAD 2 décimales + polling 60s + simulateur listeners idempotents)');
+console.log('✅ admin.js chargé — v4.1.0 (Ajout support vidéo R2)');
