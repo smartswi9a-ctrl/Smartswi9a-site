@@ -1,7 +1,7 @@
 // translations.js
 // ============================================================
 // TRADUCTIONS - SMART SWI9A (FR / AR / EN)
-// Version 2.3.0 — Ajout noProductsInCategory
+// Version 2.3.1 — Mise à jour des CGV / Politique de retour
 // ============================================================
 
 window.translations = {
@@ -431,7 +431,7 @@ window.translations = {
         privacySummary: "🔒 Politique de confidentialité",
         privacyText: "Nous respectons votre vie privée. Vos données ne sont pas partagées.",
         termsSummary: "📄 Conditions générales de vente",
-        termsText: "Toutes les ventes sont finales. Retour possible sous 15 jours.",
+        termsText: "Délai de réclamation : 3 jours après réception (via WhatsApp avec facture, photos et vidéo). Garantie : 15 jours. Emballage d'origine intact obligatoire. Si le produit est défectueux à la livraison, le client peut le refuser devant le livreur. Pour les autres retours, les frais sont à la charge du client. Remboursement effectué après vérification du produit retourné.",
 
         footerDesc: "Votre boutique tech au Maroc. Livraison rapide, paiement à la livraison.",
         footerCopyright: "© 2026 Smart Swi9a 🇲🇦 — Tous droits réservés",
@@ -993,7 +993,7 @@ window.translations = {
         privacySummary: "🔒 سياسة الخصوصية",
         privacyText: "نحن نحترم خصوصيتك. لا تتم مشاركة بياناتك.",
         termsSummary: "📄 الشروط العامة للبيع",
-        termsText: "جميع المبيعات نهائية. الإرجاع ممكن خلال 15 يومًا.",
+        termsText: "مدة الشكوى: 3 أيام بعد الاستلام (عبر واتساب مع الفاتورة والصور والفيديو). الضمان: 15 يوماً. يجب أن يكون الغلاف الأصلي سليماً. في حالة وجود عيب أثناء التسليم، يمكن للعميل رفض الطلب أمام عامل التوصيل. بالنسبة للإرجاعات الأخرى، رسوم الشحن على حساب العميل. يتم الاسترداد بعد التحقق من المنتج المرتجع.",
 
         footerDesc: "متجرك التقني في المغرب. توصيل سريع، الدفع عند الاستلام.",
         footerCopyright: "© 2026 سمارت سويقة 🇲🇦 — جميع الحقوق محفوظة",
@@ -1555,7 +1555,7 @@ window.translations = {
         privacySummary: "🔒 Privacy policy",
         privacyText: "We respect your privacy. Your data is not shared.",
         termsSummary: "📄 Terms of sale",
-        termsText: "All sales are final. Returns possible within 15 days.",
+        termsText: "Return policy: 3 days after receipt to report a defect (WhatsApp with invoice, photos and video). Warranty: 15 days. Original packaging must be intact. Customer can refuse the package in front of the delivery driver if defective. Return shipping costs are borne by the customer (unless manufacturing defect). Refund after verification.",
 
         footerDesc: "Your tech shop in Morocco. Fast delivery, cash on delivery.",
         footerCopyright: "© 2026 Smart Swi9a 🇲🇦 — All rights reserved",
@@ -1692,4 +1692,4 @@ window.translations = {
     }
 };
 
-console.log('✅ translations.js chargé — Version 2.3.0 (FR + AR + EN + noProductsInCategory)');
+console.log('✅ translations.js chargé — Version 2.3.1 (FR + AR + EN + Politique de retour mise à jour)');
