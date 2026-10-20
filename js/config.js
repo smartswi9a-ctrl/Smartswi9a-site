@@ -1,17 +1,12 @@
 // js/config.js
 // ============================================================
 // CONFIGURATION CENTRALISÉE - SMART SWI9A
-// Version 3.1.0 — Fix i18n catégories + legacy mapping + helper
-// CHANGEMENTS v3.1.0 :
-// ✅ C1.1 — tCat() helper + validation CATEGORY_GROUPS
-// ✅ C1.2 — LEGACY_CATEGORY_MAP + normalizeCategory()
-// ✅ I1.1 — productMatchesCategory() exporté
-// ✅ I1.2 — Catégorie 'general' ajoutée à BLOG
-// ✅ M1.1 — Naming cohérent (smartphones → filterSmartphones)
-// ✅ M1.2 — Ordre flattenCategories préservé
-// ✅ M1.3 — validateCategoryGroups() au boot
-// ✅ M1.4 — EMAIL_ON_STATUS centralisé
-// ✅ M1.5 — CONFIG.VERSION ajouté
+// Version 3.2.0 — Helpers catégories (cohérence client/admin)
+// CHANGEMENTS v3.2.0 :
+// ✅ NEW — getCategoryById(), getParentCategory(), getCategoryPath(),
+//          getCategoryDisplayName() (helpers centralisés)
+// ✅ NEW — buildCategoryIndex() : Map id → catégorie (cache)
+// ✅ Repris v3.1.0 — tCat(), LEGACY_CATEGORY_MAP, productMatchesCategory, etc.
 // ============================================================
 
 // ============================================================
@@ -21,7 +16,6 @@ export const VIDEO_BASE_URL = "https://videos.smartswi9a.top/";
 
 export const CONFIG = {
     // --- Firebase ---
-    // ⚠️ measurementId retiré (Analytics non activé — voir I4.2)
     FIREBASE: {
         apiKey: "AIzaSyBhULwDxPBRqjywsSD_0ny41Bmt968ofSA",
         authDomain: "smartswi9a-31063.firebaseapp.com",
@@ -51,7 +45,7 @@ export const CONFIG = {
     // --- Stockage local ---
     STORAGE_KEYS: {
         CART: 'swi9a_cart',
-        THEME: 'swi9a_theme', // legacy (mode clair unique)
+        THEME: 'swi9a_theme',
         LANG: 'swi9a_lang',
         USER: 'swi9a_user',
         ABANDONED_CART: 'swi9a_abandoned_cart',
@@ -82,7 +76,6 @@ export const CONFIG = {
             { id: 'smart-home', label: 'Smart Home',   emoji: '🏠' },
             { id: 'gadgets',    label: 'Gadgets',      emoji: '📱' },
             { id: 'actualites', label: 'Actualités',   emoji: '📰' },
-            // ✅ I1.2 — Fallback pour articles sans catégorie
             { id: 'general',    label: 'Général',      emoji: '📝' }
         ]
     },
@@ -98,7 +91,6 @@ export const CONFIG = {
     // ============================================================
     ORDERS: {
         CANCELLABLE_HOURS: 4,
-
         STATUS: {
             PENDING:    'pending',
             CONFIRMED:  'confirmed',
@@ -107,20 +99,15 @@ export const CONFIG = {
             RETURNED:   'returned',
             CANCELLED:  'cancelled'
         },
-
         LEGACY_STATUS: {
             VALIDATED: 'validated',
             RECEIVED:  'received'
         },
-
         PAYMENT: {
             UNPAID: 'unpaid',
             PAID: 'paid'
         },
-
         RETURNABLE_FROM: ['confirmed', 'shipping', 'delivered'],
-
-        // ✅ M1.4 — Centralisé (était dupliqué dans orders.js)
         EMAIL_ON_STATUS: {
             pending:   { client: true,  admin: true  },
             confirmed: { client: true,  admin: false },
@@ -154,7 +141,6 @@ export const CONFIG = {
             ORDER_RETURNED:  'order_returned',
             ORDER_CANCELLED: 'order_cancelled',
             REVIEW_APPROVED: 'review_approved',
-            // ✅ I6.3 — Constante magique centralisée
             REVIEW_REQUEST:  'review_request'
         }
     },
@@ -213,16 +199,14 @@ export const STATUS_MIGRATION_MAP = {
     'received': 'delivered'
 };
 
-// Normalise un statut (accepte ancien et nouveau)
 export function normalizeOrderStatus(status) {
     if (!status) return ORDER_STATUS.PENDING;
     return STATUS_MIGRATION_MAP[status] || status;
 }
 
 // ============================================================
-// ✅ C1.2 — LEGACY_CATEGORY_MAP + normalizeCategory()
+// LEGACY_CATEGORY_MAP + normalizeCategory()
 // ============================================================
-// Migration des anciennes catégories v1/v2 → nouvelle arborescence v3
 export const LEGACY_CATEGORY_MAP = {
     'smartphone':     'smartphones',
     'computer':       'computers',
@@ -238,31 +222,14 @@ export const LEGACY_CATEGORY_MAP = {
     'tv':             'electronics'
 };
 
-/**
- * Normalise un ID de catégorie (legacy → nouveau)
- * @param {string} catId
- * @returns {string}
- */
 export function normalizeCategory(catId) {
     if (!catId) return 'all';
     return LEGACY_CATEGORY_MAP[catId] || catId;
 }
 
 // ============================================================
-// ✅ I1.1 — productMatchesCategory() (helper réutilisable)
+// productMatchesCategory() (helper réutilisable)
 // ============================================================
-/**
- * Vérifie si un produit correspond à une catégorie.
- * Gère :
- *  - 'all' → toujours true
- *  - catégorie parente → inclut tous les enfants
- *  - catégorie legacy → normalisée avant comparaison
- *  - catégorie exacte → match
- *
- * @param {Object} product - Le produit { category }
- * @param {string} categoryId - L'ID de catégorie à tester
- * @returns {boolean}
- */
 export function productMatchesCategory(product, categoryId) {
     if (!categoryId || categoryId === 'all') return true;
     if (!product || !product.category) return false;
@@ -270,11 +237,9 @@ export function productMatchesCategory(product, categoryId) {
     const productCat = product.category;
     const normalized = normalizeCategory(productCat);
 
-    // Match exact
     if (productCat === categoryId) return true;
     if (normalized === categoryId) return true;
 
-    // Catégorie parente → vérifier les enfants
     const parent = CATEGORY_GROUPS.find(g => g.id === categoryId);
     if (parent) {
         return parent.children.some(c =>
@@ -286,21 +251,14 @@ export function productMatchesCategory(product, categoryId) {
 }
 
 // ============================================================
-// ✅ v2.2.0 : HELPERS RETOUR
+// HELPERS RETOUR
 // ============================================================
-/**
- * Vérifie si une commande peut être retournée
- */
 export function canReturnOrder(order) {
     if (!order) return false;
     const status = normalizeOrderStatus(order.status);
     return CONFIG.ORDERS.RETURNABLE_FROM.includes(status);
 }
 
-/**
- * Calcule les quantités déjà retournées par produit
- * @returns {Object} { productId: quantityReturned }
- */
 export function getReturnedQuantities(order) {
     const result = {};
     if (!order || !order.returns || !Array.isArray(order.returns)) return result;
@@ -310,7 +268,6 @@ export function getReturnedQuantities(order) {
         r.items.forEach(item => {
             if (!item.productId) return;
             const pid = String(item.productId);
-            // On utilise delta (incrément) plutôt que quantityReturnedNow (cumul)
             const delta = Number(item.delta) || 0;
             result[pid] = (result[pid] || 0) + delta;
         });
@@ -319,9 +276,6 @@ export function getReturnedQuantities(order) {
     return result;
 }
 
-/**
- * Vérifie si un retour est total (toutes les quantités retournées)
- */
 export function isFullReturn(order) {
     if (!order || !order.items) return false;
     const returned = getReturnedQuantities(order);
@@ -340,11 +294,7 @@ export const LANGUAGES = ['fr', 'ar', 'en'];
 export const DEFAULT_LANGUAGE = 'fr';
 
 // ============================================================
-// ✅ v3.0.0 : ARBORESCENCE DES CATÉGORIES ET SOUS-CATÉGORIES
-// ============================================================
-// ⚠️ IMPORTANT : les `label` sont des CLÉS i18n.
-// La fonction tCat() ci-dessous résout ces clés pour la langue courante.
-// Toutes les clés DOIVENT exister dans translations.js (voir v2.4.0).
+// ARBORESCENCE DES CATÉGORIES ET SOUS-CATÉGORIES
 // ============================================================
 export const CATEGORY_GROUPS = [
     {
@@ -476,28 +426,133 @@ export const CATEGORY_GROUPS = [
 ];
 
 // ============================================================
-// ✅ C1.1 — Helper i18n pour les catégories
+// ✅ v3.2.0 — INDEX DES CATÉGORIES (cache pour helpers)
+// ------------------------------------------------------------
+// Map id → { id, label, emoji, isParent, parentId }
+// Inclut : 'all', 'favorites', les parents ET les enfants.
+// Construit une seule fois (lazy init), puis mis en cache.
+// ============================================================
+let _categoryIndexCache = null;
+
+function buildCategoryIndex() {
+    if (_categoryIndexCache) return _categoryIndexCache;
+
+    const index = new Map();
+
+    index.set('all', {
+        id: 'all',
+        label: 'filterAll',
+        emoji: '🛍️',
+        isParent: false,
+        parentId: null
+    });
+    index.set('favorites', {
+        id: 'favorites',
+        label: 'filterFavorites',
+        emoji: '❤️',
+        isParent: false,
+        parentId: null
+    });
+
+    CATEGORY_GROUPS.forEach(group => {
+        index.set(group.id, {
+            id: group.id,
+            label: group.label,
+            emoji: group.emoji,
+            isParent: true,
+            parentId: null
+        });
+        group.children.forEach(child => {
+            index.set(child.id, {
+                id: child.id,
+                label: child.label,
+                emoji: child.emoji,
+                isParent: false,
+                parentId: group.id
+            });
+        });
+    });
+
+    _categoryIndexCache = index;
+    return index;
+}
+
+/**
+ * Retourne l'objet catégorie complet (parent OU enfant).
+ * Fallback : gère les IDs legacy via normalizeCategory().
+ * @param {string} catId
+ * @returns {Object|null}
+ */
+export function getCategoryById(catId) {
+    if (!catId) return null;
+    const index = buildCategoryIndex();
+
+    const direct = index.get(catId);
+    if (direct) return direct;
+
+    const normalized = normalizeCategory(catId);
+    return index.get(normalized) || null;
+}
+
+/**
+ * Retourne le parent d'une sous-catégorie (ou la catégorie elle-même si parent).
+ * @param {string} catId
+ * @returns {Object|null}
+ */
+export function getParentCategory(catId) {
+    if (!catId) return null;
+    const cat = getCategoryById(catId);
+    if (!cat) return null;
+    if (cat.isParent) return cat;
+    if (cat.parentId) return getCategoryById(cat.parentId);
+    return null;
+}
+
+/**
+ * Retourne le chemin complet [parent, enfant] (ou [parent] si parent).
+ * @param {string} catId
+ * @returns {Array<Object>}
+ */
+export function getCategoryPath(catId) {
+    if (!catId) return [];
+    const cat = getCategoryById(catId);
+    if (!cat) return [];
+    if (cat.isParent) return [cat];
+    const parent = cat.parentId ? getCategoryById(cat.parentId) : null;
+    return parent ? [parent, cat] : [cat];
+}
+
+/**
+ * Retourne le nom traduit d'une catégorie (via tCat).
+ * Fallback : id brut si introuvable.
+ * @param {string} catId
+ * @returns {string}
+ */
+export function getCategoryDisplayName(catId) {
+    const cat = getCategoryById(catId);
+    if (!cat) return String(catId || '');
+    return tCat(cat);
+}
+
+// ============================================================
+// Helper i18n pour les catégories
 // ============================================================
 import { t } from './utils.js';
 
 /**
  * Traduit une catégorie (label) selon la langue courante.
  * Fallback sur le label brut si la clé i18n n'existe pas.
- * @param {Object|string} category - Objet { label } ou string (id)
- * @returns {string}
  */
 export function tCat(category) {
     if (!category) return '';
     const label = typeof category === 'string' ? category : category.label;
     if (!label) return '';
     const translated = t(label);
-    // Si la traduction n'existe pas, t() retourne la clé → fallback
     return translated === label ? (category.label || label) : translated;
 }
 
 // ============================================================
 // LISTE APLATIE (compatibilité + filtres)
-// ✅ M1.2 — Ordre : all, favorites, puis catégories
 // ============================================================
 const flattenCategories = () => {
     const flat = [
@@ -505,14 +560,12 @@ const flattenCategories = () => {
         { id: 'favorites', label: 'filterFavorites', emoji: '❤️' }
     ];
     CATEGORY_GROUPS.forEach(group => {
-        // Parent
         flat.push({
             id: group.id,
             label: group.label,
             emoji: group.emoji,
             isParent: true
         });
-        // Enfants
         group.children.forEach(child => {
             flat.push({
                 id: child.id,
@@ -528,7 +581,7 @@ const flattenCategories = () => {
 export const CATEGORIES = flattenCategories();
 
 // ============================================================
-// ✅ M1.3 — Validation au boot (dev uniquement)
+// Validation au boot (dev uniquement)
 // ============================================================
 (function validateCategoryGroups() {
     const isDev = typeof window !== 'undefined' && (
@@ -587,4 +640,4 @@ export const SORT_OPTIONS = [
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ config.js chargé — v3.1.0 (Fix i18n + legacy + helper)');
+console.log('✅ config.js chargé — v3.2.0 (helpers catégories)');
