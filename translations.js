@@ -1,7 +1,7 @@
 // translations.js
 // ============================================================
 // TRADUCTIONS - SMART SWI9A (FR / AR / EN)
-// Version 2.5.0 — Ajout navCategories (Menu Catégories)
+// Version 3.0.0 — Traductions des 23 catégories et sous-catégories
 // ============================================================
 
 window.translations = {
@@ -46,6 +46,7 @@ window.translations = {
         noProductsFound: "Aucun produit trouvé",
         noProductsInCategory: "Aucun produit disponible dans cette catégorie en ce moment.",
         searchProductsPlaceholder: "Rechercher un produit...",
+        chooseOptions: "Choisir les options",
 
         sortDefault: "Par défaut",
         sortPriceAsc: "Prix : croissant",
@@ -55,105 +56,137 @@ window.translations = {
         sortRating: "Mieux notés",
 
         filterAll: "Tout",
-        filterSmartphone: "Smartphones",
-        filterSmartHome: "Maison connectée",
-        filterAudio: "Audio",
-        filterChargers: "Chargeurs",
-        filterWearables: "Montres",
-        filterGaming: "Gaming",
-        filterComputer: "Informatique",
-        filterAccessories: "Accessoires",
-        filterTools: "Outils",
-        filterKitchen: "Cuisine",
-        filterBeauty: "Beauté",
-        filterToys: "Jouets",
-        filterSports: "Sport",
-        filterAuto: "Auto",
-        filterPet: "Animaux",
-        filterLighting: "Éclairage",
         filterFavorites: "Favoris",
         filterInStock: "En stock",
         filterPromos: "En promo",
-        filterPrice: "Prix :",
         filterReset: "Réinitialiser",
 
-        // Parents
-        filterElectronics: "Électronique",
-        filterHome: "Maison",
+        // ============================================================
+        // ✅ NOUVELLES CATÉGORIES (23 Parents)
+        // ============================================================
+        filterSmartphones: "Smartphones",
+        filterAudio: "Audio",
+        filterComputers: "Informatique",
+        filterWearables: "Montres",
+        filterTechAccessories: "Accessoires tech",
+        filterCameras: "Appareils photo",
+        filterSmartHome: "Maison connectée",
+        filterKitchen: "Cuisine",
+        filterFurniture: "Meubles",
+        filterDecoration: "Décoration",
         filterFashion: "Mode",
         filterBeauty: "Beauté",
-        filterBabyKids: "Bébé & Enfants",
-        filterAutoMoto: "Auto & Moto",
+        filterHaircare: "Soins cheveux",
+        filterAuto: "Auto",
+        filterCarElectronics: "Électronique auto",
+        filterTools: "Outils",
+        filterPowerTools: "Outils électriques",
+        filterSecurity: "Sécurité",
+        filterSports: "Sport",
+        filterGames: "Jeux vidéo",
+        filterToys: "Jouets",
         filterPets: "Animaux",
         filterOffice: "Bureau",
-        filterMisc: "Divers",
 
-        // Electronique
-        filterSmartphones: "Smartphones",
-        filterTablets: "Tablettes",
-        filterCameras: "Appareils photo",
-        filterComputers: "Ordinateurs",
-        filterTechAccessories: "Accessoires tech",
-
-        // Maison
-        filterAppliances: "Électroménager",
-        filterDecoration: "Décoration",
+        // ============================================================
+        // ✅ SOUS-CATÉGORIES
+        // ============================================================
+        // Smartphones
+        filterAndroid: "Android",
+        filterIOS: "iPhone",
+        filterPhoneAccessories: "Accessoires",
+        // Audio
+        filterHeadphones: "Casques",
+        filterEarbuds: "Écouteurs",
+        filterSpeakers: "Enceintes",
+        // Computers
+        filterLaptops: "Ordinateurs portables",
+        filterDesktops: "Ordinateurs de bureau",
+        filterPcAccessories: "Périphériques",
+        // Wearables
+        filterSmartwatches: "Montres connectées",
+        filterFitness: "Bracelets sportifs",
+        // Tech Accessories
+        filterChargers: "Chargeurs",
+        filterCables: "Câbles",
+        filterPowerbanks: "Batteries externes",
+        // Cameras
+        filterDslr: "Reflex",
+        filterActionCameras: "Caméras d'action",
+        filterDrones: "Drones",
+        // Smart Home
+        filterSmartLighting: "Éclairage connecté",
+        filterSmartSecurity: "Sécurité",
+        filterSmartSpeakers: "Enceintes connectées",
+        // Kitchen
+        filterKitchenAppliances: "Petit électroménager",
+        filterCookware: "Ustensiles",
+        filterCoffeeMachines: "Machines à café",
+        // Furniture
+        filterChairs: "Chaises & Fauteuils",
+        filterTables: "Tables",
         filterStorage: "Rangement",
-        filterFurniture: "Meubles",
-
-        // Mode
-        filterWomenClothing: "Vêtements femme",
-        filterMenClothing: "Vêtements homme",
+        // Decoration
+        filterLamps: "Lampes",
+        filterPlants: "Plantes",
+        filterArt: "Tableaux & Art",
+        // Fashion
+        filterMen: "Homme",
+        filterWomen: "Femme",
         filterShoes: "Chaussures",
         filterBags: "Sacs",
-        filterJewelry: "Bijoux",
-
-        // Beauté
-        filterSkincare: "Soins visage",
-        filterBodycare: "Soins corps",
-        filterHaircare: "Soins cheveux",
+        // Beauty
         filterMakeup: "Maquillage",
-        filterBeautyDevices: "Appareils beauté",
+        filterSkincare: "Soins visage",
         filterFragrances: "Parfums",
-
-        // Bébé & Enfants
-        filterBabyGear: "Équipement bébé",
-        filterBabyClothing: "Vêtements bébé",
-        filterBabyCare: "Soins bébé",
-
-        // Auto & Moto
-        filterMoto: "Moto",
-        filterCarCare: "Entretien auto",
-        filterCarElectronics: "Électronique auto",
-
+        // Haircare
+        filterHairDryers: "Sèche-cheveux",
+        filterHairStylers: "Lisseurs & Boucleurs",
+        filterHairProducts: "Produits",
+        // Auto
+        filterAutoInterior: "Intérieur",
+        filterAutoExterior: "Extérieur",
+        filterAutoTools: "Outils auto",
+        // Car Electronics
+        filterDashcams: "Dashcams",
+        filterGps: "GPS",
+        filterCarAudio: "Audio voiture",
+        // Tools
+        filterHandTools: "Outils à main",
+        filterToolBoxes: "Boîtes à outils",
+        filterGardenTools: "Jardinage",
+        // Power Tools
+        filterDrills: "Perceuses",
+        filterSaws: "Scies",
+        filterSanders: "Ponceuses",
+        // Security
+        filterSecurityCameras: "Caméras de surveillance",
+        filterSmartLocks: "Serrures connectées",
+        filterAlarms: "Alarmes",
         // Sports
-        filterFitness: "Fitness",
+        filterFitnessGear: "Fitness",
+        filterFootball: "Football",
         filterOutdoor: "Plein air",
-        filterBikes: "Vélos",
-        filterGames: "Jeux",
-
-        // Animaux
+        // Games
+        filterConsoles: "Consoles",
+        filterControllers: "Manettes",
+        filterVideoGames: "Jeux vidéo",
+        // Toys
+        filterRcToys: "Télécommandés",
+        filterEducationalToys: "Éducatifs",
+        filterDolls: "Poupées & Figurines",
+        // Pets
         filterPetFood: "Nourriture",
         filterPetToys: "Jouets",
         filterPetAccessories: "Accessoires",
-
-        // Outils
-        filterHandTools: "Outils à main",
-        filterPowerTools: "Outils électriques",
-        filterGarden: "Jardin",
-        filterSecurity: "Sécurité",
-
-        // Bureau
+        // Office
         filterStationery: "Papeterie",
-        filterOfficeOrganization: "Organisation",
-        filterPrinting: "Impression",
+        filterOfficeFurniture: "Mobilier de bureau",
+        filterOfficeElectronics: "Électronique de bureau",
 
-        // Divers
-        filterGadgets: "Gadgets",
-        filterParty: "Fête",
-        filterPromotions: "Promotions",
-
-        // Avis — badges
+        // ============================================================
+        // RESTE DU SITE (Inchangé)
+        // ============================================================
         reviewBadgeVerified: "✅ Achat vérifié",
         reviewRating: "Note",
         reviewDate: "Date",
@@ -717,6 +750,7 @@ window.translations = {
         noProductsFound: "لم يتم العثور على منتجات",
         noProductsInCategory: "لا توجد منتجات متاحة في هذه الفئة حالياً.",
         searchProductsPlaceholder: "ابحث عن منتج...",
+        chooseOptions: "اختر الخيارات",
 
         sortDefault: "افتراضي",
         sortPriceAsc: "السعر: تصاعدي",
@@ -726,104 +760,108 @@ window.translations = {
         sortRating: "الأعلى تقييماً",
 
         filterAll: "الكل",
-        filterSmartphone: "هواتف ذكية",
-        filterSmartHome: "منزل ذكي",
-        filterAudio: "صوت",
-        filterChargers: "شواحن",
-        filterWearables: "ساعات",
-        filterGaming: "ألعاب",
-        filterComputer: "حاسوب",
-        filterAccessories: "إكسسوارات",
-        filterTools: "أدوات",
-        filterKitchen: "مطبخ",
-        filterBeauty: "الجمال",
-        filterToys: "ألعاب أطفال",
-        filterSports: "رياضة",
-        filterAuto: "سيارات",
-        filterPet: "حيوانات",
-        filterLighting: "إضاءة",
         filterFavorites: "المفضلة",
         filterInStock: "متوفر",
         filterPromos: "عروض",
-        filterPrice: "السعر :",
         filterReset: "إعادة تعيين",
 
-        // Parents
-        filterElectronics: "إلكترونيات",
-        filterHome: "المنزل",
-        filterFashion: "الموضة",
-        filterBabyKids: "الأطفال",
-        filterAutoMoto: "سيارات ودراجات",
-        filterPets: "الحيوانات",
-        filterOffice: "المكتب",
-        filterMisc: "متنوع",
-
-        // Electronique
+        // ✅ NOUVELLES CATÉGORIES (23 Parents)
         filterSmartphones: "هواتف ذكية",
-        filterTablets: "أجهزة لوحية",
-        filterCameras: "كاميرات",
-        filterComputers: "حاسوب",
+        filterAudio: "صوتيات",
+        filterComputers: "حواسيب",
+        filterWearables: "ساعات",
         filterTechAccessories: "إكسسوارات تقنية",
-
-        // Maison
-        filterAppliances: "أجهزة منزلية",
-        filterDecoration: "ديكور",
-        filterStorage: "تخزين",
+        filterCameras: "كاميرات",
+        filterSmartHome: "منزل ذكي",
+        filterKitchen: "مطبخ",
         filterFurniture: "أثاث",
+        filterDecoration: "ديكور",
+        filterFashion: "موضة",
+        filterBeauty: "جمال",
+        filterHaircare: "العناية بالشعر",
+        filterAuto: "سيارات",
+        filterCarElectronics: "إلكترونيات السيارات",
+        filterTools: "أدوات",
+        filterPowerTools: "أدوات كهربائية",
+        filterSecurity: "أمن",
+        filterSports: "رياضة",
+        filterGames: "ألعاب فيديو",
+        filterToys: "ألعاب أطفال",
+        filterPets: "حيوانات أليفة",
+        filterOffice: "مكتب",
 
-        // Mode
-        filterWomenClothing: "ملابس نسائية",
-        filterMenClothing: "ملابس رجالية",
+        // ✅ SOUS-CATÉGORIES
+        filterAndroid: "أندرويد",
+        filterIOS: "آيفون",
+        filterPhoneAccessories: "إكسسوارات الهاتف",
+        filterHeadphones: "سماعات رأس",
+        filterEarbuds: "سماعات أذن",
+        filterSpeakers: "مكبرات صوت",
+        filterLaptops: "حواسيب محمولة",
+        filterDesktops: "حواسيب مكتبية",
+        filterPcAccessories: "ملحقات الحاسوب",
+        filterSmartwatches: "ساعات ذكية",
+        filterFitness: "أساور رياضية",
+        filterChargers: "شواحن",
+        filterCables: "كابلات",
+        filterPowerbanks: "بطاريات متنقلة",
+        filterDslr: "كاميرات احترافية",
+        filterActionCameras: "كاميرات أكشن",
+        filterDrones: "طائرات بدون طيار",
+        filterSmartLighting: "إضاءة ذكية",
+        filterSmartSecurity: "أمن ذكي",
+        filterSmartSpeakers: "مكبرات صوت ذكية",
+        filterKitchenAppliances: "أجهزة مطبخ صغيرة",
+        filterCookware: "أواني طهي",
+        filterCoffeeMachines: "آلات قهوة",
+        filterChairs: "كراسي",
+        filterTables: "طاولات",
+        filterStorage: "تخزين",
+        filterLamps: "مصابيح",
+        filterPlants: "نباتات",
+        filterArt: "لوحات فنية",
+        filterMen: "رجالي",
+        filterWomen: "نسائي",
         filterShoes: "أحذية",
         filterBags: "حقائب",
-        filterJewelry: "مجوهرات",
-
-        // Beauté
-        filterSkincare: "العناية بالبشرة",
-        filterBodycare: "العناية بالجسم",
-        filterHaircare: "العناية بالشعر",
         filterMakeup: "مكياج",
-        filterBeautyDevices: "أجهزة تجميل",
+        filterSkincare: "العناية بالبشرة",
         filterFragrances: "عطور",
-
-        // Bébé & Enfants
-        filterBabyGear: "مستلزمات أطفال",
-        filterBabyClothing: "ملابس أطفال",
-        filterBabyCare: "العناية بالطفل",
-
-        // Auto & Moto
-        filterMoto: "دراجات نارية",
-        filterCarCare: "العناية بالسيارة",
-        filterCarElectronics: "إلكترونيات السيارة",
-
-        // Sports
-        filterFitness: "لياقة",
-        filterOutdoor: "خارج المنزل",
-        filterBikes: "دراجات هوائية",
-        filterGames: "ألعاب",
-
-        // Animaux
-        filterPetFood: "طعام",
-        filterPetToys: "ألعاب",
-        filterPetAccessories: "إكسسوارات",
-
-        // Outils
+        filterHairDryers: "مجففات شعر",
+        filterHairStylers: "مكواة شعر",
+        filterHairProducts: "منتجات الشعر",
+        filterAutoInterior: "داخل السيارة",
+        filterAutoExterior: "خارج السيارة",
+        filterAutoTools: "أدوات السيارات",
+        filterDashcams: "كاميرات داشكام",
+        filterGps: "أجهزة GPS",
+        filterCarAudio: "صوتيات السيارة",
         filterHandTools: "أدوات يدوية",
-        filterPowerTools: "أدوات كهربائية",
-        filterGarden: "حديقة",
-        filterSecurity: "أمن",
-
-        // Bureau
+        filterToolBoxes: "صناديق أدوات",
+        filterGardenTools: "أدوات بستنة",
+        filterDrills: "مثاقب",
+        filterSaws: "مناشير",
+        filterSanders: "آلات صنفرة",
+        filterSecurityCameras: "كاميرات مراقبة",
+        filterSmartLocks: "أقفال ذكية",
+        filterAlarms: "أنظمة إنذار",
+        filterFitnessGear: "أدوات لياقة",
+        filterFootball: "كرة قدم",
+        filterOutdoor: "أنشطة خارجية",
+        filterConsoles: "أجهزة كونسول",
+        filterControllers: "أذرع تحكم",
+        filterVideoGames: "ألعاب فيديو",
+        filterRcToys: "ألعاب تحكم عن بعد",
+        filterEducationalToys: "ألعاب تعليمية",
+        filterDolls: "عرائس",
+        filterPetFood: "طعام الحيوانات",
+        filterPetToys: "ألعاب الحيوانات",
+        filterPetAccessories: "إكسسوارات الحيوانات",
         filterStationery: "قرطاسية",
-        filterOfficeOrganization: "تنظيم",
-        filterPrinting: "طباعة",
+        filterOfficeFurniture: "أثاث مكتبي",
+        filterOfficeElectronics: "إلكترونيات مكتبية",
 
-        // Divers
-        filterGadgets: "أدوات",
-        filterParty: "حفلات",
-        filterPromotions: "عروض",
-
-        // Avis — badges
+        // RESTE DU SITE
         reviewBadgeVerified: "✅ شراء موثق",
         reviewRating: "التقييم",
         reviewDate: "التاريخ",
@@ -1387,6 +1425,7 @@ window.translations = {
         noProductsFound: "No products found",
         noProductsInCategory: "No products available in this category at the moment.",
         searchProductsPlaceholder: "Search a product...",
+        chooseOptions: "Choose options",
 
         sortDefault: "Default",
         sortPriceAsc: "Price: low to high",
@@ -1396,104 +1435,108 @@ window.translations = {
         sortRating: "Top rated",
 
         filterAll: "All",
-        filterSmartphone: "Smartphones",
-        filterSmartHome: "Smart Home",
-        filterAudio: "Audio",
-        filterChargers: "Chargers",
-        filterWearables: "Watches",
-        filterGaming: "Gaming",
-        filterComputer: "Computer",
-        filterAccessories: "Accessories",
-        filterTools: "Tools",
-        filterKitchen: "Kitchen",
-        filterBeauty: "Beauty",
-        filterToys: "Toys",
-        filterSports: "Sports",
-        filterAuto: "Auto",
-        filterPet: "Pets",
-        filterLighting: "Lighting",
         filterFavorites: "Favorites",
         filterInStock: "In stock",
         filterPromos: "On sale",
-        filterPrice: "Price:",
         filterReset: "Reset",
 
-        // Parents
-        filterElectronics: "Electronics",
-        filterHome: "Home",
+        // ✅ NOUVELLES CATÉGORIES (23 Parents)
+        filterSmartphones: "Smartphones",
+        filterAudio: "Audio",
+        filterComputers: "Computers",
+        filterWearables: "Watches",
+        filterTechAccessories: "Tech Accessories",
+        filterCameras: "Cameras",
+        filterSmartHome: "Smart Home",
+        filterKitchen: "Kitchen",
+        filterFurniture: "Furniture",
+        filterDecoration: "Decoration",
         filterFashion: "Fashion",
-        filterBabyKids: "Baby & Kids",
-        filterAutoMoto: "Auto & Moto",
+        filterBeauty: "Beauty",
+        filterHaircare: "Hair Care",
+        filterAuto: "Auto",
+        filterCarElectronics: "Car Electronics",
+        filterTools: "Tools",
+        filterPowerTools: "Power Tools",
+        filterSecurity: "Security",
+        filterSports: "Sports",
+        filterGames: "Video Games",
+        filterToys: "Toys",
         filterPets: "Pets",
         filterOffice: "Office",
-        filterMisc: "Misc",
 
-        // Electronics
-        filterSmartphones: "Smartphones",
-        filterTablets: "Tablets",
-        filterCameras: "Cameras",
-        filterComputers: "Computers",
-        filterTechAccessories: "Tech Accessories",
-
-        // Home
-        filterAppliances: "Appliances",
-        filterDecoration: "Decoration",
+        // ✅ SOUS-CATÉGORIES
+        filterAndroid: "Android",
+        filterIOS: "iPhone",
+        filterPhoneAccessories: "Accessories",
+        filterHeadphones: "Headphones",
+        filterEarbuds: "Earbuds",
+        filterSpeakers: "Speakers",
+        filterLaptops: "Laptops",
+        filterDesktops: "Desktops",
+        filterPcAccessories: "Pc Accessories",
+        filterSmartwatches: "Smartwatches",
+        filterFitness: "Fitness Trackers",
+        filterChargers: "Chargers",
+        filterCables: "Cables",
+        filterPowerbanks: "Powerbanks",
+        filterDslr: "DSLR Cameras",
+        filterActionCameras: "Action Cameras",
+        filterDrones: "Drones",
+        filterSmartLighting: "Smart Lighting",
+        filterSmartSecurity: "Smart Security",
+        filterSmartSpeakers: "Smart Speakers",
+        filterKitchenAppliances: "Small Appliances",
+        filterCookware: "Cookware",
+        filterCoffeeMachines: "Coffee Machines",
+        filterChairs: "Chairs",
+        filterTables: "Tables",
         filterStorage: "Storage",
-        filterFurniture: "Furniture",
-
-        // Fashion
-        filterWomenClothing: "Women's Clothing",
-        filterMenClothing: "Men's Clothing",
+        filterLamps: "Lamps",
+        filterPlants: "Plants",
+        filterArt: "Art",
+        filterMen: "Men",
+        filterWomen: "Women",
         filterShoes: "Shoes",
         filterBags: "Bags",
-        filterJewelry: "Jewelry",
-
-        // Beauty
-        filterSkincare: "Skincare",
-        filterBodycare: "Body Care",
-        filterHaircare: "Hair Care",
         filterMakeup: "Makeup",
-        filterBeautyDevices: "Beauty Devices",
+        filterSkincare: "Skincare",
         filterFragrances: "Fragrances",
-
-        // Baby & Kids
-        filterBabyGear: "Baby Gear",
-        filterBabyClothing: "Baby Clothing",
-        filterBabyCare: "Baby Care",
-
-        // Auto & Moto
-        filterMoto: "Moto",
-        filterCarCare: "Car Care",
-        filterCarElectronics: "Car Electronics",
-
-        // Sports
-        filterFitness: "Fitness",
-        filterOutdoor: "Outdoor",
-        filterBikes: "Bikes",
-        filterGames: "Games",
-
-        // Pets
-        filterPetFood: "Food",
-        filterPetToys: "Toys",
-        filterPetAccessories: "Accessories",
-
-        // Tools
+        filterHairDryers: "Hair Dryers",
+        filterHairStylers: "Hair Stylers",
+        filterHairProducts: "Hair Products",
+        filterAutoInterior: "Car Interior",
+        filterAutoExterior: "Car Exterior",
+        filterAutoTools: "Car Tools",
+        filterDashcams: "Dashcams",
+        filterGps: "GPS",
+        filterCarAudio: "Car Audio",
         filterHandTools: "Hand Tools",
-        filterPowerTools: "Power Tools",
-        filterGarden: "Garden",
-        filterSecurity: "Security",
-
-        // Office
+        filterToolBoxes: "Tool Boxes",
+        filterGardenTools: "Garden Tools",
+        filterDrills: "Drills",
+        filterSaws: "Saws",
+        filterSanders: "Sanders",
+        filterSecurityCameras: "Security Cameras",
+        filterSmartLocks: "Smart Locks",
+        filterAlarms: "Alarms",
+        filterFitnessGear: "Fitness Gear",
+        filterFootball: "Football",
+        filterOutdoor: "Outdoor",
+        filterConsoles: "Consoles",
+        filterControllers: "Controllers",
+        filterVideoGames: "Video Games",
+        filterRcToys: "RC Toys",
+        filterEducationalToys: "Educational Toys",
+        filterDolls: "Dolls",
+        filterPetFood: "Pet Food",
+        filterPetToys: "Pet Toys",
+        filterPetAccessories: "Pet Accessories",
         filterStationery: "Stationery",
-        filterOfficeOrganization: "Organization",
-        filterPrinting: "Printing",
+        filterOfficeFurniture: "Office Furniture",
+        filterOfficeElectronics: "Office Electronics",
 
-        // Misc
-        filterGadgets: "Gadgets",
-        filterParty: "Party",
-        filterPromotions: "Promotions",
-
-        // Reviews — badges
+        // RESTE DU SITE
         reviewBadgeVerified: "✅ Verified purchase",
         reviewRating: "Rating",
         reviewDate: "Date",
@@ -2018,4 +2061,4 @@ window.translations = {
     }
 };
 
-console.log('✅ translations.js chargé — Version 2.5.0 (navCategories ajouté)');
+console.log('✅ translations.js chargé — Version 3.0.0 (23 catégories traduites)');
