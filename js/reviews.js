@@ -1,29 +1,19 @@
 // js/reviews.js
 // ============================================================
 // AVIS CLIENTS - SMART SWI9A
-// Version 2.0.0 — Transactions atomiques (likes, featured, rating)
+// Version 2.0.1 — Fix critique : setDoc import manquant
 // ============================================================
-// CHANGEMENTS v2.0.0 :
-// ✅ C13.1 — toggleLike runTransaction (fin désync likesCount)
-// ✅ C13.2 — toggleFeaturedReview meta counter + transaction
-// ✅ C13.3 — approveReview avec retry rating (fin inconsistency)
-// ✅ I13.1 — Promise.all strict + rollback sur échec upload photo
-// ✅ I13.2 — renderAdminReviews queries ciblées + getCount
-// ✅ I13.3 — canUserReviewProduct query ciblée (delivered)
-// ✅ I13.4 — updateProductRating guard produit supprimé
-// ✅ I13.5 — createReview ID déterministe (anti-double)
-// ✅ M13.1 — escapeHTML(r.id) défense profondeur
-// ✅ M13.2 — loadAllReviews limit(100)
-// ✅ M13.3 — MAX_FEATURED via CONFIG
-// ✅ M13.4 — Lien produit dans admin reviews
-// ✅ M13.5 — Guard double render
-// ✅ M13.6 — Ordre deleteReview : storage → doc → rating → event
+// CHANGEMENTS v2.0.1 :
+// ✅ FIX CRITIQUE — Ajout de `setDoc` dans l'import firebase/firestore
+//    → createReview() plantait avec "ReferenceError: setDoc is not defined"
+// ✅ (Repris v2.0.0) — C13.1, C13.2, C13.3, I13.1, I13.2, I13.3, I13.4, I13.5
+// ✅ (Repris v2.0.0) — M13.1, M13.2, M13.3, M13.4, M13.5, M13.6
 // ============================================================
 // Dépend de : config, utils, firebase, auth, products, ui-core
 // ============================================================
 
 import {
-    collection, addDoc, doc, updateDoc, deleteDoc, getDoc, getDocs,
+    collection, addDoc, doc, updateDoc, deleteDoc, getDoc, getDocs, setDoc,
     query, where, Timestamp, arrayUnion, arrayRemove, increment,
     runTransaction, limit, getCountFromServer
 } from "firebase/firestore";
@@ -250,6 +240,7 @@ export async function createReview(productId, { rating, title, comment, photoFil
     };
 
     // ✅ I13.5 : setDoc avec ID déterministe
+    // ✅ FIX v2.0.1 : setDoc maintenant importé
     try {
         await setDoc(reviewRef, reviewData);
     } catch (e) {
@@ -849,4 +840,4 @@ export async function renderAdminReviews(containerId = 'reviewsList', statusFilt
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ reviews.js chargé — v2.0.0 (transactions atomiques + ID déterministe)');
+console.log('✅ reviews.js chargé — v2.0.1 (fix setDoc import + transactions atomiques)');
