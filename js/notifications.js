@@ -1,14 +1,28 @@
 // js/notifications.js
 // ============================================================
 // NOTIFICATIONS CLIENT - SMART SWI9A
-// Version 1.2.1 — FIX : URLs cleanUrls (/produit au lieu de /produit.html)
+// Version 2.0.0 — Fixes critiques (badge, logout, index)
+// ============================================================
+// CHANGEMENTS v2.0.0 :
+// ✅ C12.1 — unreadCount exclut review_request
+// ✅ C12.2 — Cache vidé au logout (auth-updated listener)
+// ✅ I12.1 — deleteReviewRequestForOrder centralisée
+// ✅ I12.2 — loadNotifications : orderBy + limit + fallback
+// ✅ I12.3 — attachGlobalUIEvents guard
+// ✅ I12.4 — Bouton "Tout marquer" re-render complet
+// ✅ I12.5 — escapeHTML(notif.id) (défense profondeur)
+// ✅ I12.6 — markAsRead toast sur permission-denied
+// ✅ M12.1-2 — NOTIFICATION_TYPES.REVIEW_REQUEST centralisé
+// ✅ M12.3 — Guard loadNotifications (race)
+// ✅ M12.4 — Validation type notification
+// ✅ M12.5 — Cloche cachée si non connecté
 // ============================================================
 // Dépend de : config, utils, firebase, auth, ui-core
 // ============================================================
 
 import {
     collection, query, where, getDocs, doc, updateDoc, deleteDoc,
-    Timestamp, writeBatch, addDoc
+    Timestamp, writeBatch, addDoc, orderBy, limit
 } from "firebase/firestore";
 import { db } from "./firebase.js";
 import { NOTIFICATION_TYPES } from "./config.js";
@@ -22,17 +36,40 @@ import { showToast, trapFocus, releaseFocusTrap } from "./ui-core.js";
 let notificationsCache = [];
 let unreadCount = 0;
 
-// ============================================================
-// CONSTANTE : type review_request
-// (non défini dans CONFIG.NOTIFICATIONS.TYPES, on utilise la string)
-// ============================================================
-const REVIEW_REQUEST_TYPE = 'review_request';
+// ✅ I12.3 : guard global listeners
+let _globalUIListenersAttached = false;
+
+// ✅ M12.3 : guard race loadNotifications
+let _loadInProgress = false;
+
+// ✅ M12.1 : constante depuis config (plus de string magique)
+const REVIEW_REQUEST_TYPE = NOTIFICATION_TYPES.REVIEW_REQUEST;
+const ORDER_RETURNED_TYPE = NOTIFICATION_TYPES.ORDER_RETURNED;
+
+// ✅ M12.4 : types valides
+const VALID_TYPES = new Set([
+    NOTIFICATION_TYPES.ORDER_CREATED,
+    NOTIFICATION_TYPES.ORDER_CONFIRMED,
+    NOTIFICATION_TYPES.ORDER_SHIPPING,
+    NOTIFICATION_TYPES.ORDER_DELIVERED,
+    NOTIFICATION_TYPES.ORDER_RETURNED,
+    NOTIFICATION_TYPES.ORDER_CANCELLED,
+    NOTIFICATION_TYPES.REVIEW_APPROVED,
+    NOTIFICATION_TYPES.REVIEW_REQUEST,
+    // Legacy (anciens documents)
+    'order_validated',
+    'order_received'
+]);
 
 // ============================================================
 // CHARGER LES NOTIFICATIONS
+// ✅ I12.2 : orderBy + limit + fallback
+// ✅ M12.3 : guard race
 // ============================================================
 export async function loadNotifications() {
     const user = getCurrentUser();
+
+    // Pas connecté → vider + retour
     if (!user) {
         notificationsCache = [];
         unreadCount = 0;
@@ -40,38 +77,87 @@ export async function loadNotifications() {
         return [];
     }
 
+    // ✅ M12.3 : guard race
+    if (_loadInProgress) {
+        console.log('ℹ️ loadNotifications déjà en cours — skip');
+        return notificationsCache;
+    }
+    _loadInProgress = true;
+
     try {
-        const q = query(
-            collection(db, "notifications"),
-            where("userId", "==", user.uid)
-        );
-        const snapshot = await getDocs(q);
+        let snapshot;
+
+        // ✅ I12.2 : tentative avec orderBy + limit
+        try {
+            const q = query(
+                collection(db, "notifications"),
+                where("userId", "==", user.uid),
+                orderBy("createdAt", "desc"),
+                limit(50)
+            );
+            snapshot = await getDocs(q);
+        } catch (e) {
+            // Fallback si index composite manquant (userId ASC + createdAt DESC)
+            if (e?.code === 'failed-precondition' || /index/i.test(e?.message || '')) {
+                console.warn('⚠️ Index manquant pour notifications, fallback sans orderBy');
+                const qFallback = query(
+                    collection(db, "notifications"),
+                    where("userId", "==", user.uid),
+                    limit(50)
+                );
+                snapshot = await getDocs(qFallback);
+            } else {
+                throw e;
+            }
+        }
+
         notificationsCache = snapshot.docs.map(d => {
             const data = d.data();
+
+            // ✅ M12.4 : validation type (défense)
+            const type = data.type && VALID_TYPES.has(data.type)
+                ? data.type
+                : 'unknown';
+
             return {
                 id: d.id,
                 ...data,
+                type,
                 createdAt: toDate(data.createdAt)
             };
         });
-        notificationsCache.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-        unreadCount = notificationsCache.filter(n => !n.read).length;
+        // Tri côté client (fallback ou déjà trié)
+        notificationsCache.sort((a, b) => {
+            const da = a.createdAt?.getTime?.() || 0;
+            const dbb = b.createdAt?.getTime?.() || 0;
+            return dbb - da;
+        });
+
+        // ✅ C12.1 : unreadCount EXCLUT les review_request
+        unreadCount = notificationsCache.filter(n =>
+            !n.read && n.type !== REVIEW_REQUEST_TYPE
+        ).length;
+
         updateNotificationBadge();
         return notificationsCache;
+
     } catch (e) {
         console.error('❌ Erreur chargement notifications :', e);
-        return [];
+        return notificationsCache;
+    } finally {
+        _loadInProgress = false;
     }
 }
 
 // ============================================================
-// BADGE
+// ✅ C12.1 : BADGE (avec compte séparé des review_request)
 // ============================================================
 export function updateNotificationBadge() {
     const badge = document.getElementById('notificationBadge');
     const bell = document.getElementById('notificationBell');
 
+    // ✅ M12.5 : cloche cachée si non connecté
     if (bell) {
         const user = getCurrentUser();
         bell.style.display = user ? 'flex' : 'none';
@@ -79,17 +165,19 @@ export function updateNotificationBadge() {
 
     if (!badge) return;
 
-    // ✅ NEW v1.2.0 : Les review_request comptent même si lues
+    // Review_request comptées à part (persistentes tant que non traitées)
     const pendingReviews = notificationsCache.filter(n =>
         n.type === REVIEW_REQUEST_TYPE
     ).length;
 
+    // ✅ C12.1 : unreadCount n'inclut PLUS les review_request
     const totalBadge = unreadCount + pendingReviews;
 
     if (totalBadge > 0) {
         badge.textContent = totalBadge > 9 ? '9+' : totalBadge;
         badge.style.display = 'flex';
-        // ✅ NEW : couleur différente si uniquement des review_request
+
+        // Couleur différente si uniquement des review_request
         if (unreadCount === 0 && pendingReviews > 0) {
             badge.style.background = 'var(--gold)';
         } else {
@@ -113,6 +201,7 @@ function getNotificationIcon(type) {
         [NOTIFICATION_TYPES.ORDER_CANCELLED]: '❌',
         [NOTIFICATION_TYPES.REVIEW_APPROVED]: '⭐',
         [REVIEW_REQUEST_TYPE]:                '⭐',
+        // Legacy (anciens docs Firestore)
         'order_validated': '✅',
         'order_received': '📦'
     };
@@ -181,7 +270,10 @@ export async function openNotificationsPanel() {
     if (markAllBtn) {
         markAllBtn.addEventListener('click', async () => {
             await markAllAsRead();
-            renderNotificationsContent();
+            // ✅ I12.4 : re-render complet (recharge + bouton disparaît)
+            releaseFocusTrap();
+            panel.remove();
+            await openNotificationsPanel();
             showToast('✅ ' + t('markAllRead'));
         });
     }
@@ -189,6 +281,7 @@ export async function openNotificationsPanel() {
 
 // ============================================================
 // RENDU DU CONTENU
+// ✅ I12.5 : escapeHTML(notif.id)
 // ============================================================
 function renderNotificationsContent() {
     const container = document.getElementById('notificationsContent');
@@ -204,7 +297,7 @@ function renderNotificationsContent() {
         return;
     }
 
-    // ✅ NEW v1.2.0 : Trier les review_request en premier
+    // Trier les review_request en premier
     const sorted = [...notificationsCache].sort((a, b) => {
         const aIsReview = isReviewRequest(a);
         const bIsReview = isReviewRequest(b);
@@ -219,23 +312,24 @@ function renderNotificationsContent() {
         const isUnread = !notif.read;
         const reviewReq = isReviewRequest(notif);
         const date = formatDateTime(notif.createdAt);
+        const safeId = escapeHTML(notif.id); // ✅ I12.5
 
-        // ✅ NEW v1.2.0 : Style spécial pour review_request (bordure dorée)
+        // Style spécial pour review_request
         const borderStyle = reviewReq
             ? 'border:2px solid var(--gold);background:linear-gradient(135deg,rgba(165,123,46,0.08),rgba(165,123,46,0.02));'
             : '';
 
-        // ✅ NEW v1.2.0 : Pas de bouton de suppression pour review_request
+        // Bouton de suppression (sauf review_request)
         const deleteBtnHtml = reviewReq
             ? `<span class="review-req-badge" title="${t('leaveReview') || 'Laisser un avis'}"
                 style="font-size:0.65rem;background:var(--gold);color:#fff;padding:0.15rem 0.5rem;border-radius:30px;font-weight:700;white-space:nowrap;">
                 ⭐ ${t('reviewStatusPending') || 'À faire'}
                </span>`
-            : `<button class="notif-delete-btn" data-notif-id="${notif.id}" title="${t('delete') || 'Supprimer'}"
+            : `<button class="notif-delete-btn" data-notif-id="${safeId}" title="${t('delete') || 'Supprimer'}"
                 style="background:transparent;border:none;color:var(--text-dim);cursor:pointer;font-size:1rem;">✕</button>`;
 
         html += `
-            <div class="notification-item ${isUnread ? 'unread' : ''} ${reviewReq ? 'review-request' : ''}" data-notif-id="${notif.id}" style="${borderStyle}">
+            <div class="notification-item ${isUnread ? 'unread' : ''} ${reviewReq ? 'review-request' : ''}" data-notif-id="${safeId}" style="${borderStyle}">
                 <div class="notification-icon">${icon}</div>
                 <div class="notification-content">
                     <div class="notification-title">${escapeHTML(notif.title || '')}</div>
@@ -262,7 +356,7 @@ function renderNotificationsContent() {
             e.stopPropagation();
             const notifId = btn.dataset.notifId;
             const notif = notificationsCache.find(n => n.id === notifId);
-            // ✅ NEW v1.2.0 : Sécurité — empêche la suppression d'une review_request
+            // Sécurité : empêche la suppression d'une review_request
             if (notif && isReviewRequest(notif)) {
                 showToast('⚠️ ' + (t('reviewOnlyAfterOrder') || 'Déposez d\'abord votre avis'));
                 return;
@@ -277,8 +371,6 @@ function renderNotificationsContent() {
 // CLIC SUR UNE NOTIFICATION
 // ============================================================
 async function handleNotificationClick(notif) {
-    // ✅ NEW v1.2.0 : Ne pas marquer comme lue les review_request
-    // (elles restent "en attente" tant que l'avis n'est pas déposé)
     const reviewReq = isReviewRequest(notif);
 
     if (!notif.read && !reviewReq) {
@@ -294,7 +386,7 @@ async function handleNotificationClick(notif) {
         panel.remove();
     }
 
-    // ✅ NEW v1.2.0 : Les review_request ouvrent les commandes avec le filtre "delivered"
+    // review_request → ouvrir commandes filtrées "delivered"
     if (reviewReq && notif.orderId) {
         document.dispatchEvent(new CustomEvent('open-account-orders', {
             detail: { orderId: notif.orderId, filter: 'delivered' }
@@ -307,13 +399,12 @@ async function handleNotificationClick(notif) {
             detail: { orderId: notif.orderId }
         }));
     } else if (notif.type === NOTIFICATION_TYPES.REVIEW_APPROVED && notif.productSlug) {
-        // ✅ FIX v1.2.1 : cleanUrls → /produit (sans .html)
         window.location.href = `/produit?slug=${encodeURIComponent(notif.productSlug)}`;
     }
 }
 
 // ============================================================
-// MARQUER COMME LUE
+// ✅ I12.6 : MARQUER COMME LUE (avec feedback permission-denied)
 // ============================================================
 export async function markAsRead(notifId) {
     try {
@@ -322,6 +413,9 @@ export async function markAsRead(notifId) {
         if (notif) notif.read = true;
     } catch (e) {
         console.error('❌ Erreur markAsRead :', e);
+        if (e?.code === 'permission-denied') {
+            showToast('⚠️ ' + (t('error') || 'Erreur') + ' — Permission refusée');
+        }
     }
 }
 
@@ -335,8 +429,6 @@ export async function markAllAsRead() {
     try {
         const batch = writeBatch(db);
         notificationsCache.forEach(notif => {
-            // ✅ NEW v1.2.0 : Ne pas marquer les review_request comme lues
-            // (elles doivent rester visibles tant que l'avis n'est pas déposé)
             if (!notif.read && !isReviewRequest(notif)) {
                 batch.update(doc(db, "notifications", notif.id), { read: true });
                 notif.read = true;
@@ -344,11 +436,15 @@ export async function markAllAsRead() {
         });
         await batch.commit();
 
-        // Recalculer unreadCount
-        unreadCount = notificationsCache.filter(n => !n.read).length;
+        unreadCount = notificationsCache.filter(n =>
+            !n.read && n.type !== REVIEW_REQUEST_TYPE
+        ).length;
         updateNotificationBadge();
     } catch (e) {
         console.error('❌ Erreur markAllAsRead :', e);
+        if (e?.code === 'permission-denied') {
+            showToast('⚠️ ' + (t('error') || 'Erreur') + ' — Permission refusée');
+        }
     }
 }
 
@@ -359,7 +455,7 @@ export async function deleteNotification(notifId) {
     try {
         const notif = notificationsCache.find(n => n.id === notifId);
 
-        // ✅ NEW v1.2.0 : Bloquer la suppression des review_request
+        // Bloquer la suppression des review_request
         if (notif && isReviewRequest(notif)) {
             showToast('⚠️ ' + (t('reviewOnlyAfterOrder') || 'Déposez d\'abord votre avis'));
             return;
@@ -400,12 +496,10 @@ export async function createNotification(userId, type, title, message, extra = {
 }
 
 // ============================================================
-// ✅ NEW v1.2.0 : SUPPRIMER TOUTES LES NOTIFICATIONS review_request D'UNE COMMANDE
+// ✅ I12.1 : SUPPRIMER LES review_request D'UNE COMMANDE
+// ------------------------------------------------------------
+// SOURCE UNIQUE — appelée par orders.js et ui.js (plus de duplication)
 // ============================================================
-/**
- * Supprime la notification review_request liée à une commande.
- * Appelée par orders.js après dépôt d'avis sur tous les produits.
- */
 export async function deleteReviewRequestForOrder(orderId) {
     const user = getCurrentUser();
     if (!user || !orderId) return;
@@ -480,17 +574,44 @@ export function initNotificationBell() {
 }
 
 // ============================================================
-// ✅ NEW v1.2.0 : ÉCOUTE DE L'EVENT review-submitted
-// (rafraîchit le badge après dépôt d'avis)
+// ✅ C12.2 + I12.3 : LISTENERS GLOBAUX (avec guard + logout clear)
 // ============================================================
 if (typeof document !== 'undefined') {
-    document.addEventListener('review-submitted', async () => {
-        console.log('⭐ [notifications] Event review-submitted reçu — refresh');
-        await loadNotifications();
-    });
+    // ✅ I12.3 : guard global
+    if (!_globalUIListenersAttached) {
+        _globalUIListenersAttached = true;
+
+        // ✅ C12.2 : vider le cache au logout + recharger au login
+        document.addEventListener('auth-updated', async (e) => {
+            const user = e.detail?.user;
+            if (!user) {
+                // Logout : vider le cache
+                notificationsCache = [];
+                unreadCount = 0;
+                updateNotificationBadge();
+                console.log('🧹 Cache notifications vidé (logout)');
+                return;
+            }
+            // Login : recharger
+            await loadNotifications();
+            updateNotificationBadge();
+        });
+
+        // review-submitted → refresh badge
+        document.addEventListener('review-submitted', async () => {
+            console.log('⭐ [notifications] Event review-submitted — refresh');
+            await loadNotifications();
+        });
+
+        // review-deleted → refresh badge (avis supprimé = notification à recompter)
+        document.addEventListener('review-deleted', async () => {
+            console.log('⭐ [notifications] Event review-deleted — refresh');
+            await loadNotifications();
+        });
+    }
 }
 
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ notifications.js chargé — v1.2.1 (fix cleanUrls)');
+console.log('✅ notifications.js chargé — v2.0.0 (badge, logout, index)');
