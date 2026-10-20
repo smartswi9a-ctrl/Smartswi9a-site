@@ -1,12 +1,7 @@
 // translations.js
 // ============================================================
 // TRADUCTIONS - SMART SWI9A (FR / AR / EN)
-// Version 2.4.0 — Fix i18n catégories complètes
-// CHANGEMENTS v2.4.0 :
-// ✅ C1.1 — 35+ clés catégories ajoutées (11 parents + 50 enfants)
-// ✅ C1.1 — Clés reviewBadgeVerified, reviewRating, reviewDate
-// ✅ C1.1 — Clés comboSize, comboColor
-// ✅ I1.2 — Clé blogCatGeneral déjà présente (vérifiée)
+// Version 2.5.0 — Ajout navCategories (Menu Catégories)
 // ============================================================
 
 window.translations = {
@@ -21,6 +16,7 @@ window.translations = {
         navAbout: "À propos",
         navAccount: "Mon compte",
         navCities: "Villes",
+        navCategories: "Catégories",
         logoText: "SMART SWI9A",
 
         heroBadge: "🇲🇦 Livraison dans tout le Maroc — Paiement à la livraison",
@@ -81,9 +77,6 @@ window.translations = {
         filterPrice: "Prix :",
         filterReset: "Réinitialiser",
 
-        // ============================================================
-        // ✅ C1.1 / FICHIER 1bis — Catégories (i18n complet)
-        // ============================================================
         // Parents
         filterElectronics: "Électronique",
         filterHome: "Maison",
@@ -694,6 +687,7 @@ window.translations = {
         navAbout: "حول",
         navAccount: "حسابي",
         navCities: "المدن",
+        navCategories: "الأقسام",
         logoText: "سمارت سويقة",
 
         heroBadge: "🇲🇦 التوصيل في جميع أنحاء المغرب — الدفع عند الاستلام",
@@ -754,9 +748,6 @@ window.translations = {
         filterPrice: "السعر :",
         filterReset: "إعادة تعيين",
 
-        // ============================================================
-        // ✅ C1.1 — Catégories (AR)
-        // ============================================================
         // Parents
         filterElectronics: "إلكترونيات",
         filterHome: "المنزل",
@@ -1366,6 +1357,7 @@ window.translations = {
         navAbout: "About",
         navAccount: "My account",
         navCities: "Cities",
+        navCategories: "Categories",
         logoText: "SMART SWI9A",
 
         heroBadge: "🇲🇦 Delivery across Morocco — Cash on delivery",
@@ -1426,14 +1418,10 @@ window.translations = {
         filterPrice: "Price:",
         filterReset: "Reset",
 
-        // ============================================================
-        // ✅ C1.1 — Categories (EN)
-        // ============================================================
         // Parents
         filterElectronics: "Electronics",
         filterHome: "Home",
         filterFashion: "Fashion",
-        filterBeauty: "Beauty",
         filterBabyKids: "Baby & Kids",
         filterAutoMoto: "Auto & Moto",
         filterPets: "Pets",
@@ -2030,4 +2018,4 @@ window.translations = {
     }
 };
 
-console.log('✅ translations.js chargé — Version 2.4.0 (35+ clés catégories + badges)');
+console.log('✅ translations.js chargé — Version 2.5.0 (navCategories ajouté)');
