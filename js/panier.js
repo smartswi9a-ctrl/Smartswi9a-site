@@ -1,9 +1,27 @@
 // js/panier.js
 // ============================================================
 // PAGE PANIER DÉDIÉE - SMART SWI9A
-// Version 1.4.2 — FIX : réactivation du bouton checkout en cas d'échec
+// Version 2.0.0 — Refonte coupons + checkout + suggestions
 // ============================================================
-// Dépend de : config, utils, store, auth, cart, ui-core, products, firebase
+// CHANGEMENTS v2.0.0 :
+// ✅ C9.1 — validateCoupon/calculateCouponDiscount via services/coupons
+// ✅ C9.2 — revalidateCoupon(silent) avec toasts explicites
+// ✅ I9.1 — handleCheckoutFromPage try/finally + bouton réactivé
+// ✅ I9.2 — renderCartItem max = stock variante
+// ✅ I9.3 — Nettoyage items invalides (produit/variante supprimés)
+// ✅ I9.4 — trim() avant comparaison ville
+// ✅ I9.5 — refreshSummaryTotals met à jour la ligne coupon
+// ✅ C5.2 — waWindow pré-ouvert (anti popup-block)
+// ✅ M9.1 — document.click délégué (pas accumulé)
+// ✅ M9.2 — initCouponCode guard _initialized
+// ✅ M9.3 — renderSuggestions guard cartCategories.size
+// ✅ M9.4 — savings skip variants
+// ✅ M9.7 — cart-updated debounce 200ms
+// ✅ M9.8 — renderEmptyCart bouton retour
+// ✅ M9.10 — applyCouponCode race guard
+// ============================================================
+// Dépend de : config, utils, store, auth, cart, ui-core, products,
+//             firebase, services/coupons
 // URL      : /panier (ou /panier.html)
 // ============================================================
 
@@ -22,25 +40,25 @@ import {
 } from "./cart.js";
 import { getCurrentUser } from "./auth.js";
 import { showToast, confirmAction } from "./ui-core.js";
-import { collection, query, where, getDocs } from "firebase/firestore";
-import { db } from "./firebase.js";
+import { validateCoupon, calculateCouponDiscount } from "./services/coupons.js";
 
 // ============================================================
 // ÉTAT LOCAL
 // ============================================================
 let cartPageInitialized = false;
-
-// ✅ Coupon appliqué
-// Structure : { id, code, type, value, minPurchase, discountAmount, oneUsePerUser }
 let appliedCoupon = null;
 
 const COUPON_STORAGE_KEY = 'swi9a_applied_coupon';
+const CITY_SEARCH_DEBOUNCE = 300;
 
-// ✅ FIX : Timer global pour la recherche ville
+// ✅ M9.1 : timer global pour la recherche ville
 let citySearchDebounceTimer = null;
 
+// ✅ M9.10 : guard race applyCouponCode
+let couponValidationInProgress = false;
+
 // ============================================================
-// ✅ COUPON — PERSISTANCE
+// COUPON — PERSISTANCE
 // ============================================================
 function loadAppliedCoupon() {
     try {
@@ -49,7 +67,7 @@ function loadAppliedCoupon() {
             const parsed = JSON.parse(saved);
             if (parsed && parsed.code && parsed.type) {
                 appliedCoupon = parsed;
-                console.log('✅ Coupon restauré depuis sessionStorage :', parsed.code);
+                console.log('✅ Coupon restauré :', parsed.code);
             } else {
                 appliedCoupon = null;
             }
@@ -73,24 +91,51 @@ function saveAppliedCoupon() {
 }
 
 // ============================================================
-// ✅ COUPON — CALCUL DE LA RÉDUCTION
+// ✅ C9.2 — REVALIDATION COUPON (avec param silent)
 // ============================================================
-function calculateCouponDiscount(coupon, subtotal, deliveryFee) {
-    if (!coupon) return 0;
-    const type = coupon.type;
-    const value = Number(coupon.value) || 0;
+async function revalidateCoupon(silent = false) {
+    if (!appliedCoupon) return false;
 
-    if (type === 'percentage') {
-        const pct = Math.min(100, Math.max(0, value));
-        return Math.round((subtotal * pct) / 100);
+    const subtotal = getCartSubtotal();
+
+    // Panier vide
+    if (subtotal <= 0) {
+        if (!silent) showToast('⚠️ Code retiré : panier vide');
+        appliedCoupon = null;
+        saveAppliedCoupon();
+        return true;
     }
-    if (type === 'fixed') {
-        return Math.min(Math.max(0, value), subtotal);
+
+    // Montant minimum
+    const minPurchase = Number(appliedCoupon.minPurchase) || 0;
+    if (subtotal < minPurchase) {
+        const oldCode = appliedCoupon.code;
+        appliedCoupon = null;
+        saveAppliedCoupon();
+        if (!silent) showToast(`⚠️ Code ${oldCode} retiré : minimum ${minPurchase} MAD non atteint`);
+        return true;
     }
-    if (type === 'free_shipping') {
-        return Number(deliveryFee) || 0;
+
+    // Recalcul
+    const deliveryFee = getCartDeliveryFee();
+    const newDiscount = calculateCouponDiscount(appliedCoupon, subtotal, deliveryFee);
+
+    if (newDiscount <= 0) {
+        appliedCoupon = null;
+        saveAppliedCoupon();
+        if (!silent) showToast('⚠️ Code retiré : plus aucune réduction applicable');
+        return true;
     }
-    return 0;
+
+    // Détecter changement de montant
+    const oldAmount = Number(appliedCoupon.discountAmount) || 0;
+    if (newDiscount !== oldAmount) {
+        appliedCoupon.discountAmount = newDiscount;
+        saveAppliedCoupon();
+        return true;
+    }
+
+    return false;
 }
 
 // ============================================================
@@ -102,7 +147,6 @@ async function initCartPage() {
 
     console.log('🚀 Initialisation page panier...');
 
-    // ✅ Charger le coupon AVANT le premier render
     loadAppliedCoupon();
 
     try {
@@ -112,7 +156,7 @@ async function initCartPage() {
             new Promise(resolve => setTimeout(resolve, 3000))
         ]);
     } catch (e) {
-        console.warn('⚠️ Attente appReady échouée, on continue :', e);
+        console.warn('⚠️ Attente appReady échouée :', e);
     }
 
     try {
@@ -125,10 +169,14 @@ async function initCartPage() {
 
     renderCartPage();
 
-    // ✅ Revalidation + re-render à chaque changement du panier
+    // ✅ M9.7 : debounce cart-updated (évite re-renders multiples)
+    let cartUpdateTimer = null;
     document.addEventListener('cart-updated', async () => {
-        const changed = await revalidateCoupon();
-        renderCartPage({ skipSuggestions: true });
+        if (cartUpdateTimer) clearTimeout(cartUpdateTimer);
+        cartUpdateTimer = setTimeout(async () => {
+            const changed = await revalidateCoupon(true); // silent
+            renderCartPage({ skipSuggestions: true });
+        }, 200);
     });
 
     document.addEventListener('lang-changed', () => {
@@ -143,44 +191,50 @@ async function initCartPage() {
 }
 
 // ============================================================
-// ✅ COUPON — REVALIDATION (retourne true si re-render nécessaire)
+// ✅ I9.3 — NETTOYAGE ITEMS INVALIDES
+// ------------------------------------------------------------
+// Retire du panier :
+//  - produits supprimés du catalogue
+//  - variantes supprimées
+// Affiche un toast récapitulatif
 // ============================================================
-async function revalidateCoupon() {
-    if (!appliedCoupon) return false;
+function cleanInvalidCartItems() {
+    const cart = getCart();
+    const products = getProducts();
+    if (cart.length === 0 || products.length === 0) return { removed: 0 };
 
-    const subtotal = getCartSubtotal();
+    const invalid = [];
 
-    // Si panier vide → retirer le coupon
-    if (subtotal <= 0) {
-        appliedCoupon = null;
-        saveAppliedCoupon();
-        return true;
+    cart.forEach(item => {
+        const product = products.find(p => Number(p.id) === item.productId);
+        if (!product) {
+            invalid.push({ item, reason: 'product_removed', name: `#${item.productId}` });
+            return;
+        }
+
+        if (item.variant) {
+            const v = (product.variants || []).find(v =>
+                (v.size || '') === (item.variant.size || '') &&
+                (v.color || '') === (item.variant.color || '')
+            );
+            if (!v) {
+                invalid.push({
+                    item,
+                    reason: 'variant_removed',
+                    name: getProductName(product),
+                    variant: [item.variant.size, item.variant.color].filter(Boolean).join(' / ')
+                });
+            }
+        }
+    });
+
+    if (invalid.length > 0) {
+        invalid.forEach(inv => removeFromCart(inv.item.id));
+        const names = invalid.map(inv => inv.name + (inv.variant ? ` (${inv.variant})` : '')).join(', ');
+        showToast(`⚠️ ${invalid.length} article(s) indisponible(s) retiré(s) : ${names}`);
     }
 
-    // Vérifier minPurchase
-    const minPurchase = Number(appliedCoupon.minPurchase) || 0;
-    if (subtotal < minPurchase) {
-        const oldCode = appliedCoupon.code;
-        appliedCoupon = null;
-        saveAppliedCoupon();
-        showToast(`⚠️ Code ${oldCode} retiré : minimum ${minPurchase} MAD non atteint`);
-        return true;
-    }
-
-    // Recalculer la réduction (au cas où la ville/frais ait changé)
-    const deliveryFee = getCartDeliveryFee();
-    const newDiscount = calculateCouponDiscount(appliedCoupon, subtotal, deliveryFee);
-
-    if (newDiscount <= 0) {
-        appliedCoupon = null;
-        saveAppliedCoupon();
-        showToast('⚠️ Code promo retiré : plus aucune réduction applicable');
-        return true;
-    }
-
-    appliedCoupon.discountAmount = newDiscount;
-    saveAppliedCoupon();
-    return false;
+    return { removed: invalid.length, details: invalid };
 }
 
 // ============================================================
@@ -193,32 +247,31 @@ function renderCartPage(options = {}) {
     const loading = document.getElementById('cartPageLoading');
     if (!container) return;
 
+    // ✅ I9.3 : nettoyage AVANT rendu
+    cleanInvalidCartItems();
+
     const cart = getCart();
 
     if (!cart || cart.length === 0) {
         container.innerHTML = renderEmptyCart();
-        loading.style.display = 'none';
+        if (loading) loading.style.display = 'none';
         container.style.display = 'block';
-        attachEmptyCartEvents();
-        if (!skipSuggestions) {
-            renderSuggestions();
-        }
+        if (!skipSuggestions) renderSuggestions();
         return;
     }
 
     container.innerHTML = renderFullCart(cart);
-    loading.style.display = 'none';
+    if (loading) loading.style.display = 'none';
     container.style.display = 'block';
 
     attachFullCartEvents();
-    if (!skipSuggestions) {
-        renderSuggestions();
-    }
+    if (!skipSuggestions) renderSuggestions();
     updateCartBadge();
 }
 
 // ============================================================
 // PANIER VIDE
+// ✅ M9.8 : bouton "Retour aux produits" bien visible
 // ============================================================
 function renderEmptyCart() {
     return `
@@ -231,12 +284,13 @@ function renderEmptyCart() {
             <a href="/#produits" class="btn-primary cart-page-empty-btn">
                 🛍️ ${t('cartDiscoverProducts') || 'Découvrir nos produits'}
             </a>
+            <div style="margin-top:1rem;">
+                <a href="/" style="color:var(--gold);text-decoration:none;font-size:0.9rem;font-weight:600;">
+                    ← ${t('productBreadcrumbHome') || 'Retour à l\'accueil'}
+                </a>
+            </div>
         </div>
     `;
-}
-
-function attachEmptyCartEvents() {
-    // Rien à attacher pour le panier vide
 }
 
 // ============================================================
@@ -250,7 +304,7 @@ function renderFullCart(cart) {
     const itemsHtml = cart.map(item => {
         const product = products.find(p => Number(p.id) === item.productId);
         if (!product) return '';
-        return renderCartItem(product, item.quantity);
+        return renderCartItem(product, item.quantity, item);
     }).filter(Boolean).join('');
 
     const formHtml = renderForm(user);
@@ -265,8 +319,6 @@ function renderFullCart(cart) {
         </div>
 
         <div class="cart-page-grid">
-
-            <!-- Colonne gauche : articles -->
             <div class="cart-page-items">
                 <div class="cart-page-items-header">
                     <span>${t('cartItems') || 'Vos articles'}</span>
@@ -280,7 +332,6 @@ function renderFullCart(cart) {
                 </a>
             </div>
 
-            <!-- Colonne droite : Informations → Récapitulatif → Bouton -->
             <div class="cart-page-summary-column">
                 ${formHtml}
                 ${summaryHtml}
@@ -291,16 +342,35 @@ function renderFullCart(cart) {
 }
 
 // ============================================================
-// UNE CARTE PRODUIT
+// ✅ I9.2 — UNE CARTE PRODUIT (max=stock variante)
 // ============================================================
-function renderCartItem(product, quantity) {
+function renderCartItem(product, quantity, item) {
     const pid = Number(product.id);
     const name = escapeHTML(getProductName(product));
     const img = getProductImageUrl(product);
     const fallback = getFallbackImage(name);
-    const price = Number(product.price) || 0;
-    const oldPrice = Number(product.oldPrice) || 0;
-    const stock = Number(product.stock) || 0;
+
+    // ✅ I9.2 : prix/stock selon variante
+    const variant = item?.variant || null;
+    let price = Number(product.price) || 0;
+    let oldPrice = Number(product.oldPrice) || 0;
+    let stock = Number(product.stock) || 0;
+    let variantLabel = '';
+
+    if (variant) {
+        const v = (product.variants || []).find(v =>
+            (v.size || '') === (variant.size || '') &&
+            (v.color || '') === (variant.color || '')
+        );
+        if (v) {
+            price = Number(v.price) || price;
+            stock = Number(v.stock) || 0;
+            // ✅ Pas de per-variant oldPrice → on n'affiche pas de barré
+            oldPrice = 0;
+        }
+        variantLabel = [variant.size, variant.color].filter(Boolean).join(' / ');
+    }
+
     const rating = Number(product.ratingAvg) || 0;
     const ratingCount = Number(product.ratingCount) || 0;
     const category = product.category || '';
@@ -323,18 +393,19 @@ function renderCartItem(product, quantity) {
         ? `<div class="cart-item-rating">${renderStars(rating)} <span>(${ratingCount})</span></div>`
         : '';
 
-    return `
-        <div class="cart-page-item" data-product-id="${pid}">
+    // ✅ I9.2 : max = stock (variante ou global)
+    const maxStock = Math.max(1, stock || 999);
 
+    return `
+        <div class="cart-page-item" data-product-id="${pid}" data-item-id="${escapeHTML(item?.id || '')}">
             <a href="${productUrl}" class="cart-page-item-img-link">
                 <img src="${img}" alt="${name}" class="cart-page-item-img"
-                     onerror="this.src='${fallback}'" loading="lazy">
+                     onerror="this.onerror=null; this.src='${fallback}'" loading="lazy">
             </a>
 
             <div class="cart-page-item-info">
-                <a href="${productUrl}" class="cart-page-item-name">
-                    ${name}
-                </a>
+                <a href="${productUrl}" class="cart-page-item-name">${name}</a>
+                ${variantLabel ? `<div style="font-size:0.8rem;color:var(--gold);font-weight:600;">${escapeHTML(variantLabel)}</div>` : ''}
 
                 <div class="cart-page-item-meta">
                     ${category ? `<span class="cart-item-category">📂 ${escapeHTML(category)}</span>` : ''}
@@ -353,16 +424,14 @@ function renderCartItem(product, quantity) {
                     </div>
 
                     <div class="cart-page-item-actions">
-                        <button class="cart-page-qty-btn" data-action="cart:decrease" data-id="${pid}" ${quantity <= 1 ? 'disabled' : ''}>−</button>
-                        <input type="number" class="cart-page-qty-input" data-id="${pid}" value="${quantity}" min="1" max="${stock || 999}" step="1">
-                        <button class="cart-page-qty-btn" data-action="cart:increase" data-id="${pid}" ${quantity >= stock ? 'disabled' : ''}>+</button>
+                        <button class="cart-page-qty-btn" data-action="cart:decrease" data-id="${escapeHTML(item?.id || '')}" ${quantity <= 1 ? 'disabled' : ''}>−</button>
+                        <input type="number" class="cart-page-qty-input" data-id="${escapeHTML(item?.id || '')}" value="${quantity}" min="1" max="${maxStock}" step="1">
+                        <button class="cart-page-qty-btn" data-action="cart:increase" data-id="${escapeHTML(item?.id || '')}" ${quantity >= maxStock ? 'disabled' : ''}>+</button>
                     </div>
 
-                    <div class="cart-page-item-linetotal">
-                        ${lineTotal} ${t('currency')}
-                    </div>
+                    <div class="cart-page-item-linetotal">${lineTotal} ${t('currency')}</div>
 
-                    <button class="cart-page-remove-btn" data-action="cart:remove" data-id="${pid}" aria-label="${t('removeItemAria')}">🗑️</button>
+                    <button class="cart-page-remove-btn" data-action="cart:remove" data-id="${escapeHTML(item?.id || '')}" aria-label="${t('removeItemAria')}">🗑️</button>
                 </div>
             </div>
         </div>
@@ -370,10 +439,9 @@ function renderCartItem(product, quantity) {
 }
 
 // ============================================================
-// ✅ COUPON — BLOC HTML (input OU badge appliqué)
+// BLOC COUPON
 // ============================================================
 function renderCouponBlock() {
-    // Si un coupon est appliqué → badge vert
     if (appliedCoupon) {
         const code = escapeHTML(appliedCoupon.code || '');
         const discountAmount = Number(appliedCoupon.discountAmount) || 0;
@@ -399,7 +467,6 @@ function renderCouponBlock() {
         `;
     }
 
-    // Sinon → input + bouton
     return `
         <div class="cart-page-coupon-box">
             <div class="cart-page-coupon-title">🎟️ Code promo</div>
@@ -424,18 +491,15 @@ function renderSummary() {
     const deliveryFee = getCartDeliveryFee();
     const selectedCity = getSelectedCity();
 
-    // ✅ Réduction coupon (recalculée à chaque fois)
     const couponDiscount = appliedCoupon
         ? calculateCouponDiscount(appliedCoupon, subtotal, deliveryFee)
         : 0;
 
-    // Mettre à jour le montant dans l'objet coupon
     if (appliedCoupon && couponDiscount !== appliedCoupon.discountAmount) {
         appliedCoupon.discountAmount = couponDiscount;
         saveAppliedCoupon();
     }
 
-    // ✅ Total final (avec réduction coupon)
     const totalDiscount = Math.min(volumeDiscount + couponDiscount, subtotal);
     const total = Math.max(0, subtotal - totalDiscount + deliveryFee);
 
@@ -460,29 +524,18 @@ function renderSummary() {
     const thresholdDiscount = CONFIG.SHOP.DISCOUNT_THRESHOLD || 3;
     let promoHint = '';
     if (volumeDiscount > 0) {
-        promoHint = `
-            <div class="cart-page-promo-hint active">
-                🎉 ${t('cartPromoApplied') || `-${CONFIG.SHOP.DISCOUNT_PERCENT}% appliqué sur votre commande !`}
-            </div>
-        `;
+        promoHint = `<div class="cart-page-promo-hint active">🎉 ${t('cartPromoApplied') || `-${CONFIG.SHOP.DISCOUNT_PERCENT}% appliqué sur votre commande !`}</div>`;
     } else if (totalItems > 0 && !appliedCoupon) {
         const remaining = thresholdDiscount - totalItems;
         if (remaining > 0) {
-            promoHint = `
-                <div class="cart-page-promo-hint">
-                    🎁 ${t('cartPromoUnlock') || 'Ajoutez'} <strong>${remaining}</strong> ${t('cartPromoUnlockItems') || `article${remaining > 1 ? 's' : ''} pour -${CONFIG.SHOP.DISCOUNT_PERCENT}%`}
-                </div>
-            `;
+            promoHint = `<div class="cart-page-promo-hint">🎁 ${t('cartPromoUnlock') || 'Ajoutez'} <strong>${remaining}</strong> ${t('cartPromoUnlockItems') || `article${remaining > 1 ? 's' : ''} pour -${CONFIG.SHOP.DISCOUNT_PERCENT}%`}</div>`;
         }
     }
 
     return `
         <div class="cart-page-summary">
             <h3 class="cart-page-summary-title">📋 ${t('cartSummary') || 'Récapitulatif'}</h3>
-
-            <!-- ✅ Bloc code promo -->
             ${renderCouponBlock()}
-
             ${freeDeliveryHtml}
             ${promoHint}
 
@@ -505,11 +558,10 @@ function renderSummary() {
                 </div>
             ` : ''}
 
-            <!-- ✅ Ligne réduction coupon -->
             ${couponDiscount > 0 ? `
-                <div class="cart-page-summary-row discount">
-                    <span>🎟️ ${appliedCoupon.code} (-${appliedCoupon.type === 'percentage' ? appliedCoupon.value + '%' : appliedCoupon.type === 'free_shipping' ? 'Livraison' : appliedCoupon.value + ' MAD'})</span>
-                    <span>−${couponDiscount} ${t('currency')}</span>
+                <div class="cart-page-summary-row discount" id="couponDiscountRow">
+                    <span>🎟️ ${escapeHTML(appliedCoupon.code)} (-${appliedCoupon.type === 'percentage' ? appliedCoupon.value + '%' : appliedCoupon.type === 'free_shipping' ? 'Livraison' : appliedCoupon.value + ' MAD'})</span>
+                    <span id="couponDiscountValue">−${couponDiscount} ${t('currency')}</span>
                 </div>
             ` : ''}
 
@@ -530,9 +582,6 @@ function renderSummary() {
     `;
 }
 
-// ============================================================
-// BOUTON "COMMANDER" SÉPARÉ
-// ============================================================
 function renderCheckoutButton() {
     return `
         <button class="cart-page-checkout-btn" id="cartPageCheckout" style="margin-top: 1.5rem;">
@@ -542,7 +591,7 @@ function renderCheckoutButton() {
 }
 
 // ============================================================
-// Mise à jour en place (sans re-render complet)
+// ✅ I9.5 — Mise à jour en place (coupon inclus)
 // ============================================================
 function refreshSummaryTotals() {
     const deliveryEl = document.querySelector('.cart-delivery-value');
@@ -559,14 +608,26 @@ function refreshSummaryTotals() {
         }
     }
 
-    // Recalcul total avec coupon
+    const subtotal = getCartSubtotal();
+    const volumeDiscount = getCartDiscount();
+    const deliveryFee = getCartDeliveryFee();
+    const couponDiscount = appliedCoupon
+        ? calculateCouponDiscount(appliedCoupon, subtotal, deliveryFee)
+        : 0;
+
+    // ✅ I9.5 : mise à jour ligne coupon
+    if (appliedCoupon && couponDiscount > 0) {
+        appliedCoupon.discountAmount = couponDiscount;
+        saveAppliedCoupon();
+
+        const couponRow = document.getElementById('couponDiscountRow');
+        const couponValueEl = document.getElementById('couponDiscountValue');
+        if (couponRow && couponValueEl) {
+            couponValueEl.textContent = `−${couponDiscount} ${t('currency')}`;
+        }
+    }
+
     if (totalEl) {
-        const subtotal = getCartSubtotal();
-        const volumeDiscount = getCartDiscount();
-        const deliveryFee = getCartDeliveryFee();
-        const couponDiscount = appliedCoupon
-            ? calculateCouponDiscount(appliedCoupon, subtotal, deliveryFee)
-            : 0;
         const totalDiscount = Math.min(volumeDiscount + couponDiscount, subtotal);
         const total = Math.max(0, subtotal - totalDiscount + deliveryFee);
         totalEl.textContent = `${total} ${t('currency')}`;
@@ -626,6 +687,7 @@ function renderForm(user) {
 
 // ============================================================
 // PRODUITS SUGGÉRÉS
+// ✅ M9.3 : guard cartCategories.size > 0
 // ============================================================
 function renderSuggestions() {
     const container = document.getElementById('cartSuggestionsRoot');
@@ -637,23 +699,27 @@ function renderSuggestions() {
 
     const available = products.filter(p => !cartIds.has(Number(p.id)) && (Number(p.stock) || 0) > 0);
 
+    // ✅ M9.3 : guard categories empty
     const cartCategories = new Set();
     cart.forEach(item => {
         const p = products.find(pp => Number(pp.id) === Number(item.productId));
         if (p && p.category) cartCategories.add(p.category);
     });
 
-    const similar = available
-        .filter(p => cartCategories.has(p.category))
-        .sort(() => Math.random() - 0.5)
-        .slice(0, 4);
+    let similar = [];
+    if (cartCategories.size > 0) {
+        similar = available
+            .filter(p => cartCategories.has(p.category))
+            .sort(() => Math.random() - 0.5)
+            .slice(0, 4);
+    }
 
     const promos = available
         .filter(p => Number(p.oldPrice) > Number(p.price) && Number(p.oldPrice) > 0)
         .sort((a, b) => {
             const da = (Number(a.oldPrice) - Number(a.price)) / Number(a.oldPrice);
-            const db = (Number(b.oldPrice) - Number(b.price)) / Number(b.oldPrice);
-            return db - da;
+            const dbb = (Number(b.oldPrice) - Number(b.price)) / Number(b.oldPrice);
+            return dbb - da;
         })
         .slice(0, 4);
 
@@ -735,7 +801,7 @@ function renderSuggestionCard(product) {
     return `
         <div class="cart-suggestion-card" data-slug="${escapeHTML(product.slug || '')}">
             <div class="cart-suggestion-img">
-                <img src="${img}" alt="${name}" onerror="this.src='${fallback}'" loading="lazy">
+                <img src="${img}" alt="${name}" onerror="this.onerror=null; this.src='${fallback}'" loading="lazy">
                 ${isPromo ? `<span class="cart-suggestion-badge">-${discountPercent}%</span>` : ''}
             </div>
             <div class="cart-suggestion-body">
@@ -753,20 +819,20 @@ function renderSuggestionCard(product) {
 }
 
 // ============================================================
-// ✅ COUPON — INITIALISATION DES LISTENERS
+// ✅ M9.2 — COUPON LISTENERS (avec guard _initialized)
 // ============================================================
 function initCouponCode() {
     const input = document.getElementById('couponCodeInput');
     const applyBtn = document.getElementById('applyCouponBtn');
     const removeBtn = document.getElementById('removeCouponBtn');
 
-    if (input) {
+    if (input && !input._initialized) {
+        input._initialized = true;
         input.addEventListener('input', () => {
             const pos = input.selectionStart;
             input.value = input.value.toUpperCase().replace(/[^A-Z0-9_-]/g, '');
             input.setSelectionRange(pos, pos);
         });
-
         input.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
                 e.preventDefault();
@@ -775,138 +841,75 @@ function initCouponCode() {
         });
     }
 
-    if (applyBtn) {
+    if (applyBtn && !applyBtn._initialized) {
+        applyBtn._initialized = true;
         applyBtn.addEventListener('click', applyCouponCode);
     }
 
-    if (removeBtn) {
+    if (removeBtn && !removeBtn._initialized) {
+        removeBtn._initialized = true;
         removeBtn.addEventListener('click', removeCoupon);
     }
 }
 
 // ============================================================
-// ✅ COUPON — APPLIQUER
+// ✅ C9.1 + M9.10 — APPLIQUER (via validateCoupon + race guard)
 // ============================================================
 async function applyCouponCode() {
+    if (couponValidationInProgress) return;
+
     const input = document.getElementById('couponCodeInput');
     const applyBtn = document.getElementById('applyCouponBtn');
     const msgEl = document.getElementById('couponCodeMsg');
-
     if (!input || !applyBtn) return;
 
     const code = (input.value || '').trim().toUpperCase();
-
     const showMsg = (text, type = 'error') => {
         if (!msgEl) return;
         msgEl.textContent = text;
         msgEl.className = 'cart-page-coupon-msg ' + (type === 'success' ? 'success' : 'error');
     };
 
-    if (!code) {
-        showMsg('⚠️ Veuillez saisir un code promo');
-        return;
-    }
-    if (code.length < 3) {
-        showMsg('⚠️ Le code doit faire au moins 3 caractères');
-        return;
-    }
+    if (!code) { showMsg('⚠️ Veuillez saisir un code promo'); return; }
+    if (code.length < 3) { showMsg('⚠️ Le code doit faire au moins 3 caractères'); return; }
 
+    couponValidationInProgress = true;
     applyBtn.disabled = true;
     const originalText = applyBtn.textContent;
     applyBtn.textContent = '⏳';
     showMsg('');
 
     try {
-        const q = query(collection(db, 'coupons'), where('code', '==', code));
-        const snap = await getDocs(q);
-
-        if (snap.empty) {
-            showMsg('❌ Code promo introuvable');
-            return;
-        }
-
-        const couponDoc = snap.docs[0];
-        const couponData = couponDoc.data();
-
-        if (couponData.isActive !== true) {
-            showMsg('⏸️ Ce code promo n\'est pas actif');
-            return;
-        }
-
-        const expiresAt = couponData.expiresAt ? toDate(couponData.expiresAt) : null;
-        if (expiresAt && expiresAt.getTime() < Date.now()) {
-            showMsg('⏰ Ce code promo a expiré');
-            return;
-        }
-
-        const maxUses = Number(couponData.maxUses) || 0;
-        const usedCount = Number(couponData.usedCount) || 0;
-        if (maxUses > 0 && usedCount >= maxUses) {
-            showMsg('🚫 Ce code promo a atteint sa limite d\'utilisation');
-            return;
-        }
-
+        const user = getCurrentUser();
         const subtotal = getCartSubtotal();
-        const minPurchase = Number(couponData.minPurchase) || 0;
-        if (subtotal < minPurchase) {
-            showMsg(`🛒 Montant minimum requis : ${minPurchase} MAD (actuel : ${subtotal} MAD)`);
-            return;
-        }
-
-        if (couponData.oneUsePerUser === true) {
-            const user = getCurrentUser();
-            if (user && user.uid) {
-                const usesQ = query(
-                    collection(db, 'coupon_uses'),
-                    where('couponId', '==', couponDoc.id),
-                    where('userId', '==', user.uid)
-                );
-                const usesSnap = await getDocs(usesQ);
-                if (!usesSnap.empty) {
-                    showMsg('👤 Vous avez déjà utilisé ce code promo');
-                    return;
-                }
-            }
-        }
-
         const deliveryFee = getCartDeliveryFee();
-        const discountAmount = calculateCouponDiscount(
-            { type: couponData.type, value: Number(couponData.value) || 0 },
-            subtotal,
-            deliveryFee
-        );
 
-        if (discountAmount <= 0) {
-            showMsg('⚠️ Ce code ne produit aucune réduction');
+        // ✅ C9.1 : utilise validateCoupon (service centralisé)
+        const result = await validateCoupon(code, subtotal, deliveryFee, user?.uid || null);
+
+        if (!result.valid) {
+            showMsg('❌ ' + (result.error || 'Code invalide'));
             return;
         }
 
-        appliedCoupon = {
-            id: couponDoc.id,
-            code: couponData.code,
-            type: couponData.type,
-            value: Number(couponData.value) || 0,
-            minPurchase,
-            discountAmount,
-            oneUsePerUser: couponData.oneUsePerUser === true
-        };
+        appliedCoupon = result.coupon;
         saveAppliedCoupon();
 
-        showToast('✅ Code promo appliqué : -' + discountAmount + ' ' + t('currency'));
-
+        showToast('✅ Code promo appliqué : -' + result.discountAmount + ' ' + t('currency'));
         renderCartPage({ skipSuggestions: true });
 
     } catch (e) {
         console.error('❌ Erreur applyCouponCode :', e);
         showMsg('❌ ' + (e.message || 'Impossible de valider le code'));
     } finally {
+        couponValidationInProgress = false;
         applyBtn.disabled = false;
         applyBtn.textContent = originalText;
     }
 }
 
 // ============================================================
-// ✅ COUPON — RETIRER
+// RETIRER LE COUPON
 // ============================================================
 function removeCoupon() {
     if (!appliedCoupon) return;
@@ -924,8 +927,9 @@ function attachFullCartEvents() {
     const container = document.getElementById('cartPageContent');
     if (!container) return;
 
-    // Bouton Vider le panier
     container.querySelectorAll('[data-action="cart:clear"]').forEach(btn => {
+        if (btn._initialized) return;
+        btn._initialized = true;
         btn.addEventListener('click', async () => {
             const confirmed = await confirmAction(t('confirmClearCartMsg'), {
                 title: t('confirmClearCartTitle'),
@@ -941,70 +945,73 @@ function attachFullCartEvents() {
         });
     });
 
-    // Boutons + / −
     container.querySelectorAll('[data-action="cart:increase"]').forEach(btn => {
+        if (btn._initialized) return;
+        btn._initialized = true;
         btn.addEventListener('click', () => {
-            const id = Number(btn.dataset.id);
-            const item = getCart().find(i => i.productId === id);
+            const itemId = btn.dataset.id;
+            const item = getCart().find(i => i.id === itemId);
             if (!item) return;
-            updateCartQuantity(id, item.quantity + 1);
+            updateCartQuantity(itemId, item.quantity + 1);
         });
     });
 
     container.querySelectorAll('[data-action="cart:decrease"]').forEach(btn => {
+        if (btn._initialized) return;
+        btn._initialized = true;
         btn.addEventListener('click', () => {
-            const id = Number(btn.dataset.id);
-            const item = getCart().find(i => i.productId === id);
+            const itemId = btn.dataset.id;
+            const item = getCart().find(i => i.id === itemId);
             if (!item || item.quantity <= 1) return;
-            updateCartQuantity(id, item.quantity - 1);
+            updateCartQuantity(itemId, item.quantity - 1);
         });
     });
 
-    // Input quantité (avec debounce)
     container.querySelectorAll('.cart-page-qty-input').forEach(input => {
+        if (input._initialized) return;
+        input._initialized = true;
+
         let debounceTimer = null;
         input.addEventListener('input', () => {
             clearTimeout(debounceTimer);
             debounceTimer = setTimeout(() => {
-                const id = Number(input.dataset.id);
+                const itemId = input.dataset.id;
                 let val = parseInt(input.value) || 1;
                 if (val < 1) val = 1;
-                updateCartQuantity(id, val);
+                updateCartQuantity(itemId, val);
             }, 400);
         });
         input.addEventListener('blur', () => {
             clearTimeout(debounceTimer);
-            const id = Number(input.dataset.id);
+            const itemId = input.dataset.id;
             let val = parseInt(input.value) || 1;
             if (val < 1) val = 1;
-            updateCartQuantity(id, val);
+            updateCartQuantity(itemId, val);
         });
     });
 
-    // Supprimer un article
     container.querySelectorAll('[data-action="cart:remove"]').forEach(btn => {
+        if (btn._initialized) return;
+        btn._initialized = true;
         btn.addEventListener('click', () => {
-            const id = Number(btn.dataset.id);
-            removeFromCart(id);
+            const itemId = btn.dataset.id;
+            removeFromCart(itemId);
             showToast('🗑️ ' + t('removeItemAria'));
         });
     });
 
-    // Recherche ville
     initCitySearchOnPage();
-
-    // ✅ Code promo
     initCouponCode();
 
-    // Checkout
     const checkoutBtn = document.getElementById('cartPageCheckout');
-    if (checkoutBtn) {
+    if (checkoutBtn && !checkoutBtn._initialized) {
+        checkoutBtn._initialized = true;
         checkoutBtn.addEventListener('click', handleCheckoutFromPage);
     }
 
-    // Back to top
     const backToTopBtn = document.getElementById('backToTopBtn');
     if (backToTopBtn && !backToTopBtn._initialized) {
+        backToTopBtn._initialized = true;
         window.addEventListener('scroll', () => {
             if (window.scrollY > 400) backToTopBtn.classList.add('visible');
             else backToTopBtn.classList.remove('visible');
@@ -1012,15 +1019,11 @@ function attachFullCartEvents() {
         backToTopBtn.addEventListener('click', () => {
             window.scrollTo({ top: 0, behavior: 'smooth' });
         });
-        backToTopBtn._initialized = true;
     }
 }
 
 // ============================================================
-// ✅ FIX v1.4.1 — RECHERCHE VILLE (debounce + pas de re-render destructif)
-// ------------------------------------------------------------
-// AVANT : chaque frappe → renderCartPage() → input détruit → impossible de taper
-// APRÈS : chaque frappe → simple update des totaux + debounce sur coupon
+// ✅ I9.4 — RECHERCHE VILLE (trim avant comparaison)
 // ============================================================
 function initCitySearchOnPage() {
     const input = document.getElementById('cityFilterInput');
@@ -1029,28 +1032,27 @@ function initCitySearchOnPage() {
     if (input._initialized) return;
     input._initialized = true;
 
-    // Nettoyer le timer précédent s'il existe
     if (citySearchDebounceTimer) {
         clearTimeout(citySearchDebounceTimer);
         citySearchDebounceTimer = null;
     }
 
     input.addEventListener('input', () => {
-        const q = input.value.trim().toLowerCase();
+        // ✅ I9.4 : trim AVANT comparaison
+        const raw = input.value;
+        const q = raw.trim().toLowerCase();
 
-        // Si le texte correspond exactement à la ville sélectionnée → ne rien faire
+        // Si texte == ville sélectionnée (avec ou sans espaces) → ne rien faire
         const currentSelected = getSelectedCity();
         if (currentSelected) {
             const selectedName = getCityName(currentSelected).toLowerCase().trim();
-            if (q === selectedName) {
-                return;
-            }
+            if (q === selectedName) return;
         }
 
         suggestions.innerHTML = '';
         const deliveryData = getState().deliveryData || [];
 
-        // ✅ Correspondance exacte → sélection immédiate
+        // Correspondance exacte
         if (q.length >= 2) {
             const exactMatch = deliveryData.find(c => {
                 const variants = [c.nameFr, c.nameEn, c.nameAr || c.name, c.key]
@@ -1061,51 +1063,39 @@ function initCitySearchOnPage() {
                 input.dataset.cityId = exactMatch.id;
                 setSelectedCity(exactMatch);
                 suggestions.classList.remove('active');
-
-                // ✅ Mise à jour visuelle SANS re-render
                 refreshSummaryTotals();
 
-                // ✅ Revalidation du coupon avec debounce
-                clearTimeout(citySearchDebounceTimer);
-                citySearchDebounceTimer = setTimeout(async () => {
-                    const changed = await revalidateCoupon();
-                    if (changed) {
-                        renderCartPage({ skipSuggestions: true });
-                    } else {
-                        refreshSummaryTotals();
-                    }
-                }, 300);
+                if (appliedCoupon) {
+                    clearTimeout(citySearchDebounceTimer);
+                    citySearchDebounceTimer = setTimeout(async () => {
+                        const changed = await revalidateCoupon(true);
+                        if (changed) renderCartPage({ skipSuggestions: true });
+                        else refreshSummaryTotals();
+                    }, CITY_SEARCH_DEBOUNCE);
+                }
                 return;
             }
         }
 
-        // Pas de correspondance exacte → déselectionner
+        // Pas de correspondance → désélectionner
         delete input.dataset.cityId;
         setSelectedCity(null);
-
-        // ✅ Mise à jour visuelle SANS re-render
         refreshSummaryTotals();
 
-        // ✅ Revalidation du coupon avec debounce (si un coupon est appliqué)
         if (appliedCoupon) {
             clearTimeout(citySearchDebounceTimer);
             citySearchDebounceTimer = setTimeout(async () => {
-                const changed = await revalidateCoupon();
-                if (changed) {
-                    renderCartPage({ skipSuggestions: true });
-                } else {
-                    refreshSummaryTotals();
-                }
+                const changed = await revalidateCoupon(true);
+                if (changed) renderCartPage({ skipSuggestions: true });
+                else refreshSummaryTotals();
             }, 500);
         }
 
-        // Aucun texte → masquer les suggestions
         if (!q || deliveryData.length === 0) {
             suggestions.classList.remove('active');
             return;
         }
 
-        // Filtrer les villes
         const matches = deliveryData.filter(c => {
             const variants = [c.nameFr, c.nameEn, c.nameAr || c.name, c.key]
                 .filter(Boolean).map(s => String(s).toLowerCase());
@@ -1117,7 +1107,6 @@ function initCitySearchOnPage() {
             return;
         }
 
-        // Afficher les suggestions
         suggestions.classList.add('active');
         matches.forEach(city => {
             const div = document.createElement('div');
@@ -1128,20 +1117,14 @@ function initCitySearchOnPage() {
                 input.dataset.cityId = city.id;
                 setSelectedCity(city);
                 suggestions.classList.remove('active');
-
-                // ✅ Mise à jour visuelle SANS re-render
                 refreshSummaryTotals();
 
-                // ✅ Revalidation du coupon avec debounce
                 if (appliedCoupon) {
                     clearTimeout(citySearchDebounceTimer);
                     citySearchDebounceTimer = setTimeout(async () => {
-                        const changed = await revalidateCoupon();
-                        if (changed) {
-                            renderCartPage({ skipSuggestions: true });
-                        } else {
-                            refreshSummaryTotals();
-                        }
+                        const changed = await revalidateCoupon(true);
+                        if (changed) renderCartPage({ skipSuggestions: true });
+                        else refreshSummaryTotals();
                     }, 200);
                 }
             });
@@ -1149,16 +1132,22 @@ function initCitySearchOnPage() {
         });
     });
 
-    // Clic extérieur → masquer les suggestions
-    document.addEventListener('click', (e) => {
-        if (!suggestions.contains(e.target) && e.target !== input) {
-            suggestions.classList.remove('active');
-        }
-    });
+    // ✅ M9.1 : déléguer au document (pas accumulé)
+    if (!window._cartPageCityClickDelegated) {
+        window._cartPageCityClickDelegated = true;
+        document.addEventListener('click', (e) => {
+            const sugg = document.getElementById('citySuggestions');
+            const inp = document.getElementById('cityFilterInput');
+            if (!sugg || !inp) return;
+            if (!sugg.contains(e.target) && e.target !== inp) {
+                sugg.classList.remove('active');
+            }
+        });
+    }
 }
 
 // ============================================================
-// CHECKOUT
+// ✅ I9.1 + C5.2 — CHECKOUT (try/finally + waWindow)
 // ============================================================
 async function handleCheckoutFromPage() {
     const user = getCurrentUser();
@@ -1180,7 +1169,6 @@ async function handleCheckoutFromPage() {
         showToast('⚠️ ' + t('fillAllFields'));
         return;
     }
-
     if (!cityId) {
         showToast('⚠️ ' + t('selectCityRequired'));
         return;
@@ -1188,38 +1176,43 @@ async function handleCheckoutFromPage() {
 
     const cityName = selectedCity ? getCityName(selectedCity) : (cityInput?.value.trim() || '');
 
-    // ✅ Revalider le coupon une dernière fois avant checkout
-    await revalidateCoupon();
+    await revalidateCoupon(false);
 
     const checkoutBtn = document.getElementById('cartPageCheckout');
+
+    // ✅ C5.2 : ouvrir la fenêtre WhatsApp AVANT les awaits
+    const waWindow = window.open('', '_blank');
+    if (!waWindow) {
+        showToast('⚠️ Veuillez autoriser les popups pour commander via WhatsApp');
+    }
+
     if (checkoutBtn) {
         checkoutBtn.disabled = true;
         checkoutBtn.textContent = '⏳ ' + (t('loading') || 'Chargement...');
     }
 
-    // ✅ Appel checkout avec le coupon
-    await checkout(getCart(), {
-        name,
-        phone,
-        address,
-        email,
-        city: cityName,
-        cityId,
-        cityAr: selectedCity?.nameAr || selectedCity?.name || '',
-        cityFr: selectedCity?.nameFr || cityName
-    }, appliedCoupon);
-
-    // ============================================================
-    // ✅ FIX v1.4.2 : Réactivation du bouton en cas d'échec du checkout
-    // ------------------------------------------------------------
-    // Si le checkout réussit, le panier est vidé → 'cart-updated' → renderCartPage()
-    // → le bouton est recréé (plus besoin de le réactiver).
-    // Si le checkout échoue (stock insuffisant, coupon invalide, etc.) le panier
-    // n'est PAS vidé → on doit réactiver manuellement le bouton.
-    // ============================================================
-    if (getCart().length > 0 && checkoutBtn) {
-        checkoutBtn.disabled = false;
-        checkoutBtn.textContent = '💬 ' + t('cartCheckout');
+    try {
+        // ✅ C5.2 : passer waWindow
+        await checkout(getCart(), {
+            name, phone, address, email,
+            city: cityName,
+            cityId,
+            cityAr: selectedCity?.nameAr || selectedCity?.name || '',
+            cityFr: selectedCity?.nameFr || cityName
+        }, appliedCoupon, waWindow);
+    } catch (e) {
+        console.error('❌ Erreur checkout :', e);
+        showToast('❌ ' + (e.message || t('error')));
+        // Fermer la fenêtre WhatsApp si erreur
+        if (waWindow && !waWindow.closed) {
+            try { waWindow.close(); } catch (err) {}
+        }
+    } finally {
+        // ✅ I9.1 : réactiver le bouton si le panier est toujours rempli
+        if (getCart().length > 0 && checkoutBtn && checkoutBtn.isConnected) {
+            checkoutBtn.disabled = false;
+            checkoutBtn.textContent = '💬 ' + t('cartCheckout');
+        }
     }
 }
 
@@ -1235,4 +1228,4 @@ if (document.readyState === 'loading') {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ panier.js chargé — v1.4.2 (fix bouton checkout en cas d\'échec)');
+console.log('✅ panier.js chargé — v2.0.0 (coupons centralisés + variants + checkout)');
