@@ -1,24 +1,14 @@
 // js/ui.js
 // ============================================================
 // INTERFACE UTILISATEUR - SMART SWI9A
-// Version 3.0.0 — Fixes critiques (email verify, race, profile)
+// Version 3.1.0 — Compat needsVerification (C10.1)
 // ============================================================
-// CHANGEMENTS v3.0.0 :
-// ✅ C10.1 — Bouton Renvoyer appelle réellement + fallback login
-// ✅ C10.2 — renderAccountContent : guard race + préserve onglet
-// ✅ C10.3 — saveUserProfile → setCurrentUser (navbar sync)
-// ✅ I10.1 — phone effaçable
-// ✅ I10.2 — pendingVerificationEmail reset au close
-// ✅ I10.3 — showPicker() un seul listener
-// ✅ I10.4 — handleForgot validation email
-// ✅ I10.5 — Password masqué pour Google/Facebook
-// ✅ M10.1-2 — Guards listeners/cookie
-// ✅ M10.3 — renderMyReviews nom produit
-// ✅ M10.4 — waitForElement helper
-// ✅ M10.5 — renderFavorites guards Number
-// ✅ M10.6-7 — Classes dead supprimées
-// ✅ M10.8 — Cache pendingReviews TTL 60s
-// ⚠️ auth.js v3.0.0 : ne pas signOut après inscription (fix C10.1 root)
+// CHANGEMENTS v3.1.0 :
+// ✅ C10.1 — renderAccountContent gère needsVerification
+// ✅ C10.1 — Bouton "Renvoyer" fonctionne vraiment (user connecté)
+// ✅ Bonus — checkEmailVerification au focus de l'onglet
+// ✅ Bonus — Auto-check après 30s (user peut vérifier sans reload)
+// ✅ M10.8 — TTL cache pendingReviews = 60s
 // ============================================================
 
 import { CONFIG } from "./config.js";
@@ -34,7 +24,8 @@ import {
     getCurrentUser, setCurrentUser, loginUser, logoutUser, requestPasswordReset,
     registerWithFirebase, resendVerificationEmail, resendVerificationForEmail,
     loginWithGoogle, loginWithFacebook,
-    saveUserProfile, updateUserPassword, isAuthReady, authReadyPromise
+    saveUserProfile, updateUserPassword, isAuthReady, authReadyPromise,
+    checkEmailVerification
 } from "./auth.js";
 import {
     getCartSubtotal, getCartTotalItems, getCartSavings, getCartDiscount,
@@ -47,7 +38,6 @@ import {
     loadNotifications
 } from "./notifications.js";
 import { openProductPage } from "./products.js";
-import { auth } from "./firebase.js";
 import {
     showToast, trapFocus, releaseFocusTrap, openModal, closeModal,
     confirmAction, openImageLightbox
@@ -58,25 +48,16 @@ import {
 // ============================================================
 let pendingVerificationEmail = null;
 
-// ✅ M10.1 : guard global listeners
+// Guards
 let _globalUIListenersAttached = false;
-
-// ✅ M10.2 : guard cookie consent
 let _cookieConsentInitialized = false;
-
-// ✅ C10.2 : guard race renderAccountContent
 let _accountRenderId = 0;
 
-// Référence globale à la notification panier abandonné
 let _abandonedCartNotifEl = null;
-
-// Garde-fou pour le toast de rappel d'avis (1x/session)
 let _reviewReminderShownThisSession = false;
 
-// ============================================================
-// ✅ M10.8 : Cache du compteur d'avis en attente (TTL 60s)
-// ============================================================
-const PENDING_REVIEWS_CACHE_TTL = 60000; // 60 secondes
+// ✅ M10.8 : cache pendingReviews (TTL 60s)
+const PENDING_REVIEWS_CACHE_TTL = 60000;
 let _pendingReviewsCache = {
     count: 0,
     timestamp: 0,
@@ -110,9 +91,7 @@ async function getPendingReviewCount(force = false) {
     }
 }
 
-// ============================================================
-// ✅ M10.4 : Helper waitForElement (remplace setTimeout fragiles)
-// ============================================================
+// ✅ Helper waitForElement
 async function waitForElement(selector, timeout = 3000) {
     const start = Date.now();
     while (Date.now() - start < timeout) {
@@ -145,7 +124,7 @@ function showFloatingButtons() {
 }
 
 // ============================================================
-// ✅ M10.6 : INJECTION UI PARTAGÉE (class dead supprimée)
+// INJECTION UI PARTAGÉE
 // ============================================================
 export function injectSharedUI() {
     if (!document.getElementById('accountModal')) {
@@ -166,7 +145,7 @@ export function injectSharedUI() {
 }
 
 // ============================================================
-// ✅ M10.1 : ÉVÉNEMENTS GLOBAUX (avec guard)
+// ÉVÉNEMENTS GLOBAUX
 // ============================================================
 function attachGlobalUIEvents() {
     if (_globalUIListenersAttached) return;
@@ -197,17 +176,13 @@ function attachGlobalUIEvents() {
         invalidatePendingReviewsCache();
     });
 
-    // ✅ M10.4 : open-account-orders avec waitForElement
     document.addEventListener('open-account-orders', (e) => {
         openAccountModal().then(async () => {
             const orderId = e.detail?.orderId;
             const filter = e.detail?.filter;
 
             const tabBtn = await waitForElement('#accountContent [data-tab="orders"]');
-            if (!tabBtn) {
-                console.warn('⚠️ Onglet Commandes introuvable');
-                return;
-            }
+            if (!tabBtn) return;
             tabBtn.click();
 
             if (filter) {
@@ -223,9 +198,7 @@ function attachGlobalUIEvents() {
         });
     });
 
-    // review-submitted → refresh badge
     document.addEventListener('review-submitted', async () => {
-        console.log('⭐ [ui.js] review-submitted — refresh menu compte si ouvert');
         invalidatePendingReviewsCache();
         const modal = document.getElementById('accountModal');
         if (modal && modal.classList.contains('open')) {
@@ -234,28 +207,47 @@ function attachGlobalUIEvents() {
     });
 
     document.addEventListener('review-deleted', () => {
-        console.log('⭐ [ui.js] review-deleted — invalidation cache');
         invalidatePendingReviewsCache();
     });
 
-    // lang-changed → re-render modal + notification panier
     document.addEventListener('lang-changed', () => {
         const modal = document.getElementById('accountModal');
         if (modal && modal.classList.contains('open')) {
-            console.log('🔄 [ui.js] Re-render modal compte en langue :', document.documentElement.lang);
             renderAccountContent();
         }
         if (_abandonedCartNotifEl) {
-            console.log('🔄 [ui.js] Re-render notification panier abandonné');
             showAbandonedCartNotification();
         }
         updateAccountButton();
     });
+
+    // ✅ C10.1 : Auto-check au focus de l'onglet (user revient après avoir cliqué sur l'email)
+    window.addEventListener('focus', async () => {
+        const user = getCurrentUser();
+        if (user && user.needsVerification) {
+            const verified = await checkEmailVerification();
+            if (verified) {
+                showToast('✅ Email vérifié ! Bienvenue !');
+                renderAccountContent();
+            }
+        }
+    });
+
+    // ✅ C10.1 : Auto-check toutes les 30s si modal compte ouverte ET non vérifié
+    setInterval(async () => {
+        const modal = document.getElementById('accountModal');
+        if (!modal || !modal.classList.contains('open')) return;
+        const user = getCurrentUser();
+        if (user && user.needsVerification) {
+            const verified = await checkEmailVerification();
+            if (verified) {
+                showToast('✅ Email vérifié !');
+                renderAccountContent();
+            }
+        }
+    }, 30000);
 }
 
-// ============================================================
-// RAFRAÎCHIR LE BADGE "Commandes" DANS LE MENU COMPTE
-// ============================================================
 async function refreshOrdersTabBadge() {
     const ordersTabBtn = document.querySelector('#accountContent [data-tab="orders"]');
     if (!ordersTabBtn) return;
@@ -279,19 +271,15 @@ async function refreshOrdersTabBadge() {
 }
 
 // ============================================================
-// PANIER - REDIRECTION vers page /panier
+// PANIER - REDIRECTION
 // ============================================================
 export function openCart() {
     const currentPath = window.location.pathname;
-    if (currentPath === '/panier' || currentPath.endsWith('/panier') || currentPath.endsWith('panier.html')) {
-        console.log('ℹ️ Déjà sur la page panier');
-        return;
-    }
+    if (currentPath === '/panier' || currentPath.endsWith('/panier') || currentPath.endsWith('panier.html')) return;
     window.location.href = '/panier';
 }
 
 export function closeCart() {
-    console.log('ℹ️ closeCart() appelée — page panier dédiée');
     const overlay = document.getElementById('cartOverlay');
     const sidebar = document.getElementById('cartSidebar');
     if (overlay) overlay.classList.remove('open');
@@ -301,21 +289,12 @@ export function closeCart() {
     releaseFocusTrap();
 }
 
-export function renderCartContent() {
-    console.log('ℹ️ renderCartContent() appelée — page panier dédiée désormais');
-}
-
-export function updateCartTotalsUI() {
-    // Géré par panier.js
-}
-
-export function initCitySearch() {
-    // Géré par panier.js
-}
+export function renderCartContent() {}
+export function updateCartTotalsUI() {}
+export function initCitySearch() {}
 
 // ============================================================
-// MODAL COMPTE - OUVRIR / FERMER
-// ✅ I10.2 : reset pendingVerificationEmail au close
+// MODAL COMPTE
 // ============================================================
 export async function openAccountModal() {
     const modal = document.getElementById('accountModal');
@@ -332,9 +311,7 @@ export async function openAccountModal() {
         const pending = await getPendingReviewCount();
         if (pending > 0) {
             _reviewReminderShownThisSession = true;
-            setTimeout(() => {
-                showToast(`⭐ Vous avez ${pending} avis à donner !`);
-            }, 500);
+            setTimeout(() => showToast(`⭐ Vous avez ${pending} avis à donner !`), 500);
         }
     }
 }
@@ -345,14 +322,12 @@ export function closeAccountModal() {
     modal.classList.remove('open');
     document.body.style.overflow = '';
     releaseFocusTrap();
-
-    // ✅ I10.2 : reset
     pendingVerificationEmail = null;
     _accountRenderId = 0;
 }
 
 // ============================================================
-// BOUTON COMPTE (navbar)
+// BOUTON COMPTE
 // ============================================================
 export function updateAccountButton() {
     const user = getCurrentUser();
@@ -391,7 +366,7 @@ export function updateAccountButton() {
 }
 
 // ============================================================
-// ✅ C10.2 : RENDU DU CONTENU (guard race + préserve onglet)
+// ✅ C10.1 : RENDU DU CONTENU (needsVerification compatible)
 // ============================================================
 export async function renderAccountContent() {
     const container = document.getElementById('accountContent');
@@ -400,10 +375,12 @@ export async function renderAccountContent() {
     const thisRequest = ++_accountRenderId;
     const user = getCurrentUser();
 
-    // Pas connecté
+    // ============================================
+    // CAS 1 : Pas connecté
+    // ============================================
     if (!user) {
         if (pendingVerificationEmail) {
-            container.innerHTML = renderVerifyEmailView(pendingVerificationEmail);
+            container.innerHTML = renderVerifyEmailView(pendingVerificationEmail, false);
             attachVerifyEmailEvents();
             return;
         }
@@ -412,35 +389,32 @@ export async function renderAccountContent() {
         return;
     }
 
-    // ✅ Capturer l'onglet actif AVANT async
+    // ============================================
+    // ✅ C10.1 : CAS 2 : Connecté MAIS needsVerification
+    // (juste après inscription, ou user qui n'a pas cliqué sur le lien)
+    // ============================================
+    if (user.needsVerification === true || user.emailVerified === false) {
+        container.innerHTML = renderVerifyEmailView(user.email, true);
+        attachVerifyEmailEvents();
+        return;
+    }
+
+    // ============================================
+    // CAS 3 : Connecté et vérifié → dashboard
+    // ============================================
     const activeTabBtn = document.querySelector('#accountContent .tab-btn.active');
     const activeTabName = activeTabBtn?.dataset?.tab || 'dashboard';
 
     const pendingReviews = await getPendingReviewCount();
 
-    // ✅ Guard race
     if (thisRequest !== _accountRenderId) {
-        console.log('ℹ️ renderAccountContent : rendu abandonné (une nouvelle requête a démarré)');
+        console.log('ℹ️ renderAccountContent : rendu abandonné (nouvelle requête)');
         return;
     }
 
-    let verifyBanner = '';
-    if (user.emailVerified === false && user.signupMethod === 'otp') {
-        verifyBanner = `
-            <div style="background:var(--warning-bg);border:1px solid var(--warning);border-radius:var(--radius-sm);padding:0.8rem;margin-bottom:1rem;font-size:0.85rem;">
-                📧 <strong>${t('verifyEmailTitle')}</strong><br>
-                ${t('verifyEmailMessage')}
-                <button id="resendVerifBtn" style="background:transparent;border:1px solid var(--gold);color:var(--gold);padding:0.3rem 0.8rem;border-radius:30px;font-size:0.75rem;margin-top:0.5rem;cursor:pointer;">
-                    🔄 ${t('verifyEmailResendBtn')}
-                </button>
-            </div>
-        `;
-    }
-
-    container.innerHTML = verifyBanner + renderDashboard(user, pendingReviews);
+    container.innerHTML = renderDashboard(user, pendingReviews);
     attachDashboardEvents(user);
 
-    // ✅ Restaurer l'onglet actif
     if (activeTabName !== 'dashboard') {
         const tabBtn = container.querySelector(`[data-tab="${activeTabName}"]`);
         if (tabBtn) {
@@ -453,9 +427,9 @@ export async function renderAccountContent() {
 }
 
 // ============================================================
-// ÉCRAN DE VÉRIFICATION EMAIL
+// ÉCRAN DE VÉRIFICATION EMAIL (user connecté OU pas)
 // ============================================================
-function renderVerifyEmailView(email) {
+function renderVerifyEmailView(email, isConnected = false) {
     return `
         <div style="text-align:center;padding:1rem 0;">
             <div style="font-size:4rem;margin-bottom:1rem;line-height:1;">📧</div>
@@ -475,13 +449,29 @@ function renderVerifyEmailView(email) {
                 <div>3️⃣ ${t('verifyEmailStep3')}</div>
             </div>
 
+            ${isConnected ? `
+                <div style="background:rgba(46,204,113,0.08);border:1px solid var(--success);border-radius:var(--radius-sm);padding:0.7rem;margin:1rem 0;font-size:0.85rem;color:var(--success);text-align:center;font-weight:600;">
+                    ✅ Connecté — cliquez sur le lien pour activer votre compte
+                </div>
+            ` : ''}
+
             <button id="resendVerifBtn" style="width:100%;padding:0.85rem;background:linear-gradient(135deg,var(--gold),#7d5a1d);color:#fff;border:none;border-radius:50px;font-weight:700;cursor:pointer;font-size:0.9rem;margin-bottom:0.8rem;">
                 🔄 ${t('verifyEmailResendBtn')}
             </button>
 
-            <button id="backToLoginBtn" style="width:100%;padding:0.7rem;background:transparent;border:1px solid var(--border);color:var(--text-muted);border-radius:50px;font-weight:600;cursor:pointer;font-size:0.85rem;">
-                ↩️ ${t('backToLogin')}
+            <button id="checkVerifBtn" style="width:100%;padding:0.7rem;background:rgba(46,204,113,0.1);color:var(--success);border:1px solid var(--success);border-radius:50px;font-weight:600;cursor:pointer;font-size:0.85rem;margin-bottom:0.8rem;">
+                ✅ J'ai cliqué sur le lien — Vérifier maintenant
             </button>
+
+            ${isConnected ? `
+                <button id="logoutFromVerifyBtn" style="width:100%;padding:0.7rem;background:transparent;border:1px solid var(--border);color:var(--text-muted);border-radius:50px;font-weight:600;cursor:pointer;font-size:0.85rem;margin-bottom:0.8rem;">
+                    🚪 Se déconnecter
+                </button>
+            ` : `
+                <button id="backToLoginBtn" style="width:100%;padding:0.7rem;background:transparent;border:1px solid var(--border);color:var(--text-muted);border-radius:50px;font-weight:600;cursor:pointer;font-size:0.85rem;">
+                    ↩️ ${t('backToLogin')}
+                </button>
+            `}
 
             <div id="verifyEmailMsg" style="font-size:0.85rem;margin-top:1rem;min-height:1.2rem;"></div>
         </div>
@@ -489,16 +479,13 @@ function renderVerifyEmailView(email) {
 }
 
 // ============================================================
-// ✅ C10.1 + M10.4 : VÉRIFICATION EMAIL EVENTS (fix réel)
-// ------------------------------------------------------------
-// Le bouton "Renvoyer" tente maintenant réellement de renvoyer :
-//  1. Si user connecté (edge case) → resendVerificationEmail()
-//  2. Sinon → message + redirection login (auth.js renverra)
-// ⚠️ Fix complet nécessite auth.js v3.0.0 (ne pas signOut après signup)
+// ✅ C10.1 : ÉVÉNEMENTS VÉRIFICATION EMAIL (bouton fonctionnel)
 // ============================================================
 function attachVerifyEmailEvents() {
     const resendBtn = document.getElementById('resendVerifBtn');
+    const checkBtn = document.getElementById('checkVerifBtn');
     const backBtn = document.getElementById('backToLoginBtn');
+    const logoutBtn = document.getElementById('logoutFromVerifyBtn');
     const msgEl = document.getElementById('verifyEmailMsg');
 
     if (resendBtn) {
@@ -507,34 +494,41 @@ function attachVerifyEmailEvents() {
             resendBtn.textContent = '⏳ ' + t('loading');
             if (msgEl) msgEl.textContent = '';
 
-            // Tentative réelle si user connecté
-            if (auth.currentUser && !auth.currentUser.emailVerified) {
-                try {
-                    await resendVerificationEmail();
-                    if (msgEl) {
-                        msgEl.textContent = '✅ ' + t('verifyEmailResent');
-                        msgEl.style.color = 'var(--success)';
-                    }
-                    resendBtn.textContent = '🔄 ' + t('verifyEmailResendBtn');
-                    resendBtn.disabled = false;
-                    return;
-                } catch (e) {
-                    console.warn('⚠️ Erreur renvoi email :', e);
+            const ok = await resendVerificationEmail();
+
+            if (msgEl) {
+                if (ok) {
+                    msgEl.textContent = '✅ ' + t('verifyEmailResent');
+                    msgEl.style.color = 'var(--success)';
+                } else {
+                    msgEl.textContent = '⚠️ Impossible de renvoyer. Vérifiez votre connexion.';
+                    msgEl.style.color = 'var(--danger)';
                 }
             }
 
-            // Fallback : passer à login (auth.js renverra automatiquement)
-            if (msgEl) {
-                msgEl.textContent = '💡 ' + t('verifyEmailResendHint');
-                msgEl.style.color = 'var(--gold)';
-            }
             resendBtn.textContent = '🔄 ' + t('verifyEmailResendBtn');
             resendBtn.disabled = false;
+        });
+    }
 
-            setTimeout(() => {
-                pendingVerificationEmail = null;
-                renderAccountContent();
-            }, 1500);
+    if (checkBtn) {
+        checkBtn.addEventListener('click', async () => {
+            checkBtn.disabled = true;
+            checkBtn.textContent = '⏳ Vérification...';
+
+            const verified = await checkEmailVerification();
+
+            if (verified) {
+                showToast('✅ Email vérifié ! Bienvenue !');
+                await renderAccountContent();
+            } else {
+                if (msgEl) {
+                    msgEl.textContent = '⏳ Pas encore vérifié. Cliquez sur le lien dans votre email.';
+                    msgEl.style.color = 'var(--gold)';
+                }
+                checkBtn.textContent = '✅ J\'ai cliqué sur le lien — Vérifier maintenant';
+                checkBtn.disabled = false;
+            }
         });
     }
 
@@ -544,17 +538,23 @@ function attachVerifyEmailEvents() {
             renderAccountContent();
         });
     }
+
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', async () => {
+            await logoutUser();
+            showToast('👋 ' + t('logout'));
+            await renderAccountContent();
+        });
+    }
 }
 
 // ============================================================
 // VUES AUTH
-// ✅ M10.7 : date-input class dead supprimée
 // ============================================================
 function renderAuthViews() {
     return `
         <div class="account-form" id="accountForm">
             <div id="authView">
-
                 <div class="social-login-buttons">
                     <button class="btn-social btn-social-google" id="googleLoginBtn" type="button">
                         <svg viewBox="0 0 24 24">
@@ -627,17 +627,13 @@ function renderAuthViews() {
     `;
 }
 
-// ============================================================
-// ✅ I10.3 : ÉVÉNEMENTS DES VUES AUTH (showPicker fix)
-// ============================================================
 function attachAuthEvents() {
     const dobInput = document.getElementById('regDob');
     if (dobInput) {
         dobInput.style.cursor = 'pointer';
-        // ✅ I10.3 : un seul listener (click) — supprimé le focus
         dobInput.addEventListener('click', () => {
             if (typeof dobInput.showPicker === 'function') {
-                try { dobInput.showPicker(); } catch (err) { /* silencieux */ }
+                try { dobInput.showPicker(); } catch (err) {}
             }
         });
     }
@@ -646,14 +642,14 @@ function attachAuthEvents() {
     if (googleBtn) {
         googleBtn.addEventListener('click', async () => {
             googleBtn.disabled = true;
-            const originalText = googleBtn.innerHTML;
+            const orig = googleBtn.innerHTML;
             googleBtn.innerHTML = '⏳...';
             const user = await loginWithGoogle();
             if (user) {
                 await renderAccountContent();
             } else {
                 googleBtn.disabled = false;
-                googleBtn.innerHTML = originalText;
+                googleBtn.innerHTML = orig;
             }
         });
     }
@@ -662,43 +658,37 @@ function attachAuthEvents() {
     if (facebookBtn) {
         facebookBtn.addEventListener('click', async () => {
             facebookBtn.disabled = true;
-            const originalText = facebookBtn.innerHTML;
+            const orig = facebookBtn.innerHTML;
             facebookBtn.innerHTML = '⏳...';
             const user = await loginWithFacebook();
             if (user) {
                 await renderAccountContent();
             } else {
                 facebookBtn.disabled = false;
-                facebookBtn.innerHTML = originalText;
+                facebookBtn.innerHTML = orig;
             }
         });
     }
 
     const switchToRegister = document.getElementById('switchToRegister');
     if (switchToRegister) switchToRegister.addEventListener('click', () => switchAuthView('register'));
-
     const switchToLogin = document.getElementById('switchToLogin');
     if (switchToLogin) switchToLogin.addEventListener('click', () => switchAuthView('login'));
-
     const switchToForgot = document.getElementById('switchToForgot');
     if (switchToForgot) switchToForgot.addEventListener('click', () => switchAuthView('forgot'));
-
     const switchToLoginFromForgot = document.getElementById('switchToLoginFromForgot');
     if (switchToLoginFromForgot) switchToLoginFromForgot.addEventListener('click', () => switchAuthView('login'));
 
     const loginBtn = document.getElementById('loginBtn');
     if (loginBtn) loginBtn.addEventListener('click', handleLogin);
-
     const registerBtn = document.getElementById('registerBtn');
     if (registerBtn) registerBtn.addEventListener('click', handleRegister);
-
     const forgotBtn = document.getElementById('forgotBtn');
     if (forgotBtn) forgotBtn.addEventListener('click', handleForgot);
 }
 
 function switchAuthView(view) {
-    const views = ['loginView', 'registerView', 'forgotView'];
-    views.forEach(v => {
+    ['loginView', 'registerView', 'forgotView'].forEach(v => {
         const el = document.getElementById(v);
         if (el) el.style.display = 'none';
     });
@@ -721,6 +711,7 @@ async function handleLogin() {
     const result = await loginUser(email, password);
 
     if (!result.success && result.reason === 'email_not_verified') {
+        // ✅ C10.1 : l'email a été renvoyé automatiquement par loginUser
         pendingVerificationEmail = result.email || email;
         showToast('📧 ' + t('verifyEmailResent'));
         renderAccountContent();
@@ -755,21 +746,11 @@ async function handleRegister() {
         showToast('⚠️ ' + t('fillAllFields'));
         return;
     }
-    if (!isValidEmail(email)) {
-        showToast('⚠️ Email invalide');
-        return;
-    }
-    if (password.length < 6) {
-        showToast('⚠️ ' + t('passwordTooShort'));
-        return;
-    }
-    if (password !== confirm) {
-        showToast('⚠️ ' + t('passwordMismatch'));
-        return;
-    }
+    if (!isValidEmail(email)) { showToast('⚠️ Email invalide'); return; }
+    if (password.length < 6) { showToast('⚠️ ' + t('passwordTooShort')); return; }
+    if (password !== confirm) { showToast('⚠️ ' + t('passwordMismatch')); return; }
 
     const fullName = `${firstName} ${lastName}`;
-
     const registerBtn = document.getElementById('registerBtn');
     registerBtn.disabled = true;
     registerBtn.textContent = '⏳ ' + t('register');
@@ -777,9 +758,10 @@ async function handleRegister() {
     const result = await registerWithFirebase(fullName, email, phone, dob, password);
 
     if (result.success) {
-        pendingVerificationEmail = result.email || email;
+        // ✅ C10.1 : user reste connecté avec needsVerification
+        // → renderAccountContent affichera la vue verify
         showToast('📧 ' + t('verifyEmailSent'));
-        renderAccountContent();
+        await renderAccountContent();
         return;
     }
 
@@ -787,7 +769,6 @@ async function handleRegister() {
     registerBtn.textContent = '✨ ' + t('register');
 }
 
-// ✅ I10.4 : handleForgot avec validation email
 async function handleForgot() {
     const email = document.getElementById('forgotEmail').value.trim();
     if (!email) { showToast('⚠️ ' + t('fillAllFields')); return; }
@@ -801,7 +782,7 @@ async function handleForgot() {
 }
 
 // ============================================================
-// DASHBOARD CLIENT
+// DASHBOARD
 // ============================================================
 function renderDashboard(user, pendingReviews = 0) {
     const ordersBadge = pendingReviews > 0
@@ -849,21 +830,6 @@ function renderDashboard(user, pendingReviews = 0) {
 }
 
 function attachDashboardEvents(user) {
-    const resendBtn = document.getElementById('resendVerifBtn');
-    if (resendBtn) {
-        resendBtn.addEventListener('click', async () => {
-            resendBtn.disabled = true;
-            resendBtn.textContent = '⏳...';
-            const ok = await resendVerificationEmail();
-            if (ok) {
-                resendBtn.textContent = '✅ ' + t('success');
-            } else {
-                resendBtn.disabled = false;
-                resendBtn.textContent = '🔄 ' + t('verifyEmailResendBtn');
-            }
-        });
-    }
-
     const goToReviewsBtn = document.getElementById('goToReviewsBtn');
     if (goToReviewsBtn) {
         goToReviewsBtn.addEventListener('click', async () => {
@@ -922,14 +888,8 @@ async function loadDashboardTab(tab, user) {
     }
 }
 
-// ============================================================
-// FAVORIS
-// ✅ M10.5 : guards Number
-// ============================================================
 function renderFavorites(container, user) {
-    const favs = Array.isArray(user.favorites)
-        ? user.favorites.map(Number).filter(Number.isFinite)
-        : [];
+    const favs = Array.isArray(user.favorites) ? user.favorites.map(Number).filter(Number.isFinite) : [];
     const products = getProducts().filter(p => favs.includes(Number(p.id)));
 
     if (products.length === 0) {
@@ -963,23 +923,15 @@ function renderFavorites(container, user) {
     });
 }
 
-// ============================================================
-// MES AVIS
-// ✅ M10.3 : nom produit affiché
-// ============================================================
 async function renderMyReviews(container, user) {
     container.innerHTML = `<div style="text-align:center;padding:1rem;color:var(--text-muted);">⏳ ${t('loadingReviews')}</div>`;
-
     try {
         const { collection, query, where, getDocs } = await import("firebase/firestore");
         const { db } = await import("./firebase.js");
-
         const q = query(collection(db, "reviews"), where("userId", "==", user.uid));
         const snap = await getDocs(q);
-        const reviews = snap.docs.map(d => {
-            const data = d.data();
-            return { id: d.id, ...data, createdAt: toDate(data.createdAt) };
-        }).sort((a, b) => (b.createdAt?.getTime?.() || 0) - (a.createdAt?.getTime?.() || 0));
+        const reviews = snap.docs.map(d => ({ id: d.id, ...d.data(), createdAt: toDate(d.data().createdAt) }))
+            .sort((a, b) => (b.createdAt?.getTime?.() || 0) - (a.createdAt?.getTime?.() || 0));
 
         if (reviews.length === 0) {
             container.innerHTML = `<div style="text-align:center;padding:2rem;color:var(--text-muted);">⭐ ${t('noReviews')}</div>`;
@@ -990,11 +942,8 @@ async function renderMyReviews(container, user) {
         reviews.forEach(r => {
             const statusEmoji = r.status === 'approved' ? '🟢' : (r.status === 'rejected' ? '🔴' : '🟡');
             const statusLabel = r.status === 'approved' ? t('reviewPublished') : (r.status === 'rejected' ? t('reviewStatusRejected') : t('reviewPendingApproval'));
-
-            // ✅ M10.3 : nom du produit
             const product = getProducts().find(p => Number(p.id) === Number(r.productId));
             const productName = product ? escapeHTML(getProductName(product)) : `#${r.productId}`;
-
             html += `
                 <div class="review-item" style="margin-bottom:0.8rem;">
                     <div style="font-size:0.78rem;color:var(--gold);font-weight:600;margin-bottom:0.3rem;">📦 ${productName}</div>
@@ -1020,9 +969,6 @@ async function renderMyReviews(container, user) {
     }
 }
 
-// ============================================================
-// ✅ C10.3 + I10.1 + I10.5 : PARAMÈTRES (avec fixes)
-// ============================================================
 function renderSettingsForm(container, user) {
     const isPasswordUser = !user.signupMethod || user.signupMethod === 'otp';
 
@@ -1075,12 +1021,10 @@ function renderSettingsForm(container, user) {
         try {
             const updates = {};
             if (name && name !== user.name) updates.name = name;
-            // ✅ I10.1 : autorise l'effacement du téléphone
             if (phone !== user.phone) updates.phone = phone;
 
             if (Object.keys(updates).length > 0) {
                 await saveUserProfile(user.uid, updates);
-                // ✅ C10.3 : passer par setCurrentUser (navbar sync)
                 setCurrentUser({ ...user, ...updates });
             }
             if (newPassword) {
@@ -1088,7 +1032,6 @@ function renderSettingsForm(container, user) {
             }
             showToast('✅ ' + t('profileUpdated'));
             if (msgEl) { msgEl.textContent = '✅ ' + t('profileUpdated'); msgEl.style.color = 'var(--success)'; }
-            // Re-render pour refléter les changements
             await renderAccountContent();
         } catch (e) {
             console.error(e);
@@ -1113,7 +1056,7 @@ export function loadTheme() {
 }
 
 // ============================================================
-// ✅ M10.2 : COOKIE CONSENT (avec guard)
+// COOKIE CONSENT
 // ============================================================
 export function initCookieConsent() {
     if (_cookieConsentInitialized) return;
@@ -1154,10 +1097,9 @@ export function initCookieConsent() {
 // ============================================================
 export function showAbandonedCartNotification() {
     if (_abandonedCartNotifEl) {
-        try { _abandonedCartNotifEl.remove(); } catch (e) { /* ignore */ }
+        try { _abandonedCartNotifEl.remove(); } catch (e) {}
         _abandonedCartNotifEl = null;
     }
-
     document.querySelectorAll('.abandoned-cart-notification').forEach(el => el.remove());
 
     const abandoned = checkAbandonedCart();
@@ -1193,38 +1135,9 @@ export function showAbandonedCartNotification() {
         _abandonedCartNotifEl = null;
         localStorage.removeItem(CONFIG.STORAGE_KEYS.ABANDONED_CART);
     });
-
-    console.log(`🛒 Notification panier abandonné affichée en langue : ${document.documentElement.lang}`);
 }
 
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ ui.js chargé — v3.0.0 (email verify + race + profile sync)');
-
-// ============================================================
-// ⚠️ NOTE IMPORTANTE — Fix C10.1 (Vérification email)
-// ------------------------------------------------------------
-// Le bouton "Renvoyer" appelle maintenant réellement
-// resendVerificationEmail() MAIS :
-//
-// 1. Si auth.currentUser existe → fonctionne ✅
-// 2. Si auth.currentUser est null (cas actuel après signup)
-//    → message d'aide + redirection login (auth.js renverra)
-//
-// POUR UN FIX COMPLET (bouton "Renvoyer" 100% fonctionnel
-// juste après inscription), il faudra modifier auth.js v3.0.0 :
-//
-//   export async function registerWithFirebase(...) {
-//       // ... créer user + save profile + sendEmailVerification
-//       // ❌ SUPPRIMER : await signOut(auth);
-//       // ❌ SUPPRIMER : setUser(null);
-//       // ✅ À LA PLACE : garder l'utilisateur connecté
-//       return { success: true, needsVerification: true, ... };
-//   }
-//
-// Et dans auth.js initAuthListener : ne PAS signOut les
-// utilisateurs non-vérifiés (les laisser connectés mais bloqués).
-//
-// Ce fix est à appliquer lors du passage sur auth.js.
-// ============================================================
+console.log('✅ ui.js chargé — v3.1.0 (needsVerification compatible)');
