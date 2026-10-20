@@ -1,11 +1,19 @@
 // js/store.js
 // ============================================================
 // STORE CENTRALISÉ - SMART SWI9A
-// Version 1.1.0 — Ajout état blog
+// Version 1.2.0 — Fixes dette technique (dead code + appReady)
+// CHANGEMENTS v1.2.0 :
+// ✅ I3.1 — lang retiré du state (utils.currentLang = source unique)
+// ✅ I3.2 — appReadyPromise : resolveAppReady() propre + compat
+// ✅ I3.3 — perPage : CONFIG.PRODUCTS.PER_PAGE / CONFIG.BLOG.PER_PAGE
+// ✅ M3.x — Dead code supprimé (subscribe, listeners, initStore, etc.)
+// ⚠️ resetBlogFilters conservé (importé par blog.js — sera supprimé v2.0)
 // ============================================================
-// Dépend de : rien (fichier racine)
-// Rôle      : état global + notifications aux abonnés
+// Dépend de : config.js
+// Rôle      : état global (lecture seule via getters)
 // ============================================================
+
+import { CONFIG } from './config.js';
 
 // ============================================================
 // ÉTAT GLOBAL
@@ -22,8 +30,8 @@ let state = {
     blogPosts: [],
 
     // --- Interface ---
-    lang: 'fr',
-    theme: 'light',
+    // ✅ I3.1 : `lang` retiré (source unique = utils.currentLang)
+    // ✅ M3.x : `theme` retiré (mode clair unique, plus de toggle)
 
     // --- Filtres produits ---
     filters: {
@@ -39,45 +47,80 @@ let state = {
     // --- Filtres blog ---
     blogFilters: {
         category: 'all',
-        search: '',
-        status: 'published'
+        search: ''
+        // ✅ M3.x : `status` retiré (jamais utilisé dans blog.js — filtré côté Firestore)
     },
 
     // --- Pagination produits ---
+    // ✅ I3.3 : utilise CONFIG.PRODUCTS.PER_PAGE
     pagination: {
         currentPage: 1,
-        perPage: 6,
+        perPage: CONFIG.PRODUCTS.PER_PAGE,
         totalPages: 1
     },
 
     // --- Pagination blog ---
+    // ✅ I3.3 : utilise CONFIG.BLOG.PER_PAGE
     blogPagination: {
         currentPage: 1,
-        perPage: 6,
+        perPage: CONFIG.BLOG.PER_PAGE,
         totalPages: 1
     }
 };
 
 // ============================================================
-// ABONNÉS (listeners)
+// ✅ I3.2 — PROMESSE appReady (fix propre + compat)
+// ------------------------------------------------------------
+// Avant : window._appReadyResolve (pollution globale, pas de guard double-resolve)
+// Après : resolveAppReady() exporté + window._appReadyResolve en compat (app.js)
 // ============================================================
-const listeners = [];
-
-// ============================================================
-// PROMESSES GLOBALES
-// ============================================================
+let _resolveAppReady = null;
 
 export const appReadyPromise = new Promise((resolve) => {
     const timeout = setTimeout(() => {
-        console.warn('⚠️ appReadyPromise résolue par timeout (10s)');
-        resolve();
+        console.warn('⚠️ appReadyPromise timeout (10s) — résolue par timeout');
+        if (_resolveAppReady) {
+            _resolveAppReady();
+            _resolveAppReady = null;
+            if (typeof window !== 'undefined') window._appReadyResolve = null;
+        }
     }, 10000);
-    window._appReadyResolve = () => {
+
+    _resolveAppReady = () => {
         clearTimeout(timeout);
         resolve();
     };
+
+    // ✅ Compatibilité rétroactive avec app.js (qui utilise window._appReadyResolve)
+    if (typeof window !== 'undefined') {
+        window._appReadyResolve = () => {
+            if (_resolveAppReady) {
+                _resolveAppReady();
+                _resolveAppReady = null;
+                window._appReadyResolve = null;
+            }
+        };
+    }
 });
 
+/**
+ * Résout appReadyPromise (une seule fois).
+ * Remplace `window._appReadyResolve()` en code nouveau.
+ * Safe : idempotent, guard double-resolve.
+ */
+export function resolveAppReady() {
+    if (_resolveAppReady) {
+        _resolveAppReady();
+        _resolveAppReady = null;
+        if (typeof window !== 'undefined') window._appReadyResolve = null;
+    }
+}
+
+// ============================================================
+// PROMESSE PRODUITS CHARGÉS
+// ------------------------------------------------------------
+// Utilisée par panier.js et product-detail.js pour attendre le chargement
+// ============================================================
 let productsLoadedPromise = null;
 
 export function getProductsLoadedPromise() {
@@ -88,11 +131,9 @@ export function setProductsLoadedPromise(promise) {
     productsLoadedPromise = promise;
 }
 
-export function resetProductsLoadedPromise() {
-    productsLoadedPromise = null;
-}
-
-// --- Promesse blog chargé ---
+// ============================================================
+// PROMESSE BLOG CHARGÉ
+// ============================================================
 let blogLoadedPromise = null;
 
 export function getBlogLoadedPromise() {
@@ -104,34 +145,18 @@ export function setBlogLoadedPromise(promise) {
 }
 
 // ============================================================
-// SUBSCRIBE
+// ✅ setState (INTERNE — non exporté)
+// ------------------------------------------------------------
+// Les mutations se font uniquement via les setters publics.
+// Cela empêche la modification accidentelle de l'état global.
 // ============================================================
-export function subscribe(listener) {
-    listeners.push(listener);
-    return () => {
-        const idx = listeners.indexOf(listener);
-        if (idx > -1) listeners.splice(idx, 1);
-    };
-}
-
-function notify() {
-    listeners.forEach(listener => {
-        try {
-            listener(state);
-        } catch (e) {
-            console.error('❌ Erreur dans un listener du store :', e);
-        }
-    });
-}
-
-// ============================================================
-// SET / GET STATE
-// ============================================================
-export function setState(newState) {
+function setState(newState) {
     state = { ...state, ...newState };
-    notify();
 }
 
+// ============================================================
+// GET STATE (lecture globale en lecture seule)
+// ============================================================
 export function getState() {
     return state;
 }
@@ -170,40 +195,16 @@ export function setUser(user) {
 }
 
 // ============================================================
-// LANGUE
-// ============================================================
-export function getLangState() {
-    return state.lang;
-}
-
-export function setLangState(lang) {
-    setState({ lang });
-}
-
-// ============================================================
-// THÈME (conservé pour compat, toujours 'light')
-// ============================================================
-export function getTheme() {
-    return state.theme;
-}
-
-export function setTheme(theme) {
-    setState({ theme });
-}
-
-// ============================================================
 // VILLES (LIVRAISON)
+// ✅ M3.x : getDeliveryData retiré → utiliser getState().deliveryData
 // ============================================================
-export function getDeliveryData() {
-    return state.deliveryData;
-}
-
 export function setDeliveryData(data) {
     setState({ deliveryData: data });
 }
 
 // ============================================================
 // VILLE SÉLECTIONNÉE
+// ✅ M3.x : clearSelectedCity retiré → utiliser setSelectedCity(null)
 // ============================================================
 export function getSelectedCity() {
     return state.selectedCity;
@@ -211,10 +212,6 @@ export function getSelectedCity() {
 
 export function setSelectedCity(city) {
     setState({ selectedCity: city });
-}
-
-export function clearSelectedCity() {
-    setState({ selectedCity: null });
 }
 
 // ============================================================
@@ -265,12 +262,16 @@ export function setBlogFilters(filters) {
     });
 }
 
+/**
+ * ⚠️ Note : resetBlogFilters est conservé pour compatibilité
+ * (importé par blog.js, mais non appelé actuellement).
+ * Sera supprimé dans blog.js v2.0.
+ */
 export function resetBlogFilters() {
     setState({
         blogFilters: {
             category: 'all',
-            search: '',
-            status: 'published'
+            search: ''
         }
     });
 }
@@ -299,47 +300,6 @@ export function setPagination(pagination) {
 }
 
 // ============================================================
-// INIT STORE (réinitialisation complète)
-// ============================================================
-export function initStore() {
-    state = {
-        products: [],
-        cart: [],
-        user: null,
-        deliveryData: [],
-        selectedCity: null,
-        blogPosts: [],
-        lang: 'fr',
-        theme: 'light',
-        filters: {
-            category: 'all',
-            search: '',
-            sort: 'default',
-            inStock: false,
-            promos: false,
-            priceMin: 0,
-            priceMax: 99999
-        },
-        blogFilters: {
-            category: 'all',
-            search: '',
-            status: 'published'
-        },
-        pagination: {
-            currentPage: 1,
-            perPage: 6,
-            totalPages: 1
-        },
-        blogPagination: {
-            currentPage: 1,
-            perPage: 6,
-            totalPages: 1
-        }
-    };
-    listeners.length = 0;
-}
-
-// ============================================================
 // LOG
 // ============================================================
-console.log('✅ store.js chargé — avec blog');
+console.log('✅ store.js chargé — v1.2.0 (fixes dette + appReady propre)');
