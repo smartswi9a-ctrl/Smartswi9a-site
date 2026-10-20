@@ -8,7 +8,6 @@
     <meta name="description" content="Découvrez nos produits tech et Smart Home au Maroc. Livraison rapide 24-72h, paiement à la livraison.">
     <meta name="robots" content="index, follow">
     <meta name="theme-color" content="#f8f6f2">
-    <!-- ✅ FIX DARK MODE — force le mode clair uniquement -->
     <meta name="color-scheme" content="only light">
     <meta name="supported-color-schemes" content="light">
     <link rel="canonical" href="https://smartswi9a.top/produit">
@@ -56,7 +55,6 @@
     <link rel="stylesheet" href="/style-patches.css">
     <script src="/translations.js"></script>
 
-    <!-- ✅ CSS CRITIQUE INLINE -->
     <style>
         @media screen and (max-width: 900px) {
             #navbar .nav-links { display: none !important; }
@@ -133,6 +131,24 @@
             .product-actions .btn-primary,
             .product-actions .btn-secondary { flex: 1 !important; }
         }
+        
+        /* Styles pour les options de variantes */
+        .variant-options-group { margin: 1rem 0; }
+        .variant-label { font-size: 0.9rem; font-weight: 600; margin-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center; }
+        .variant-buttons { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+        .variant-btn {
+            padding: 0.5rem 1rem; border: 1px solid var(--border); border-radius: 4px;
+            background: var(--bg-card); color: var(--text); cursor: pointer; font-size: 0.85rem;
+            transition: all 0.2s;
+        }
+        .variant-btn:hover { border-color: var(--gold); }
+        .variant-btn.active { border-color: var(--gold); background: rgba(165,123,46,0.1); font-weight: 700; }
+        .variant-btn:disabled { opacity: 0.4; cursor: not-allowed; text-decoration: line-through; }
+        .size-guide-btn { background: transparent; border: none; color: var(--gold); cursor: pointer; text-decoration: underline; font-size: 0.8rem; }
+        
+        /* Styles pour le tableau des dimensions */
+        .dimensions-table { width: 100%; border-collapse: collapse; margin-top: 1rem; font-size: 0.85rem; }
+        .dimensions-table th, .dimensions-table td { padding: 0.5rem; border-bottom: 1px solid var(--border); text-align: left; }
     </style>
 </head>
 <body>
@@ -204,10 +220,7 @@
 
         <div class="product-layout">
             <div class="product-images">
-                <!-- ✅ Conteneur principal (image OU vidéo injectée par JS) -->
                 <div class="product-main-img-wrapper" id="mainMediaWrapper"></div>
-                
-                <!-- ✅ Galerie de miniatures (photos + vidéo) -->
                 <div class="product-thumbnails" id="galleryThumbnails"></div>
             </div>
 
@@ -222,11 +235,14 @@
                     <div class="product-stock-status" id="productStockStatus"></div>
                 </div>
 
+                <!-- ✅ NOUVEAU : Conteneur pour les options (Tailles / Couleurs) -->
+                <div id="productVariantsRoot" style="margin-top: 1rem;"></div>
+
                 <div class="product-actions">
-                    <button class="btn-primary" id="addToCartBtn" data-action="cart:add">
+                    <button class="btn-primary" id="addToCartBtn">
                         🛒 <span data-key="productAddToCart">Ajouter au panier</span>
                     </button>
-                    <button class="btn-secondary" id="whatsappOrderBtn" data-action="order:whatsapp">
+                    <button class="btn-secondary" id="whatsappOrderBtn">
                         💬 <span data-key="productOrderWhatsApp">Commander via WhatsApp</span>
                     </button>
                 </div>
@@ -235,6 +251,8 @@
 
         <div class="product-details-secondary">
             <p id="productDescEl" class="product-desc"></p>
+            <!-- ✅ NOUVEAU : Conteneur pour les dimensions -->
+            <div id="productDimensionsRoot"></div>
         </div>
 
         <div id="productReviewsRoot" class="product-reviews-container"></div>
