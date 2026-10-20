@@ -268,12 +268,9 @@
                 <p class="section-sub" data-key="productsSub">Sélection des meilleurs appareils tech et Smart Home disponibles au Maroc.</p>
             </div>
 
-            <!-- ✅ NOUVEAU : Barre de recherche avec bouton Catégories -->
-            <div class="search-bar-products" style="display: flex; gap: 0.5rem; align-items: center; max-width: 600px; margin: 0 auto 1.5rem;">
-                <button id="openCategoriesBtn" class="btn-primary" style="padding: 0.7rem 1rem; white-space: nowrap; border-radius: 50px; display: flex; align-items: center; gap: 0.4rem;">
-                    <span>☰</span> <span data-key="navCategories">Catégories</span>
-                </button>
-                <div class="search-input-wrapper" style="flex: 1; margin-bottom: 0;">
+            <!-- Barre de recherche seule et centrée (bouton catégories supprimé) -->
+            <div class="search-bar-products" style="display: flex; justify-content: center; margin: 0 auto 1.5rem; max-width: 400px;">
+                <div class="search-input-wrapper" style="width: 100%;">
                     <span class="search-icon" aria-hidden="true">
                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                     </span>
@@ -282,7 +279,9 @@
             </div>
 
             <div class="products-toolbar" id="productsToolbar">
+                <!-- Bande défilante injectée par products.js -->
                 <div class="filters-categories" id="filtersCategories"></div>
+                
                 <select class="sort-btn" id="sortSelect" data-action="products:sort" data-aria-key="ariaSortProducts" aria-label="Trier les produits"></select>
                 <div class="filters-advanced" id="filtersAdvanced">
                     <label class="filter-checkbox">
@@ -497,18 +496,6 @@
                 console.warn('⚠️ Produits non chargés, on continue quand même');
             }
             await initDynamicTestimonials();
-        });
-    </script>
-
-    <!-- ✅ NOUVEAU : Script pour le Menu Catégories Visuel -->
-    <script type="module">
-        import { openCategoriesMenu } from '/js/categories-menu.js';
-        
-        document.addEventListener('DOMContentLoaded', () => {
-            const btn = document.getElementById('openCategoriesBtn');
-            if (btn) {
-                btn.addEventListener('click', openCategoriesMenu);
-            }
         });
     </script>
 </body>
