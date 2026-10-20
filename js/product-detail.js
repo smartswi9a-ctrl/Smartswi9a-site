@@ -1,26 +1,22 @@
 // js/product-detail.js
 // ============================================================
 // PAGE PRODUIT DYNAMIQUE - SMART SWI9A
-// Version 3.0.0 — Fixes critiques (WhatsApp, variantes, UX)
+// Version 3.1.0 — Breadcrumb complet + produits similaires parent-aware
 // ============================================================
-// CHANGEMENTS v3.0.0 :
-// ✅ C7.1 — Bouton WhatsApp fonctionnel + variant obligatoire
-// ✅ C7.2 — attachProductEvents guard (fin accumulation listeners)
-// ✅ C7.3 — Prix barré masqué si variantes (pas de per-variant oldPrice)
-// ✅ I7.1 — Feedback "Combinaison indisponible"
-// ✅ I7.2 — renderRelatedProducts cache par product.id
-// ✅ I7.3 — Guide tailles désactivé (données hardcodées fausses)
-// ✅ I7.5 — JSON-LD skip si prix = 0
-// ✅ M7.1 — document.title une seule fois
-// ✅ M7.2 — Number guard sur product.id
-// ✅ M7.3 — Timeout 8s sur renderReviewsSection
-// ✅ M7.4 — ESC dans openSizeGuideModal
-// ✅ M7.6 — Import cart.js statique (au lieu de dynamique au clic)
+// CHANGEMENTS v3.1.0 :
+// ✅ FIX #6 — renderRelatedProducts() : parent-aware (siblings inclus)
+// ✅ FIX #7 — renderBreadcrumbs() : hiérarchie complète
+//              Accueil › Électronique › Smartphones › Produit
+// ✅ FIX #20 — Breadcrumb : fallback legacy via getCategoryPath
+// ✅ (Repris v3.0.0) — C7.1→C7.3, I7.1→I7.5, M7.1→M7.6
 // ============================================================
 
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "./firebase.js";
-import { CONFIG, VIDEO_BASE_URL } from "./config.js";
+import {
+    CONFIG, VIDEO_BASE_URL,
+    getCategoryPath, getCategoryById, getParentCategory, normalizeCategory
+} from "./config.js";
 import {
     t, escapeHTML, getProductName, getProductDesc, getProductFeatures,
     getProductImageUrl, getFallbackImage, renderStars,
@@ -30,7 +26,7 @@ import { getProducts } from "./store.js";
 import { getCurrentUser } from "./auth.js";
 import { toggleFavorite } from "./products.js";
 import { createReview, canUserReviewProduct, toggleLike } from "./reviews.js";
-import { addToCart } from "./cart.js"; // ✅ M7.6 : import statique
+import { addToCart } from "./cart.js";
 import { showToast, openImageLightbox } from "./ui-core.js";
 
 // ============================================================
@@ -39,12 +35,10 @@ import { showToast, openImageLightbox } from "./ui-core.js";
 let currentProduct = null;
 let currentVideoElement = null;
 
-// État de sélection des variantes
 let selectedSize = null;
 let selectedColor = null;
 let currentVariant = null;
 
-// ✅ I7.2 : cache des produits similaires
 let _relatedProductsCache = null;
 let _relatedForProductId = null;
 
@@ -94,10 +88,9 @@ export async function renderProductDetail() {
     selectedSize = null;
     selectedColor = null;
     currentVariant = null;
-    _relatedProductsCache = null;   // ✅ I7.2 reset cache
+    _relatedProductsCache = null;
     _relatedForProductId = null;
 
-    // ✅ M7.1 : title défini une seule fois
     document.title = `${getProductName(product)} | Smart Swi9a`;
 
     updateMetaTags(product);
@@ -129,16 +122,12 @@ function renderNotFound(mainEl) {
 
 // ============================================================
 // META TAGS DYNAMIQUES (SEO)
-// ✅ I7.5 : JSON-LD offers skippé si prix = 0
 // ============================================================
 function updateMetaTags(product) {
     const name = getProductName(product);
     const desc = getProductDesc(product);
     const img = getProductImageUrl(product);
     const url = window.location.href;
-
-    // ✅ M7.1 : title NE PAS répéter (déjà fait dans renderProductDetail)
-    // document.title = `${name} | Smart Swi9a`;
 
     setMeta('name', 'description', desc.substring(0, 160));
     setMeta('property', 'og:title', name);
@@ -160,7 +149,6 @@ function updateMetaTags(product) {
     }
     canonical.href = url;
 
-    // JSON-LD
     const schemaId = 'product-schema-ld';
     let schemaEl = document.getElementById(schemaId);
     if (!schemaEl) {
@@ -180,7 +168,6 @@ function updateMetaTags(product) {
         "brand": { "@type": "Brand", "name": "Smart Swi9a" }
     };
 
-    // ✅ I7.5 : Google rejette un prix à 0 → skip offers
     if (price > 0) {
         schema.offers = {
             "@type": "Offer",
@@ -215,20 +202,67 @@ function setMeta(attrName, attrValue, content) {
 }
 
 // ============================================================
-// BREADCRUMBS
+// ✅ FIX #7 + #20 : BREADCRUMBS COMPLET (avec catégories)
+// ------------------------------------------------------------
+// AVANT : Accueil › Produits › Produit
+// APRÈS : Accueil › Électronique › Smartphones › Produit
+// Gère legacy : produit 'smartphone' → breadcrumb 'Électronique › Smartphones'
 // ============================================================
 function renderBreadcrumbs(product) {
     const el = document.getElementById('breadcrumbs');
     if (!el) return;
 
+    // Construire le chemin de catégories
+    const catPath = getCategoryPath(product.category);
+
+    // Construire les items du breadcrumb
+    const items = [
+        {
+            name: t('productBreadcrumbHome'),
+            url: CONFIG.SHOP.URL,
+            isLink: true
+        }
+    ];
+
+    // Ajouter les catégories (parents puis enfants)
+    catPath.forEach(cat => {
+        const label = t(cat.label);
+        const url = `${CONFIG.SHOP.URL}/#produits?cat=${cat.id}`;
+        items.push({
+            name: `${cat.emoji || ''} ${label}`.trim(),
+            url: url,
+            isLink: true,
+            isCategory: true,
+            categoryId: cat.id
+        });
+    });
+
+    // Si aucune catégorie n'est trouvée, fallback "Produits"
+    if (catPath.length === 0) {
+        items.push({
+            name: t('productBreadcrumbProducts'),
+            url: `${CONFIG.SHOP.URL}/#produits`,
+            isLink: true
+        });
+    }
+
+    // Ajouter le produit final (non cliquable)
+    items.push({
+        name: getProductName(product),
+        url: window.location.href,
+        isLink: false
+    });
+
+    // Schema.org BreadcrumbList
     const breadcrumbSchema = {
         "@context": "https://schema.org",
         "@type": "BreadcrumbList",
-        "itemListElement": [
-            { "@type": "ListItem", "position": 1, "name": t('productBreadcrumbHome'), "item": CONFIG.SHOP.URL },
-            { "@type": "ListItem", "position": 2, "name": t('productBreadcrumbProducts'), "item": `${CONFIG.SHOP.URL}/#produits` },
-            { "@type": "ListItem", "position": 3, "name": getProductName(product) }
-        ]
+        "itemListElement": items.map((item, idx) => ({
+            "@type": "ListItem",
+            "position": idx + 1,
+            "name": item.name,
+            ...(item.isLink ? { "item": item.url } : {})
+        }))
     };
 
     let schemaEl = document.getElementById('breadcrumb-schema');
@@ -240,6 +274,19 @@ function renderBreadcrumbs(product) {
     }
     schemaEl.textContent = JSON.stringify(breadcrumbSchema);
 
+    // Rendu HTML
+    const sep = ' <span style="color:var(--text-dim);margin:0 0.2rem;">›</span> ';
+    const htmlParts = items.map(item => {
+        if (item.isLink) {
+            return `<a href="${escapeHTML(item.url)}" style="color:var(--gold);text-decoration:none;">${escapeHTML(item.name)}</a>`;
+        } else {
+            return `<span style="color:var(--text-muted);">${escapeHTML(item.name)}</span>`;
+        }
+    });
+
+    el.innerHTML = htmlParts.join(sep);
+
+    // Met à jour le breadcrumbCurrent (ancien element, garde compatibilité)
     const currentSpan = document.getElementById('breadcrumbCurrent');
     if (currentSpan) {
         currentSpan.textContent = getProductName(product);
@@ -324,7 +371,6 @@ function renderMediaGallery(product) {
         `;
         videoThumb.addEventListener('click', () => showVideo(videoUrl, videoThumb));
 
-        // ✅ M7.5 : vidéo placée en premier (intentionnel — plus engageant)
         galleryContainer.insertBefore(videoThumb, galleryContainer.firstChild);
         showVideo(videoUrl, videoThumb);
         if (firstImageThumb) firstImageThumb.classList.remove('active');
@@ -335,7 +381,6 @@ function renderMediaGallery(product) {
 
 // ============================================================
 // SECTION INFO (Prix, Stock, Boutons)
-// ✅ C7.3 : masquer oldPrice + badge si produit a variantes
 // ============================================================
 function renderInfoSection(product) {
     const titleEl = document.getElementById('productTitleEl');
@@ -355,7 +400,6 @@ function renderInfoSection(product) {
 
     if (priceEl) priceEl.textContent = `${product.price} ${t('currency')}`;
 
-    // ✅ C7.3 : oldPrice uniquement si pas de variantes (sinon trompeur)
     if (oldPriceEl) {
         if (isPromo && !hasVariants) {
             oldPriceEl.textContent = `${product.oldPrice} ${t('currency')}`;
@@ -367,7 +411,6 @@ function renderInfoSection(product) {
 
     if (descEl) descEl.textContent = getProductDesc(product);
 
-    // ✅ C7.3 : badge -X% uniquement si pas de variantes
     const priceBlock = document.querySelector('.product-price-block');
     if (priceBlock) {
         const existing = priceBlock.querySelector('.discount-badge');
@@ -402,14 +445,10 @@ function renderInfoSection(product) {
             addBtn.style.cursor = 'pointer';
         }
     }
-
-    // ⚠️ C7.1 : le bouton WhatsApp est géré dans attachProductEvents
-    // (pas de data-product-id → events.js n'interfère pas)
 }
 
 // ============================================================
 // SECTION DES VARIANTES
-// ✅ I7.3 : guide des tailles désactivé (données hardcodées)
 // ============================================================
 function renderVariantsSection(product) {
     const root = document.getElementById('productVariantsRoot');
@@ -425,8 +464,6 @@ function renderVariantsSection(product) {
 
     let html = '';
 
-    // ✅ I7.3 : guide tailles désactivé tant qu'il n'y a pas de données réelles
-    // Activer uniquement si product.hasSizeGuide ET product.sizeGuideData existe
     const hasRealSizeGuideData = !!(product.hasSizeGuide && product.sizeGuideData);
     const guideBtnHtml = hasRealSizeGuideData
         ? `<button class="size-guide-btn" id="openSizeGuideBtn">📏 Guide des tailles</button>`
@@ -473,12 +510,10 @@ function renderVariantsSection(product) {
         btn.addEventListener('click', () => selectVariantOption('color', btn.dataset.color));
     });
 
-    // Auto-sélection si une seule option
     if (sizes.length === 1) selectVariantOption('size', sizes[0]);
     if (colors.length === 1) selectVariantOption('color', colors[0]);
 }
 
-// ✅ Gestion de la sélection d'une option
 function selectVariantOption(type, value) {
     if (type === 'size') {
         selectedSize = value;
@@ -504,24 +539,17 @@ function selectVariantOption(type, value) {
     updateVariantDisplay();
 }
 
-// ============================================================
-// ✅ I7.1 + C7.3 — Mise à jour du prix/stock selon variante
-// - Feedback "Combinaison indisponible" si pas de match
-// - Masquer oldPrice + badge (pas de per-variant oldPrice)
-// ============================================================
 function updateVariantDisplay() {
     const priceEl = document.getElementById('productPrice');
     const oldPriceEl = document.getElementById('productOldPrice');
     const stockEl = document.getElementById('productStockStatus');
     const addBtn = document.getElementById('addToCartBtn');
 
-    // ✅ C7.3 : masquer oldPrice + badge quand une variante est sélectionnée
     if (oldPriceEl) oldPriceEl.style.display = 'none';
     const badge = document.querySelector('.discount-badge');
     if (badge) badge.style.display = 'none';
 
     if (!currentVariant) {
-        // ✅ I7.1 : feedback clair
         const totalStock = currentProduct.variants.reduce((sum, v) => sum + (v.stock || 0), 0);
         if (selectedSize && selectedColor) {
             stockEl.innerHTML = `<span style="color:var(--danger);font-weight:700;">❌ Combinaison indisponible</span>`;
@@ -537,10 +565,8 @@ function updateVariantDisplay() {
         return;
     }
 
-    // Prix de la variante
     if (priceEl) priceEl.textContent = `${currentVariant.price} ${t('currency')}`;
 
-    // Stock de la variante
     if (currentVariant.stock > 0) {
         stockEl.innerHTML = `<span style="color:#22c55e;">${t('productInStock')} (${currentVariant.stock})</span>`;
         if (addBtn) {
@@ -558,10 +584,6 @@ function updateVariantDisplay() {
     }
 }
 
-// ============================================================
-// ✅ M7.4 — Modale Guide des tailles (ESC handler)
-// ⚠️ I7.3 : n'est appelée que si product.sizeGuideData existe
-// ============================================================
 function openSizeGuideModal() {
     document.getElementById('sizeGuideModal')?.remove();
 
@@ -649,7 +671,6 @@ function renderFeaturesSection(product) {
 
 // ============================================================
 // SECTION AVIS
-// ✅ M7.3 : timeout 8s pour éviter blocage
 // ============================================================
 async function renderReviewsSection(product) {
     const container = document.getElementById('productReviewsRoot');
@@ -657,7 +678,6 @@ async function renderReviewsSection(product) {
 
     container.innerHTML = `<div style="text-align:center;padding:1rem;color:var(--text-muted);">⏳ ${t('loadingReviews')}</div>`;
 
-    // ✅ M7.2 : guard Number
     const pid = Number(product.id);
     if (!Number.isFinite(pid)) {
         container.innerHTML = `<p style="text-align:center;color:var(--danger);">${t('productNotFound')}</p>`;
@@ -671,7 +691,6 @@ async function renderReviewsSection(product) {
             where("status", "==", "approved")
         );
 
-        // ✅ M7.3 : timeout 8s
         const timeout = new Promise((_, reject) =>
             setTimeout(() => reject(new Error('TIMEOUT')), 8000)
         );
@@ -918,17 +937,54 @@ function attachReviewEvents(product) {
 }
 
 // ============================================================
-// ✅ I7.2 — PRODUITS SIMILAIRES (cache par product.id)
+// ✅ FIX #6 : PRODUITS SIMILAIRES (parent-aware)
+// ------------------------------------------------------------
+// AVANT : match exact de catégorie uniquement
+//   produit 'Smartphones' → suggère que d'autres 'Smartphones'
+// APRÈS :
+//   1. Priorité 1 : même sous-catégorie (ex: Smartphones)
+//   2. Priorité 2 : même parent, autres sous-catégories (ex: Tablettes, Audio…)
+//   3. Priorité 3 : autres produits du catalogue
 // ============================================================
 function renderRelatedProducts(product) {
     const container = document.getElementById('relatedProductsRoot');
     if (!container) return;
 
-    // ✅ I7.2 : recalcul uniquement si product.id change
     if (_relatedForProductId !== product.id || !_relatedProductsCache) {
-        const all = getProducts();
-        const sameCategory = all.filter(p => p.category === product.category && p.id !== product.id);
-        const others = all.filter(p => p.id !== product.id && p.category !== product.category);
+        const all = getProducts().filter(p => p.id !== product.id);
+
+        // Résoudre la catégorie du produit courant (avec legacy)
+        const normalized = normalizeCategory(product.category);
+        const catInfo = getCategoryById(normalized);
+        const parentId = catInfo?.parentId || (catInfo?.isParent ? catInfo.id : null);
+
+        // Catégorie "locale" : la sous-catégorie du produit
+        const localCatId = catInfo?.isParent ? null : catInfo?.id;
+
+        // ✅ Priorité 1 : même sous-catégorie
+        const sameLocalCat = all.filter(p => {
+            const pNorm = normalizeCategory(p.category);
+            return localCatId && (p.category === localCatId || pNorm === localCatId);
+        });
+
+        // ✅ Priorité 2 : même parent, autres sous-catégories (siblings)
+        const sameParent = parentId
+            ? all.filter(p => {
+                if (sameLocalCat.some(s => s.id === p.id)) return false;
+                const pNorm = normalizeCategory(p.category);
+                const pCat = getCategoryById(pNorm);
+                return pCat && (
+                    pCat.id === parentId ||
+                    pCat.parentId === parentId
+                );
+            })
+            : [];
+
+        // ✅ Priorité 3 : le reste
+        const others = all.filter(p =>
+            !sameLocalCat.some(s => s.id === p.id) &&
+            !sameParent.some(s => s.id === p.id)
+        );
 
         const shuffle = (arr) => {
             const a = [...arr];
@@ -939,7 +995,14 @@ function renderRelatedProducts(product) {
             return a;
         };
 
-        _relatedProductsCache = [...shuffle(sameCategory), ...shuffle(others)].slice(0, 6);
+        // Construire avec priorité : local (3 max) + siblings (2 max) + autres (1 max)
+        const prioritized = [
+            ...shuffle(sameLocalCat).slice(0, 3),
+            ...shuffle(sameParent).slice(0, 2),
+            ...shuffle(others).slice(0, 1)
+        ];
+
+        _relatedProductsCache = prioritized.slice(0, 6);
         _relatedForProductId = product.id;
     }
 
@@ -958,7 +1021,7 @@ function renderRelatedProducts(product) {
 
     random.forEach(p => {
         const pid = Number(p.id);
-        if (!Number.isFinite(pid)) return; // ✅ M7.2
+        if (!Number.isFinite(pid)) return;
 
         const isFav = favs.includes(pid);
         const name = escapeHTML(getProductName(p));
@@ -1005,10 +1068,9 @@ function renderRelatedProducts(product) {
 }
 
 // ============================================================
-// ✅ C7.1 + C7.2 — ÉVÉNEMENTS PRINCIPAUX (guard + WhatsApp)
+// ÉVÉNEMENTS PRINCIPAUX (guard + WhatsApp)
 // ============================================================
 function attachProductEvents(product) {
-    // ============ Ajouter au panier (guard C7.2) ============
     const addBtn = document.getElementById('addToCartBtn');
     if (addBtn && !addBtn._listenerAttached) {
         addBtn._listenerAttached = true;
@@ -1044,9 +1106,6 @@ function attachProductEvents(product) {
         });
     }
 
-    // ============ WhatsApp (C7.1 — handler dédié) ============
-    // ⚠️ Ne PAS mettre data-product-id (sinon events.js prend le relais)
-    // On gère le clic ici pour contrôler la logique des variantes.
     const waBtn = document.getElementById('whatsappOrderBtn');
     if (waBtn && !waBtn._listenerAttached) {
         waBtn._listenerAttached = true;
@@ -1054,14 +1113,14 @@ function attachProductEvents(product) {
             e.preventDefault();
             e.stopImmediatePropagation();
             handleWhatsAppOrder(currentProduct);
-        }, true); // capture : passe avant events.js
+        }, true);
     }
 
     console.log('📦 Page produit prête :', product.slug);
 }
 
 // ============================================================
-// ✅ C7.1 — Handler WhatsApp (avec variants)
+// Handler WhatsApp (avec variants)
 // ============================================================
 function handleWhatsAppOrder(product) {
     if (!product) return;
@@ -1114,4 +1173,4 @@ function handleWhatsAppOrder(product) {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ product-detail.js chargé — v3.0.0 (WhatsApp + variantes + cache)');
+console.log('✅ product-detail.js chargé — v3.1.0 (breadcrumb complet + parent-aware)');
