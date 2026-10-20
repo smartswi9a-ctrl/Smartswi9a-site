@@ -1,7 +1,7 @@
 // js/admin.js
 // ============================================================
 // PANNEAU ADMINISTRATION - SMART SWI9A
-// Version 4.2.1 — FIX : Sécurité typeof sur les champs vidéo/img
+// Version 5.0.0 — Gestion Catégories, Dimensions, Variantes, Guide Tailles
 // ============================================================
 
 import { auth, db, storage } from "./firebase.js";
@@ -11,10 +11,12 @@ import {
 import {
     collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
     query, where, writeBatch, Timestamp, getCountFromServer,
-    orderBy, limit, increment, addDoc, deleteField // ✅ AJOUT DE deleteField
+    orderBy, limit, increment, addDoc, deleteField
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
-import { ROLES, ORDER_STATUS, CATEGORIES, CONFIG, normalizeOrderStatus } from "./config.js";
+import { 
+    ROLES, ORDER_STATUS, CATEGORIES, CATEGORY_GROUPS, CONFIG, normalizeOrderStatus 
+} from "./config.js";
 import {
     escapeHTML, slugify, getStoragePathFromUrl, isStorageUrl,
     getSignupMethodLabel, getSignupMethodEmoji, toDate, t
@@ -493,6 +495,9 @@ function initAdmin() {
             if (el) el.textContent = e.target.value + '%';
         });
     }
+
+    // Événements pour les variantes
+    document.getElementById('generateVariantsBtn')?.addEventListener('click', generateVariants);
 }
 
 // ============================================================
@@ -941,25 +946,47 @@ async function loadProducts() {
     }
 }
 
+// ✅ NOUVEAU : Gestion des catégories parentes/enfants
 function populateCategoriesFilter() {
+    // 1. Filtre de la liste des produits (recherche)
     const selectFilter = document.getElementById('productCategoryFilter');
     if (selectFilter && !selectFilter._populated) {
         let html = `<option value="all">${t('filterAll')}</option>`;
-        CATEGORIES.filter(c => c.id !== 'all' && c.id !== 'favorites').forEach(cat => {
-            html += `<option value="${cat.id}">${cat.emoji} ${t(cat.label)}</option>`;
+        CATEGORY_GROUPS.forEach(group => {
+            html += `<option value="${group.id}" style="font-weight:bold;">📁 ${t(group.label)}</option>`;
+            group.children.forEach(cat => {
+                html += `<option value="${cat.id}">&nbsp;&nbsp;&nbsp;↳ ${cat.emoji} ${t(cat.label)}</option>`;
+            });
         });
         selectFilter.innerHTML = html;
         selectFilter._populated = true;
     }
-    const selectForm = document.getElementById('pCategory');
-    if (selectForm && !selectForm._populated) {
-        let html = '';
-        CATEGORIES.filter(c => c.id !== 'all' && c.id !== 'favorites').forEach(cat => {
-            const selected = cat.id === 'accessories' ? ' selected' : '';
-            html += `<option value="${cat.id}"${selected}>${cat.emoji} ${t(cat.label)}</option>`;
+
+    // 2. Formulaire d'ajout de produit
+    const parentSelect = document.getElementById('pParentCategory');
+    const childSelect = document.getElementById('pCategory');
+    
+    if (parentSelect && !parentSelect._populated) {
+        let html = '<option value="">-- Choisir une catégorie --</option>';
+        CATEGORY_GROUPS.forEach(group => {
+            html += `<option value="${group.id}">${group.emoji} ${t(group.label)}</option>`;
         });
-        selectForm.innerHTML = html;
-        selectForm._populated = true;
+        parentSelect.innerHTML = html;
+        parentSelect._populated = true;
+        
+        parentSelect.addEventListener('change', () => {
+            const selectedGroup = CATEGORY_GROUPS.find(g => g.id === parentSelect.value);
+            childSelect.innerHTML = '';
+            if (!selectedGroup) {
+                childSelect.innerHTML = '<option value="">-- Choisir une sous-catégorie --</option>';
+                return;
+            }
+            let childHtml = '<option value="">-- Choisir une sous-catégorie --</option>';
+            selectedGroup.children.forEach(child => {
+                childHtml += `<option value="${child.id}">${child.emoji} ${t(child.label)}</option>`;
+            });
+            childSelect.innerHTML = childHtml;
+        });
     }
 }
 
@@ -1016,16 +1043,22 @@ function renderProductsList(products) {
         else if (stock <= 4) { stockColor = 'var(--warning)'; stockEmoji = '⚠️'; }
         else if (stock >= 20) { stockColor = 'var(--success)'; stockEmoji = '✅'; }
 
-        // ✅ FIX : BADGE VIDÉO (typeof)
+        // ✅ BADGE VIDÉO (typeof)
         const hasVideo = typeof p.video === 'string' && p.video.trim() !== '';
         const videoBadge = hasVideo 
             ? `<span style="background:var(--gold);color:#fff;font-size:0.65rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;" title="Vidéo R2: ${escapeHTML(p.video)}">🎥</span>` 
+            : '';
+            
+        // Badge Variantes
+        const hasVariants = p.variants && p.variants.length > 0;
+        const variantBadge = hasVariants 
+            ? `<span style="background:var(--info);color:#fff;font-size:0.65rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;" title="${p.variants.length} variante(s)">🎨</span>` 
             : '';
 
         html += `
             <div class="admin-list-item" data-product-id="${p.id}">
                 <div class="admin-list-item-info">
-                    <strong>${name}${videoBadge}</strong>
+                    <strong>${name}${videoBadge}${variantBadge}</strong>
                     <div style="font-size:0.8rem;color:var(--text-muted);margin-top:0.2rem;">
                         📂 ${category} · 💰 ${price} MAD ${isPromo ? `<small style="text-decoration:line-through;color:var(--text-dim);">${oldPrice}</small>` : ''} · <span style="color:${stockColor};font-weight:700;">${stockEmoji} ${stock}</span>
                     </div>
@@ -1077,7 +1110,16 @@ function filterProductsList(resetPage = true) {
     const category = document.getElementById('productCategoryFilter')?.value || 'all';
     let filtered = cachedProducts;
 
-    if (category !== 'all') filtered = filtered.filter(p => p.category === category);
+    if (category !== 'all') {
+        // Si c'est une catégorie parente, on affiche tous les produits qui ont un parentId = category
+        const isParent = CATEGORY_GROUPS.some(g => g.id === category);
+        if (isParent) {
+            const validChildIds = CATEGORY_GROUPS.find(g => g.id === category).children.map(c => c.id);
+            filtered = filtered.filter(p => validChildIds.includes(p.category) || p.category === category);
+        } else {
+            filtered = filtered.filter(p => p.category === category);
+        }
+    }
 
     if (search) filtered = filtered.filter(p => {
         const name = (p.nameFr || p.nameEn || p.nameAr || '').toLowerCase();
@@ -1231,16 +1273,71 @@ function attachProductFormEvents() {
     document.getElementById('cancelProductEdit')?.addEventListener('click', resetProductForm);
 }
 
+// ✅ GÉNÉRATION DES VARIANTES
+function generateVariants() {
+    const sizesRaw = document.getElementById('pSizes').value.trim();
+    const colorsRaw = document.getElementById('pColors').value.trim();
+    
+    const sizes = sizesRaw ? sizesRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
+    const colors = colorsRaw ? colorsRaw.split(',').map(c => c.trim()).filter(Boolean) : [];
+    
+    const container = document.getElementById('variantsContainer');
+    const tbody = document.querySelector('#variantsTable tbody');
+    
+    if (sizes.length === 0 && colors.length === 0) {
+        container.style.display = 'none';
+        tbody.innerHTML = '';
+        return;
+    }
+
+    tbody.innerHTML = '';
+    container.style.display = 'block';
+
+    // On génère les combinaisons
+    const combinations = [];
+    if (sizes.length > 0 && colors.length > 0) {
+        sizes.forEach(s => colors.forEach(c => combinations.push({ size: s, color: c })));
+    } else if (sizes.length > 0) {
+        sizes.forEach(s => combinations.push({ size: s, color: '' }));
+    } else if (colors.length > 0) {
+        colors.forEach(c => combinations.push({ size: '', color: c }));
+    }
+
+    // Prix et stock par défaut (ceux du formulaire principal)
+    const defaultPrice = parseFloat(document.getElementById('pPrice').value) || 0;
+    const defaultStock = parseInt(document.getElementById('pStock').value) || 0;
+
+    combinations.forEach(combo => {
+        const label = [combo.size, combo.color].filter(Boolean).join(' - ');
+        const tr = document.createElement('tr');
+        tr.dataset.size = combo.size;
+        tr.dataset.color = combo.color;
+        
+        tr.innerHTML = `
+            <td style="font-weight:600;font-size:0.85rem;">${label}</td>
+            <td><input type="number" class="var-price" value="${defaultPrice}" min="0" style="width:100%;padding:0.3rem;border:1px solid var(--border);border-radius:4px;text-align:center;"></td>
+            <td><input type="number" class="var-stock" value="${defaultStock}" min="0" style="width:100%;padding:0.3rem;border:1px solid var(--border);border-radius:4px;text-align:center;"></td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
 function resetProductForm() {
     document.getElementById('productFormTitle').textContent = '➕ ' + t('adminAddProduct');
     document.getElementById('productEditId').value = '';
     
     ['pNameFr', 'pNameAr', 'pNameEn', 'pSlug', 'pPrice', 'pOldPrice', 'pPurchasePrice', 'pStock', 'pRating',
-     'pDescFr', 'pDescAr', 'pDescEn', 'pFeaturesFr', 'pFeaturesAr', 'pFeaturesEn', 'pImg', 'pGallery', 'pVideo']
-        .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+     'pDescFr', 'pDescAr', 'pDescEn', 'pFeaturesFr', 'pFeaturesAr', 'pFeaturesEn', 'pImg', 'pGallery', 'pVideo',
+     'pWeight', 'pLength', 'pWidth', 'pHeight', 'pSizes', 'pColors'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
         
-    document.getElementById('pCategory').value = 'accessories';
+    document.getElementById('pParentCategory').value = '';
+    document.getElementById('pCategory').innerHTML = '<option value="">-- Choisir une sous-catégorie --</option>';
     document.getElementById('pIsNew').checked = false;
+    document.getElementById('pSizeGuide').checked = false;
+    
+    document.getElementById('variantsContainer').style.display = 'none';
+    document.querySelector('#variantsTable tbody').innerHTML = '';
+
     document.getElementById('pImgFile').value = '';
     document.getElementById('pGalleryFiles').value = '';
     document.getElementById('pImgPreview').style.display = 'none';
@@ -1261,13 +1358,72 @@ async function editProduct(id) {
         document.getElementById('pNameAr').value = p.nameAr || '';
         document.getElementById('pNameEn').value = p.nameEn || '';
         document.getElementById('pSlug').value = p.slug || '';
-        document.getElementById('pCategory').value = p.category || 'accessories';
+        
+        // Catégorie
+        const parentSelect = document.getElementById('pParentCategory');
+        const childSelect = document.getElementById('pCategory');
+        
+        let foundParentId = '';
+        CATEGORY_GROUPS.forEach(g => {
+            if (g.children.some(c => c.id === p.category)) foundParentId = g.id;
+        });
+
+        if (foundParentId) {
+            parentSelect.value = foundParentId;
+            parentSelect.dispatchEvent(new Event('change')); // Déclenche le remplissage des enfants
+            childSelect.value = p.category || '';
+        } else {
+            // Si ancienne catégorie pas dans l'arborescence
+            parentSelect.value = '';
+            childSelect.innerHTML = `<option value="${p.category}">${p.category} (Ancienne)</option>`;
+            childSelect.value = p.category || '';
+        }
+
         document.getElementById('pPrice').value = p.price || '';
         document.getElementById('pOldPrice').value = p.oldPrice || '';
         document.getElementById('pPurchasePrice').value = p.purchasePrice || '';
         document.getElementById('pStock').value = p.stock || '';
         document.getElementById('pRating').value = p.ratingAvg || '';
         document.getElementById('pIsNew').checked = !!p.isNew;
+        document.getElementById('pSizeGuide').checked = !!p.hasSizeGuide;
+        
+        // Dimensions
+        document.getElementById('pWeight').value = p.dimensions?.weight || '';
+        document.getElementById('pLength').value = p.dimensions?.length || '';
+        document.getElementById('pWidth').value = p.dimensions?.width || '';
+        document.getElementById('pHeight').value = p.dimensions?.height || '';
+        
+        // Variantes
+        const variantsContainer = document.getElementById('variantsContainer');
+        const variantsTbody = document.querySelector('#variantsTable tbody');
+        variantsTbody.innerHTML = '';
+        
+        if (p.variants && p.variants.length > 0) {
+            // Extraire les tailles et couleurs uniques
+            const sizes = [...new Set(p.variants.map(v => v.size).filter(Boolean))];
+            const colors = [...new Set(p.variants.map(v => v.color).filter(Boolean))];
+            document.getElementById('pSizes').value = sizes.join(', ');
+            document.getElementById('pColors').value = colors.join(', ');
+            
+            variantsContainer.style.display = 'block';
+            p.variants.forEach(combo => {
+                const label = [combo.size, combo.color].filter(Boolean).join(' - ');
+                const tr = document.createElement('tr');
+                tr.dataset.size = combo.size || '';
+                tr.dataset.color = combo.color || '';
+                tr.innerHTML = `
+                    <td style="font-weight:600;font-size:0.85rem;">${label}</td>
+                    <td><input type="number" class="var-price" value="${combo.price || p.price}" min="0" style="width:100%;padding:0.3rem;border:1px solid var(--border);border-radius:4px;text-align:center;"></td>
+                    <td><input type="number" class="var-stock" value="${combo.stock || 0}" min="0" style="width:100%;padding:0.3rem;border:1px solid var(--border);border-radius:4px;text-align:center;"></td>
+                `;
+                variantsTbody.appendChild(tr);
+            });
+        } else {
+            document.getElementById('pSizes').value = '';
+            document.getElementById('pColors').value = '';
+            variantsContainer.style.display = 'none';
+        }
+
         document.getElementById('pDescFr').value = p.descFr || '';
         document.getElementById('pDescAr').value = p.descAr || '';
         document.getElementById('pDescEn').value = p.descEn || '';
@@ -1276,11 +1432,9 @@ async function editProduct(id) {
         document.getElementById('pFeaturesEn').value = (p.featuresEn || []).join('\n');
         document.getElementById('pImg').value = p.img || '';
         document.getElementById('pGallery').value = (p.gallery || []).join(', ');
-        
         document.getElementById('pVideo').value = p.video || '';
         
         const ip = document.getElementById('pImgPreview');
-        // ✅ FIX : typeof p.img === 'string'
         if (p.img && typeof p.img === 'string') { 
             ip.src = p.img.startsWith('http') ? p.img : '/' + p.img; 
             ip.style.display = 'block'; 
@@ -1308,9 +1462,11 @@ async function saveProduct() {
     const priceRaw = parseFloat(document.getElementById('pPrice').value);
     const purchasePriceRaw = parseFloat(document.getElementById('pPurchasePrice').value);
     const stockRaw = parseInt(document.getElementById('pStock').value);
+    const category = document.getElementById('pCategory').value;
 
     if (!nameFr) { showToast('⚠️ ' + t('adminProductNameRequired')); return; }
     if (!slug) { showToast('⚠️ ' + t('adminProductSlugRequired')); return; }
+    if (!category) { showToast('⚠️ Sélectionnez une sous-catégorie'); return; }
     if (isNaN(priceRaw) || priceRaw < 0) { showToast('⚠️ ' + t('adminProductPriceInvalid')); return; }
     if (isNaN(stockRaw) || stockRaw < 0) { showToast('⚠️ ' + t('adminProductStockInvalid')); return; }
 
@@ -1336,18 +1492,49 @@ async function saveProduct() {
 
         const videoValue = document.getElementById('pVideo').value.trim();
 
+        // Gestion des variantes
+        const variants = [];
+        const variantsTbody = document.querySelector('#variantsTable tbody');
+        if (document.getElementById('variantsContainer').style.display !== 'none') {
+            variantsTbody.querySelectorAll('tr').forEach(tr => {
+                variants.push({
+                    size: tr.dataset.size || '',
+                    color: tr.dataset.color || '',
+                    price: parseFloat(tr.querySelector('.var-price').value) || priceRaw,
+                    stock: parseInt(tr.querySelector('.var-stock').value) || 0
+                });
+            });
+        }
+
+        // Si des variantes existent, le stock global est la somme des stocks des variantes
+        let finalStock = stockRaw;
+        if (variants.length > 0) {
+            finalStock = variants.reduce((sum, v) => sum + v.stock, 0);
+        }
+
+        // Dimensions
+        const dimensions = {
+            weight: parseFloat(document.getElementById('pWeight').value) || 0,
+            length: parseFloat(document.getElementById('pLength').value) || 0,
+            width: parseFloat(document.getElementById('pWidth').value) || 0,
+            height: parseFloat(document.getElementById('pHeight').value) || 0
+        };
+
         const productData = {
             nameFr,
             nameAr: document.getElementById('pNameAr').value.trim(),
             nameEn: document.getElementById('pNameEn').value.trim(),
             slug,
-            category: document.getElementById('pCategory').value,
+            category,
             price: priceRaw,
             oldPrice: Math.max(0, parseFloat(document.getElementById('pOldPrice').value) || 0),
             purchasePrice: isNaN(purchasePriceRaw) ? 0 : purchasePriceRaw,
-            stock: stockRaw,
+            stock: finalStock,
             ratingAvg: Math.min(5, Math.max(0, parseFloat(document.getElementById('pRating').value) || 0)),
             isNew: document.getElementById('pIsNew').checked,
+            hasSizeGuide: document.getElementById('pSizeGuide').checked,
+            dimensions,
+            variants,
             descFr: document.getElementById('pDescFr').value.trim(),
             descAr: document.getElementById('pDescAr').value.trim(),
             descEn: document.getElementById('pDescEn').value.trim(),
@@ -1355,7 +1542,7 @@ async function saveProduct() {
             featuresAr: document.getElementById('pFeaturesAr').value.split('\n').map(l => l.trim()).filter(l => l),
             featuresEn: document.getElementById('pFeaturesEn').value.split('\n').map(l => l.trim()).filter(l => l),
             img: imgUrl, gallery, 
-            video: videoValue || deleteField(), // ✅ SUPPRESSION DU CHAMP DANS FIRESTORE SI VIDE
+            video: videoValue || deleteField(),
             updatedAt: Timestamp.now()
         };
 
@@ -1374,7 +1561,6 @@ async function saveProduct() {
             productData.createdAt = Timestamp.now();
             productData.salesCount = 0;
             productData.ratingCount = 0;
-            // Note : deleteField() n'est pas nécessaire à la création, on peut juste omettre le champ
             if (!videoValue) delete productData.video; 
             await setDoc(doc(db, "products", newId), productData);
             showToast('✅ ' + t('success'));
@@ -1663,7 +1849,6 @@ async function editBlogPost(id) {
         document.getElementById('bAuthor').value = p.author || 'Smart Swi9a';
         document.getElementById('bTags').value = (p.tags || []).join(', ');
         const ip = document.getElementById('bImagePreview');
-        // ✅ FIX : typeof p.image === 'string'
         if (p.image && typeof p.image === 'string') { 
             ip.src = p.image.startsWith('http') ? p.image : '/' + p.image; 
             ip.style.display = 'block'; 
@@ -2877,7 +3062,10 @@ async function exportOrdersCSV() {
         const headers = ['N°', 'Date', 'Client', 'Téléphone', 'Adresse', 'Ville', 'Produits', 'Sous-total', 'Livraison', 'Total', 'Statut', 'Paiement'];
         const rows = orders.map(o => {
             const addr = o.deliveryAddress || {};
-            const products = (o.items || []).map(i => `${i.name} x${i.quantity}`).join(' | ');
+            const products = (o.items || []).map(i => {
+                const variantText = i.variant ? ` (${[i.variant.size, i.variant.color].filter(Boolean).join('-')})` : '';
+                return `${i.name}${variantText} x${i.quantity}`;
+            }).join(' | ');
             return [
                 o.id.slice(0, 8).toUpperCase(),
                 o.createdAt ? o.createdAt.toLocaleDateString('fr-FR') : '',
@@ -2896,11 +3084,13 @@ async function exportProductsCSV() {
     try {
         if (cachedProducts.length === 0) await loadProducts();
         if (cachedProducts.length === 0) { showToast('⚠️ Aucun produit'); return; }
-        const headers = ['ID', 'Nom FR', 'Nom AR', 'Nom EN', 'Slug', 'Catégorie', 'Prix vente', 'Ancien prix', 'Prix achat', 'Stock', 'Note', 'Ventes', 'Nouveau'];
+        const headers = ['ID', 'Nom FR', 'Nom AR', 'Nom EN', 'Slug', 'Catégorie', 'Prix vente', 'Ancien prix', 'Prix achat', 'Stock', 'Note', 'Ventes', 'Nouveau', 'Variantes', 'Dimensions'];
         const rows = cachedProducts.map(p => [
             p.id, p.nameFr || '', p.nameAr || '', p.nameEn || '',
             p.slug || '', p.category || '', p.price || 0, p.oldPrice || 0,
-            p.purchasePrice || 0, p.stock || 0, p.ratingAvg || 0, p.salesCount || 0, p.isNew ? 'Oui' : 'Non'
+            p.purchasePrice || 0, p.stock || 0, p.ratingAvg || 0, p.salesCount || 0, p.isNew ? 'Oui' : 'Non',
+            (p.variants || []).length,
+            p.dimensions ? `${p.dimensions.weight}g ${p.dimensions.length}x${p.dimensions.width}x${p.dimensions.height}cm` : ''
         ]);
         const csv = [headers, ...rows].map(r => r.map(escapeCSV).join(',')).join('\n');
         downloadCSV(csv, `produits_${new Date().toISOString().split('T')[0]}.csv`);
@@ -3088,4 +3278,4 @@ initAdmin();
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ admin.js chargé — v4.2.1 (Sécurité typeof sur vidéo/img)');
+console.log('✅ admin.js chargé — v5.0.0 (Variantes, Dimensions, Guide Tailles)');
