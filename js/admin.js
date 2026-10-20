@@ -1,17 +1,7 @@
 // js/admin.js
 // ============================================================
 // PANNEAU ADMINISTRATION - SMART SWI9A
-// Version 6.1.0 — Fixes cohérence catégories (client ↔ admin)
-// ============================================================
-// CHANGEMENTS v6.1.0 :
-// ✅ FIX #2 — filterProductsList() utilise productMatchesCategory()
-//    (cohérence legacy avec le client)
-// ✅ FIX #3 — editProduct() gère les catégories legacy proprement
-// ✅ FIX #8 — Cascade parent→enfant : cas legacy géré
-// ✅ FIX #10 — Compteurs produits par catégorie dans le filtre admin
-// ✅ FIX #12 — <optgroup> dans productCategoryFilter (design pro)
-// ✅ FIX #17 — Bouton "Migrer catégories legacy" (Outils admin)
-// ✅ (Repris v6.0.0) — C11.1→C11.5, I11.1→I11.6, M11.1→M11.24
+// Version 6.2.0 — Adapté aux 23 nouvelles catégories
 // ============================================================
 
 import { auth, db, storage } from "./firebase.js";
@@ -3534,4 +3524,4 @@ function calculateFinances() {
 // ============================================================
 initAdmin();
 
-console.log('✅ admin.js chargé — v6.1.0 (catégories cohérentes client↔admin)');
+console.log('✅ admin.js chargé — v6.2.0 (23 catégories)');
