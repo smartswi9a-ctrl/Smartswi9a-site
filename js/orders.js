@@ -1,7 +1,15 @@
 // js/orders.js
 // ============================================================
 // GESTION DES COMMANDES - SMART SWI9A
-// Version 4.0.0 — Transactions atomiques + factorisation emails
+// Version 4.0.1 — Fix critique : annulation PENDING restaure stock
+// ============================================================
+// CHANGEMENTS v4.0.1 :
+// ✅ FIX CRITIQUE — updateOrderStatus(CANCELLED) depuis PENDING
+//    restaure désormais le stock (car createOrder déduit dès la
+//    création avec stockDeducted: true)
+//    Avant : [CONFIRMED, SHIPPING, DELIVERED] seulement → PENDING exclu
+//    Après : [PENDING, CONFIRMED, SHIPPING, DELIVERED]
+// ✅ (Repris v4.0.0) — C6.1→C6.4, I6.1→I6.6, M6.1→M6.10
 // ============================================================
 // Dépend de : config, utils, firebase, auth, cart, ui-core, notifications
 // ============================================================
@@ -52,7 +60,7 @@ const _userLangCache = new Map();
 
 // ⚠️ SÉCURITÉ : La clé EmailJS est publique (visible via DevTools).
 // Protection recommandée : rate limiting via Cloud Functions.
-// NE PAS MODIFIER selon les consignes du projet. (C6.4)
+// ⚠️⚠️ NE JAMAIS MODIFIER CES 3 VALEURS — CONTRAINTE ABSOLUE ⚠️⚠️
 const EMAILJS = {
     SERVICE_ID: 'service_gder468',
     TEMPLATE_ID: 'template_6tp1n35',
@@ -287,7 +295,6 @@ function buildOrderEmailText(order, status, recipient, lang = 'fr') {
     const greetings = { fr: 'Bonjour', ar: 'مرحباً', en: 'Hello' };
     const team = { fr: "L'équipe Smart Swi9a", ar: "فريق سمارت سويقة", en: "Smart Swi9a team" };
 
-    // Message (par statut + recipient)
     const msgs = {
         fr: {
             pending_client: `Merci pour votre commande #${shortId} ! Nous la traitons rapidement.`,
@@ -392,7 +399,6 @@ function buildOrderEmailHtml(order, status, recipient, lang = 'fr') {
     const titleKey = `${status}_${recipient}`;
     const title = titles[titleKey] || titles[status] || status;
 
-    // Message selon statut + recipient
     const msgs = {
         fr: {
             pending_client: `Merci pour votre commande <strong>#${shortId}</strong> ! Nous la traitons rapidement.`,
@@ -932,7 +938,6 @@ function renderOrderCard(order) {
     const returnBadgeHtml = returnBadge ? `<div style="margin-top:0.4rem;"><span style="background:rgba(155,89,182,0.15);color:#9b59b6;border:1px solid #9b59b6;font-size:0.7rem;font-weight:700;padding:0.2rem 0.6rem;border-radius:30px;">${returnBadge}</span></div>` : '';
 
     const reviewStatuses = orderReviewStatusCache.get(order.id) || {};
-    // ✅ M6.4 : appelé 1× seulement
     const pendingCount = getPendingReviewCountForOrder(order.id);
     const allReviewed = status === 'delivered' && Object.keys(reviewStatuses).length > 0 && pendingCount === 0;
 
@@ -1186,7 +1191,6 @@ export async function openOrderDetails(orderId, isAdmin = false) {
     const cityDisplay = getCityName({ name: order.deliveryAddress?.cityAr || order.deliveryAddress?.city, nameFr: order.deliveryAddress?.cityFr, nameAr: order.deliveryAddress?.cityAr });
     const returnedQtys = getReturnedQuantities(order);
     const reviewStatuses = orderReviewStatusCache.get(order.id) || {};
-    // ✅ M6.4 : appelé 1× seulement
     const pendingReviewCount = getPendingReviewCountForOrder(order.id);
 
     const itemsHtml = (order.items || []).map(item => {
@@ -1392,6 +1396,12 @@ export async function openReturnModal(orderId) {
 // ------------------------------------------------------------
 // Toute la logique métier (stock + coupon + status) dans UNE transaction.
 // Emails post-transaction (non-bloquants, ne peuvent pas rollback).
+//
+// ✅ FIX v4.0.1 :
+//   Avant : needRestoreStock excluait PENDING → stock perdu si on
+//           annulait une commande pending (car createOrder déduit
+//           dès la création avec stockDeducted: true).
+//   Après : needRestoreStock inclut PENDING → stock restauré.
 // ============================================================
 export async function updateOrderStatus(orderId, newStatus) {
     const normalizedStatus = normalizeOrderStatus(newStatus);
@@ -1422,8 +1432,14 @@ export async function updateOrderStatus(orderId, newStatus) {
                 && previousStatus === ORDER_STATUS.PENDING
                 && order.stockDeducted !== true;
 
+            // ✅ FIX v4.0.1 : inclut PENDING (stock déduit dès la création)
             const needRestoreStock = normalizedStatus === ORDER_STATUS.CANCELLED
-                && [ORDER_STATUS.CONFIRMED, ORDER_STATUS.SHIPPING, ORDER_STATUS.DELIVERED].includes(previousStatus)
+                && [
+                    ORDER_STATUS.PENDING,
+                    ORDER_STATUS.CONFIRMED,
+                    ORDER_STATUS.SHIPPING,
+                    ORDER_STATUS.DELIVERED
+                ].includes(previousStatus)
                 && order.stockDeducted === true;
 
             const needRestoreCoupon = normalizedStatus === ORDER_STATUS.CANCELLED
@@ -1481,7 +1497,7 @@ export async function updateOrderStatus(orderId, newStatus) {
                 });
             }
 
-            // 2. Restauration stock (annulation)
+            // 2. Restauration stock (annulation — inclut maintenant PENDING)
             if (needRestoreStock) {
                 productSnaps.forEach((snap, i) => {
                     if (!snap.exists()) return;
@@ -1926,4 +1942,4 @@ if (typeof document !== 'undefined') {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ orders.js chargé — v4.0.0 (transactions atomiques + factorisation)');
+console.log('✅ orders.js chargé — v4.0.1 (fix annulation PENDING restaure stock)');
