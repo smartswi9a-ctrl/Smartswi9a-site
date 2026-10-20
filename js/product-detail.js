@@ -1,7 +1,21 @@
 // js/product-detail.js
 // ============================================================
 // PAGE PRODUIT DYNAMIQUE - SMART SWI9A
-// Version 2.0.0 — Variantes (Tailles/Couleurs), Guide des tailles, Dimensions
+// Version 3.0.0 — Fixes critiques (WhatsApp, variantes, UX)
+// ============================================================
+// CHANGEMENTS v3.0.0 :
+// ✅ C7.1 — Bouton WhatsApp fonctionnel + variant obligatoire
+// ✅ C7.2 — attachProductEvents guard (fin accumulation listeners)
+// ✅ C7.3 — Prix barré masqué si variantes (pas de per-variant oldPrice)
+// ✅ I7.1 — Feedback "Combinaison indisponible"
+// ✅ I7.2 — renderRelatedProducts cache par product.id
+// ✅ I7.3 — Guide tailles désactivé (données hardcodées fausses)
+// ✅ I7.5 — JSON-LD skip si prix = 0
+// ✅ M7.1 — document.title une seule fois
+// ✅ M7.2 — Number guard sur product.id
+// ✅ M7.3 — Timeout 8s sur renderReviewsSection
+// ✅ M7.4 — ESC dans openSizeGuideModal
+// ✅ M7.6 — Import cart.js statique (au lieu de dynamique au clic)
 // ============================================================
 
 import { collection, query, where, getDocs } from "firebase/firestore";
@@ -16,6 +30,7 @@ import { getProducts } from "./store.js";
 import { getCurrentUser } from "./auth.js";
 import { toggleFavorite } from "./products.js";
 import { createReview, canUserReviewProduct, toggleLike } from "./reviews.js";
+import { addToCart } from "./cart.js"; // ✅ M7.6 : import statique
 import { showToast, openImageLightbox } from "./ui-core.js";
 
 // ============================================================
@@ -28,6 +43,10 @@ let currentVideoElement = null;
 let selectedSize = null;
 let selectedColor = null;
 let currentVariant = null;
+
+// ✅ I7.2 : cache des produits similaires
+let _relatedProductsCache = null;
+let _relatedForProductId = null;
 
 // ============================================================
 // LECTURE DU SLUG
@@ -75,17 +94,18 @@ export async function renderProductDetail() {
     selectedSize = null;
     selectedColor = null;
     currentVariant = null;
-    
+    _relatedProductsCache = null;   // ✅ I7.2 reset cache
+    _relatedForProductId = null;
+
+    // ✅ M7.1 : title défini une seule fois
     document.title = `${getProductName(product)} | Smart Swi9a`;
 
     updateMetaTags(product);
     renderBreadcrumbs(product);
-    
     renderMediaGallery(product);
-
     renderInfoSection(product);
-    renderVariantsSection(product); // ✅ NOUVEAU
-    renderDimensions(product);      // ✅ NOUVEAU
+    renderVariantsSection(product);
+    renderDimensions(product);
     renderFeaturesSection(product);
     await renderReviewsSection(product);
     renderRelatedProducts(product);
@@ -109,6 +129,7 @@ function renderNotFound(mainEl) {
 
 // ============================================================
 // META TAGS DYNAMIQUES (SEO)
+// ✅ I7.5 : JSON-LD offers skippé si prix = 0
 // ============================================================
 function updateMetaTags(product) {
     const name = getProductName(product);
@@ -116,19 +137,17 @@ function updateMetaTags(product) {
     const img = getProductImageUrl(product);
     const url = window.location.href;
 
-    document.title = `${name} | Smart Swi9a`;
+    // ✅ M7.1 : title NE PAS répéter (déjà fait dans renderProductDetail)
+    // document.title = `${name} | Smart Swi9a`;
 
     setMeta('name', 'description', desc.substring(0, 160));
-
     setMeta('property', 'og:title', name);
     setMeta('property', 'og:description', desc.substring(0, 200));
     setMeta('property', 'og:image', img.startsWith('http') ? img : `${CONFIG.SHOP.URL}${img}`);
     setMeta('property', 'og:url', url);
     setMeta('property', 'og:type', 'product');
-
     setMeta('property', 'product:price:amount', String(product.price || 0));
     setMeta('property', 'product:price:currency', 'MAD');
-
     setMeta('name', 'twitter:card', 'summary_large_image');
     setMeta('name', 'twitter:title', name);
     setMeta('name', 'twitter:image', img.startsWith('http') ? img : `${CONFIG.SHOP.URL}${img}`);
@@ -141,6 +160,7 @@ function updateMetaTags(product) {
     }
     canonical.href = url;
 
+    // JSON-LD
     const schemaId = 'product-schema-ld';
     let schemaEl = document.getElementById(schemaId);
     if (!schemaEl) {
@@ -149,28 +169,39 @@ function updateMetaTags(product) {
         schemaEl.type = 'application/ld+json';
         document.head.appendChild(schemaEl);
     }
-    schemaEl.textContent = JSON.stringify({
+
+    const price = Number(product.price) || 0;
+    const schema = {
         "@context": "https://schema.org",
         "@type": "Product",
         "name": name,
         "description": desc,
         "image": img.startsWith('http') ? img : `${CONFIG.SHOP.URL}${img}`,
-        "brand": { "@type": "Brand", "name": "Smart Swi9a" },
-        "offers": {
+        "brand": { "@type": "Brand", "name": "Smart Swi9a" }
+    };
+
+    // ✅ I7.5 : Google rejette un prix à 0 → skip offers
+    if (price > 0) {
+        schema.offers = {
             "@type": "Offer",
-            "price": product.price,
+            "price": price,
             "priceCurrency": "MAD",
-            "availability": (product.stock || 0) > 0
+            "availability": (Number(product.stock) || 0) > 0
                 ? "https://schema.org/InStock"
                 : "https://schema.org/OutOfStock",
             "url": url
-        },
-        "aggregateRating": product.ratingAvg ? {
+        };
+    }
+
+    if (product.ratingAvg && Number(product.ratingAvg) > 0) {
+        schema.aggregateRating = {
             "@type": "AggregateRating",
-            "ratingValue": product.ratingAvg,
-            "reviewCount": product.ratingCount || 1
-        } : undefined
-    });
+            "ratingValue": Number(product.ratingAvg),
+            "reviewCount": Number(product.ratingCount) || 1
+        };
+    }
+
+    schemaEl.textContent = JSON.stringify(schema);
 }
 
 function setMeta(attrName, attrValue, content) {
@@ -194,23 +225,9 @@ function renderBreadcrumbs(product) {
         "@context": "https://schema.org",
         "@type": "BreadcrumbList",
         "itemListElement": [
-            {
-                "@type": "ListItem",
-                "position": 1,
-                "name": t('productBreadcrumbHome'),
-                "item": CONFIG.SHOP.URL
-            },
-            {
-                "@type": "ListItem",
-                "position": 2,
-                "name": t('productBreadcrumbProducts'),
-                "item": `${CONFIG.SHOP.URL}/#produits`
-            },
-            {
-                "@type": "ListItem",
-                "position": 3,
-                "name": getProductName(product)
-            }
+            { "@type": "ListItem", "position": 1, "name": t('productBreadcrumbHome'), "item": CONFIG.SHOP.URL },
+            { "@type": "ListItem", "position": 2, "name": t('productBreadcrumbProducts'), "item": `${CONFIG.SHOP.URL}/#produits` },
+            { "@type": "ListItem", "position": 3, "name": getProductName(product) }
         ]
     };
 
@@ -236,12 +253,11 @@ function renderBreadcrumbs(product) {
 function renderMediaGallery(product) {
     const wrapper = document.getElementById('mainMediaWrapper');
     const galleryContainer = document.getElementById('galleryThumbnails');
-    
     if (!wrapper || !galleryContainer) return;
 
     const mainImageUrl = getProductImageUrl(product);
     galleryContainer.innerHTML = '';
-    
+
     if (currentVideoElement) {
         currentVideoElement.pause();
         currentVideoElement = null;
@@ -256,10 +272,8 @@ function renderMediaGallery(product) {
         wrapper.innerHTML = `
             <img id="mainImage" class="main-media-element" src="${escapeHTML(src)}" alt="${escapeHTML(getProductName(product))}" loading="eager">
         `;
-        
         const newMainImg = document.getElementById('mainImage');
         newMainImg.addEventListener('click', () => openImageLightbox(newMainImg.src));
-
         galleryContainer.querySelectorAll('.thumb-img, .thumb-video').forEach(el => el.classList.remove('active'));
         if (activeThumb) activeThumb.classList.add('active');
     };
@@ -269,7 +283,6 @@ function renderMediaGallery(product) {
             <video id="mainVideo" class="main-media-element" src="${escapeHTML(videoUrl)}" controls preload="metadata" playsinline poster="${escapeHTML(mainImageUrl)}" style="background: #000;"></video>
         `;
         currentVideoElement = document.getElementById('mainVideo');
-
         galleryContainer.querySelectorAll('.thumb-img, .thumb-video').forEach(el => el.classList.remove('active'));
         if (activeThumb) activeThumb.classList.add('active');
     };
@@ -277,21 +290,18 @@ function renderMediaGallery(product) {
     const images = (product.gallery && product.gallery.length > 0)
         ? [product.img, ...product.gallery]
         : [product.img];
-    
+
     let firstImageThumb = null;
 
     images.forEach((imgUrl, index) => {
         if (!imgUrl) return;
         const thumb = document.createElement('img');
         thumb.className = 'thumb-img';
-        thumb.src = imgUrl.startsWith('http') || imgUrl.startsWith('/') ? imgUrl : '/' + imgUrl;
+        thumb.src = (imgUrl.startsWith('http') || imgUrl.startsWith('/')) ? imgUrl : '/' + imgUrl;
         thumb.alt = `${getProductName(product)} - ${index + 1}`;
         thumb.loading = 'lazy';
-        
         thumb.addEventListener('click', () => showImage(thumb.src, thumb));
-
         if (index === 0) firstImageThumb = thumb;
-
         galleryContainer.appendChild(thumb);
     });
 
@@ -312,14 +322,12 @@ function renderMediaGallery(product) {
                 </div>
             </div>
         `;
-
         videoThumb.addEventListener('click', () => showVideo(videoUrl, videoThumb));
 
+        // ✅ M7.5 : vidéo placée en premier (intentionnel — plus engageant)
         galleryContainer.insertBefore(videoThumb, galleryContainer.firstChild);
         showVideo(videoUrl, videoThumb);
-        
         if (firstImageThumb) firstImageThumb.classList.remove('active');
-
     } else {
         showImage(mainImageUrl, firstImageThumb);
     }
@@ -327,6 +335,7 @@ function renderMediaGallery(product) {
 
 // ============================================================
 // SECTION INFO (Prix, Stock, Boutons)
+// ✅ C7.3 : masquer oldPrice + badge si produit a variantes
 // ============================================================
 function renderInfoSection(product) {
     const titleEl = document.getElementById('productTitleEl');
@@ -337,6 +346,7 @@ function renderInfoSection(product) {
     const stock = Number(product.stock) || 0;
     const discountPercent = getDiscountPercent(product.oldPrice, product.price);
     const isPromo = discountPercent > 0;
+    const hasVariants = Array.isArray(product.variants) && product.variants.length > 0;
 
     if (titleEl) {
         titleEl.textContent = getProductName(product);
@@ -345,10 +355,11 @@ function renderInfoSection(product) {
 
     if (priceEl) priceEl.textContent = `${product.price} ${t('currency')}`;
 
+    // ✅ C7.3 : oldPrice uniquement si pas de variantes (sinon trompeur)
     if (oldPriceEl) {
-        if (isPromo) {
+        if (isPromo && !hasVariants) {
             oldPriceEl.textContent = `${product.oldPrice} ${t('currency')}`;
-            oldPriceEl.style.display = 'inline-block'; 
+            oldPriceEl.style.display = 'inline-block';
         } else {
             oldPriceEl.style.display = 'none';
         }
@@ -356,11 +367,12 @@ function renderInfoSection(product) {
 
     if (descEl) descEl.textContent = getProductDesc(product);
 
-    if (isPromo) {
-        const priceBlock = document.querySelector('.product-price-block');
-        if (priceBlock) {
-            const existing = priceBlock.querySelector('.discount-badge');
-            if (existing) existing.remove();
+    // ✅ C7.3 : badge -X% uniquement si pas de variantes
+    const priceBlock = document.querySelector('.product-price-block');
+    if (priceBlock) {
+        const existing = priceBlock.querySelector('.discount-badge');
+        if (existing) existing.remove();
+        if (isPromo && !hasVariants) {
             const badge = document.createElement('span');
             badge.className = 'discount-badge';
             badge.style.cssText = 'background:var(--danger);color:white;padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;';
@@ -380,7 +392,7 @@ function renderInfoSection(product) {
     const addBtn = document.getElementById('addToCartBtn');
     if (addBtn) {
         addBtn.dataset.id = product.id;
-        if (stock === 0) {
+        if (stock === 0 && !hasVariants) {
             addBtn.disabled = true;
             addBtn.style.opacity = '0.5';
             addBtn.style.cursor = 'not-allowed';
@@ -391,12 +403,13 @@ function renderInfoSection(product) {
         }
     }
 
-    const waBtn = document.getElementById('whatsappOrderBtn');
-    if (waBtn) waBtn.dataset.id = product.id;
+    // ⚠️ C7.1 : le bouton WhatsApp est géré dans attachProductEvents
+    // (pas de data-product-id → events.js n'interfère pas)
 }
 
 // ============================================================
-// ✅ NOUVEAU : SECTION DES VARIANTES (Tailles / Couleurs)
+// SECTION DES VARIANTES
+// ✅ I7.3 : guide des tailles désactivé (données hardcodées)
 // ============================================================
 function renderVariantsSection(product) {
     const root = document.getElementById('productVariantsRoot');
@@ -407,23 +420,23 @@ function renderVariantsSection(product) {
         return;
     }
 
-    // Extraire les tailles et couleurs uniques
     const sizes = [...new Set(product.variants.map(v => v.size).filter(Boolean))];
     const colors = [...new Set(product.variants.map(v => v.color).filter(Boolean))];
 
     let html = '';
 
-    // Bouton Guide des tailles
-    const guideBtnHtml = product.hasSizeGuide 
-        ? `<button class="size-guide-btn" id="openSizeGuideBtn">📏 Guide des tailles (US/EU)</button>`
+    // ✅ I7.3 : guide tailles désactivé tant qu'il n'y a pas de données réelles
+    // Activer uniquement si product.hasSizeGuide ET product.sizeGuideData existe
+    const hasRealSizeGuideData = !!(product.hasSizeGuide && product.sizeGuideData);
+    const guideBtnHtml = hasRealSizeGuideData
+        ? `<button class="size-guide-btn" id="openSizeGuideBtn">📏 Guide des tailles</button>`
         : '';
 
-    // Sélecteur de taille
     if (sizes.length > 0) {
         html += `
             <div class="variant-options-group">
                 <div class="variant-label">
-                    <span>Taille : <span id="selectedSizeLabel" style="color:var(--gold);">Sélectionnez</span></span>
+                    <span>${t('comboSize') || 'Taille'} : <span id="selectedSizeLabel" style="color:var(--gold);">Sélectionnez</span></span>
                     ${guideBtnHtml}
                 </div>
                 <div class="variant-buttons" id="sizeButtons">
@@ -433,12 +446,11 @@ function renderVariantsSection(product) {
         `;
     }
 
-    // Sélecteur de couleur
     if (colors.length > 0) {
         html += `
             <div class="variant-options-group">
                 <div class="variant-label">
-                    <span>Couleur : <span id="selectedColorLabel" style="color:var(--gold);">Sélectionnez</span></span>
+                    <span>${t('comboColor') || 'Couleur'} : <span id="selectedColorLabel" style="color:var(--gold);">Sélectionnez</span></span>
                 </div>
                 <div class="variant-buttons" id="colorButtons">
                     ${colors.map(c => `<button type="button" class="variant-btn" data-color="${escapeHTML(c)}">${escapeHTML(c)}</button>`).join('')}
@@ -449,7 +461,6 @@ function renderVariantsSection(product) {
 
     root.innerHTML = html;
 
-    // Attacher les événements
     if (guideBtnHtml) {
         document.getElementById('openSizeGuideBtn')?.addEventListener('click', openSizeGuideModal);
     }
@@ -462,7 +473,7 @@ function renderVariantsSection(product) {
         btn.addEventListener('click', () => selectVariantOption('color', btn.dataset.color));
     });
 
-    // Si une seule taille ou couleur, on la sélectionne par défaut
+    // Auto-sélection si une seule option
     if (sizes.length === 1) selectVariantOption('size', sizes[0]);
     if (colors.length === 1) selectVariantOption('color', colors[0]);
 }
@@ -483,7 +494,6 @@ function selectVariantOption(type, value) {
         });
     }
 
-    // Trouver la variante correspondante
     const variant = currentProduct.variants.find(v => {
         const matchSize = !selectedSize || v.size === selectedSize;
         const matchColor = !selectedColor || v.color === selectedColor;
@@ -494,18 +504,31 @@ function selectVariantOption(type, value) {
     updateVariantDisplay();
 }
 
-// ✅ Mise à jour du prix et du stock en fonction de la variante
+// ============================================================
+// ✅ I7.1 + C7.3 — Mise à jour du prix/stock selon variante
+// - Feedback "Combinaison indisponible" si pas de match
+// - Masquer oldPrice + badge (pas de per-variant oldPrice)
+// ============================================================
 function updateVariantDisplay() {
     const priceEl = document.getElementById('productPrice');
+    const oldPriceEl = document.getElementById('productOldPrice');
     const stockEl = document.getElementById('productStockStatus');
     const addBtn = document.getElementById('addToCartBtn');
 
+    // ✅ C7.3 : masquer oldPrice + badge quand une variante est sélectionnée
+    if (oldPriceEl) oldPriceEl.style.display = 'none';
+    const badge = document.querySelector('.discount-badge');
+    if (badge) badge.style.display = 'none';
+
     if (!currentVariant) {
+        // ✅ I7.1 : feedback clair
         const totalStock = currentProduct.variants.reduce((sum, v) => sum + (v.stock || 0), 0);
-        if (stockEl) {
-            stockEl.innerHTML = totalStock > 0 
-                ? `<span style="color:#22c55e;">${t('productInStock')}</span>` 
-                : `<span style="color:#b03a2e;">${t('productOutOfStock')}</span>`;
+        if (selectedSize && selectedColor) {
+            stockEl.innerHTML = `<span style="color:var(--danger);font-weight:700;">❌ Combinaison indisponible</span>`;
+        } else if (totalStock > 0) {
+            stockEl.innerHTML = `<span style="color:var(--text-muted);">👆 Sélectionnez ${!selectedSize ? 'taille' : ''}${!selectedSize && !selectedColor ? ' et ' : ''}${!selectedColor ? 'couleur' : ''}</span>`;
+        } else {
+            stockEl.innerHTML = `<span style="color:#b03a2e;">${t('productOutOfStock')}</span>`;
         }
         if (addBtn) {
             addBtn.disabled = true;
@@ -514,8 +537,10 @@ function updateVariantDisplay() {
         return;
     }
 
+    // Prix de la variante
     if (priceEl) priceEl.textContent = `${currentVariant.price} ${t('currency')}`;
 
+    // Stock de la variante
     if (currentVariant.stock > 0) {
         stockEl.innerHTML = `<span style="color:#22c55e;">${t('productInStock')} (${currentVariant.stock})</span>`;
         if (addBtn) {
@@ -533,7 +558,10 @@ function updateVariantDisplay() {
     }
 }
 
-// ✅ Modale du Guide des tailles (US/EU)
+// ============================================================
+// ✅ M7.4 — Modale Guide des tailles (ESC handler)
+// ⚠️ I7.3 : n'est appelée que si product.sizeGuideData existe
+// ============================================================
 function openSizeGuideModal() {
     document.getElementById('sizeGuideModal')?.remove();
 
@@ -542,89 +570,29 @@ function openSizeGuideModal() {
             <div class="modal" style="max-width:600px;">
                 <button class="modal-close" id="closeSizeGuideBtn">✕</button>
                 <h2 style="font-family:var(--font-secondary);color:var(--gold);text-align:center;margin-bottom:1rem;">📏 Guide des tailles</h2>
-                
-                <div style="background:var(--bg-surface);padding:1rem;border-radius:var(--radius-sm);margin-bottom:1rem;">
-                    <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.5rem;text-align:center;">
-                        Ce guide est basé sur des mesures standard. Si vous êtes entre deux tailles, nous vous conseillons de choisir la taille supérieure.
+                <div style="background:var(--bg-surface);padding:1rem;border-radius:var(--radius-sm);">
+                    <p style="font-size:0.85rem;color:var(--text-muted);text-align:center;">
+                        Guide en cours de préparation. Contactez-nous sur WhatsApp pour toute question.
                     </p>
-                    
-                    <div style="display:flex; justify-content:center; gap:1rem; margin-bottom:1rem;">
-                        <button class="variant-btn active" id="tabUS">🇺🇸 US</button>
-                        <button class="variant-btn" id="tabEU">🇪🇺 EU</button>
-                    </div>
-
-                    <table class="acc-table" id="sizeGuideTable">
-                        <thead>
-                            <tr>
-                                <th>Taille</th>
-                                <th id="col1Header">US</th>
-                                <th>Buste (cm)</th>
-                                <th>Taille (cm)</th>
-                                <th>Longueur (cm)</th>
-                            </tr>
-                        </thead>
-                        <tbody id="sizeGuideBody">
-                            <!-- Rempli par JS -->
-                        </tbody>
-                    </table>
-                </div>
-
-                <div style="font-size:0.8rem;color:var(--text-muted);line-height:1.6;">
-                    <strong style="color:var(--text);">Comment prendre vos mesures ?</strong><br>
-                    • <strong>Buste :</strong> Mesurez horizontalement autour de la partie la plus forte de la poitrine.<br>
-                    • <strong>Taille :</strong> Mesurez autour de la partie la plus fine de votre taille (au-dessus du nombril).<br>
-                    • <strong>Longueur :</strong> Du point le plus haut de l'épaule jusqu'au bas du vêtement.
                 </div>
             </div>
         </div>
     `;
-
     document.body.insertAdjacentHTML('beforeend', modalHtml);
     const modal = document.getElementById('sizeGuideModal');
-    const closeModal = () => modal?.remove();
+    const closeModal = () => {
+        modal?.remove();
+        document.removeEventListener('keydown', escHandler);
+    };
+    const escHandler = (e) => { if (e.key === 'Escape') closeModal(); };
 
     document.getElementById('closeSizeGuideBtn').addEventListener('click', closeModal);
     modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
-
-    const tableBody = document.getElementById('sizeGuideBody');
-    const col1Header = document.getElementById('col1Header');
-    const tabUS = document.getElementById('tabUS');
-    const tabEU = document.getElementById('tabEU');
-
-    const sizeData = [
-        { size: 'S', us: '36', eu: '46', buste: '88-92', taille: '72-76', longueur: '68' },
-        { size: 'M', us: '38', eu: '48', buste: '92-96', taille: '76-80', longueur: '70' },
-        { size: 'L', us: '40', eu: '50', buste: '96-100', taille: '80-84', longueur: '72' },
-        { size: 'XL', us: '42', eu: '52', buste: '100-104', taille: '84-88', longueur: '74' },
-        { size: 'XXL', us: '44', eu: '54', buste: '104-108', taille: '88-92', longueur: '76' }
-    ];
-
-    const renderTable = (standard) => {
-        col1Header.textContent = standard === 'us' ? '🇺🇸 US' : '🇪🇺 EU';
-        let rows = '';
-        sizeData.forEach(row => {
-            rows += `<tr>
-                <td style="font-weight:700;">${row.size}</td>
-                <td>${row[standard]}</td>
-                <td>${row.buste}</td>
-                <td>${row.taille}</td>
-                <td>${row.longueur}</td>
-            </tr>`;
-        });
-        tableBody.innerHTML = rows;
-        
-        tabUS.classList.toggle('active', standard === 'us');
-        tabEU.classList.toggle('active', standard === 'eu');
-    };
-
-    tabUS.addEventListener('click', () => renderTable('us'));
-    tabEU.addEventListener('click', () => renderTable('eu'));
-
-    renderTable('us'); // Par défaut
+    document.addEventListener('keydown', escHandler);
 }
 
 // ============================================================
-// ✅ NOUVEAU : SECTION DES DIMENSIONS
+// SECTION DES DIMENSIONS
 // ============================================================
 function renderDimensions(product) {
     const root = document.getElementById('productDimensionsRoot');
@@ -681,6 +649,7 @@ function renderFeaturesSection(product) {
 
 // ============================================================
 // SECTION AVIS
+// ✅ M7.3 : timeout 8s pour éviter blocage
 // ============================================================
 async function renderReviewsSection(product) {
     const container = document.getElementById('productReviewsRoot');
@@ -688,15 +657,27 @@ async function renderReviewsSection(product) {
 
     container.innerHTML = `<div style="text-align:center;padding:1rem;color:var(--text-muted);">⏳ ${t('loadingReviews')}</div>`;
 
+    // ✅ M7.2 : guard Number
+    const pid = Number(product.id);
+    if (!Number.isFinite(pid)) {
+        container.innerHTML = `<p style="text-align:center;color:var(--danger);">${t('productNotFound')}</p>`;
+        return;
+    }
+
     try {
         const q = query(
             collection(db, "reviews"),
-            where("productId", "==", Number(product.id)),
+            where("productId", "==", pid),
             where("status", "==", "approved")
         );
-        const snapshot = await getDocs(q);
-        const reviews = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
 
+        // ✅ M7.3 : timeout 8s
+        const timeout = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('TIMEOUT')), 8000)
+        );
+        const snapshot = await Promise.race([getDocs(q), timeout]);
+
+        const reviews = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
         reviews.sort((a, b) => {
             const da = a.createdAt?.toDate?.() || new Date(a.createdAt || 0);
             const dbb = b.createdAt?.toDate?.() || new Date(b.createdAt || 0);
@@ -705,7 +686,7 @@ async function renderReviewsSection(product) {
 
         const user = getCurrentUser();
         const reviewCheck = user
-            ? await canUserReviewProduct(Number(product.id))
+            ? await canUserReviewProduct(pid).catch(() => ({ canReview: false, reason: 'error' }))
             : { canReview: false, reason: 'not_logged' };
 
         let html = `
@@ -776,12 +757,14 @@ async function renderReviewsSection(product) {
         }
 
         container.innerHTML = html;
-
         attachReviewEvents(product);
 
     } catch (e) {
         console.error('Erreur chargement avis :', e);
-        container.innerHTML = `<p style="text-align:center;color:var(--danger);">${t('loadingError')}</p>`;
+        const message = e?.message === 'TIMEOUT'
+            ? 'Délai dépassé. Réessayez.'
+            : t('loadingError');
+        container.innerHTML = `<p style="text-align:center;color:var(--danger);">${message}</p>`;
     }
 }
 
@@ -795,7 +778,6 @@ function renderReviewForm() {
                 ✍️ ${t('leaveReview')}
             </h4>
             <div id="reviewFormMessage" style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.5rem;"></div>
-
             <label style="display:block;font-size:0.85rem;color:var(--text-muted);margin-bottom:0.3rem;">${t('reviews')} *</label>
             <div class="review-star-input" id="reviewStarInput">
                 <span class="star" data-star="1">★</span>
@@ -804,17 +786,13 @@ function renderReviewForm() {
                 <span class="star" data-star="4">★</span>
                 <span class="star" data-star="5">★</span>
             </div>
-
             <label style="display:block;font-size:0.85rem;color:var(--text-muted);margin:0.5rem 0 0.3rem;">${t('reviewTitle')}</label>
             <input type="text" id="reviewTitleInput" placeholder="${t('reviewTitle')}" maxlength="80" style="width:100%;padding:0.6rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-surface);color:var(--text);margin-bottom:0.5rem;">
-
             <label style="display:block;font-size:0.85rem;color:var(--text-muted);margin-bottom:0.3rem;">${t('reviewComment')} *</label>
             <textarea id="reviewCommentInput" placeholder="${t('reviewComment')}" rows="3" maxlength="500" style="width:100%;padding:0.6rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-surface);color:var(--text);margin-bottom:0.5rem;font-family:inherit;"></textarea>
-
             <label style="display:block;font-size:0.85rem;color:var(--text-muted);margin-bottom:0.3rem;">${t('reviewPhotos')}</label>
             <input type="file" id="reviewPhotoInput" accept="image/*" multiple style="margin-bottom:0.5rem;color:var(--text);">
             <div id="reviewPhotoPreviews" class="review-photo-grid"></div>
-
             <button class="btn-primary" id="submitReviewBtn" style="width:100%;justify-content:center;margin-top:1rem;">
                 📤 ${t('reviewSubmit')}
             </button>
@@ -880,7 +858,7 @@ function attachReviewEvents(product) {
 
             submitBtn.disabled = true;
             submitBtn.textContent = '⏳ ' + t('loading');
-            if (msgEl) { msgEl.textContent = ''; }
+            if (msgEl) msgEl.textContent = '';
 
             try {
                 await createReview(Number(product.id), {
@@ -894,7 +872,6 @@ function attachReviewEvents(product) {
                     msgEl.style.color = 'var(--success)';
                 }
                 showToast('✅ ' + t('reviewThanks'));
-
                 document.getElementById('reviewCommentInput').value = '';
                 document.getElementById('reviewTitleInput').value = '';
                 selectedRating = 0;
@@ -936,33 +913,37 @@ function attachReviewEvents(product) {
     });
 
     document.querySelectorAll('.review-photos img[data-photo-url]').forEach(img => {
-        img.addEventListener('click', () => {
-            openImageLightbox(img.dataset.photoUrl);
-        });
+        img.addEventListener('click', () => openImageLightbox(img.dataset.photoUrl));
     });
 }
 
 // ============================================================
-// PRODUITS SIMILAIRES
+// ✅ I7.2 — PRODUITS SIMILAIRES (cache par product.id)
 // ============================================================
 function renderRelatedProducts(product) {
     const container = document.getElementById('relatedProductsRoot');
     if (!container) return;
 
-    const all = getProducts();
-    const sameCategory = all.filter(p => p.category === product.category && p.id !== product.id);
-    const others = all.filter(p => p.id !== product.id && p.category !== product.category);
+    // ✅ I7.2 : recalcul uniquement si product.id change
+    if (_relatedForProductId !== product.id || !_relatedProductsCache) {
+        const all = getProducts();
+        const sameCategory = all.filter(p => p.category === product.category && p.id !== product.id);
+        const others = all.filter(p => p.id !== product.id && p.category !== product.category);
 
-    const shuffle = (arr) => {
-        const a = [...arr];
-        for (let i = a.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [a[i], a[j]] = [a[j], a[i]];
-        }
-        return a;
-    };
+        const shuffle = (arr) => {
+            const a = [...arr];
+            for (let i = a.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [a[i], a[j]] = [a[j], a[i]];
+            }
+            return a;
+        };
 
-    const random = [...shuffle(sameCategory), ...shuffle(others)].slice(0, 6);
+        _relatedProductsCache = [...shuffle(sameCategory), ...shuffle(others)].slice(0, 6);
+        _relatedForProductId = product.id;
+    }
+
+    const random = _relatedProductsCache;
 
     if (random.length === 0) {
         container.innerHTML = '';
@@ -970,19 +951,20 @@ function renderRelatedProducts(product) {
     }
 
     const user = getCurrentUser();
-    const favs = user?.favorites || [];
+    const favs = Array.isArray(user?.favorites) ? user.favorites.map(Number) : [];
 
     let html = `<h4 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;font-size:1.2rem;">${t('productRelatedTitle')}</h4>`;
     html += `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:1rem;">`;
 
     random.forEach(p => {
         const pid = Number(p.id);
+        if (!Number.isFinite(pid)) return; // ✅ M7.2
+
         const isFav = favs.includes(pid);
         const name = escapeHTML(getProductName(p));
         const img = getProductImageUrl(p);
         const price = p.price;
         const oldPrice = p.oldPrice;
-
         const safeImg = escapeHTML(img);
         const safeFallback = getFallbackImage(name).replace(/'/g, "%27");
 
@@ -1023,50 +1005,113 @@ function renderRelatedProducts(product) {
 }
 
 // ============================================================
-// ÉVÉNEMENTS PRINCIPAUX
+// ✅ C7.1 + C7.2 — ÉVÉNEMENTS PRINCIPAUX (guard + WhatsApp)
 // ============================================================
 function attachProductEvents(product) {
-    // Gestion du bouton Ajouter au panier
+    // ============ Ajouter au panier (guard C7.2) ============
     const addBtn = document.getElementById('addToCartBtn');
-    if (addBtn) {
-        // On remplace l'événement pour gérer les variantes
+    if (addBtn && !addBtn._listenerAttached) {
+        addBtn._listenerAttached = true;
         addBtn.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
 
-            if (product.variants && product.variants.length > 0) {
-                if (!selectedSize && product.variants.some(v => v.size)) {
+            if (!currentProduct) return;
+
+            const hasVariants = Array.isArray(currentProduct.variants) && currentProduct.variants.length > 0;
+
+            if (hasVariants) {
+                if (!selectedSize && currentProduct.variants.some(v => v.size)) {
                     showToast('⚠️ Veuillez choisir une taille');
                     return;
                 }
-                if (!selectedColor && product.variants.some(v => v.color)) {
+                if (!selectedColor && currentProduct.variants.some(v => v.color)) {
                     showToast('⚠️ Veuillez choisir une couleur');
                     return;
                 }
-                
                 if (!currentVariant) {
                     showToast('⚠️ Cette combinaison est introuvable');
                     return;
                 }
-                
                 if (currentVariant.stock <= 0) {
                     showToast('⚠️ ' + t('outOfStock'));
                     return;
                 }
-                
-                // On ajoute au panier avec l'ID de la variante
-                import('./cart.js').then(m => m.addToCart(product.id, currentVariant));
+                addToCart(currentProduct.id, currentVariant);
             } else {
-                // Pas de variantes, ajout classique
-                import('./cart.js').then(m => m.addToCart(product.id));
+                addToCart(currentProduct.id);
             }
         });
     }
-    
+
+    // ============ WhatsApp (C7.1 — handler dédié) ============
+    // ⚠️ Ne PAS mettre data-product-id (sinon events.js prend le relais)
+    // On gère le clic ici pour contrôler la logique des variantes.
+    const waBtn = document.getElementById('whatsappOrderBtn');
+    if (waBtn && !waBtn._listenerAttached) {
+        waBtn._listenerAttached = true;
+        waBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            handleWhatsAppOrder(currentProduct);
+        }, true); // capture : passe avant events.js
+    }
+
     console.log('📦 Page produit prête :', product.slug);
+}
+
+// ============================================================
+// ✅ C7.1 — Handler WhatsApp (avec variants)
+// ============================================================
+function handleWhatsAppOrder(product) {
+    if (!product) return;
+
+    const hasVariants = Array.isArray(product.variants) && product.variants.length > 0;
+
+    if (hasVariants) {
+        if (!selectedSize && product.variants.some(v => v.size)) {
+            showToast('⚠️ Veuillez choisir une taille');
+            return;
+        }
+        if (!selectedColor && product.variants.some(v => v.color)) {
+            showToast('⚠️ Veuillez choisir une couleur');
+            return;
+        }
+        if (!currentVariant) {
+            showToast('⚠️ Combinaison indisponible');
+            return;
+        }
+        if (currentVariant.stock <= 0) {
+            showToast('⚠️ ' + t('outOfStock'));
+            return;
+        }
+    }
+
+    const name = getProductName(product);
+    const price = currentVariant ? Number(currentVariant.price) : Number(product.price);
+    const variantText = currentVariant
+        ? ` (${[selectedSize, selectedColor].filter(Boolean).join(' / ')})`
+        : '';
+    const url = `${CONFIG.SHOP.URL}/produit?slug=${encodeURIComponent(product.slug || '')}`;
+
+    let msg = `🛒 *${t('waNewOrder')}*\n\n`;
+    msg += `📦 *${t('waProduct')} :* ${name}${variantText}\n`;
+    msg += `💰 *${t('waPrice')} :* ${price} ${t('currency')}\n`;
+    msg += `🔗 ${url}\n\n`;
+    msg += `👤 ${t('waName')} : \n`;
+    msg += `📞 ${t('waPhone')} : \n`;
+    msg += `📍 ${t('waAddress')} : \n`;
+    msg += `🏙️ ${t('waCity')} : \n\n`;
+    msg += `${t('waThanks')}`;
+
+    window.open(
+        `https://wa.me/${CONFIG.SHOP.WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`,
+        '_blank',
+        'noopener,noreferrer'
+    );
 }
 
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ product-detail.js chargé — v2.0.0 (Variantes, Guide tailles, Dimensions)');
+console.log('✅ product-detail.js chargé — v3.0.0 (WhatsApp + variantes + cache)');
