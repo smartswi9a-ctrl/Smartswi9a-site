@@ -268,12 +268,16 @@
                 <p class="section-sub" data-key="productsSub">Sélection des meilleurs appareils tech et Smart Home disponibles au Maroc.</p>
             </div>
 
-            <div class="search-bar-products">
-                <div class="search-input-wrapper">
+            <!-- ✅ NOUVEAU : Barre de recherche avec bouton Catégories -->
+            <div class="search-bar-products" style="display: flex; gap: 0.5rem; align-items: center; max-width: 600px; margin: 0 auto 1.5rem;">
+                <button id="openCategoriesBtn" class="btn-primary" style="padding: 0.7rem 1rem; white-space: nowrap; border-radius: 50px; display: flex; align-items: center; gap: 0.4rem;">
+                    <span>☰</span> <span data-key="navCategories">Catégories</span>
+                </button>
+                <div class="search-input-wrapper" style="flex: 1; margin-bottom: 0;">
                     <span class="search-icon" aria-hidden="true">
                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                     </span>
-                    <input type="text" id="productSearch" data-action="products:search" data-key="searchProductsPlaceholder" placeholder="Rechercher un produit..." data-aria-key="ariaSearchProduct">
+                    <input type="text" id="productSearch" data-action="products:search" data-key="searchProductsPlaceholder" placeholder="Rechercher un produit..." data-aria-key="ariaSearchProduct" style="width: 100%;">
                 </div>
             </div>
 
@@ -442,7 +446,6 @@
                 </details>
                 <details style="margin-top:0.8rem;">
                     <summary style="font-weight:700;cursor:pointer;font-size:1rem;color:var(--gold);" data-key="termsSummary">📄 Conditions générales de vente</summary>
-                    <!-- ✅ MODIFICATION ICI : <p> devient <div> et termsText devient termsTextHtml -->
                     <div style="margin-top:0.6rem;line-height:1.8;color:var(--text-muted);font-size:0.9rem;" data-key="termsTextHtml">Délai de réclamation : 3 jours après réception...</div>
                 </details>
             </div>
@@ -494,6 +497,18 @@
                 console.warn('⚠️ Produits non chargés, on continue quand même');
             }
             await initDynamicTestimonials();
+        });
+    </script>
+
+    <!-- ✅ NOUVEAU : Script pour le Menu Catégories Visuel -->
+    <script type="module">
+        import { openCategoriesMenu } from '/js/categories-menu.js';
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            const btn = document.getElementById('openCategoriesBtn');
+            if (btn) {
+                btn.addEventListener('click', openCategoriesMenu);
+            }
         });
     </script>
 </body>
