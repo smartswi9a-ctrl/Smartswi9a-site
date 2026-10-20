@@ -1,7 +1,7 @@
 // js/categories-menu.js
 // ============================================================
 // MENU VISUEL DES CATÉGORIES - SMART SWI9A
-// Version 1.2.0 — Design compact, aligné, défilant
+// Version 1.2.1 — Fix chemin des images (assets à la racine)
 // ============================================================
 
 import { CATEGORY_GROUPS } from "./config.js";
@@ -108,8 +108,8 @@ function renderCategoriesContent(parentId) {
     html += `<div class="categories-grid">`;
 
     parentGroup.children.forEach(child => {
-        // On pointe vers le dossier assets/categories
-        const imgPath = `/assets/categories/${child.id}.webp`;
+        // ✅ MODIFICATION ICI : Retrait de "categories/" dans le chemin
+        const imgPath = `/assets/${child.id}.webp`;
         
         html += `
             <div class="category-grid-card" data-category-id="${child.id}">
