@@ -1,10 +1,22 @@
 // js/utils.js
 // ============================================================
 // UTILITAIRES - SMART SWI9A
-// Version 1.3.1 — FIX: event lang-changed dispatch (BUG #1)
-// ============================================================
-// Dépend de : config.js
-// Fournit  : helpers (t, escapeHTML, dates, retry, cities...)
+// Version 1.4.0 — Fixes critiques + importants + mineurs
+// CHANGEMENTS v1.4.0 :
+// ✅ C2.1 — getFallbackImage() encodeURIComponent (SVG fiable)
+// ✅ C2.2 — renderStars() Math.round (4.8 → 5 étoiles)
+// ✅ C2.3 — getCurrentPage() gère cleanUrls
+// ✅ I2.1 — fetchWithRetry() stop 4xx
+// ✅ I2.2 — firestoreWithRetry() stop permission-denied
+// ✅ I2.3 — currentLang = source unique (store.lang déprécié)
+// ✅ I2.4 — t() warn si clé manquante (dev only)
+// ✅ M2.1 — loadCities() → CONFIG.VERSION.CITIES_SCHEMA
+// ✅ M2.2 — getProductImageUrl() rejette //evil.com
+// ✅ M2.3 — getProductFeatures/Desc fallback AR complet
+// ✅ M2.4 — debounce/throttle .cancel()
+// ✅ M2.5 — toDate() seuil 1e12
+// ✅ M2.6 — isOrderCancellable() utilise cancellableUntil
+// ✅ M2.7 — productMatchesCategory dispo via config.js
 // ============================================================
 
 import {
@@ -17,18 +29,47 @@ import {
     REVIEW_STATUS,
     normalizeOrderStatus,
     getReturnedQuantities
+    // ⚠️ M2.7 : productMatchesCategory est dans config.js
+    // Import direct : import { productMatchesCategory } from './config.js'
 } from './config.js';
 
 // ============================================================
-// LANGUE (état interne)
+// LANGUE (état interne — source unique de vérité)
+// ⚠️ I2.3 : Le store.lang est déprécié (voir store.js)
+// Cette variable module-level est la SEULE source de vérité.
 // ============================================================
 let currentLang = DEFAULT_LANGUAGE;
 
+// ============================================================
+// DÉTECTION DEV (pour warnings i18n)
+// ============================================================
+function isDevMode() {
+    if (typeof window === 'undefined') return false;
+    return window.location.hostname === 'localhost'
+        || window.location.hostname === '127.0.0.1'
+        || window.location.search.includes('debug=1');
+}
+
+// ============================================================
+// I18N
+// ✅ I2.4 : warn en dev si clé manquante + support `??` (préserve "")
+// ============================================================
 export function t(key) {
     const translations = window.translations || {};
-    return translations[currentLang]?.[key]
-        || translations[DEFAULT_LANGUAGE]?.[key]
-        || key;
+
+    // ✅ Utiliser ?? (nullish) au lieu de || pour préserver les valeurs ""
+    const langValue = translations[currentLang]?.[key];
+    if (langValue !== undefined && langValue !== null) return langValue;
+
+    const defaultVal = translations[DEFAULT_LANGUAGE]?.[key];
+    if (defaultVal !== undefined && defaultVal !== null) return defaultVal;
+
+    // ⚠️ Warning en dev
+    if (isDevMode()) {
+        console.warn(`⚠️ [i18n] Clé manquante : "${key}" (lang: ${currentLang})`);
+    }
+
+    return key;
 }
 
 export function setLang(lang) {
@@ -42,7 +83,6 @@ export function setLang(lang) {
     const select = document.getElementById('langSelect');
     if (select && select.value !== lang) select.value = lang;
 
-    // ✅ FIX BUG #1 : notifier tous les modules abonnés (panier.js, events.js, etc.)
     if (previousLang !== lang) {
         document.dispatchEvent(new CustomEvent('lang-changed', {
             detail: { lang, previousLang }
@@ -112,36 +152,57 @@ export function safeRemoveItem(key) {
 export function getProductName(p) {
     if (!p) return 'Produit';
     const key = `name${currentLang.charAt(0).toUpperCase() + currentLang.slice(1)}`;
-    return p[key] || p.nameFr || p.nameEn || 'Produit';
+    return p[key] || p.nameFr || p.nameEn || p.nameAr || 'Produit';
 }
 
+// ✅ M2.3 : ajout du fallback AR
 export function getProductDesc(p) {
     if (!p) return '';
     const key = `desc${currentLang.charAt(0).toUpperCase() + currentLang.slice(1)}`;
-    return p[key] || p.descFr || p.descEn || '';
+    return p[key] || p.descFr || p.descEn || p.descAr || '';
 }
 
+// ✅ M2.3 : ajout du fallback AR
 export function getProductFeatures(p) {
     if (!p) return [];
     const key = `features${currentLang.charAt(0).toUpperCase() + currentLang.slice(1)}`;
-    return p[key] || p.featuresFr || p.featuresEn || [];
+    return p[key] ?? p.featuresFr ?? p.featuresEn ?? p.featuresAr ?? [];
 }
 
+// ✅ M2.2 : rejeter les URLs protocol-relative (//evil.com)
 export function getProductImageUrl(p) {
-    if (!p || !p.img || p.img === '') {
-        return getFallbackImage(getProductName(p));
-    }
-    return p.img.startsWith('/') || p.img.startsWith('http')
-        ? p.img
-        : '/' + p.img;
+    const fallback = getFallbackImage(getProductName(p));
+    if (!p || !p.img || p.img === '') return fallback;
+
+    const img = String(p.img).trim();
+    if (!img) return fallback;
+
+    // ❌ Protocole relatif : //evil.com → XSS / tracking
+    if (img.startsWith('//')) return fallback;
+
+    // ✅ Absolute URL (http:// ou https://)
+    if (/^https?:\/\//.test(img)) return img;
+
+    // ✅ Chemin relatif (commence par /)
+    if (img.startsWith('/')) return img;
+
+    // ✅ Chemin relatif (ajouter /)
+    return '/' + img;
 }
 
 // ============================================================
-// IMAGE FALLBACK (SVG inline si image manquante)
+// ✅ C2.1 — IMAGE FALLBACK (SVG inline fiable)
+// Correction : encodeURIComponent évite les caractères cassés (&, ', etc.)
 // ============================================================
 export function getFallbackImage(name) {
-    const safeName = escapeHTML((name || 'Produit').substring(0, 30));
-    return `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 400'%3E%3Crect fill='%23f8f6f2' width='400' height='400'/%3E%3Cpath fill='%23a57b2e' d='M200 50 L240 150 L340 150 L260 210 L290 310 L200 250 L110 310 L140 210 L60 150 L160 150 Z'/%3E%3Ctext x='200' y='360' text-anchor='middle' fill='%231a1a2e' font-family='sans-serif' font-size='14'%3E${safeName}%3C/text%3E%3C/svg%3E`;
+    const safe = String(name || 'Produit')
+        .substring(0, 30)
+        .replace(/[<>&"'`\\]/g, '')
+        .trim() || 'Produit';
+
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400"><rect fill="#f8f6f2" width="400" height="400"/><path fill="#a57b2e" d="M200 50 L240 150 L340 150 L260 210 L290 310 L200 250 L110 310 L140 210 L60 150 L160 150 Z"/><text x="200" y="360" text-anchor="middle" fill="#1a1a2e" font-family="sans-serif" font-size="14">${safe}</text></svg>`;
+
+    return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 
 // ============================================================
@@ -224,7 +285,8 @@ export function formatDateTime(dateStr) {
 }
 
 // ============================================================
-// toDate() robuste — Convertit TOUS les formats possibles
+// toDate() robuste
+// ✅ M2.5 : seuil epoch ms plus précis (>= 1e12)
 // ============================================================
 export function toDate(value) {
     if (!value) return null;
@@ -239,11 +301,24 @@ export function toDate(value) {
         return isNaN(value.getTime()) ? null : value;
     }
 
-    // 3. Nombre (epoch)
+    // 3. Nombre (epoch) — seuil 1e12 = 2001-09-09 en ms, 33658 en secondes
+    //    ✅ M2.5 : plus robuste que 1e11
     if (typeof value === 'number') {
-        const ms = value < 1e11 ? value * 1000 : value;
+        const ms = value >= 1e12 ? value : value * 1000;
         const d = new Date(ms);
-        return isNaN(d.getTime()) ? null : d;
+        if (isNaN(d.getTime())) return null;
+        // Sanity : rejeter dates absurdes (< 2000 ou > 2100)
+        const year = d.getFullYear();
+        if (year < 2000 || year > 2100) {
+            // Try the other interpretation
+            const alt = value >= 1e12 ? value * 1000 : value;
+            const altD = new Date(alt);
+            const altYear = altD.getFullYear();
+            if (!isNaN(altD.getTime()) && altYear >= 2000 && altYear <= 2100) {
+                return altD;
+            }
+        }
+        return d;
     }
 
     // 4. Objet Firestore-like (avec .seconds)
@@ -307,7 +382,9 @@ export function getOrderStatusLabel(status) {
         [ORDER_STATUS.RETURNED]:  'orderStatusReturned',
         [ORDER_STATUS.CANCELLED]: 'orderStatusCancelled'
     };
-    return t(labels[normalized] || 'orderStatusUnknown');
+    const key = labels[normalized];
+    if (!key) return t('orderStatusUnknown');
+    return t(key);
 }
 
 // ============================================================
@@ -345,10 +422,19 @@ export function getOrderTimelineSteps(status) {
     }));
 }
 
+// ✅ M2.6 : utiliser cancellableUntil (server-set) si présent
 export function isOrderCancellable(order) {
     if (!order) return false;
     const status = normalizeOrderStatus(order.status);
     if (status !== ORDER_STATUS.PENDING) return false;
+
+    // Priorité : cancellableUntil (fixé côté serveur dans createOrder)
+    const cancellableUntilDate = toDate(order.cancellableUntil);
+    if (cancellableUntilDate) {
+        return Date.now() < cancellableUntilDate.getTime();
+    }
+
+    // Fallback : createdAt + CANCELLABLE_HOURS
     const createdDate = toDate(order.createdAt);
     if (!createdDate) return false;
     const hoursElapsed = (Date.now() - createdDate.getTime()) / (1000 * 60 * 60);
@@ -359,6 +445,15 @@ export function getTimeRemainingForCancellation(order) {
     if (!order) return null;
     const status = normalizeOrderStatus(order.status);
     if (status !== ORDER_STATUS.PENDING) return null;
+
+    // Priorité : cancellableUntil
+    const cancellableUntilDate = toDate(order.cancellableUntil);
+    if (cancellableUntilDate) {
+        const remaining = cancellableUntilDate.getTime() - Date.now();
+        return remaining > 0 ? remaining : null;
+    }
+
+    // Fallback
     const createdDate = toDate(order.createdAt);
     if (!createdDate) return null;
     const cancellableUntil = createdDate.getTime() + (CONFIG.ORDERS.CANCELLABLE_HOURS * 60 * 60 * 1000);
@@ -448,8 +543,9 @@ export function getReviewStatusLabel(status) {
     return t(labels[status] || 'reviewStatusUnknown');
 }
 
+// ✅ C2.2 : Math.round au lieu de Math.floor (4.8 → 5 ★)
 export function renderStars(rating) {
-    const num = Math.floor(Number(rating) || 0);
+    const num = Math.round(Number(rating) || 0);
     const full = '★'.repeat(Math.min(5, Math.max(0, num)));
     const empty = '☆'.repeat(Math.max(0, 5 - num));
     return full + empty;
@@ -457,6 +553,7 @@ export function renderStars(rating) {
 
 // ============================================================
 // RETRY RÉSEAU (résilience)
+// ✅ I2.1 : ne retry plus les erreurs 4xx (définitives)
 // ============================================================
 export async function fetchWithRetry(url, options = {}, retries = 3, delay = 1000) {
     let attempt = 0;
@@ -464,10 +561,16 @@ export async function fetchWithRetry(url, options = {}, retries = 3, delay = 100
         try {
             const response = await fetch(url, options);
             if (response.ok) return response;
-            throw new Error(`HTTP ${response.status}`);
+
+            // ✅ 4xx = erreur client définitive, pas de retry
+            const isNonRetryable = response.status >= 400 && response.status < 500;
+            const err = new Error(`HTTP ${response.status}`);
+            err.status = response.status;
+            err.nonRetryable = isNonRetryable;
+            throw err;
         } catch (error) {
             attempt++;
-            if (attempt === retries) throw error;
+            if (attempt === retries || error.nonRetryable) throw error;
             console.warn(`⚠️ Tentative ${attempt}/${retries} pour ${url} échouée`);
             await new Promise(resolve => setTimeout(resolve, delay));
             delay *= 2;
@@ -475,15 +578,26 @@ export async function fetchWithRetry(url, options = {}, retries = 3, delay = 100
     }
 }
 
+// ✅ I2.2 : ne retry plus permission-denied, etc.
 export async function firestoreWithRetry(fn, retries = 3, delay = 1000) {
+    const NON_RETRYABLE_CODES = [
+        'permission-denied',
+        'unauthenticated',
+        'invalid-argument',
+        'not-found',
+        'already-exists',
+        'failed-precondition'
+    ];
+
     let attempt = 0;
     while (attempt < retries) {
         try {
             return await fn();
         } catch (error) {
             attempt++;
-            if (attempt === retries) throw error;
-            console.warn(`⚠️ Tentative Firestore ${attempt}/${retries} échouée`);
+            const isNonRetryable = NON_RETRYABLE_CODES.includes(error?.code);
+            if (attempt === retries || isNonRetryable) throw error;
+            console.warn(`⚠️ Tentative Firestore ${attempt}/${retries} échouée (${error?.code || 'unknown'})`);
             await new Promise(resolve => setTimeout(resolve, delay));
             delay *= 2;
         }
@@ -514,24 +628,47 @@ export function getDevice() {
 
 // ============================================================
 // DEBOUNCE / THROTTLE
+// ✅ M2.4 : .cancel() exposé
 // ============================================================
 export function debounce(fn, delay = 300) {
-    let timer;
-    return function(...args) {
-        clearTimeout(timer);
-        timer = setTimeout(() => fn.apply(this, args), delay);
+    let timer = null;
+    const debounced = function(...args) {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => {
+            timer = null;
+            fn.apply(this, args);
+        }, delay);
     };
+    debounced.cancel = () => {
+        if (timer) {
+            clearTimeout(timer);
+            timer = null;
+        }
+    };
+    return debounced;
 }
 
 export function throttle(fn, limit = 200) {
-    let inThrottle;
-    return function(...args) {
+    let inThrottle = false;
+    let timer = null;
+    const throttled = function(...args) {
         if (!inThrottle) {
             fn.apply(this, args);
             inThrottle = true;
-            setTimeout(() => inThrottle = false, limit);
+            timer = setTimeout(() => {
+                inThrottle = false;
+                timer = null;
+            }, limit);
         }
     };
+    throttled.cancel = () => {
+        if (timer) {
+            clearTimeout(timer);
+            timer = null;
+        }
+        inThrottle = false;
+    };
+    return throttled;
 }
 
 // ============================================================
@@ -592,10 +729,11 @@ export function initLang() {
 
 // ============================================================
 // LOAD CITIES depuis Firestore (avec fallback JSON)
+// ✅ M2.1 : CACHE_VERSION via CONFIG.VERSION.CITIES_SCHEMA
 // ============================================================
 export async function loadCities(force = false) {
     const CACHE_KEY = CONFIG.STORAGE_KEYS.CITIES_CACHE;
-    const CACHE_VERSION = 3;
+    const CACHE_VERSION = CONFIG.VERSION?.CITIES_SCHEMA ?? 3;
     const { setDeliveryData } = await import('./store.js');
 
     if (!force) {
@@ -806,14 +944,19 @@ export function getSignupMethodEmoji(method) {
 
 // ============================================================
 // Détection Type de Page
+// ✅ C2.3 : gère cleanUrls (/produit sans .html)
 // ============================================================
 export function getCurrentPage() {
-    const path = window.location.pathname;
-    if (path === '/' || path.endsWith('index.html')) return 'home';
-    if (path.endsWith('produit.html')) return 'product';
-    if (path.endsWith('blog.html')) return 'blog';
-    if (path.endsWith('villesmaroc.html')) return 'villes';
-    if (path.endsWith('admin.html')) return 'admin';
+    // Normaliser : retirer .html et trailing slash
+    let path = window.location.pathname.replace(/\.html$/, '').replace(/\/$/, '');
+    if (path === '') path = '/';
+
+    if (path === '/') return 'home';
+    if (path === '/produit') return 'product';
+    if (path === '/blog') return 'blog';
+    if (path === '/villes' || path === '/villesmaroc') return 'villes';
+    if (path === '/admin') return 'admin';
+    if (path === '/panier') return 'cart';
     return 'unknown';
 }
 
@@ -833,4 +976,4 @@ export function cleanPhone(phone) {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ utils.js chargé — v1.3.1 (FIX: event lang-changed)');
+console.log('✅ utils.js chargé — v1.4.0 (fixes critiques + i18n dev warn)');
