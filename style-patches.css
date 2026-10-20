@@ -1,6 +1,6 @@
 /* ============================================================
    STYLE-PATCHES.CSS - SMART SWI9A
-   Version 1.9.1 — Conteneur strictement fixe (Carré) + vidéo entière
+   Version 2.2.0 — Ajout Menu Catégories Visuel (Chic & Compact)
    ============================================================ */
 
 /* ============================================================
@@ -956,7 +956,7 @@ p, h1, h2, h3, h4, h5, h6 {
     height: 100% !important;
     object-fit: cover !important;
     display: block !important;
-    opacity: 0.7 !important; /* Assombrit l'image pour faire ressortir le bouton Play */
+    opacity: 0.7 !important;
 }
 
 .thumb-video .play-icon-overlay {
@@ -985,7 +985,6 @@ p, h1, h2, h3, h4, h5, h6 {
     transform: scale(1.05) !important;
 }
 
-/* Responsive : Miniatures plus petites sur mobile */
 @media (max-width: 600px) {
     .thumb-video {
         width: 50px !important;
@@ -998,6 +997,254 @@ p, h1, h2, h3, h4, h5, h6 {
 }
 
 /* ============================================================
+   22. ✅ NOUVEAU : MENU CATÉGORIES VISUEL (Chic & Compact)
+   ============================================================ */
+
+.categories-menu-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+    z-index: 10000;
+    display: flex;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+}
+
+.categories-menu-overlay.open {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.categories-menu-container {
+    background: var(--bg-card);
+    width: 100%;
+    max-width: 850px;
+    height: 85dvh;
+    max-height: 85dvh;
+    margin-top: auto;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    display: flex;
+    flex-direction: column;
+    transform: translateY(100%);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: var(--shadow-lg);
+}
+
+.categories-menu-overlay.open .categories-menu-container {
+    transform: translateY(0);
+}
+
+@media (min-width: 768px) {
+    .categories-menu-overlay {
+        align-items: center;
+        justify-content: center;
+    }
+    .categories-menu-container {
+        height: 80dvh;
+        border-radius: var(--radius-lg);
+        transform: scale(0.95) translateY(20px);
+        opacity: 0;
+    }
+    .categories-menu-overlay.open .categories-menu-container {
+        transform: scale(1) translateY(0);
+        opacity: 1;
+    }
+}
+
+.categories-menu-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-surface);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    flex-shrink: 0;
+}
+
+.categories-menu-header h2 {
+    font-family: var(--font-secondary);
+    color: var(--gold);
+    font-size: 1.15rem;
+    margin: 0;
+}
+
+.categories-menu-body {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+/* --- SIDEBAR (GAUCHE) --- */
+.categories-menu-sidebar {
+    width: 100px;
+    background: var(--bg-surface);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+}
+
+.categories-menu-sidebar::-webkit-scrollbar { width: 4px; }
+.categories-menu-sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+@media (min-width: 600px) {
+    .categories-menu-sidebar {
+        width: 180px;
+    }
+}
+
+.category-sidebar-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    padding: 1rem 0.5rem;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-bottom: 1px solid var(--border);
+    transition: all 0.2s;
+    text-align: center;
+}
+
+@media (min-width: 600px) {
+    .category-sidebar-btn {
+        flex-direction: row;
+        justify-content: flex-start;
+        padding: 1rem 1.2rem;
+        text-align: left;
+    }
+}
+
+.category-sidebar-btn:hover {
+    background: rgba(var(--gold-rgb), 0.05);
+    color: var(--gold);
+}
+
+.category-sidebar-btn.active {
+    background: rgba(var(--gold-rgb), 0.1);
+    color: var(--gold);
+    border-left: 4px solid var(--gold);
+}
+
+/* --- CONTENU (DROITE) --- */
+.categories-menu-content {
+    flex: 1;
+    padding: 1.2rem;
+    overflow-y: auto;
+    background: var(--bg-card);
+}
+
+.categories-menu-content::-webkit-scrollbar { width: 6px; }
+.categories-menu-content::-webkit-scrollbar-thumb { background: var(--gold); border-radius: 6px; }
+
+.categories-content-title {
+    font-family: var(--font-secondary);
+    color: var(--text);
+    font-size: 1.1rem;
+    margin-bottom: 1.2rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px dashed var(--border);
+}
+
+/* --- GRILLE DES IMAGES --- */
+.categories-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+}
+
+@media (min-width: 480px) {
+    .categories-grid {
+        grid-template-columns: repeat(4, 1fr);
+    }
+}
+
+.category-grid-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    padding: 0.6rem 0.4rem;
+    border-radius: var(--radius-md);
+    border: 1px solid transparent;
+    transition: all 0.2s;
+    text-align: center;
+}
+
+.category-grid-card:hover {
+    border-color: var(--border-gold);
+    background: rgba(var(--gold-rgb), 0.04);
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-sm);
+}
+
+/* Conteneur de l'image : TAILLE FIXE ET PETITE (Chic) */
+.category-grid-img-wrapper {
+    width: 60px;
+    height: 60px;
+    background: var(--bg-surface);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    flex-shrink: 0;
+    padding: 6px;
+    transition: border-color 0.2s;
+}
+
+@media (min-width: 600px) {
+    .category-grid-img-wrapper {
+        width: 70px;
+        height: 70px;
+    }
+}
+
+.category-grid-card:hover .category-grid-img-wrapper {
+    border-color: var(--gold);
+}
+
+.category-grid-img-wrapper img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+}
+
+.category-grid-fallback {
+    width: 100%;
+    height: 100%;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+}
+
+.category-grid-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1.2;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    max-width: 100%;
+}
+
+/* ============================================================
    LOG
    ============================================================ */
-/* style-patches.css v1.9.1 — Conteneur strictement fixe (Carré) + vidéo entière */
+/* style-patches.css v2.2.0 — Menu Catégories Visuel */
