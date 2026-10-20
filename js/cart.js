@@ -1,14 +1,36 @@
 // js/cart.js
 // ============================================================
 // PANIER ET COMMANDES - SMART SWI9A
-// Version 2.0.0 — Gestion des Variantes (Tailles / Couleurs)
+// Version 3.0.0 — Refonte complète (financier + sécurité + isolation)
 // ============================================================
-// Dépend de : config, utils, store, firebase, auth, ui-core
+// CHANGEMENTS v3.0.0 :
+// ✅ C5.1 — revalidateCartPrices() : prix Firestore prioritaire
+// ✅ C5.2 — checkout(…, waWindow) : WhatsApp anti-popup-block
+// ✅ C5.3 — localStorage isolé par uid (fin contamination)
+// ✅ C5.4 — oneUsePerUser via ID déterministe DANS transaction
+// ✅ C5.5 — stockDeducted: true dès la création (fin surstock)
+// ✅ I5.1 — Variante supprimée → item retiré + toast
+// ✅ I5.2 — IDs variantes avec "::" (fin collision M_L)
+// ✅ I5.3 — (logique de restauration coupon dans orders.js)
+// ✅ I5.4 — getCartSavings skip variants
+// ✅ I5.5 — getCartTotal(appliedCoupon) accepte le coupon
+// ✅ I5.6 — calculateCouponDiscount via services/coupons.js
+// ✅ M5.1 — clearLocalCart() documenté
+// ✅ M5.2 — mergeCarts() plafonné au stock
+// ✅ M5.3 — Messages stock avec label variante
+// ✅ M5.4 — (fix WhatsApp dans whatsapp.js)
+// ✅ M5.5 — addToCart valide le variant
+// ✅ M5.6 — loadUserOrders orderBy + fallback
+// ✅ M5.7 — (TTL Firestore à documenter côté rules)
+// ✅ M5.8 — Toast au sync login
+// ✅ M5.9 — % promo via CONFIG.SHOP.DISCOUNT_PERCENT
+// ============================================================
+// Dépend de : config, utils, store, firebase, auth, ui-core, services/coupons
 // ============================================================
 
 import {
     collection, doc, getDoc, getDocs, setDoc, runTransaction,
-    query, where, Timestamp, increment
+    query, where, orderBy, Timestamp, increment
 } from "firebase/firestore";
 import { db } from "./firebase.js";
 import { CONFIG, ORDER_STATUS, normalizeOrderStatus } from "./config.js";
@@ -21,6 +43,7 @@ import {
 } from "./store.js";
 import { getCurrentUser } from "./auth.js";
 import { showToast, confirmAction } from "./ui-core.js";
+import { calculateCouponDiscount } from "./services/coupons.js";
 
 // ============================================================
 // ÉTAT LOCAL DU PANIER
@@ -34,13 +57,74 @@ let firestoreSaveTimeout = null;
 let isSyncing = false;
 
 // ============================================================
-// HELPER : Générer un ID unique pour un article (produit + variante)
+// ✅ C5.3 — Clé localStorage isolée par utilisateur
+// ------------------------------------------------------------
+// Anonyme      → CONFIG.STORAGE_KEYS.CART           ("swi9a_cart")
+// Connecté UID → "swi9a_cart_{uid}"
+//
+// Empêche la contamination sur appareil partagé (Fatima ≠ Ahmed).
+// ============================================================
+function getCartStorageKey() {
+    const user = getCurrentUser();
+    return user?.uid
+        ? `${CONFIG.STORAGE_KEYS.CART}_${user.uid}`
+        : CONFIG.STORAGE_KEYS.CART;
+}
+
+/**
+ * Charge le panier depuis localStorage.
+ * Migration one-shot : si la clé user-specific n'existe pas mais que
+ * l'ancienne clé globale existe, on migre (user avait déjà un panier
+ * avant la mise à jour v3.0.0).
+ */
+function readCartFromStorage() {
+    const userKey = getCartStorageKey();
+    const globalKey = CONFIG.STORAGE_KEYS.CART;
+
+    // 1. Essai direct (clé courante)
+    let data = safeGetItem(userKey);
+
+    // 2. Migration one-shot : la clé user-specific n'existe pas mais
+    //    l'ancienne clé globale contient un panier → on migre
+    if (data === null && userKey !== globalKey) {
+        const legacy = safeGetItem(globalKey);
+        if (legacy && Array.isArray(legacy) && legacy.length > 0) {
+            data = legacy;
+            safeSetItem(userKey, legacy);
+            safeRemoveItem(globalKey);
+            console.log('🔄 Panier migré vers clé user-specific');
+        }
+    }
+
+    return data;
+}
+
+function writeCartToStorage(cartData) {
+    safeSetItem(getCartStorageKey(), cartData);
+}
+
+// ============================================================
+// ✅ I5.2 — Génération d'ID unique (délimiteur "::" anti-collision)
+// ------------------------------------------------------------
+// Avant : "123_M_L_" pouvait matcher ({size:'M_L', color:''} == {size:'M', color:'_L'})
+// Après : "123::M_L::" et "123::M::_L" sont distincts
 // ============================================================
 function generateItemId(productId, variant) {
     if (!variant) return String(productId);
-    const size = variant.size ? String(variant.size).trim() : '';
-    const color = variant.color ? String(variant.color).trim() : '';
-    return `${productId}_${size}_${color}`;
+    const size = encodeURIComponent(String(variant.size || ''));
+    const color = encodeURIComponent(String(variant.color || ''));
+    return `${productId}::${size}::${color}`;
+}
+
+/**
+ * Reconstruit un ID depuis un item potentiellement ancien (fallback _ → ::).
+ * Utilisé lors du chargement pour compat.
+ */
+function normalizeItemId(item) {
+    if (!item) return '';
+    if (item.id && String(item.id).includes('::')) return String(item.id);
+    // Fallback : régénérer
+    return generateItemId(item.productId, item.variant);
 }
 
 // ============================================================
@@ -48,26 +132,22 @@ function generateItemId(productId, variant) {
 // ============================================================
 export function loadCart() {
     try {
-        const data = safeGetItem(CONFIG.STORAGE_KEYS.CART);
+        const data = readCartFromStorage();
         cart = Array.isArray(data) ? data : [];
-        
-        // Normalisation et compatibilité avec les anciens paniers
+
         cart = cart.filter(item =>
             item &&
             Number.isFinite(Number(item.productId)) &&
             Number.isFinite(Number(item.quantity)) &&
             Number(item.quantity) > 0
-        ).map(item => {
-            // Si l'item n'a pas d'ID unique (ancien panier), on le génère
-            const id = item.id || generateItemId(item.productId, item.variant);
-            return {
-                ...item,
-                id: id,
-                productId: Number(item.productId),
-                quantity: Math.max(1, Math.floor(Number(item.quantity))),
-                variant: item.variant || null
-            };
-        });
+        ).map(item => ({
+            ...item,
+            id: normalizeItemId(item),
+            productId: Number(item.productId),
+            quantity: Math.max(1, Math.floor(Number(item.quantity))),
+            variant: item.variant || null
+        }));
+
         setCart(cart);
     } catch (e) {
         console.warn('⚠️ Erreur chargement panier :', e);
@@ -81,7 +161,7 @@ export function loadCart() {
 // SAUVEGARDER LE PANIER
 // ============================================================
 export function saveCart() {
-    safeSetItem(CONFIG.STORAGE_KEYS.CART, cart);
+    writeCartToStorage(cart);
     setCart(cart);
     updateCartBadge();
     saveAbandonedCart(cart);
@@ -90,16 +170,126 @@ export function saveCart() {
 }
 
 // ============================================================
-// VIDER LE PANIER LOCAL (sans toucher Firestore)
+// ✅ M5.1 — VIDER LE PANIER LOCAL
+// ------------------------------------------------------------
+// Ne touche PAS Firestore (le doc carts/{uid} sera mis à jour via
+// scheduleFirestoreSave après clearCart côté public).
+// Utilisé au logout pour isoler le prochain user (C5.3).
 // ============================================================
 function clearLocalCart() {
     cart = [];
-    safeSetItem(CONFIG.STORAGE_KEYS.CART, cart);
+    safeRemoveItem(getCartStorageKey());
+    // ⚠️ Sécurité : on supprime aussi la clé globale au cas où
+    // (évite qu'un ancien item traîne après un logout)
+    safeRemoveItem(CONFIG.STORAGE_KEYS.CART);
     setCart(cart);
     updateCartBadge();
     safeRemoveItem(CONFIG.STORAGE_KEYS.ABANDONED_CART);
     document.dispatchEvent(new CustomEvent('cart-updated'));
-    console.log('🧹 Panier local vidé');
+    console.log('🧹 Panier local vidé (isolation C5.3)');
+}
+
+// ============================================================
+// ✅ C5.1 — REVALIDATION DES PRIX (appelée au boot par app.js)
+// ------------------------------------------------------------
+// Compare les prix stockés dans le panier avec les prix Firestore.
+// Met à jour silencieusement + notifie l'utilisateur.
+// Retourne un rapport des changements pour debug/tests.
+// ============================================================
+export function revalidateCartPrices() {
+    const products = getProducts();
+    if (!Array.isArray(products) || products.length === 0) {
+        return { changed: 0, removed: 0, changes: [] };
+    }
+
+    let changed = false;
+    const changes = [];
+    const toRemove = [];
+
+    cart.forEach(item => {
+        const product = products.find(pp => Number(pp.id) === item.productId);
+
+        // Produit supprimé du catalogue
+        if (!product) {
+            toRemove.push(item.id);
+            changes.push({ type: 'product_removed', item, productName: `#${item.productId}` });
+            return;
+        }
+
+        // Cas 1 : variant
+        if (item.variant) {
+            const v = (product.variants || []).find(v =>
+                (v.size || '') === (item.variant.size || '') &&
+                (v.color || '') === (item.variant.color || '')
+            );
+
+            if (!v) {
+                toRemove.push(item.id);
+                changes.push({
+                    type: 'variant_removed',
+                    item,
+                    productName: product.nameFr || `#${product.id}`
+                });
+                return;
+            }
+
+            const newPrice = Number(v.price) || 0;
+            const oldPrice = Number(item.variant.price) || 0;
+            if (newPrice !== oldPrice) {
+                item.variant.price = newPrice;
+                changed = true;
+                changes.push({
+                    type: 'price_changed',
+                    item,
+                    productName: product.nameFr || `#${product.id}`,
+                    oldPrice,
+                    newPrice
+                });
+            }
+            return;
+        }
+
+        // Cas 2 : produit sans variant
+        const newPrice = Number(product.price) || 0;
+        const oldPrice = Number(item.price) || 0;
+        // On stocke le prix dans l'item aussi pour compat
+        if (item.price !== undefined && newPrice !== oldPrice) {
+            item.price = newPrice;
+            changed = true;
+            changes.push({
+                type: 'price_changed',
+                item,
+                productName: product.nameFr || `#${product.id}`,
+                oldPrice,
+                newPrice
+            });
+        }
+    });
+
+    // Retirer les items invalides
+    if (toRemove.length > 0) {
+        cart = cart.filter(i => !toRemove.includes(i.id));
+        changed = true;
+    }
+
+    if (changed) {
+        saveCart();
+        const priceChanges = changes.filter(c => c.type === 'price_changed');
+        const removedItems = changes.filter(c => c.type === 'product_removed' || c.type === 'variant_removed');
+
+        if (priceChanges.length > 0) {
+            showToast(`⚠️ ${priceChanges.length} prix mis à jour dans votre panier`);
+        }
+        if (removedItems.length > 0) {
+            showToast(`⚠️ ${removedItems.length} article(s) indisponible(s) retiré(s)`);
+        }
+    }
+
+    return {
+        changed: changed ? 1 : 0,
+        removed: toRemove.length,
+        changes
+    };
 }
 
 // ============================================================
@@ -153,29 +343,56 @@ async function loadCartFromFirestore() {
     }
 }
 
+// ✅ M5.2 — Fusion plafonnée au stock réel
 function mergeCarts(localCart, firestoreCart) {
+    const products = getProducts();
     const merged = [...localCart];
+
     firestoreCart.forEach(fi => {
         if (!fi || !fi.productId) return;
-        const itemId = fi.id || generateItemId(fi.productId, fi.variant);
+
+        const itemId = normalizeItemId(fi);
         const qty = Number(fi.quantity) || 0;
         if (qty < 1) return;
-        
+
+        // Plafonner au stock réel
+        const product = products.find(p => Number(p.id) === Number(fi.productId));
+        let maxStock = Infinity;
+        if (product) {
+            if (fi.variant) {
+                const v = (product.variants || []).find(v =>
+                    (v.size || '') === (fi.variant.size || '') &&
+                    (v.color || '') === (fi.variant.color || '')
+                );
+                maxStock = v ? Number(v.stock) : 0;
+            } else {
+                maxStock = Number(product.stock) || 0;
+            }
+        }
+        const finalQty = Math.min(qty, maxStock);
+        if (finalQty < 1) return; // stock épuisé → skip
+
         const existingIdx = merged.findIndex(li => li.id === itemId);
         if (existingIdx > -1) {
-            merged[existingIdx].quantity = Math.max(merged[existingIdx].quantity, qty);
+            const target = Math.min(
+                Math.max(merged[existingIdx].quantity, finalQty),
+                maxStock
+            );
+            merged[existingIdx].quantity = target;
         } else {
-            merged.push({ 
-                id: itemId, 
-                productId: Number(fi.productId), 
+            merged.push({
+                id: itemId,
+                productId: Number(fi.productId),
                 variant: fi.variant || null,
-                quantity: qty 
+                quantity: finalQty
             });
         }
     });
+
     return merged;
 }
 
+// ✅ M5.8 — Toast explicite au sync
 export async function syncCartOnLogin() {
     if (isSyncing) return;
     isSyncing = true;
@@ -184,24 +401,32 @@ export async function syncCartOnLogin() {
         if (!user || !user.uid) { isSyncing = false; return; }
 
         console.log('🔄 Sync panier Firestore pour', user.uid);
+
+        // Charger le panier user-specific depuis localStorage
+        const userData = readCartFromStorage();
+        const localCart = Array.isArray(userData) ? userData : [];
+        cart = localCart;
+
         const firestoreData = await loadCartFromFirestore();
 
         if (firestoreData && Array.isArray(firestoreData.items) && firestoreData.items.length > 0) {
             const beforeCount = cart.length;
             cart = mergeCarts(cart, firestoreData.items);
-            console.log(`✅ Fusion panier : ${beforeCount} local + ${firestoreData.items.length} Firestore → ${cart.length} articles`);
+
+            if (beforeCount === 0 && cart.length > 0) {
+                showToast(`✅ Panier restauré (${cart.length} article${cart.length > 1 ? 's' : ''})`);
+            } else if (beforeCount > 0 && cart.length !== beforeCount) {
+                showToast(`🔄 Panier synchronisé (${cart.length} articles)`);
+            }
 
             if (firestoreData.selectedCity) {
                 try {
                     const { setSelectedCity } = await import("./store.js");
                     setSelectedCity(firestoreData.selectedCity);
-                    console.log('✅ Ville restaurée');
                 } catch (e) {
                     console.warn('⚠️ Erreur restauration ville :', e);
                 }
             }
-        } else {
-            console.log('ℹ️ Aucun panier Firestore à fusionner');
         }
 
         saveCart();
@@ -237,7 +462,7 @@ if (typeof document !== 'undefined') {
             console.log('👤 Client connecté — sync panier Firestore');
             await syncCartOnLogin();
         } else {
-            console.log('👤 Client déconnecté — vidage du panier local');
+            console.log('👤 Client déconnecté — vidage du panier local (isolation)');
             clearLocalCart();
         }
     });
@@ -248,7 +473,9 @@ if (typeof document !== 'undefined') {
 // ============================================================
 if (typeof window !== 'undefined') {
     window.addEventListener('storage', (e) => {
-        if (e.key !== CONFIG.STORAGE_KEYS.CART) return;
+        const userKey = getCartStorageKey();
+        // Accepter la clé globale ET la clé user-specific
+        if (e.key !== userKey && e.key !== CONFIG.STORAGE_KEYS.CART) return;
         try {
             const newCart = e.newValue ? JSON.parse(e.newValue) : [];
             cart = Array.isArray(newCart) ? newCart : [];
@@ -282,7 +509,7 @@ export function updateCartBadge() {
 }
 
 // ============================================================
-// AJOUTER AU PANIER (Gestion des variantes)
+// ✅ M5.5 — AJOUTER AU PANIER (valide le variant)
 // ============================================================
 export async function addToCart(productId, variant = null) {
     const user = getCurrentUser();
@@ -301,15 +528,31 @@ export async function addToCart(productId, variant = null) {
         return;
     }
 
-    // ✅ NOUVEAU : Redirection si le produit a des variantes mais qu'aucune n'est sélectionnée
-    const hasVariants = product.variants && product.variants.length > 0;
-    if (hasVariants && !variant) {
-        showToast('⚠️ Veuillez choisir votre taille et votre couleur');
-        window.location.href = `/produit?slug=${encodeURIComponent(product.slug || '')}`;
-        return;
+    // Produit avec variantes : exiger un variant valide
+    const hasVariants = Array.isArray(product.variants) && product.variants.length > 0;
+    if (hasVariants) {
+        if (!variant) {
+            showToast('⚠️ Veuillez choisir votre taille et votre couleur');
+            window.location.href = `/produit?slug=${encodeURIComponent(product.slug || '')}`;
+            return;
+        }
+
+        // ✅ M5.5 : le variant doit exister dans product.variants
+        const match = product.variants.find(v =>
+            (v.size || '') === (variant.size || '') &&
+            (v.color || '') === (variant.color || '')
+        );
+        if (!match) {
+            showToast('⚠️ Variante introuvable, veuillez re-sélectionner');
+            return;
+        }
+        if (Number(match.stock) <= 0) {
+            showToast('⚠️ ' + t('outOfStock') + ' : ' + formatVariantLabel(match));
+            return;
+        }
     }
 
-    // Déterminer le stock et le prix selon la variante ou le produit de base
+    // Déterminer le stock et le prix
     const itemStock = variant ? Number(variant.stock) : (Number(product.stock) || 0);
     const itemPrice = variant ? Number(variant.price) : (Number(product.price) || 0);
     const itemId = generateItemId(pid, variant);
@@ -323,27 +566,38 @@ export async function addToCart(productId, variant = null) {
         return;
     }
     if (newQty > itemStock) {
-        showToast('⚠️ ' + t('stockAvailable').replace('{n}', itemStock));
+        // ✅ M5.3 : message avec label variante
+        const label = variant ? ` (${formatVariantLabel(variant)})` : '';
+        showToast(`⚠️ ${t('stockAvailable').replace('{n}', itemStock)}${label}`);
         return;
     }
 
     if (existing) {
         existing.quantity = newQty;
     } else {
-        cart.push({ 
+        cart.push({
             id: itemId,
-            productId: pid, 
+            productId: pid,
             variant: variant ? {
                 size: variant.size || '',
                 color: variant.color || '',
                 price: itemPrice
             } : null,
-            quantity: 1 
+            quantity: 1
         });
     }
 
     saveCart();
     showToast('✅ ' + t('addedToCart'));
+}
+
+// ============================================================
+// HELPERS VARIANT LABEL
+// ============================================================
+function formatVariantLabel(variant) {
+    if (!variant) return '';
+    const parts = [variant.size, variant.color].filter(Boolean);
+    return parts.join(' - ');
 }
 
 // ============================================================
@@ -355,11 +609,11 @@ export function removeFromCart(itemId) {
 }
 
 // ============================================================
-// VIDER LE PANIER (total)
+// VIDER LE PANIER
 // ============================================================
 export function clearCart() {
     cart = [];
-    safeSetItem(CONFIG.STORAGE_KEYS.CART, cart);
+    safeRemoveItem(getCartStorageKey());
     setCart(cart);
     updateCartBadge();
     safeRemoveItem(CONFIG.STORAGE_KEYS.ABANDONED_CART);
@@ -379,11 +633,11 @@ export function updateCartQuantity(itemId, quantity) {
 
     const products = getProducts();
     const product = products.find(p => Number(p.id) === item.productId);
-    
+
     let maxStock = Infinity;
     if (item.variant) {
-        const v = product?.variants?.find(v => 
-            (v.size || '') === (item.variant.size || '') && 
+        const v = product?.variants?.find(v =>
+            (v.size || '') === (item.variant.size || '') &&
             (v.color || '') === (item.variant.color || '')
         );
         maxStock = v ? Number(v.stock) : 0;
@@ -391,10 +645,21 @@ export function updateCartQuantity(itemId, quantity) {
         maxStock = product ? Number(product.stock) || Infinity : Infinity;
     }
 
+    // ✅ I5.1 — Variante supprimée / stock 0 → retirer du panier
+    if (Number.isFinite(maxStock) && maxStock === 0) {
+        cart = cart.filter(i => i.id !== itemId);
+        saveCart();
+        showToast('⚠️ Produit indisponible, retiré du panier');
+        return;
+    }
+
     let newQty = Math.max(1, parseInt(quantity) || 1);
     if (Number.isFinite(maxStock) && newQty > maxStock) {
         newQty = maxStock;
-        showToast('⚠️ ' + t('stockAvailable').replace('{n}', maxStock));
+        const label = item.variant
+            ? ` (${formatVariantLabel(item.variant)})`
+            : '';
+        showToast(`⚠️ ${t('stockAvailable').replace('{n}', maxStock)}${label}`);
     }
 
     item.quantity = newQty;
@@ -409,7 +674,9 @@ export function getCartSubtotal() {
     return cart.reduce((sum, item) => {
         const p = products.find(pp => Number(pp.id) === item.productId);
         if (!p) return sum;
-        const price = item.variant ? Number(item.variant.price) : (Number(p.price) || 0);
+        const price = item.variant
+            ? Number(item.variant.price)
+            : (Number(p.price) || 0);
         return sum + price * item.quantity;
     }, 0);
 }
@@ -418,12 +685,13 @@ export function getCartTotalItems() {
     return cart.reduce((sum, item) => sum + (item.quantity || 0), 0);
 }
 
+// ✅ I5.4 — Skip les variants (pas de oldPrice par variant)
 export function getCartSavings() {
     const products = getProducts();
     return cart.reduce((sum, item) => {
+        if (item.variant) return sum; // ✅ pas de "savings" fiable pour variants
         const p = products.find(pp => Number(pp.id) === item.productId);
         if (p && p.oldPrice && Number(p.oldPrice) > Number(p.price)) {
-            // Le prix barré est basé sur le prix de base du produit
             return sum + (Number(p.oldPrice) - Number(p.price)) * item.quantity;
         }
         return sum;
@@ -444,38 +712,27 @@ export function getCartDeliveryFee() {
     return Number(city.price) || 0;
 }
 
-export function getCartTotal() {
+// ✅ I5.5 — Accepte le coupon pour un total correct
+export function getCartTotal(appliedCoupon = null) {
     const subtotal = getCartSubtotal();
     const discount = getCartDiscount();
     const deliveryFee = getCartDeliveryFee();
-    return subtotal - discount + deliveryFee;
+    const couponDiscount = appliedCoupon
+        ? calculateCouponDiscount(appliedCoupon, subtotal, deliveryFee)
+        : 0;
+    const totalDiscount = Math.min(discount + couponDiscount, subtotal);
+    return Math.max(0, subtotal - totalDiscount + deliveryFee);
 }
 
 // ============================================================
-// ✅ HELPER — Calcul de la réduction coupon (réutilisable)
+// ✅ C5.2 — CHECKOUT (anti-popup-block via waWindow)
+// ------------------------------------------------------------
+// Le caller (panier.js) doit ouvrir une fenêtre vide AVANT les awaits :
+//   const waWindow = window.open('', '_blank');
+//   await checkout(..., waWindow);
+// Si le checkout échoue, fermer waWindow pour éviter un onglet blanc.
 // ============================================================
-function calculateCouponDiscount(couponData, subtotal, deliveryFee) {
-    if (!couponData) return 0;
-    const type = couponData.type;
-    const value = Number(couponData.value) || 0;
-
-    if (type === 'percentage') {
-        const pct = Math.min(100, Math.max(0, value));
-        return Math.round((subtotal * pct) / 100);
-    }
-    if (type === 'fixed') {
-        return Math.min(Math.max(0, value), subtotal);
-    }
-    if (type === 'free_shipping') {
-        return Number(deliveryFee) || 0;
-    }
-    return 0;
-}
-
-// ============================================================
-// CHECKOUT
-// ============================================================
-export async function checkout(cartItems, deliveryInfo, appliedCoupon = null) {
+export async function checkout(cartItems, deliveryInfo, appliedCoupon = null, waWindow = null) {
     if (!cartItems || cartItems.length === 0) {
         showToast('⚠️ ' + t('cartEmpty'));
         return;
@@ -522,8 +779,21 @@ export async function checkout(cartItems, deliveryInfo, appliedCoupon = null) {
 
     const msg = buildWhatsAppMessage(validatedItems, deliveryInfo, orderId, totals);
     const url = `https://wa.me/${CONFIG.SHOP.WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`;
-    window.open(url, '_blank');
 
+    // ✅ C5.2 — Utiliser la fenêtre pré-ouverte, fallback même onglet
+    if (waWindow && !waWindow.closed) {
+        try {
+            waWindow.location.href = url;
+        } catch (e) {
+            console.warn('⚠️ Impossible de rediriger waWindow :', e);
+            window.location.href = url;
+        }
+    } else {
+        // Fallback : même onglet (moins bon UX mais jamais bloqué)
+        window.location.href = url;
+    }
+
+    // Emails en parallèle (fire-and-forget)
     (async () => {
         try {
             const { sendOrderEmail } = await import('./orders.js');
@@ -548,7 +818,8 @@ export async function checkout(cartItems, deliveryInfo, appliedCoupon = null) {
                     cityAr: deliveryInfo.cityAr,
                     cityFr: deliveryInfo.cityFr,
                     email: deliveryInfo.email || user.email || ''
-                }
+                },
+                userLang: getLang() // ✅ I6.2 : stocker la langue pour éviter N+1
             };
 
             await sendOrderEmail(orderForEmail, 'pending', 'client');
@@ -561,42 +832,28 @@ export async function checkout(cartItems, deliveryInfo, appliedCoupon = null) {
     if (appliedCoupon) {
         try {
             sessionStorage.removeItem('swi9a_applied_coupon');
-            console.log('🧹 Coupon retiré du sessionStorage après commande');
         } catch (e) { /* ignore */ }
     }
 
     clearCart();
-
     showToast('✅ ' + t('orderSent'));
     document.dispatchEvent(new CustomEvent('close-cart'));
 }
 
 // ============================================================
-// ✅ CRÉATION DE COMMANDE (avec variantes et coupon)
+// ✅ C5.4 + C5.5 + I5.6 — CRÉATION DE COMMANDE
+// ------------------------------------------------------------
+// C5.4 : oneUsePerUser via ID déterministe DANS la transaction
+// C5.5 : stock déduit DANS la transaction (stockDeducted: true)
+// I5.6 : calculateCouponDiscount via services/coupons.js
 // ============================================================
 export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
     const user = getCurrentUser();
     if (!user) return { success: false, error: 'NO_USER' };
 
-    // ✅ ÉTAPE 1 : Vérifier oneUsePerUser AVANT la transaction
-    if (appliedCoupon && appliedCoupon.oneUsePerUser && appliedCoupon.id) {
-        try {
-            const usesQ = query(
-                collection(db, "coupon_uses"),
-                where("couponId", "==", appliedCoupon.id),
-                where("userId", "==", user.uid)
-            );
-            const usesSnap = await getDocs(usesQ);
-            if (!usesSnap.empty) {
-                return { success: false, error: 'Vous avez déjà utilisé ce code promo' };
-            }
-        } catch (e) {
-            console.warn('⚠️ Vérification coupon_uses échouée :', e);
-        }
-    }
-
     try {
         const result = await runTransaction(db, async (transaction) => {
+
             // ============================================
             // 1. Vérifier les produits
             // ============================================
@@ -618,11 +875,12 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
             }
 
             // ============================================
-            // 3. Calculer le sous-total + valider les stocks (Variantes)
+            // 3. Valider stocks + construire validatedItems
             // ============================================
             let subtotal = 0;
             let discountableItems = 0;
             const validatedItems = [];
+            const stockUpdates = []; // { ref, variantIdx?, newStock, delta }
 
             productSnaps.forEach((snap, i) => {
                 if (!snap.exists()) {
@@ -630,32 +888,36 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                 }
                 const data = snap.data();
                 const qty = Math.max(1, Math.floor(Number(items[i].quantity) || 1));
-                
-                // Gestion du stock selon la variante
-                let availableStock = 0;
-                let unitPrice = Number(data.price) || 0;
                 const itemVariant = items[i].variant;
 
+                let availableStock = 0;
+                let unitPrice = Number(data.price) || 0;
+                let variantIdx = -1;
+
                 if (itemVariant) {
-                    const v = (data.variants || []).find(v => 
-                        (v.size || '') === (itemVariant.size || '') && 
+                    const variants = data.variants || [];
+                    variantIdx = variants.findIndex(v =>
+                        (v.size || '') === (itemVariant.size || '') &&
                         (v.color || '') === (itemVariant.color || '')
                     );
-                    if (!v) {
-                        throw new Error(`La variante sélectionnée n'existe plus pour ${data.nameFr || 'ce produit'}`);
+                    if (variantIdx === -1) {
+                        const label = formatVariantLabel(itemVariant);
+                        throw new Error(`Variante supprimée : ${data.nameFr || 'produit'} (${label})`);
                     }
-                    availableStock = Number(v.stock) || 0;
-                    unitPrice = Number(v.price) || unitPrice;
+                    availableStock = Number(variants[variantIdx].stock) || 0;
+                    unitPrice = Number(variants[variantIdx].price) || unitPrice;
                 } else {
                     availableStock = Number(data.stock) || 0;
                 }
 
                 if (availableStock < qty) {
-                    throw new Error(`Stock insuffisant pour ${data.nameFr || data.nameEn || 'le produit'}`);
+                    const label = itemVariant ? ` (${formatVariantLabel(itemVariant)})` : '';
+                    throw new Error(`Stock insuffisant : ${data.nameFr || 'produit'}${label} (dispo: ${availableStock})`);
                 }
 
                 subtotal += unitPrice * qty;
                 discountableItems += qty;
+
                 validatedItems.push({
                     id: items[i].id,
                     productId: items[i].productId,
@@ -664,10 +926,19 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                     price: unitPrice,
                     name: data.nameFr || data.nameEn || 'Produit'
                 });
+
+                stockUpdates.push({
+                    ref: productRefs[i],
+                    variantIdx,
+                    qty,
+                    currentVariants: data.variants || null,
+                    currentStock: Number(data.stock) || 0,
+                    currentSalesCount: Number(data.salesCount) || 0
+                });
             });
 
             // ============================================
-            // 4. Calculer la remise volume
+            // 4. Remise volume
             // ============================================
             const discountRate = discountableItems >= CONFIG.SHOP.DISCOUNT_THRESHOLD
                 ? CONFIG.SHOP.DISCOUNT_PERCENT / 100
@@ -675,11 +946,12 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
             const discount = Math.round(subtotal * discountRate);
 
             // ============================================
-            // 5. Vérifier et calculer le coupon
+            // 5. Coupon (C5.4 — vérif DANS la transaction)
             // ============================================
             const deliveryFee = cityData ? (Number(cityData.price) || 0) : 0;
             let couponData = null;
             let couponRef = null;
+            let couponUseRef = null;
             let couponDiscount = 0;
 
             if (appliedCoupon && appliedCoupon.id) {
@@ -701,7 +973,20 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
 
                 const minPurchase = Number(c.minPurchase) || 0;
                 if (minPurchase > 0 && subtotal < minPurchase) {
-                    throw new Error(`Montant minimum ${minPurchase} MAD requis pour ce code`);
+                    throw new Error(`Montant minimum ${minPurchase} MAD requis`);
+                }
+
+                // ✅ C5.4 : ID déterministe + vérification DANS la transaction
+                if (c.oneUsePerUser === true) {
+                    const couponUseId = `${appliedCoupon.id}_${user.uid}`;
+                    couponUseRef = doc(db, "coupon_uses", couponUseId);
+                    const useSnap = await transaction.get(couponUseRef);
+                    if (useSnap.exists()) {
+                        throw new Error('Vous avez déjà utilisé ce code promo');
+                    }
+                } else {
+                    // Pas de contrainte oneUsePerUser → ID unique aléatoire
+                    couponUseRef = doc(collection(db, "coupon_uses"));
                 }
 
                 couponDiscount = calculateCouponDiscount(c, subtotal, deliveryFee);
@@ -710,7 +995,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
             }
 
             // ============================================
-            // 6. Calculer le total final
+            // 6. Total final
             // ============================================
             const totalDiscount = Math.min(discount + couponDiscount, subtotal);
             const total = Math.max(0, subtotal - totalDiscount + deliveryFee);
@@ -729,7 +1014,8 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                 userId: user.uid,
                 userName: user.name || '',
                 userEmail: user.email || '',
-                items: validatedItems, // Contient maintenant les variantes
+                userLang: getLang(), // ✅ I6.2 : stocker langue client
+                items: validatedItems,
                 status: ORDER_STATUS.PENDING,
                 paymentStatus: 'unpaid',
                 subtotal,
@@ -739,7 +1025,9 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                 couponDiscount: couponDiscount,
                 deliveryFee,
                 total,
-                stockDeducted: false,
+                // ✅ C5.5 : stock déduit dès la création (fin surstock)
+                stockDeducted: true,
+                stockDeductedAt: now,
                 deliveryAddress: {
                     name: String(deliveryInfo.name || '').trim().slice(0, 100),
                     phone: String(deliveryInfo.phone || '').trim().slice(0, 20),
@@ -753,17 +1041,44 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                 createdAt: now,
                 updatedAt: now,
                 cancellableUntil: Timestamp.fromDate(cancellableUntil),
-                cancelledAt: null
+                cancelledAt: null,
+                returns: []
             };
 
             transaction.set(orderRef, orderData);
 
             // ============================================
-            // 8. Incrémenter usedCount + enregistrer coupon_uses
+            // 8. ✅ C5.5 : Déduire le stock DANS la transaction
             // ============================================
-            if (couponData && couponRef) {
+            stockUpdates.forEach(su => {
+                if (su.variantIdx > -1 && Array.isArray(su.currentVariants)) {
+                    const variants = [...su.currentVariants];
+                    const v = variants[su.variantIdx];
+                    variants[su.variantIdx] = {
+                        ...v,
+                        stock: Math.max(0, Number(v.stock) - su.qty)
+                    };
+                    const newGlobalStock = variants.reduce((sum, x) => sum + (Number(x.stock) || 0), 0);
+                    transaction.update(su.ref, {
+                        variants,
+                        stock: newGlobalStock,
+                        salesCount: su.currentSalesCount + su.qty,
+                        updatedAt: now
+                    });
+                } else {
+                    transaction.update(su.ref, {
+                        stock: Math.max(0, su.currentStock - su.qty),
+                        salesCount: su.currentSalesCount + su.qty,
+                        updatedAt: now
+                    });
+                }
+            });
+
+            // ============================================
+            // 9. Incrément coupon + enregistrer coupon_use
+            // ============================================
+            if (couponData && couponRef && couponUseRef) {
                 transaction.update(couponRef, { usedCount: increment(1) });
-                const couponUseRef = doc(collection(db, "coupon_uses"));
                 transaction.set(couponUseRef, {
                     couponId: appliedCoupon.id,
                     code: couponData.code,
@@ -775,13 +1090,14 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
             }
 
             // ============================================
-            // 9. Notification in-app
+            // 10. Notification in-app
             // ============================================
             transaction.set(notifRef, {
                 userId: user.uid,
                 type: 'order_created',
                 title: t('notificationOrderCreated') || '📦 Commande reçue',
-                message: (t('notificationOrderCreatedMsg') || 'Merci pour votre commande #{id} !').replace('{id}', orderRef.id.slice(0, 8).toUpperCase()),
+                message: (t('notificationOrderCreatedMsg') || 'Merci pour votre commande #{id} !')
+                    .replace('{id}', orderRef.id.slice(0, 8).toUpperCase()),
                 orderId: orderRef.id,
                 read: false,
                 createdAt: now
@@ -808,6 +1124,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
             totals: result.totals,
             validatedItems: result.validatedItems
         };
+
     } catch (error) {
         console.error('❌ Erreur création commande :', error);
         return { success: false, error: error.message };
@@ -815,12 +1132,12 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
 }
 
 // ============================================================
-// ✅ MESSAGE WHATSAPP (avec variantes)
+// MESSAGE WHATSAPP
 // ============================================================
 function buildWhatsAppMessage(validatedItems, deliveryInfo, orderId, totals) {
     const productList = validatedItems.map(item => {
         const lineTotal = (item.price || 0) * (item.quantity || 0);
-        const variantText = item.variant 
+        const variantText = item.variant
             ? ` (${[item.variant.size, item.variant.color].filter(Boolean).join(' - ')})`
             : '';
         return `  • ${item.name}${variantText} x${item.quantity} — ${lineTotal} MAD`;
@@ -853,39 +1170,65 @@ function buildWhatsAppMessage(validatedItems, deliveryInfo, orderId, totals) {
 }
 
 // ============================================================
-// CHARGER LES COMMANDES DU CLIENT
+// ✅ M5.6 — CHARGER LES COMMANDES (orderBy + fallback)
 // ============================================================
 export async function loadUserOrders() {
     const user = getCurrentUser();
     if (!user) return [];
 
+    const baseQuery = (withOrderBy) => {
+        const constraints = [where("userId", "==", user.uid)];
+        if (withOrderBy) constraints.push(orderBy("createdAt", "desc"));
+        return query(collection(db, "orders"), ...constraints);
+    };
+
+    let snapshot;
     try {
-        const q = query(
-            collection(db, "orders"),
-            where("userId", "==", user.uid)
-        );
-        const snapshot = await getDocs(q);
-        const orders = snapshot.docs.map(d => {
-            const data = d.data();
-            return {
-                id: d.id,
-                ...data,
-                createdAt: toDate(data.createdAt),
-                updatedAt: toDate(data.updatedAt),
-                cancelledAt: data.cancelledAt ? toDate(data.cancelledAt) : null,
-                cancellableUntil: data.cancellableUntil ? toDate(data.cancellableUntil) : null
-            };
-        });
-        orders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-        return orders;
+        // 1. Essai avec orderBy (nécessite un index composite userId+createdAt)
+        snapshot = await getDocs(baseQuery(true));
     } catch (e) {
-        console.error('❌ Erreur chargement commandes :', e);
-        return [];
+        // 2. Fallback sans orderBy (si index absent)
+        if (e?.code === 'failed-precondition' || /index/i.test(e?.message || '')) {
+            console.warn('⚠️ Index manquant, fallback sans orderBy');
+            try {
+                snapshot = await getDocs(baseQuery(false));
+            } catch (e2) {
+                console.error('❌ Erreur chargement commandes (fallback) :', e2);
+                return [];
+            }
+        } else {
+            console.error('❌ Erreur chargement commandes :', e);
+            return [];
+        }
     }
+
+    const orders = snapshot.docs.map(d => {
+        const data = d.data();
+        return {
+            id: d.id,
+            ...data,
+            createdAt: toDate(data.createdAt),
+            updatedAt: toDate(data.updatedAt),
+            cancelledAt: data.cancelledAt ? toDate(data.cancelledAt) : null,
+            cancellableUntil: data.cancellableUntil ? toDate(data.cancellableUntil) : null
+        };
+    });
+
+    // Tri côté client (fallback ou déjà trié)
+    orders.sort((a, b) => {
+        const da = a.createdAt?.getTime?.() || 0;
+        const dbb = b.createdAt?.getTime?.() || 0;
+        return dbb - da;
+    });
+
+    return orders;
 }
 
 // ============================================================
 // ANNULER UNE COMMANDE (côté CLIENT)
+// ------------------------------------------------------------
+// Note : le stock est restauré côté orders.js (via updateOrderStatus)
+// Ici on ne fait que le statut + la notification.
 // ============================================================
 export async function cancelOrder(orderId) {
     const user = getCurrentUser();
@@ -978,4 +1321,4 @@ export function checkAbandonedCart() {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ cart.js chargé — v2.0.0 (Gestion des variantes)');
+console.log('✅ cart.js chargé — v3.0.0 (financier + isolation + transaction)');
