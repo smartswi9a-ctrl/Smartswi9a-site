@@ -1,20 +1,19 @@
 // js/orders.js
 // ============================================================
 // GESTION DES COMMANDES - SMART SWI9A
-// Version 3.0.0 — Gestion des Variantes (Stock, Emails, Affichage)
+// Version 4.0.0 — Transactions atomiques + factorisation emails
 // ============================================================
-// Dépend de : config, utils, firebase, auth, cart, ui-core
-// Utilisé par : ui.js (client) + admin.js (admin) + cart.js
+// Dépend de : config, utils, firebase, auth, cart, ui-core, notifications
 // ============================================================
 
 import {
     collection, doc, getDocs, getDoc, updateDoc, deleteDoc,
     query, where, orderBy, limit, startAfter, Timestamp,
-    runTransaction
+    runTransaction, writeBatch, increment
 } from "firebase/firestore";
 import { db } from "./firebase.js";
 import {
-    CONFIG, ORDER_STATUS, normalizeOrderStatus,
+    CONFIG, ORDER_STATUS, NOTIFICATION_TYPES, normalizeOrderStatus,
     canReturnOrder, getReturnedQuantities, isFullReturn
 } from "./config.js";
 import {
@@ -36,8 +35,24 @@ let userReviewedProductIds = new Set();
 const orderReviewStatusCache = new Map();
 
 // ============================================================
-// CONFIGURATION EMAILJS
+// CACHES ADMIN
 // ============================================================
+let userOrdersCache = [];
+let adminOrdersCache = [];
+let currentStatusFilter = 'all';
+const ADMIN_PAGE_SIZE = 20;
+let adminLastVisible = null;
+let adminHasMore = true;
+let adminLoading = false;
+
+// ============================================================
+// CACHE LANGUE UTILISATEUR (I6.2 + M6.1)
+// ============================================================
+const _userLangCache = new Map();
+
+// ⚠️ SÉCURITÉ : La clé EmailJS est publique (visible via DevTools).
+// Protection recommandée : rate limiting via Cloud Functions.
+// NE PAS MODIFIER selon les consignes du projet. (C6.4)
 const EMAILJS = {
     SERVICE_ID: 'service_gder468',
     TEMPLATE_ID: 'template_6tp1n35',
@@ -45,7 +60,7 @@ const EMAILJS = {
 };
 
 // ============================================================
-// HELPER : Chargement dynamique du SDK EmailJS
+// CHARGEMENT DYNAMIQUE EMAILJS
 // ============================================================
 let emailjsSDK = null;
 async function getEmailJS() {
@@ -54,7 +69,6 @@ async function getEmailJS() {
         const mod = await import('https://cdn.jsdelivr.net/npm/@emailjs/browser@4/+esm');
         emailjsSDK = mod.default || mod;
         emailjsSDK.init({ publicKey: EMAILJS.PUBLIC_KEY });
-        console.log('✅ EmailJS SDK chargé');
         return emailjsSDK;
     } catch (e) {
         console.error('❌ Erreur chargement EmailJS :', e);
@@ -63,204 +77,548 @@ async function getEmailJS() {
 }
 
 // ============================================================
-// HELPER : Envoyer un email via EmailJS
+// ✅ M6.10 — Envoyer un email avec retry
 // ============================================================
-async function sendEmailViaEmailJS(toEmail, toName, subject, htmlContent, textContent) {
+async function sendEmailViaEmailJS(toEmail, toName, subject, htmlContent, textContent, maxAttempts = 2) {
     if (!toEmail || !toEmail.includes('@')) return { success: false, error: 'invalid_email' };
+
+    const emailjs = await getEmailJS();
+    if (!emailjs) return { success: false, error: 'sdk_not_loaded' };
+
+    const templateParams = {
+        to_email: toEmail,
+        to_name: toName || toEmail.split('@')[0],
+        subject,
+        html_content: htmlContent,
+        text_content: textContent
+    };
+
+    let lastError = null;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            const response = await emailjs.send(EMAILJS.SERVICE_ID, EMAILJS.TEMPLATE_ID, templateParams);
+            return { success: true, response };
+        } catch (e) {
+            lastError = e;
+            if (attempt < maxAttempts) {
+                await new Promise(r => setTimeout(r, 1000 * attempt));
+            }
+        }
+    }
+    console.error('❌ Email échoué après retries :', lastError);
+    return { success: false, error: lastError?.message || lastError?.text || 'unknown' };
+}
+
+// ============================================================
+// ✅ I6.2 — Langue du client (cache Map + order.userLang)
+// ============================================================
+async function getUserLangById(userId) {
+    if (!userId) return getLang() || 'fr';
+    if (_userLangCache.has(userId)) return _userLangCache.get(userId);
     try {
-        const emailjs = await getEmailJS();
-        if (!emailjs) return { success: false, error: 'sdk_not_loaded' };
-        const templateParams = {
-            to_email: toEmail,
-            to_name: toName || toEmail.split('@')[0],
-            subject: subject,
-            html_content: htmlContent,
-            text_content: textContent
-        };
-        const response = await emailjs.send(EMAILJS.SERVICE_ID, EMAILJS.TEMPLATE_ID, templateParams);
-        return { success: true, response };
+        const snap = await getDoc(doc(db, "users", userId));
+        const lang = snap.exists()
+            ? (snap.data().lang || snap.data().preferredLang || snap.data().signupLang || 'fr')
+            : 'fr';
+        const normalized = ['ar', 'en', 'fr'].includes(lang) ? lang : 'fr';
+        _userLangCache.set(userId, normalized);
+        return normalized;
     } catch (e) {
-        console.error('❌ Erreur envoi email :', e);
-        return { success: false, error: e.message || e.text || 'unknown' };
+        return 'fr';
     }
 }
 
-// ============================================================
-// HELPER : Sujet de l'email
-// ============================================================
-function buildOrderEmailSubject(status, recipient, orderId, lang = 'fr') {
-    const shortId = String(orderId).slice(0, 8).toUpperCase();
-    const subjects = {
-        fr: {
-            pending:   { client: `📦 Commande reçue #${shortId} | Smart Swi9a`,     admin: `🔔 Nouvelle commande #${shortId}` },
-            confirmed: { client: `✅ Commande confirmée #${shortId} | Smart Swi9a`, admin: null },
-            shipping:  { client: `🚚 Commande en route #${shortId} | Smart Swi9a`,  admin: null },
-            delivered: { client: `📦 Commande livrée #${shortId} | Smart Swi9a`,    admin: `✅ Commande livrée #${shortId}` },
-            returned:  { client: `↩️ Retour enregistré #${shortId} | Smart Swi9a`,  admin: `↩️ Retour commande #${shortId}` },
-            cancelled: { client: `❌ Commande annulée #${shortId} | Smart Swi9a`,   admin: null }
-        },
-        ar: {
-            pending:   { client: `📦 تم استلام طلبك #${shortId} | سمارت سويقة`,   admin: `🔔 طلب جديد #${shortId}` },
-            confirmed: { client: `✅ تم تأكيد طلبك #${shortId} | سمارت سويقة`,      admin: null },
-            shipping:  { client: `🚚 طلبك في الطريق #${shortId} | سمارت سويقة`,     admin: null },
-            delivered: { client: `📦 تم تسليم طلبك #${shortId} | سمارت سويقة`,      admin: `✅ تم التسليم #${shortId}` },
-            returned:  { client: `↩️ تم تسجيل الإرجاع #${shortId} | سمارت سويقة`,   admin: `↩️ إرجاع #${shortId}` },
-            cancelled: { client: `❌ تم إلغاء طلبك #${shortId} | سمارت سويقة`,      admin: null }
-        },
-        en: {
-            pending:   { client: `📦 Order received #${shortId} | Smart Swi9a`,     admin: `🔔 New order #${shortId}` },
-            confirmed: { client: `✅ Order confirmed #${shortId} | Smart Swi9a`,    admin: null },
-            shipping:  { client: `🚚 Order shipping #${shortId} | Smart Swi9a`,     admin: null },
-            delivered: { client: `📦 Order delivered #${shortId} | Smart Swi9a`,    admin: `✅ Order delivered #${shortId}` },
-            returned:  { client: `↩️ Return recorded #${shortId} | Smart Swi9a`,    admin: `↩️ Return #${shortId}` },
-            cancelled: { client: `❌ Order cancelled #${shortId} | Smart Swi9a`,    admin: null }
-        }
-    };
-    const langSet = subjects[lang] || subjects.fr;
-    const entry = langSet[status] || langSet.pending;
-    return entry[recipient] || `Smart Swi9a #${shortId}`;
+async function getUserLangForOrder(order) {
+    if (order?.userLang) return order.userLang;
+    return await getUserLangById(order?.userId);
 }
 
 // ============================================================
-// HELPER : Formatage des articles pour les emails
+// LABELS INVOICE (factorisés, 3 langues)
 // ============================================================
-function getItemsHtml(order, align = 'left') {
+const INVOICE_LABELS = {
+    fr: {
+        invoice: 'FACTURE', issuedOn: 'Émise le', billedTo: 'FACTURÉ À',
+        items: 'ARTICLES', product: 'Produit', qty: 'Qté', unitPrice: 'Prix unit.',
+        lineTotal: 'Total', subtotal: 'Sous-total', volumeDiscount: 'Réduction volume',
+        couponDiscount: 'Code promo', delivery: 'Livraison', total: 'TOTAL',
+        paymentMethod: 'Mode de paiement', cod: 'Paiement à la livraison', paid: 'Payé',
+        thanks: 'Merci pour votre confiance !', question: 'Pour toute question, contactez-nous :',
+        shopName: 'SMART SWI9A',
+        footer: 'Cet email tient lieu de facture. Aucune signature requise.'
+    },
+    ar: {
+        invoice: 'فاتورة', issuedOn: 'صدرت في', billedTo: 'فاتورة إلى',
+        items: 'المنتجات', product: 'المنتج', qty: 'الكمية', unitPrice: 'سعر الوحدة',
+        lineTotal: 'الإجمالي', subtotal: 'المجموع الفرعي', volumeDiscount: 'خصم الكمية',
+        couponDiscount: 'كود الخصم', delivery: 'التوصيل', total: 'الإجمالي',
+        paymentMethod: 'طريقة الدفع', cod: 'الدفع عند الاستلام', paid: 'مدفوع',
+        thanks: 'شكراً على ثقتكم!', question: 'لأي استفسار، تواصلوا معنا:',
+        shopName: 'سمارت سويقة',
+        footer: 'هذا البريد بمثابة فاتورة. لا حاجة لتوقيع.'
+    },
+    en: {
+        invoice: 'INVOICE', issuedOn: 'Issued on', billedTo: 'BILLED TO',
+        items: 'ITEMS', product: 'Product', qty: 'Qty', unitPrice: 'Unit price',
+        lineTotal: 'Total', subtotal: 'Subtotal', volumeDiscount: 'Volume discount',
+        couponDiscount: 'Coupon code', delivery: 'Delivery', total: 'TOTAL',
+        paymentMethod: 'Payment method', cod: 'Cash on delivery', paid: 'Paid',
+        thanks: 'Thank you for your trust!', question: 'For any question, contact us:',
+        shopName: 'SMART SWI9A',
+        footer: 'This email serves as an invoice. No signature required.'
+    }
+};
+
+// ============================================================
+// LABELS ORDER EMAIL (factorisés, 3 langues)
+// ============================================================
+const ORDER_TITLES = {
+    fr: { pending_client: 'Commande reçue', pending_admin: 'Nouvelle commande', confirmed: 'Commande confirmée', shipping: 'Commande en route', delivered: 'Commande livrée', returned: 'Retour enregistré', cancelled: 'Commande annulée' },
+    ar: { pending_client: 'تم استلام الطلب', pending_admin: 'طلب جديد', confirmed: 'تم تأكيد الطلب', shipping: 'الطلب في الطريق', delivered: 'تم تسليم الطلب', returned: 'تم تسجيل الإرجاع', cancelled: 'تم إلغاء الطلب' },
+    en: { pending_client: 'Order received', pending_admin: 'New order', confirmed: 'Order confirmed', shipping: 'Order shipping', delivered: 'Order delivered', returned: 'Return recorded', cancelled: 'Order cancelled' }
+};
+
+const ORDER_SUBJECTS = {
+    fr: {
+        pending_client: (id) => `📦 Commande reçue #${id} | Smart Swi9a`,
+        pending_admin: (id) => `🔔 Nouvelle commande #${id}`,
+        confirmed: (id) => `✅ Commande confirmée #${id} | Smart Swi9a`,
+        shipping: (id) => `🚚 Commande en route #${id} | Smart Swi9a`,
+        delivered_client: (id) => `🧾 Votre facture INV-${id} | Smart Swi9a`,
+        delivered_admin: (id) => `🧾 Facture INV-${id} — Commande livrée`,
+        returned_client: (id) => `↩️ Retour enregistré #${id} | Smart Swi9a`,
+        returned_admin: (id) => `↩️ Retour commande #${id}`,
+        cancelled: (id) => `❌ Commande annulée #${id} | Smart Swi9a`
+    },
+    ar: {
+        pending_client: (id) => `📦 تم استلام طلبك #${id} | سمارت سويقة`,
+        pending_admin: (id) => `🔔 طلب جديد #${id}`,
+        confirmed: (id) => `✅ تم تأكيد طلبك #${id} | سمارت سويقة`,
+        shipping: (id) => `🚚 طلبك في الطريق #${id} | سمارت سويقة`,
+        delivered_client: (id) => `🧾 فاتورتك INV-${id} | سمارت سويقة`,
+        delivered_admin: (id) => `🧾 فاتورة INV-${id} — تم التسليم`,
+        returned_client: (id) => `↩️ تم تسجيل الإرجاع #${id} | سمارت سويقة`,
+        returned_admin: (id) => `↩️ إرجاع #${id}`,
+        cancelled: (id) => `❌ تم إلغاء طلبك #${id} | سمارت سويقة`
+    },
+    en: {
+        pending_client: (id) => `📦 Order received #${id} | Smart Swi9a`,
+        pending_admin: (id) => `🔔 New order #${id}`,
+        confirmed: (id) => `✅ Order confirmed #${id} | Smart Swi9a`,
+        shipping: (id) => `🚚 Order shipping #${id} | Smart Swi9a`,
+        delivered_client: (id) => `🧾 Your invoice INV-${id} | Smart Swi9a`,
+        delivered_admin: (id) => `🧾 Invoice INV-${id} — Delivered`,
+        returned_client: (id) => `↩️ Return recorded #${id} | Smart Swi9a`,
+        returned_admin: (id) => `↩️ Return #${id}`,
+        cancelled: (id) => `❌ Order cancelled #${id} | Smart Swi9a`
+    }
+};
+
+// ============================================================
+// ✅ M6.6 — buildOrderEmailSubject (avec guard)
+// ============================================================
+function buildOrderEmailSubject(status, recipient, orderId, lang = 'fr') {
+    const shortId = String(orderId || '').slice(0, 8).toUpperCase() || 'N/A';
+    const subjects = ORDER_SUBJECTS[lang] || ORDER_SUBJECTS.fr;
+
+    const key = `${status}_${recipient}`;
+    if (subjects[key]) return subjects[key](shortId);
+    if (subjects[status]) return subjects[status](shortId);
+
+    return `Smart Swi9a #${shortId}`;
+}
+
+// ============================================================
+// HELPERS ITEMS
+// ============================================================
+function getItemsHtml(order, align = 'left', isRtl = false) {
     return (order.items || []).slice(0, 10).map(item => {
-        const itemName = escapeHTML(item.name || 'Produit');
+        const name = escapeHTML(item.name || 'Produit');
         const qty = Number(item.quantity) || 1;
         const price = Number(item.price) || 0;
-        const variantText = item.variant 
-            ? `<br><span style="font-size:12px;color:#a57b2e;">(${[item.variant.size, item.variant.color].filter(Boolean).join(' - ')})</span>` 
+        const variantText = item.variant
+            ? `<br><span style="font-size:12px;color:#a57b2e;">(${escapeHTML([item.variant.size, item.variant.color].filter(Boolean).join(' - '))})</span>`
             : '';
-        
         return `
             <tr>
-                <td style="padding:8px 0;border-bottom:1px solid #eee;font-size:14px;text-align:${align};">
-                    ${itemName} × ${qty}${variantText}
-                </td>
-                <td style="padding:8px 0;border-bottom:1px solid #eee;font-size:14px;text-align:${align === 'left' ? 'right' : 'left'};color:#a57b2e;font-weight:bold;">
-                    ${price * qty} MAD
-                </td>
+                <td style="padding:8px 0;border-bottom:1px solid #eee;font-size:14px;text-align:${align};">${name} × ${qty}${variantText}</td>
+                <td style="padding:8px 0;border-bottom:1px solid #eee;font-size:14px;text-align:${isRtl ? 'left' : 'right'};color:#a57b2e;font-weight:bold;">${price * qty} MAD</td>
             </tr>
         `;
     }).join('');
 }
 
-function buildOrderEmailText(order, status, recipient, lang = 'fr') {
-    const shortId = String(order.id).slice(0, 8).toUpperCase();
-    const name = order.deliveryAddress?.name || '—';
-    const city = getCityName({
-        name: order.deliveryAddress?.cityAr || order.deliveryAddress?.city,
-        nameFr: order.deliveryAddress?.cityFr,
-        nameAr: order.deliveryAddress?.cityAr
-    });
-    const greetings = { fr: 'Bonjour', ar: 'مرحباً', en: 'Hello' };
-    const thanks = { fr: `Merci pour votre commande #${shortId} !`, ar: `شكراً على طلبك #${shortId}!`, en: `Thank you for your order #${shortId}!` };
-    const confirmed = { fr: `Bonne nouvelle ! Votre commande #${shortId} est confirmée.`, ar: `خبر سار! طلبك #${shortId} مؤكد.`, en: `Good news! Your order #${shortId} is confirmed.` };
-    const shipping = { fr: `Votre colis #${shortId} est en route !`, ar: `طلبك #${shortId} في الطريق!`, en: `Your order #${shortId} is on its way!` };
-    const delivered = { fr: `Votre commande #${shortId} est livrée !`, ar: `تم تسليم طلبك #${shortId}!`, en: `Your order #${shortId} has been delivered!` };
-    const returned = { fr: `Le retour de votre commande #${shortId} a été enregistré.`, ar: `لقد سجلنا إرجاع طلبك #${shortId}.`, en: `Your order #${shortId} return has been recorded.` };
-    const cancelled = { fr: `Votre commande #${shortId} a été annulée.`, ar: `تم إلغاء طلبك #${shortId}.`, en: `Your order #${shortId} has been cancelled.` };
-    const team = { fr: "L'équipe Smart Swi9a", ar: "فريق سمارت سويقة", en: "Smart Swi9a team" };
-    const map = { pending: thanks, confirmed, shipping, delivered, returned, cancelled };
-    const message = map[status]?.[lang] || thanks[lang];
-    let text = `${greetings[lang]} ${name},\n\n${message}\n\n`;
-    text += `Articles :\n`;
-    (order.items || []).forEach(item => {
-        const variantText = item.variant ? ` (${[item.variant.size, item.variant.color].filter(Boolean).join(' - ')})` : '';
-        text += `- ${item.name}${variantText} × ${item.quantity} : ${(item.price * item.quantity)} MAD\n`;
-    });
-    text += `\nTotal: ${order.total || 0} MAD\nCity: ${city}\n\n${team[lang]}\nhttps://smartswi9a.top`;
-    return text;
+function getItemsText(order) {
+    return (order.items || []).map(item => {
+        const qty = Number(item.quantity) || 1;
+        const price = Number(item.price) || 0;
+        const v = item.variant ? ` (${[item.variant.size, item.variant.color].filter(Boolean).join('-')})` : '';
+        return `  • ${item.name}${v} (x${qty}) : ${price * qty} MAD`;
+    }).join('\n');
 }
 
-function buildOrderEmailHtml(order, status, recipient, lang = 'fr') {
-    const shortId = String(order.id).slice(0, 8).toUpperCase();
+// ============================================================
+// HELPERS INVOICE
+// ============================================================
+function getInvoiceNumber(order) {
+    return 'INV-' + String(order.id || '').slice(0, 8).toUpperCase();
+}
+
+function buildInvoiceSubject(order, recipient, lang = 'fr') {
+    const shortId = String(order.id || '').slice(0, 8).toUpperCase() || 'N/A';
+    const subjects = ORDER_SUBJECTS[lang] || ORDER_SUBJECTS.fr;
+    const key = `delivered_${recipient}`;
+    return (subjects[key] || subjects.delivered_client)(shortId);
+}
+
+// ============================================================
+// EMAIL TEXTE — ORDER + INVOICE
+// ============================================================
+function buildOrderEmailText(order, status, recipient, lang = 'fr') {
+    const l = INVOICE_LABELS[lang] || INVOICE_LABELS.fr;
+    const shortId = String(order.id || '').slice(0, 8).toUpperCase() || 'N/A';
     const name = order.deliveryAddress?.name || '—';
     const city = getCityName({
         name: order.deliveryAddress?.cityAr || order.deliveryAddress?.city,
         nameFr: order.deliveryAddress?.cityFr,
         nameAr: order.deliveryAddress?.cityAr
     });
-    const emojis = { pending: '📦', confirmed: '✅', shipping: '🚚', delivered: '🎉', returned: '↩️', cancelled: '❌' };
-    const titles = {
-        fr: { pending: recipient === 'admin' ? 'Nouvelle commande' : 'Commande reçue', confirmed: 'Commande confirmée', shipping: 'Commande en route', delivered: 'Commande livrée', returned: 'Retour enregistré', cancelled: 'Commande annulée' },
-        ar: { pending: recipient === 'admin' ? 'طلب جديد' : 'تم استلام الطلب', confirmed: 'تم تأكيد الطلب', shipping: 'الطلب في الطريق', delivered: 'تم تسليم الطلب', returned: 'تم تسجيل الإرجاع', cancelled: 'تم إلغاء الطلب' },
-        en: { pending: recipient === 'admin' ? 'New order' : 'Order received', confirmed: 'Order confirmed', shipping: 'Order shipping', delivered: 'Order delivered', returned: 'Return recorded', cancelled: 'Order cancelled' }
-    };
-    const messages = {
+
+    const greetings = { fr: 'Bonjour', ar: 'مرحباً', en: 'Hello' };
+    const team = { fr: "L'équipe Smart Swi9a", ar: "فريق سمارت سويقة", en: "Smart Swi9a team" };
+
+    // Message (par statut + recipient)
+    const msgs = {
         fr: {
-            pending: recipient === 'admin' ? `Vous avez reçu une nouvelle commande de <strong>${escapeHTML(name)}</strong>.` : `Merci pour votre commande #${shortId} ! Nous la traitons rapidement.`,
+            pending_client: `Merci pour votre commande #${shortId} ! Nous la traitons rapidement.`,
+            pending_admin: `Nouvelle commande de ${name}.`,
             confirmed: `Bonne nouvelle ! Votre commande #${shortId} est confirmée.`,
             shipping: `Votre colis #${shortId} est en route !`,
-            delivered: `Votre commande #${shortId} est livrée ! Merci pour votre confiance.`,
-            returned: `Nous avons enregistré le retour de votre commande #${shortId}.`,
+            returned: `Le retour de votre commande #${shortId} a été enregistré.`,
             cancelled: `Votre commande #${shortId} a été annulée.`
         },
         ar: {
-            pending: recipient === 'admin' ? `لقد استلمت طلباً جديداً من <strong>${escapeHTML(name)}</strong>.` : `شكراً على طلبك #${shortId}! نحن نعالجه بسرعة.`,
+            pending_client: `شكراً على طلبك #${shortId}! نحن نعالجه بسرعة.`,
+            pending_admin: `طلب جديد من ${name}.`,
             confirmed: `خبر سار! طلبك #${shortId} مؤكد.`,
             shipping: `طلبك #${shortId} في الطريق!`,
-            delivered: `تم تسليم طلبك #${shortId}!`,
             returned: `لقد سجلنا إرجاع طلبك #${shortId}.`,
             cancelled: `تم إلغاء طلبك #${shortId}.`
         },
         en: {
-            pending: recipient === 'admin' ? `You received a new order from <strong>${escapeHTML(name)}</strong>.` : `Thank you for your order #${shortId}! We're processing it.`,
+            pending_client: `Thank you for your order #${shortId}! We're processing it.`,
+            pending_admin: `New order from ${name}.`,
             confirmed: `Great news! Your order #${shortId} is confirmed.`,
             shipping: `Your order #${shortId} is on its way!`,
-            delivered: `Your order #${shortId} has been delivered!`,
             returned: `We recorded the return of your order #${shortId}.`,
             cancelled: `Your order #${shortId} has been cancelled.`
         }
     };
+
+    const langMsgs = msgs[lang] || msgs.fr;
+    const msgKey = `${status}_${recipient}`;
+    const message = langMsgs[msgKey] || langMsgs[status] || '';
+
+    let text = `${greetings[lang]} ${name},\n\n${message}\n\n`;
+    text += `Articles :\n${getItemsText(order)}\n\n`;
+    text += `Total : ${order.total || 0} MAD\nVille : ${city}\n\n${team[lang]}\nhttps://smartswi9a.top`;
+    return text;
+}
+
+function buildInvoiceText(order, recipient, lang = 'fr') {
+    const l = INVOICE_LABELS[lang] || INVOICE_LABELS.fr;
+    const invoiceNum = getInvoiceNumber(order);
+    const orderDate = toDate(order.createdAt);
+    const invoiceDate = orderDate ? orderDate.toLocaleDateString(lang === 'ar' ? 'ar-MA' : (lang === 'en' ? 'en-GB' : 'fr-FR')) : '—';
+    const city = getCityName({
+        name: order.deliveryAddress?.cityAr || order.deliveryAddress?.city,
+        nameFr: order.deliveryAddress?.cityFr,
+        nameAr: order.deliveryAddress?.cityAr
+    });
+
+    const lines = [
+        '════════════════════════════════════════',
+        `  ${l.invoice} ${invoiceNum}`,
+        `  ${l.issuedOn} ${invoiceDate}`,
+        '════════════════════════════════════════',
+        '',
+        l.shopName,
+        '📞 +212 6 56 61 33 03',
+        '📧 smartswi9a@gmail.com',
+        '🌐 smartswi9a.top',
+        '',
+        '────────────────────────────────────────',
+        `👤 ${order.deliveryAddress?.name || '—'}`,
+        order.deliveryAddress?.phone ? `📞 ${order.deliveryAddress.phone}` : '',
+        order.deliveryAddress?.address ? `📍 ${order.deliveryAddress.address}` : '',
+        `🏙️ ${city}`,
+        '',
+        `📋 ${l.items} :`,
+        getItemsText(order),
+        '',
+        `${l.subtotal} : ${order.subtotal || 0} MAD`,
+        Number(order.discount) > 0 ? `${l.volumeDiscount} : -${order.discount} MAD` : '',
+        Number(order.couponDiscount) > 0 ? `${l.couponDiscount} ${order.couponCode} : -${order.couponDiscount} MAD` : '',
+        `${l.delivery} : ${order.deliveryFee || 0} MAD`,
+        `${l.total} : ${order.total || 0} MAD`,
+        '',
+        `✅ ${l.cod} — ${l.paid}`,
+        '',
+        l.thanks,
+        '',
+        l.shopName + ' 🇲🇦'
+    ].filter(Boolean);
+
+    return lines.join('\n');
+}
+
+// ============================================================
+// EMAIL HTML — ORDER (template unique + labels)
+// ============================================================
+function buildOrderEmailHtml(order, status, recipient, lang = 'fr') {
+    const shortId = String(order.id || '').slice(0, 8).toUpperCase() || 'N/A';
+    const name = escapeHTML(order.deliveryAddress?.name || '—');
+    const city = escapeHTML(getCityName({
+        name: order.deliveryAddress?.cityAr || order.deliveryAddress?.city,
+        nameFr: order.deliveryAddress?.cityFr,
+        nameAr: order.deliveryAddress?.cityAr
+    }));
+    const isRtl = lang === 'ar';
+    const align = isRtl ? 'right' : 'left';
+    const dir = isRtl ? 'rtl' : 'ltr';
+
+    const emojis = { pending: '📦', confirmed: '✅', shipping: '🚚', delivered: '🎉', returned: '↩️', cancelled: '❌' };
+    const titles = ORDER_TITLES[lang] || ORDER_TITLES.fr;
+    const titleKey = `${status}_${recipient}`;
+    const title = titles[titleKey] || titles[status] || status;
+
+    // Message selon statut + recipient
+    const msgs = {
+        fr: {
+            pending_client: `Merci pour votre commande <strong>#${shortId}</strong> ! Nous la traitons rapidement.`,
+            pending_admin: `Vous avez reçu une nouvelle commande de <strong>${name}</strong>.`,
+            confirmed: `Bonne nouvelle ! Votre commande <strong>#${shortId}</strong> est confirmée.`,
+            shipping: `Votre colis <strong>#${shortId}</strong> est en route !`,
+            delivered: `Votre commande <strong>#${shortId}</strong> est livrée ! Merci pour votre confiance.`,
+            returned: `Nous avons enregistré le retour de votre commande <strong>#${shortId}</strong>.`,
+            cancelled: `Votre commande <strong>#${shortId}</strong> a été annulée.`
+        },
+        ar: {
+            pending_client: `شكراً على طلبك <strong>#${shortId}</strong>! نحن نعالجه بسرعة.`,
+            pending_admin: `لقد استلمت طلباً جديداً من <strong>${name}</strong>.`,
+            confirmed: `خبر سار! طلبك <strong>#${shortId}</strong> مؤكد.`,
+            shipping: `طلبك <strong>#${shortId}</strong> في الطريق!`,
+            delivered: `تم تسليم طلبك <strong>#${shortId}</strong>!`,
+            returned: `لقد سجلنا إرجاع طلبك <strong>#${shortId}</strong>.`,
+            cancelled: `تم إلغاء طلبك <strong>#${shortId}</strong>.`
+        },
+        en: {
+            pending_client: `Thank you for your order <strong>#${shortId}</strong>! We're processing it.`,
+            pending_admin: `You received a new order from <strong>${name}</strong>.`,
+            confirmed: `Great news! Your order <strong>#${shortId}</strong> is confirmed.`,
+            shipping: `Your order <strong>#${shortId}</strong> is on its way!`,
+            delivered: `Your order <strong>#${shortId}</strong> has been delivered!`,
+            returned: `We recorded the return of your order <strong>#${shortId}</strong>.`,
+            cancelled: `Your order <strong>#${shortId}</strong> has been cancelled.`
+        }
+    };
+    const langMsgs = msgs[lang] || msgs.fr;
+    const message = langMsgs[titleKey] || langMsgs[status] || '';
+
     const labels = {
         fr: { order: 'Commande', name: 'Nom', city: 'Ville', total: 'Total' },
         ar: { order: 'الطلب', name: 'الاسم', city: 'المدينة', total: 'الإجمالي' },
         en: { order: 'Order', name: 'Name', city: 'City', total: 'Total' }
     };
-    const t_ = titles[lang] || titles.fr;
-    const m_ = messages[lang] || messages.fr;
-    const l_ = labels[lang] || labels.fr;
-    const isRtl = lang === 'ar';
-    const align = isRtl ? 'right' : 'left';
-    const itemsHtml = getItemsHtml(order, align);
+    const l = labels[lang] || labels.fr;
+
+    const itemsHtml = getItemsHtml(order, align, isRtl);
+    const itemsBlock = (order.items && order.items.length > 0)
+        ? `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:15px 0;border-collapse:collapse;">${itemsHtml}</table>`
+        : '';
 
     return `
-        <div style="text-align:${align};direction:${isRtl ? 'rtl' : 'ltr'};">
-            <h2 style="margin:0 0 15px;color:#a57b2e;font-size:20px;font-family:Georgia,serif;">${emojis[status] || '📦'} ${t_[status] || t_.pending}</h2>
-            <p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:#333;">${m_[status] || m_.pending}</p>
+        <div dir="${dir}" style="text-align:${align};direction:${dir};">
+            <h2 style="margin:0 0 15px;color:#a57b2e;font-size:20px;font-family:Georgia,serif;">${emojis[status] || '📦'} ${title}</h2>
+            <p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:#333;">${message}</p>
             <div style="background:#fafafa;border-radius:8px;padding:15px;margin:20px 0;font-size:14px;">
-                <div style="padding:4px 0;"><strong>${l_.order} :</strong> #${shortId}</div>
-                <div style="padding:4px 0;"><strong>${l_.name} :</strong> ${escapeHTML(name)}</div>
-                <div style="padding:4px 0;"><strong>${l_.city} :</strong> ${escapeHTML(city)}</div>
+                <div style="padding:4px 0;"><strong>${l.order} :</strong> #${shortId}</div>
+                <div style="padding:4px 0;"><strong>${l.name} :</strong> ${name}</div>
+                <div style="padding:4px 0;"><strong>${l.city} :</strong> ${city}</div>
             </div>
-            ${order.items && order.items.length > 0 ? `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:15px 0;border-collapse:collapse;">${itemsHtml}</table>` : ''}
+            ${itemsBlock}
             <div style="background:#a57b2e;color:#ffffff;padding:12px 15px;border-radius:8px;text-align:center;margin:20px 0;">
-                <strong style="font-size:16px;">${l_.total} : ${order.total || 0} MAD</strong>
+                <strong style="font-size:16px;">${l.total} : ${order.total || 0} MAD</strong>
             </div>
         </div>
     `;
 }
 
 // ============================================================
-// HELPER : Détecter la langue du client
+// EMAIL HTML — INVOICE (template unique + labels)
 // ============================================================
-async function getUserLangById(userId) {
-    if (!userId) return getLang() || 'fr';
-    try {
-        const snap = await getDoc(doc(db, "users", userId));
-        if (snap.exists()) {
-            const u = snap.data();
-            const l = u.lang || u.preferredLang || u.signupLang;
-            if (l === 'ar' || l === 'en' || l === 'fr') return l;
-        }
-    } catch (e) {}
-    return 'fr';
+function buildInvoiceHtml(order, recipient, lang = 'fr') {
+    const l = INVOICE_LABELS[lang] || INVOICE_LABELS.fr;
+    const isRtl = lang === 'ar';
+    const align = isRtl ? 'right' : 'left';
+    const dir = isRtl ? 'rtl' : 'ltr';
+    const invoiceNum = getInvoiceNumber(order);
+    const orderDate = toDate(order.createdAt);
+    const invoiceDate = orderDate ? orderDate.toLocaleDateString(isRtl ? 'ar-MA' : (lang === 'en' ? 'en-GB' : 'fr-FR')) : '—';
+
+    const clientName = escapeHTML(order.deliveryAddress?.name || '—');
+    const clientPhone = escapeHTML(order.deliveryAddress?.phone || '');
+    const clientAddress = escapeHTML(order.deliveryAddress?.address || '');
+    const clientCity = escapeHTML(getCityName({
+        name: order.deliveryAddress?.cityAr || order.deliveryAddress?.city,
+        nameFr: order.deliveryAddress?.cityFr,
+        nameAr: order.deliveryAddress?.cityAr
+    }));
+    const clientEmail = escapeHTML(order.deliveryAddress?.email || order.userEmail || '');
+
+    const itemsHtml = (order.items || []).map(item => {
+        const name = escapeHTML(item.name || 'Produit');
+        const variantText = item.variant
+            ? `<br><span style="font-size:11px;color:#a57b2e;">(${escapeHTML([item.variant.size, item.variant.color].filter(Boolean).join(' - '))})</span>`
+            : '';
+        const qty = Number(item.quantity) || 1;
+        const price = Number(item.price) || 0;
+        return `
+            <tr>
+                <td style="padding:10px 8px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#1a1a2e;text-align:${align};">${name}${variantText}</td>
+                <td style="padding:10px 8px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#5c5c5c;text-align:center;">${qty}</td>
+                <td style="padding:10px 8px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#5c5c5c;text-align:${isRtl ? 'left' : 'right'};">${price} MAD</td>
+                <td style="padding:10px 8px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#a57b2e;font-weight:700;text-align:${isRtl ? 'left' : 'right'};">${price * qty} MAD</td>
+            </tr>
+        `;
+    }).join('');
+
+    const subtotal = Number(order.subtotal) || 0;
+    const volumeDiscount = Number(order.discount) || 0;
+    const couponDiscount = Number(order.couponDiscount) || 0;
+    const couponCode = order.couponCode ? escapeHTML(order.couponCode) : '';
+    const deliveryFee = Number(order.deliveryFee) || 0;
+    const total = Number(order.total) || 0;
+
+    const totalsRows = [];
+    totalsRows.push(`<tr><td style="padding:6px 8px;font-size:13px;color:#5c5c5c;text-align:${align};">${l.subtotal}</td><td style="padding:6px 8px;font-size:13px;color:#1a1a2e;font-weight:600;text-align:${isRtl ? 'left' : 'right'};">${subtotal} MAD</td></tr>`);
+    if (volumeDiscount > 0) totalsRows.push(`<tr><td style="padding:6px 8px;font-size:13px;color:#2ecc71;text-align:${align};">🎉 ${l.volumeDiscount}</td><td style="padding:6px 8px;font-size:13px;color:#2ecc71;font-weight:600;text-align:${isRtl ? 'left' : 'right'};">−${volumeDiscount} MAD</td></tr>`);
+    if (couponDiscount > 0 && couponCode) totalsRows.push(`<tr><td style="padding:6px 8px;font-size:13px;color:#2ecc71;text-align:${align};">🎟️ ${l.couponDiscount} <strong style="color:#a57b2e;">${couponCode}</strong></td><td style="padding:6px 8px;font-size:13px;color:#2ecc71;font-weight:600;text-align:${isRtl ? 'left' : 'right'};">−${couponDiscount} MAD</td></tr>`);
+    totalsRows.push(`<tr><td style="padding:6px 8px;font-size:13px;color:#5c5c5c;text-align:${align};">🚚 ${l.delivery}</td><td style="padding:6px 8px;font-size:13px;color:#1a1a2e;font-weight:600;text-align:${isRtl ? 'left' : 'right'};">${deliveryFee} MAD</td></tr>`);
+
+    return `
+<!DOCTYPE html>
+<html dir="${dir}" lang="${lang}">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${l.invoice} ${invoiceNum}</title></head>
+<body style="margin:0;padding:0;background:#f8f6f2;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;direction:${dir};">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f8f6f2;padding:20px 0;"><tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.08);max-width:600px;width:100%;">
+    <tr><td style="background:linear-gradient(135deg,#a57b2e 0%,#7d5a1d 100%);padding:24px 30px;">
+        <table width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+            <td style="text-align:${align};vertical-align:middle;">
+                <div style="font-family:Georgia,serif;font-size:22px;font-weight:700;color:#ffffff;letter-spacing:2px;">${l.shopName}</div>
+                <div style="font-size:12px;color:rgba(255,255,255,0.85);margin-top:4px;">Gadgets & Smart Home au Maroc</div>
+            </td>
+            <td style="text-align:${isRtl ? 'left' : 'right'};vertical-align:middle;">
+                <div style="font-size:11px;color:rgba(255,255,255,0.85);text-transform:uppercase;letter-spacing:1px;">${l.invoice}</div>
+                <div style="font-size:18px;font-weight:800;color:#ffffff;font-family:'Courier New',monospace;margin-top:4px;">${invoiceNum}</div>
+                <div style="font-size:11px;color:rgba(255,255,255,0.85);margin-top:6px;">${l.issuedOn} ${invoiceDate}</div>
+            </td>
+        </tr></table>
+    </td></tr>
+    <tr><td style="padding:24px 30px 12px;">
+        <div style="font-size:11px;color:#a57b2e;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;text-align:${align};">${l.billedTo}</div>
+        <div style="font-size:15px;font-weight:700;color:#1a1a2e;margin-bottom:4px;">${clientName}</div>
+        ${clientPhone ? `<div style="font-size:13px;color:#5c5c5c;margin-bottom:2px;">📞 ${clientPhone}</div>` : ''}
+        ${clientAddress ? `<div style="font-size:13px;color:#5c5c5c;margin-bottom:2px;">📍 ${clientAddress}</div>` : ''}
+        ${clientCity ? `<div style="font-size:13px;color:#5c5c5c;margin-bottom:2px;">🏙️ ${clientCity}</div>` : ''}
+        ${clientEmail ? `<div style="font-size:13px;color:#5c5c5c;">✉️ ${clientEmail}</div>` : ''}
+    </td></tr>
+    <tr><td style="padding:12px 30px;">
+        <div style="font-size:11px;color:#a57b2e;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;text-align:${align};">${l.items}</div>
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #f0f0f0;border-radius:8px;overflow:hidden;">
+            <thead><tr style="background:#faf8f3;">
+                <th style="padding:10px 8px;font-size:11px;color:#5c5c5c;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;text-align:${align};">${l.product}</th>
+                <th style="padding:10px 8px;font-size:11px;color:#5c5c5c;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;text-align:center;">${l.qty}</th>
+                <th style="padding:10px 8px;font-size:11px;color:#5c5c5c;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;text-align:${isRtl ? 'left' : 'right'};">${l.unitPrice}</th>
+                <th style="padding:10px 8px;font-size:11px;color:#5c5c5c;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;text-align:${isRtl ? 'left' : 'right'};">${l.lineTotal}</th>
+            </tr></thead>
+            <tbody>${itemsHtml}</tbody>
+        </table>
+    </td></tr>
+    <tr><td style="padding:12px 30px 20px;">
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:320px;margin-${isRtl ? 'right' : 'left'}:auto;">
+            ${totalsRows.join('')}
+            <tr><td colspan="2" style="padding:4px 8px;"><div style="height:1px;background:#f0f0f0;"></div></td></tr>
+            <tr><td style="padding:12px 8px 8px;font-size:15px;color:#1a1a2e;font-weight:800;text-align:${align};">${l.total}</td><td style="padding:12px 8px 8px;font-size:18px;color:#a57b2e;font-weight:800;text-align:${isRtl ? 'left' : 'right'};">${total} MAD</td></tr>
+        </table>
+    </td></tr>
+    <tr><td style="padding:0 30px 20px;">
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#e8f8f0;border-left:4px solid #2ecc71;border-radius:6px;"><tr>
+            <td style="padding:12px 16px;text-align:${align};">
+                <div style="font-size:11px;color:#2ecc71;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">${l.paymentMethod}</div>
+                <div style="font-size:14px;color:#1a1a2e;font-weight:700;">✅ ${l.cod} — ${l.paid}</div>
+            </td>
+        </tr></table>
+    </td></tr>
+    <tr><td style="padding:0 30px 24px;text-align:${align};">
+        <p style="margin:0 0 12px;font-size:14px;color:#1a1a2e;font-weight:700;">${l.thanks}</p>
+        <p style="margin:0 0 8px;font-size:13px;color:#5c5c5c;">${l.question}</p>
+        <p style="margin:0;font-size:13px;color:#5c5c5c;line-height:1.8;">
+            📞 <a href="https://wa.me/212656613303" style="color:#a57b2e;text-decoration:none;font-weight:600;">+212 6 56 61 33 03</a><br>
+            📧 <a href="mailto:smartswi9a@gmail.com" style="color:#a57b2e;text-decoration:none;font-weight:600;">smartswi9a@gmail.com</a><br>
+            🌐 <a href="https://smartswi9a.top" style="color:#a57b2e;text-decoration:none;font-weight:600;">smartswi9a.top</a>
+        </p>
+    </td></tr>
+    <tr><td style="background:#faf8f3;padding:16px 30px;text-align:center;border-top:1px solid #f0f0f0;">
+        <div style="font-size:11px;color:#9a9a9a;line-height:1.6;">${l.footer}</div>
+        <div style="font-size:10px;color:#b5b5b5;margin-top:6px;">© ${new Date().getFullYear()} ${l.shopName} 🇲🇦</div>
+    </td></tr>
+</table>
+</td></tr></table>
+</body>
+</html>
+    `;
 }
 
 // ============================================================
-// CACHE DES AVIS DÉJÀ DÉPOSÉS
+// ✅ M6.7 — Envoyer l'email (utilise CONFIG.ORDERS.EMAIL_ON_STATUS)
+// ============================================================
+export async function sendOrderEmail(order, status, recipient) {
+    const emailConfig = CONFIG.ORDERS.EMAIL_ON_STATUS;
+    if (!emailConfig[status]?.[recipient]) return { skipped: true };
+
+    let toEmail, toName;
+    if (recipient === 'admin') {
+        toEmail = CONFIG.SHOP.EMAIL;
+        toName = 'Smart Swi9a Admin';
+    } else {
+        toEmail = order.deliveryAddress?.email || order.userEmail;
+        toName = order.deliveryAddress?.name || 'Client';
+    }
+    if (!toEmail || !toEmail.includes('@')) return { skipped: true, reason: 'no_email' };
+
+    const lang = recipient === 'client' ? await getUserLangForOrder(order) : 'fr';
+
+    if (status === 'delivered') {
+        return await sendEmailViaEmailJS(
+            toEmail, toName,
+            buildInvoiceSubject(order, recipient, lang),
+            buildInvoiceHtml(order, recipient, lang),
+            buildInvoiceText(order, recipient, lang)
+        );
+    }
+
+    return await sendEmailViaEmailJS(
+        toEmail, toName,
+        buildOrderEmailSubject(status, recipient, order.id, lang),
+        buildOrderEmailHtml(order, status, recipient, lang),
+        buildOrderEmailText(order, status, recipient, lang)
+    );
+}
+
+// ============================================================
+// CACHE AVIS DÉJÀ DÉPOSÉS
 // ============================================================
 async function loadUserReviewedProducts(force = false) {
     const user = getCurrentUser();
@@ -310,271 +668,7 @@ export function invalidateReviewCache() {
 }
 
 // ============================================================
-// FACTURE — Helpers
-// ============================================================
-function getInvoiceNumber(order) {
-    return 'INV-' + String(order.id || '').slice(0, 8).toUpperCase();
-}
-
-function buildInvoiceSubject(order, recipient, lang = 'fr') {
-    const invoiceNum = getInvoiceNumber(order);
-    const subjects = {
-        fr: { client: `🧾 Votre facture ${invoiceNum} | Smart Swi9a`, admin: `🧾 Facture ${invoiceNum} — Commande livrée` },
-        ar: { client: `🧾 فاتورتك ${invoiceNum} | سمارت سويقة`, admin: `🧾 فاتورة ${invoiceNum} — تم التسليم` },
-        en: { client: `🧾 Your invoice ${invoiceNum} | Smart Swi9a`, admin: `🧾 Invoice ${invoiceNum} — Delivered` }
-    };
-    const langSet = subjects[lang] || subjects.fr;
-    return langSet[recipient] || langSet.client;
-}
-
-function buildInvoiceHtml(order, recipient, lang = 'fr') {
-    const isRtl = lang === 'ar';
-    const align = isRtl ? 'right' : 'left';
-    const dir = isRtl ? 'rtl' : 'ltr';
-    const invoiceNum = getInvoiceNumber(order);
-    const orderDate = toDate(order.createdAt);
-    const invoiceDate = orderDate ? orderDate.toLocaleDateString(isRtl ? 'ar-MA' : (lang === 'en' ? 'en-GB' : 'fr-FR')) : '—';
-
-    const labels = {
-        fr: { invoice: 'FACTURE', issuedOn: 'Émise le', billedTo: 'FACTURÉ À', items: 'ARTICLES', product: 'Produit', qty: 'Qté', unitPrice: 'Prix unit.', lineTotal: 'Total', subtotal: 'Sous-total', volumeDiscount: 'Réduction volume', couponDiscount: 'Code promo', delivery: 'Livraison', total: 'TOTAL', paymentMethod: 'Mode de paiement', cod: 'Paiement à la livraison', paid: 'Payé', thanks: 'Merci pour votre confiance !', question: 'Pour toute question, contactez-nous :', shopName: 'SMART SWI9A', footer: 'Cet email tient lieu de facture. Aucune signature requise.' },
-        ar: { invoice: 'فاتورة', issuedOn: 'صدرت في', billedTo: 'فاتورة إلى', items: 'المنتجات', product: 'المنتج', qty: 'الكمية', unitPrice: 'سعر الوحدة', lineTotal: 'الإجمالي', subtotal: 'المجموع الفرعي', volumeDiscount: 'خصم الكمية', couponDiscount: 'كود الخصم', delivery: 'التوصيل', total: 'الإجمالي', paymentMethod: 'طريقة الدفع', cod: 'الدفع عند الاستلام', paid: 'مدفوع', thanks: 'شكراً على ثقتكم!', question: 'لأي استفسار، تواصلوا معنا:', shopName: 'سمارت سويقة', footer: 'هذا البريد بمثابة فاتورة. لا حاجة لتوقيع.' },
-        en: { invoice: 'INVOICE', issuedOn: 'Issued on', billedTo: 'BILLED TO', items: 'ITEMS', product: 'Product', qty: 'Qty', unitPrice: 'Unit price', lineTotal: 'Total', subtotal: 'Subtotal', volumeDiscount: 'Volume discount', couponDiscount: 'Coupon code', delivery: 'Delivery', total: 'TOTAL', paymentMethod: 'Payment method', cod: 'Cash on delivery', paid: 'Paid', thanks: 'Thank you for your trust!', question: 'For any question, contact us:', shopName: 'SMART SWI9A', footer: 'This email serves as an invoice. No signature required.' }
-    };
-    const l = labels[lang] || labels.fr;
-    const clientName = escapeHTML(order.deliveryAddress?.name || '—');
-    const clientPhone = escapeHTML(order.deliveryAddress?.phone || '');
-    const clientAddress = escapeHTML(order.deliveryAddress?.address || '');
-    const clientCity = escapeHTML(getCityName({ name: order.deliveryAddress?.cityAr || order.deliveryAddress?.city, nameFr: order.deliveryAddress?.cityFr, nameAr: order.deliveryAddress?.cityAr }));
-    const clientEmail = escapeHTML(order.deliveryAddress?.email || order.userEmail || '');
-
-    const itemsHtml = (order.items || []).map(item => {
-        const itemName = escapeHTML(item.name || 'Produit');
-        const variantText = item.variant ? `<br><span style="font-size:11px;color:#a57b2e;">(${[item.variant.size, item.variant.color].filter(Boolean).join(' - ')})</span>` : '';
-        const qty = Number(item.quantity) || 1;
-        const price = Number(item.price) || 0;
-        const lineTotal = price * qty;
-        return `
-            <tr>
-                <td style="padding:10px 8px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#1a1a2e;text-align:${align};">${itemName}${variantText}</td>
-                <td style="padding:10px 8px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#5c5c5c;text-align:center;">${qty}</td>
-                <td style="padding:10px 8px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#5c5c5c;text-align:${isRtl ? 'left' : 'right'};">${price} MAD</td>
-                <td style="padding:10px 8px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#a57b2e;font-weight:700;text-align:${isRtl ? 'left' : 'right'};">${lineTotal} MAD</td>
-            </tr>
-        `;
-    }).join('');
-
-    const subtotal = Number(order.subtotal) || 0;
-    const volumeDiscount = Number(order.discount) || 0;
-    const couponDiscount = Number(order.couponDiscount) || 0;
-    const couponCode = order.couponCode ? escapeHTML(order.couponCode) : '';
-    const deliveryFee = Number(order.deliveryFee) || 0;
-    const total = Number(order.total) || 0;
-
-    const rowsTotals = [];
-    rowsTotals.push(`<tr><td style="padding:6px 8px;font-size:13px;color:#5c5c5c;text-align:${align};">${l.subtotal}</td><td style="padding:6px 8px;font-size:13px;color:#1a1a2e;font-weight:600;text-align:${isRtl ? 'left' : 'right'};">${subtotal} MAD</td></tr>`);
-    if (volumeDiscount > 0) rowsTotals.push(`<tr><td style="padding:6px 8px;font-size:13px;color:#2ecc71;text-align:${align};">🎉 ${l.volumeDiscount}</td><td style="padding:6px 8px;font-size:13px;color:#2ecc71;font-weight:600;text-align:${isRtl ? 'left' : 'right'};">−${volumeDiscount} MAD</td></tr>`);
-    if (couponDiscount > 0 && couponCode) rowsTotals.push(`<tr><td style="padding:6px 8px;font-size:13px;color:#2ecc71;text-align:${align};">🎟️ ${l.couponDiscount} <strong style="color:#a57b2e;">${couponCode}</strong></td><td style="padding:6px 8px;font-size:13px;color:#2ecc71;font-weight:600;text-align:${isRtl ? 'left' : 'right'};">−${couponDiscount} MAD</td></tr>`);
-    rowsTotals.push(`<tr><td style="padding:6px 8px;font-size:13px;color:#5c5c5c;text-align:${align};">🚚 ${l.delivery}</td><td style="padding:6px 8px;font-size:13px;color:#1a1a2e;font-weight:600;text-align:${isRtl ? 'left' : 'right'};">${deliveryFee} MAD</td></tr>`);
-
-    return `
-<!DOCTYPE html>
-<html dir="${dir}" lang="${lang}">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${l.invoice} ${invoiceNum}</title></head>
-<body style="margin:0;padding:0;background:#f8f6f2;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;direction:${dir};">
-<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f8f6f2;padding:20px 0;"><tr><td align="center">
-<table width="600" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.08);max-width:600px;width:100%;">
-    <tr><td style="background:linear-gradient(135deg,#a57b2e 0%,#7d5a1d 100%);padding:24px 30px;"><table width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="text-align:${align};vertical-align:middle;"><div style="font-family:Georgia,serif;font-size:22px;font-weight:700;color:#ffffff;letter-spacing:2px;">${l.shopName}</div><div style="font-size:12px;color:rgba(255,255,255,0.85);margin-top:4px;">Gadgets & Smart Home au Maroc</div></td><td style="text-align:${isRtl ? 'left' : 'right'};vertical-align:middle;"><div style="font-size:11px;color:rgba(255,255,255,0.85);text-transform:uppercase;letter-spacing:1px;">${l.invoice}</div><div style="font-size:18px;font-weight:800;color:#ffffff;font-family:'Courier New',monospace;margin-top:4px;">${invoiceNum}</div><div style="font-size:11px;color:rgba(255,255,255,0.85);margin-top:6px;">${l.issuedOn} ${invoiceDate}</div></td></tr></table></td></tr>
-    <tr><td style="padding:24px 30px 12px;"><table width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="text-align:${align};"><div style="font-size:11px;color:#a57b2e;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;">${l.billedTo}</div><div style="font-size:15px;font-weight:700;color:#1a1a2e;margin-bottom:4px;">${clientName}</div>${clientPhone ? `<div style="font-size:13px;color:#5c5c5c;margin-bottom:2px;">📞 ${clientPhone}</div>` : ''}${clientAddress ? `<div style="font-size:13px;color:#5c5c5c;margin-bottom:2px;">📍 ${clientAddress}</div>` : ''}${clientCity ? `<div style="font-size:13px;color:#5c5c5c;margin-bottom:2px;">🏙️ ${clientCity}</div>` : ''}${clientEmail ? `<div style="font-size:13px;color:#5c5c5c;">✉️ ${clientEmail}</div>` : ''}</td></tr></table></td></tr>
-    <tr><td style="padding:12px 30px;"><div style="font-size:11px;color:#a57b2e;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;text-align:${align};">${l.items}</div><table width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #f0f0f0;border-radius:8px;overflow:hidden;"><thead><tr style="background:#faf8f3;"><th style="padding:10px 8px;font-size:11px;color:#5c5c5c;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;text-align:${align};">${l.product}</th><th style="padding:10px 8px;font-size:11px;color:#5c5c5c;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;text-align:center;">${l.qty}</th><th style="padding:10px 8px;font-size:11px;color:#5c5c5c;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;text-align:${isRtl ? 'left' : 'right'};">${l.unitPrice}</th><th style="padding:10px 8px;font-size:11px;color:#5c5c5c;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;text-align:${isRtl ? 'left' : 'right'};">${l.lineTotal}</th></tr></thead><tbody>${itemsHtml}</tbody></table></td></tr>
-    <tr><td style="padding:12px 30px 20px;"><table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:320px;margin-${isRtl ? 'right' : 'left'}:auto;">${rowsTotals.join('')}<tr><td colspan="2" style="padding:4px 8px;"><div style="height:1px;background:#f0f0f0;"></div></td></tr><tr><td style="padding:12px 8px 8px;font-size:15px;color:#1a1a2e;font-weight:800;text-align:${align};">${l.total}</td><td style="padding:12px 8px 8px;font-size:18px;color:#a57b2e;font-weight:800;text-align:${isRtl ? 'left' : 'right'};">${total} MAD</td></tr></table></td></tr>
-    <tr><td style="padding:0 30px 20px;"><table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#e8f8f0;border-left:4px solid #2ecc71;border-radius:6px;"><tr><td style="padding:12px 16px;text-align:${align};"><div style="font-size:11px;color:#2ecc71;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">${l.paymentMethod}</div><div style="font-size:14px;color:#1a1a2e;font-weight:700;">✅ ${l.cod} — ${l.paid}</div></td></tr></table></td></tr>
-    <tr><td style="padding:0 30px 24px;text-align:${align};"><p style="margin:0 0 12px;font-size:14px;color:#1a1a2e;font-weight:700;">${l.thanks}</p><p style="margin:0 0 8px;font-size:13px;color:#5c5c5c;">${l.question}</p><p style="margin:0;font-size:13px;color:#5c5c5c;line-height:1.8;">📞 <a href="https://wa.me/212656613303" style="color:#a57b2e;text-decoration:none;font-weight:600;">+212 6 56 61 33 03</a><br>📧 <a href="mailto:smartswi9a@gmail.com" style="color:#a57b2e;text-decoration:none;font-weight:600;">smartswi9a@gmail.com</a><br>🌐 <a href="https://smartswi9a.top" style="color:#a57b2e;text-decoration:none;font-weight:600;">smartswi9a.top</a></p></td></tr>
-    <tr><td style="background:#faf8f3;padding:16px 30px;text-align:center;border-top:1px solid #f0f0f0;"><div style="font-size:11px;color:#9a9a9a;line-height:1.6;">${l.footer}</div><div style="font-size:10px;color:#b5b5b5;margin-top:6px;">© ${new Date().getFullYear()} ${l.shopName} 🇲🇦</div></td></tr>
-</table>
-</td></tr></table>
-</body>
-</html>
-    `;
-}
-
-function buildInvoiceText(order, recipient, lang = 'fr') {
-    const invoiceNum = getInvoiceNumber(order);
-    const orderDate = toDate(order.createdAt);
-    const invoiceDate = orderDate ? orderDate.toLocaleDateString(lang === 'ar' ? 'ar-MA' : (lang === 'en' ? 'en-GB' : 'fr-FR')) : '—';
-    const isAr = lang === 'ar';
-    const lines = [];
-    lines.push('════════════════════════════════════════');
-    lines.push(`  ${isAr ? 'فاتورة' : 'FACTURE'} ${invoiceNum}`);
-    lines.push(`  ${isAr ? 'صدرت في' : (lang === 'en' ? 'Issued on' : 'Émise le')} ${invoiceDate}`);
-    lines.push('════════════════════════════════════════');
-    lines.push('');
-    lines.push(`SMART SWI9A`);
-    lines.push(`📞 +212 6 56 61 33 03`);
-    lines.push(`📧 smartswi9a@gmail.com`);
-    lines.push(`🌐 smartswi9a.top`);
-    lines.push('');
-    lines.push('────────────────────────────────────────');
-    lines.push(`👤 ${isAr ? 'العميل' : (lang === 'en' ? 'Customer' : 'Client')} : ${order.deliveryAddress?.name || '—'}`);
-    if (order.deliveryAddress?.phone) lines.push(`📞 ${order.deliveryAddress.phone}`);
-    if (order.deliveryAddress?.address) lines.push(`📍 ${order.deliveryAddress.address}`);
-    lines.push(`🏙️ ${getCityName({ name: order.deliveryAddress?.cityAr || order.deliveryAddress?.city, nameFr: order.deliveryAddress?.cityFr, nameAr: order.deliveryAddress?.cityAr })}`);
-    lines.push('');
-    lines.push('────────────────────────────────────────');
-    lines.push(`${isAr ? 'المنتجات' : (lang === 'en' ? 'ITEMS' : 'ARTICLES')} :`);
-    (order.items || []).forEach(item => {
-        const qty = Number(item.quantity) || 1;
-        const price = Number(item.price) || 0;
-        const v = item.variant ? ` (${[item.variant.size, item.variant.color].filter(Boolean).join('-')})` : '';
-        lines.push(`  • ${item.name}${v} (x${qty}) : ${price * qty} MAD`);
-    });
-    lines.push('');
-    lines.push(`Sous-total : ${order.subtotal || 0} MAD`);
-    if (Number(order.discount) > 0) lines.push(`Réduction volume : -${order.discount} MAD`);
-    if (Number(order.couponDiscount) > 0) lines.push(`Code ${order.couponCode} : -${order.couponDiscount} MAD`);
-    lines.push(`Livraison : ${order.deliveryFee || 0} MAD`);
-    lines.push(`TOTAL : ${order.total || 0} MAD`);
-    lines.push('');
-    lines.push('────────────────────────────────────────');
-    lines.push(`✅ ${isAr ? 'الدفع عند الاستلام' : (lang === 'en' ? 'Cash on delivery' : 'Paiement à la livraison')} — PAYÉ`);
-    lines.push('');
-    lines.push(isAr ? 'شكراً على ثقتكم!' : (lang === 'en' ? 'Thank you for your trust!' : 'Merci pour votre confiance !'));
-    lines.push('');
-    lines.push('SMART SWI9A 🇲🇦');
-    return lines.join('\n');
-}
-
-// ============================================================
-// HELPER : Envoyer l'email complet (client ou admin)
-// ============================================================
-export async function sendOrderEmail(order, status, recipient) {
-    const emailConfig = {
-        pending:   { client: true,  admin: true  },
-        confirmed: { client: true,  admin: false },
-        shipping:  { client: true,  admin: false },
-        delivered: { client: true,  admin: true  },
-        returned:  { client: true,  admin: true  },
-        cancelled: { client: true,  admin: false }
-    };
-    if (!emailConfig[status]?.[recipient]) return { skipped: true };
-
-    let toEmail, toName;
-    if (recipient === 'admin') {
-        toEmail = CONFIG.SHOP.EMAIL;
-        toName = 'Smart Swi9a Admin';
-    } else {
-        toEmail = order.deliveryAddress?.email || order.userEmail;
-        toName = order.deliveryAddress?.name || 'Client';
-    }
-    if (!toEmail || !toEmail.includes('@')) return { skipped: true, reason: 'no_email' };
-
-    const lang = recipient === 'client' ? await getUserLangById(order.userId) : 'fr';
-
-    if (status === 'delivered') {
-        const subject = buildInvoiceSubject(order, recipient, lang);
-        const html = buildInvoiceHtml(order, recipient, lang);
-        const text = buildInvoiceText(order, recipient, lang);
-        return await sendEmailViaEmailJS(toEmail, toName, subject, html, text);
-    }
-
-    const subject = buildOrderEmailSubject(status, recipient, order.id, lang);
-    const html = buildOrderEmailHtml(order, status, recipient, lang);
-    const text = buildOrderEmailText(order, status, recipient, lang);
-    return await sendEmailViaEmailJS(toEmail, toName, subject, html, text);
-}
-
-// ============================================================
-// CACHES SÉPARÉS (client vs admin)
-// ============================================================
-let userOrdersCache = [];
-let adminOrdersCache = [];
-let currentStatusFilter = 'all';
-const ADMIN_PAGE_SIZE = 20;
-let adminLastVisible = null;
-let adminHasMore = true;
-let adminLoading = false;
-
-// ============================================================
-// HELPER : Décrémenter le stock (avec variantes)
-// ============================================================
-async function deductStockForOrder(orderId) {
-    if (!orderId) return { success: false, error: 'NO_ORDER_ID' };
-    try {
-        const result = await runTransaction(db, async (transaction) => {
-            const orderRef = doc(db, "orders", orderId);
-            const orderSnap = await transaction.get(orderRef);
-            if (!orderSnap.exists()) throw new Error('Commande introuvable');
-            const order = { id: orderId, ...orderSnap.data() };
-            if (order.stockDeducted === true) return { alreadyDeducted: true };
-            if (!order.items || order.items.length === 0) throw new Error('NO_ITEMS');
-
-            const productRefs = order.items.map(item => doc(db, "products", String(item.productId)));
-            const productSnaps = await Promise.all(productRefs.map(ref => transaction.get(ref)));
-
-            // Vérification
-            productSnaps.forEach((snap, i) => {
-                if (!snap.exists()) throw new Error(`Produit ${order.items[i].productId} introuvable`);
-                const pData = snap.data();
-                const qty = Number(order.items[i].quantity) || 0;
-                const itemVariant = order.items[i].variant;
-                
-                let availableStock = 0;
-                if (itemVariant) {
-                    const v = (pData.variants || []).find(v => 
-                        (v.size || '') === (itemVariant.size || '') && 
-                        (v.color || '') === (itemVariant.color || '')
-                    );
-                    availableStock = v ? Number(v.stock) : 0;
-                } else {
-                    availableStock = Number(pData.stock) || 0;
-                }
-
-                if (availableStock < qty) {
-                    throw new Error(`Stock insuffisant pour ${pData.nameFr || 'le produit'}`);
-                }
-            });
-
-            // Décrémentation
-            productSnaps.forEach((snap, i) => {
-                const pData = snap.data();
-                const qty = Number(order.items[i].quantity) || 0;
-                const itemVariant = order.items[i].variant;
-                let updateData = {};
-
-                if (itemVariant) {
-                    const variants = [...(pData.variants || [])];
-                    const idx = variants.findIndex(v => 
-                        (v.size || '') === (itemVariant.size || '') && 
-                        (v.color || '') === (itemVariant.color || '')
-                    );
-                    if (idx > -1) {
-                        variants[idx].stock = Math.max(0, Number(variants[idx].stock) - qty);
-                        const newGlobalStock = variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
-                        updateData = { variants, stock: newGlobalStock, salesCount: (Number(pData.salesCount) || 0) + qty };
-                    }
-                } else {
-                    updateData = { 
-                        stock: (Number(pData.stock) || 0) - qty,
-                        salesCount: (Number(pData.salesCount) || 0) + qty
-                    };
-                }
-                transaction.update(productRefs[i], updateData);
-            });
-
-            transaction.update(orderRef, { stockDeducted: true, stockDeductedAt: Timestamp.now() });
-            return { success: true };
-        });
-
-        if (result.alreadyDeducted) return { success: true, alreadyDeducted: true };
-        document.dispatchEvent(new CustomEvent('order-stock-changed'));
-        return { success: true };
-    } catch (e) {
-        console.error('❌ Erreur deductStockForOrder :', e);
-        return { success: false, error: e.message };
-    }
-}
-
-// ============================================================
-// HELPER : Restaurer le stock (avec variantes)
+// HELPERS STOCK (utilisés par deleteOrderCompletely + applyPartialReturn)
 // ============================================================
 async function restoreStockForOrder(orderId) {
     if (!orderId) return { success: false, error: 'NO_ORDER_ID' };
@@ -595,26 +689,27 @@ async function restoreStockForOrder(orderId) {
                 const pData = snap.data();
                 const qty = Number(order.items[i].quantity) || 0;
                 const itemVariant = order.items[i].variant;
-                let updateData = {};
 
                 if (itemVariant) {
                     const variants = [...(pData.variants || [])];
-                    const idx = variants.findIndex(v => 
-                        (v.size || '') === (itemVariant.size || '') && 
+                    const idx = variants.findIndex(v =>
+                        (v.size || '') === (itemVariant.size || '') &&
                         (v.color || '') === (itemVariant.color || '')
                     );
                     if (idx > -1) {
                         variants[idx].stock = (Number(variants[idx].stock) || 0) + qty;
-                        const newGlobalStock = variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
-                        updateData = { variants, stock: newGlobalStock, salesCount: Math.max(0, (Number(pData.salesCount) || 0) - qty) };
+                        const newStock = variants.reduce((s, v) => s + (Number(v.stock) || 0), 0);
+                        transaction.update(productRefs[i], {
+                            variants, stock: newStock,
+                            salesCount: Math.max(0, (Number(pData.salesCount) || 0) - qty)
+                        });
                     }
                 } else {
-                    updateData = { 
+                    transaction.update(productRefs[i], {
                         stock: (Number(pData.stock) || 0) + qty,
                         salesCount: Math.max(0, (Number(pData.salesCount) || 0) - qty)
-                    };
+                    });
                 }
-                transaction.update(productRefs[i], updateData);
             });
 
             transaction.update(orderRef, { stockDeducted: false, stockRestoredAt: Timestamp.now() });
@@ -631,7 +726,7 @@ async function restoreStockForOrder(orderId) {
 }
 
 // ============================================================
-// HELPER : Appliquer un retour partiel (avec variantes)
+// APPLIQUER UN RETOUR PARTIEL
 // ============================================================
 async function applyPartialReturn(order, newReturnQuantities, reason = '') {
     if (!order || !order.items || order.items.length === 0) return { success: false, error: 'NO_ITEMS' };
@@ -662,29 +757,30 @@ async function applyPartialReturn(order, newReturnQuantities, reason = '') {
                 const pid = String(order.items[i].productId);
                 const delta = deltas[pid] || 0;
                 if (delta === 0) return;
-                
+
                 const pData = snap.data();
                 const itemVariant = order.items[i].variant;
-                let updateData = {};
 
                 if (itemVariant) {
                     const variants = [...(pData.variants || [])];
-                    const idx = variants.findIndex(v => 
-                        (v.size || '') === (itemVariant.size || '') && 
+                    const idx = variants.findIndex(v =>
+                        (v.size || '') === (itemVariant.size || '') &&
                         (v.color || '') === (itemVariant.color || '')
                     );
                     if (idx > -1) {
                         variants[idx].stock = Math.max(0, (Number(variants[idx].stock) || 0) + delta);
-                        const newGlobalStock = variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
-                        updateData = { variants, stock: newGlobalStock, salesCount: Math.max(0, (Number(pData.salesCount) || 0) - delta) };
+                        const newStock = variants.reduce((s, v) => s + (Number(v.stock) || 0), 0);
+                        transaction.update(productRefs[i], {
+                            variants, stock: newStock,
+                            salesCount: Math.max(0, (Number(pData.salesCount) || 0) - delta)
+                        });
                     }
                 } else {
-                    updateData = { 
+                    transaction.update(productRefs[i], {
                         stock: (Number(pData.stock) || 0) + delta,
                         salesCount: Math.max(0, (Number(pData.salesCount) || 0) - delta)
-                    };
+                    });
                 }
-                transaction.update(productRefs[i], updateData);
             });
 
             const returnsHistory = Array.isArray(order.returns) ? [...order.returns] : [];
@@ -729,7 +825,7 @@ async function applyPartialReturn(order, newReturnQuantities, reason = '') {
 }
 
 // ============================================================
-// AFFICHAGE DES COMMANDES DU CLIENT
+// RENDU CLIENT — COMMANDES
 // ============================================================
 export async function renderUserOrders(containerId = 'tabContent') {
     const container = document.getElementById(containerId);
@@ -755,7 +851,7 @@ export async function renderUserOrders(containerId = 'tabContent') {
 
         let html = `
             ${pendingReviews > 0 ? `
-                <div class="review-reminder-banner" style="background:linear-gradient(135deg,rgba(165,123,46,0.12),rgba(165,123,46,0.04));border:1px solid var(--border-gold);border-radius:var(--radius-md);padding:0.9rem 1rem;margin-bottom:1rem;display:flex;align-items:center;gap:0.7rem;flex-wrap:wrap;animation:pulse-review 2s ease-in-out infinite;">
+                <div class="review-reminder-banner" style="background:linear-gradient(135deg,rgba(165,123,46,0.12),rgba(165,123,46,0.04));border:1px solid var(--border-gold);border-radius:var(--radius-md);padding:0.9rem 1rem;margin-bottom:1rem;display:flex;align-items:center;gap:0.7rem;flex-wrap:wrap;">
                     <span style="font-size:1.6rem;">⭐</span>
                     <div style="flex:1;min-width:0;font-size:0.88rem;line-height:1.4;"><strong style="color:var(--gold);">Vous avez ${pendingReviews} avis à donner !</strong><br><span style="color:var(--text-muted);font-size:0.8rem;">Partagez votre expérience sur vos produits livrés.</span></div>
                 </div>
@@ -836,6 +932,7 @@ function renderOrderCard(order) {
     const returnBadgeHtml = returnBadge ? `<div style="margin-top:0.4rem;"><span style="background:rgba(155,89,182,0.15);color:#9b59b6;border:1px solid #9b59b6;font-size:0.7rem;font-weight:700;padding:0.2rem 0.6rem;border-radius:30px;">${returnBadge}</span></div>` : '';
 
     const reviewStatuses = orderReviewStatusCache.get(order.id) || {};
+    // ✅ M6.4 : appelé 1× seulement
     const pendingCount = getPendingReviewCountForOrder(order.id);
     const allReviewed = status === 'delivered' && Object.keys(reviewStatuses).length > 0 && pendingCount === 0;
 
@@ -843,10 +940,9 @@ function renderOrderCard(order) {
         const pid = String(item.productId);
         const reviewState = reviewStatuses[pid];
         let badge = '';
-        if (reviewState === 'reviewed') badge = '<span class="review-badge-done" title="Avis déposé">✅</span>';
-        else if (reviewState === 'pending') badge = '<span class="review-badge-pending" title="Avis à donner">⭐</span>';
-        
-        const variantText = item.variant ? ` (${[item.variant.size, item.variant.color].filter(Boolean).join(' - ')})` : '';
+        if (reviewState === 'reviewed') badge = '<span title="Avis déposé">✅</span>';
+        else if (reviewState === 'pending') badge = '<span title="Avis à donner">⭐</span>';
+        const variantText = item.variant ? ` (${escapeHTML([item.variant.size, item.variant.color].filter(Boolean).join(' - '))})` : '';
         return `<div style="font-size:0.8rem;color:var(--text-muted);line-height:1.5;">• ${escapeHTML(item.name || 'Produit')}${variantText}${badge}</div>`;
     }).join('');
 
@@ -889,7 +985,8 @@ function attachOrderEvents() {
         btn.addEventListener('click', async () => {
             const orderId = btn.dataset.orderId;
             const confirmed = await confirmAction(t('confirmCancelOrderMsg'), {
-                title: t('confirmCancelOrderTitle'), confirmText: t('confirmCancelOrderYes'), cancelText: t('confirmCancelOrderNo'), variant: 'danger'
+                title: t('confirmCancelOrderTitle'), confirmText: t('confirmCancelOrderYes'),
+                cancelText: t('confirmCancelOrderNo'), variant: 'danger'
             });
             if (!confirmed) return;
             btn.disabled = true;
@@ -958,7 +1055,7 @@ export async function openQuickReviewModal(orderId) {
     const productsHtml = pendingItems.map((item, idx) => {
         const pid = String(item.productId);
         const name = escapeHTML(item.name || `Produit #${pid}`);
-        const variantText = item.variant ? ` (${[item.variant.size, item.variant.color].filter(Boolean).join(' - ')})` : '';
+        const variantText = item.variant ? ` (${escapeHTML([item.variant.size, item.variant.color].filter(Boolean).join(' - '))})` : '';
         return `<label class="quick-review-product-item" style="display:flex;align-items:center;gap:0.6rem;padding:0.7rem 0.9rem;background:var(--bg-surface);border:2px solid var(--border);border-radius:var(--radius-sm);cursor:pointer;transition:all var(--transition-fast);margin-bottom:0.5rem;"><input type="radio" name="quickReviewProduct" value="${pid}" ${idx === 0 ? 'checked' : ''} style="width:auto;margin:0;flex-shrink:0;"><span style="flex:1;min-width:0;font-size:0.88rem;font-weight:600;color:var(--text);">${name}${variantText}</span><span style="font-size:0.72rem;color:var(--text-muted);">×${item.quantity || 1}</span></label>`;
     }).join('');
 
@@ -1020,7 +1117,7 @@ export async function openQuickReviewModal(orderId) {
     submitBtn.addEventListener('click', async () => {
         const selectedProductRadio = modal.querySelector('input[name="quickReviewProduct"]:checked');
         if (!selectedProductRadio) { msgEl.textContent = '⚠️ Sélectionnez un produit'; msgEl.style.color = 'var(--danger)'; return; }
-        
+
         const productId = selectedProductRadio.value;
         const title = document.getElementById('quickReviewTitle').value.trim();
         const comment = document.getElementById('quickReviewComment').value.trim();
@@ -1042,7 +1139,12 @@ export async function openQuickReviewModal(orderId) {
             userReviewedProductIds.add(String(productId));
             if (orderReviewStatusCache.has(orderId)) { orderReviewStatusCache.get(orderId)[String(productId)] = 'reviewed'; }
             const remaining = getPendingReviewCountForOrder(orderId);
-            if (remaining === 0) await deleteReviewRequestNotification(orderId);
+            if (remaining === 0) {
+                try {
+                    const { deleteReviewRequestForOrder } = await import("./notifications.js");
+                    await deleteReviewRequestForOrder(orderId);
+                } catch (e) {}
+            }
 
             document.dispatchEvent(new CustomEvent('review-submitted', { detail: { orderId, productId } }));
             closeModal();
@@ -1057,19 +1159,6 @@ export async function openQuickReviewModal(orderId) {
     });
 
     setTimeout(() => stars[0]?.focus(), 100);
-}
-
-async function deleteReviewRequestNotification(orderId) {
-    const user = getCurrentUser();
-    if (!user || !user.uid) return;
-    try {
-        const q = query(collection(db, "notifications"), where("userId", "==", user.uid), where("orderId", "==", orderId), where("type", "==", "review_request"));
-        const snap = await getDocs(q);
-        if (snap.empty) return;
-        await Promise.allSettled(snap.docs.map(d => deleteDoc(d.ref)));
-        const { loadNotifications } = await import("./notifications.js");
-        await loadNotifications();
-    } catch (e) {}
 }
 
 // ============================================================
@@ -1097,20 +1186,22 @@ export async function openOrderDetails(orderId, isAdmin = false) {
     const cityDisplay = getCityName({ name: order.deliveryAddress?.cityAr || order.deliveryAddress?.city, nameFr: order.deliveryAddress?.cityFr, nameAr: order.deliveryAddress?.cityAr });
     const returnedQtys = getReturnedQuantities(order);
     const reviewStatuses = orderReviewStatusCache.get(order.id) || {};
+    // ✅ M6.4 : appelé 1× seulement
+    const pendingReviewCount = getPendingReviewCountForOrder(order.id);
 
     const itemsHtml = (order.items || []).map(item => {
         const pid = String(item.productId);
         const name = escapeHTML(item.name || `Produit #${item.productId}`);
-        const variantText = item.variant ? ` <span style="font-size:0.8rem;color:var(--gold);">(${[item.variant.size, item.variant.color].filter(Boolean).join(' - ')})</span>` : '';
+        const variantText = item.variant ? ` <span style="font-size:0.8rem;color:var(--gold);">(${escapeHTML([item.variant.size, item.variant.color].filter(Boolean).join(' - '))})</span>` : '';
         const price = Number(item.price) || 0;
         const qty = Number(item.quantity) || 1;
         const qtyReturned = returnedQtys[pid] || 0;
         const returnInfo = qtyReturned > 0 ? `<div style="font-size:0.75rem;color:#9b59b6;font-weight:600;margin-top:0.2rem;">↩️ Retourné : ${qtyReturned}/${qty}</div>` : '';
-        
+
         const reviewState = reviewStatuses[pid];
         let reviewInfo = '';
-        if (reviewState === 'reviewed') reviewInfo = `<span class="review-badge-done" style="margin-left:0.3rem;">✅ ${t('reviewPublished') || 'Avis déposé'}</span>`;
-        else if (reviewState === 'pending') reviewInfo = `<span class="review-badge-pending" style="margin-left:0.3rem;">⭐ ${t('leaveReview') || 'À noter'}</span>`;
+        if (reviewState === 'reviewed') reviewInfo = `<span style="margin-left:0.3rem;background:var(--success-bg);color:var(--success);padding:0.1rem 0.4rem;border-radius:30px;font-size:0.7rem;font-weight:700;">✅ ${t('reviewPublished') || 'Avis déposé'}</span>`;
+        else if (reviewState === 'pending') reviewInfo = `<span style="margin-left:0.3rem;background:var(--warning-bg);color:var(--warning);padding:0.1rem 0.4rem;border-radius:30px;font-size:0.7rem;font-weight:700;">⭐ ${t('leaveReview') || 'À noter'}</span>`;
 
         return `<div style="display:flex;justify-content:space-between;padding:0.5rem 0;border-bottom:1px solid var(--border);"><div><div style="font-weight:600;font-size:0.9rem;">${name}${variantText}${reviewInfo}</div><div style="font-size:0.8rem;color:var(--text-muted);">x${qty}</div>${returnInfo}</div><div style="color:var(--gold);font-weight:600;">${price * qty} ${t('currency')}</div></div>`;
     }).join('');
@@ -1149,7 +1240,7 @@ export async function openOrderDetails(orderId, isAdmin = false) {
                     <div style="display:flex;justify-content:space-between;font-size:0.85rem;color:var(--text-muted);margin-bottom:0.3rem;"><span>${t('cartDeliveryLabel')}</span><span>${order.deliveryFee || 0} ${t('currency')}</span></div>
                     <div style="display:flex;justify-content:space-between;font-size:1.05rem;font-weight:700;color:var(--text);margin-top:0.5rem;padding-top:0.5rem;border-top:1px solid var(--border);"><span>${t('cartTotalLabel')}</span><span style="color:var(--gold);">${order.total || 0} ${t('currency')}</span></div>
                 </div>
-                ${status === 'delivered' && getPendingReviewCountForOrder(order.id) > 0 ? `<button id="orderDetailsReviewBtn" style="width:100%;margin-top:1rem;padding:0.8rem;background:linear-gradient(135deg,var(--gold),#7d5a1d);color:#fff;border:none;border-radius:50px;font-weight:700;cursor:pointer;font-size:0.9rem;">⭐ ${t('leaveReview')} (${getPendingReviewCountForOrder(order.id)})</button>` : ''}
+                ${status === 'delivered' && pendingReviewCount > 0 ? `<button id="orderDetailsReviewBtn" style="width:100%;margin-top:1rem;padding:0.8rem;background:linear-gradient(135deg,var(--gold),#7d5a1d);color:#fff;border:none;border-radius:50px;font-weight:700;cursor:pointer;font-size:0.9rem;">⭐ ${t('leaveReview')} (${pendingReviewCount})</button>` : ''}
             </div>
         </div>
     `;
@@ -1176,7 +1267,7 @@ export async function openReturnModal(orderId) {
         order = { id: snap.id, ...snap.data() };
     } catch (e) { showToast('❌ ' + t('loadError')); return; }
     if (!canReturnOrder(order)) { showToast('⚠️ ' + (t('returnNotAllowed') || 'Retour impossible')); return; }
-    
+
     document.getElementById('returnModal')?.remove();
     const returnedQtys = getReturnedQuantities(order);
     const orderIdShort = order.id.slice(0, 8).toUpperCase();
@@ -1187,9 +1278,9 @@ export async function openReturnModal(orderId) {
         const qtyAlready = returnedQtys[pid] || 0;
         const qtyRemaining = Math.max(0, qtyOrdered - qtyAlready);
         const name = escapeHTML(item.name || `Produit #${item.productId}`);
-        const variantText = item.variant ? ` (${[item.variant.size, item.variant.color].filter(Boolean).join(' - ')})` : '';
+        const variantText = item.variant ? ` (${escapeHTML([item.variant.size, item.variant.color].filter(Boolean).join(' - '))})` : '';
         const alreadyInfo = qtyAlready > 0 ? `<div style="font-size:0.72rem;color:#9b59b6;font-weight:600;margin-top:0.3rem;">↩️ Déjà retourné : ${qtyAlready}/${qtyOrdered}</div>` : '';
-        
+
         return `
             <div class="return-item-row" data-product-id="${pid}">
                 <div style="flex:1;min-width:0;">
@@ -1274,7 +1365,13 @@ export async function openReturnModal(orderId) {
                 if (order.userId) {
                     try {
                         const { createNotification } = await import("./notifications.js");
-                        await createNotification(order.userId, 'order_returned', t('notificationOrderReturned') || '↩️ Retour enregistré', (t('notificationOrderReturnedMsg') || 'Votre retour sur la commande #{id} a été enregistré.').replace('{id}', orderIdShort), { orderId: order.id });
+                        await createNotification(
+                            order.userId,
+                            NOTIFICATION_TYPES.ORDER_RETURNED,
+                            t('notificationOrderReturned') || '↩️ Retour enregistré',
+                            (t('notificationOrderReturnedMsg') || 'Votre retour sur la commande #{id} a été enregistré.').replace('{id}', orderIdShort),
+                            { orderId: order.id }
+                        );
                     } catch (e) {}
                 }
             }
@@ -1291,68 +1388,192 @@ export async function openReturnModal(orderId) {
 }
 
 // ============================================================
-// ADMIN : CHANGER LE STATUT
+// ✅ C6.1 + C6.2 — UPDATE ORDER STATUS (transaction atomique)
+// ------------------------------------------------------------
+// Toute la logique métier (stock + coupon + status) dans UNE transaction.
+// Emails post-transaction (non-bloquants, ne peuvent pas rollback).
 // ============================================================
 export async function updateOrderStatus(orderId, newStatus) {
+    const normalizedStatus = normalizeOrderStatus(newStatus);
+
+    // Cas spécial RETURNED : ouvrir la modale
+    if (normalizedStatus === ORDER_STATUS.RETURNED) {
+        await openReturnModal(orderId);
+        return { success: true, openedModal: true };
+    }
+
+    let emailOrder = null;
+    let emailStatus = null;
+
     try {
-        const orderRef = doc(db, "orders", orderId);
-        const orderSnap = await getDoc(orderRef);
-        if (!orderSnap.exists()) throw new Error('Commande introuvable');
-        const order = { id: orderId, ...orderSnap.data() };
-        const normalizedStatus = normalizeOrderStatus(newStatus);
-        const previousStatus = normalizeOrderStatus(order.status);
+        await runTransaction(db, async (transaction) => {
+            // ===== READS =====
+            const orderRef = doc(db, "orders", orderId);
+            const orderSnap = await transaction.get(orderRef);
+            if (!orderSnap.exists()) throw new Error('Commande introuvable');
 
-        if (!Object.values(ORDER_STATUS).includes(normalizedStatus)) throw new Error('Statut invalide');
+            const order = { id: orderId, ...orderSnap.data() };
+            const previousStatus = normalizeOrderStatus(order.status);
+            emailOrder = order;
+            emailStatus = normalizedStatus;
 
-        if (normalizedStatus === ORDER_STATUS.CONFIRMED && previousStatus === ORDER_STATUS.PENDING) {
-            const r = await deductStockForOrder(orderId);
-            if (!r.success) throw new Error(r.error || 'Erreur stock');
-        }
+            // Décisions
+            const needDeductStock = normalizedStatus === ORDER_STATUS.CONFIRMED
+                && previousStatus === ORDER_STATUS.PENDING
+                && order.stockDeducted !== true;
 
-        if (normalizedStatus === ORDER_STATUS.CANCELLED && [ORDER_STATUS.CONFIRMED, ORDER_STATUS.SHIPPING, ORDER_STATUS.DELIVERED].includes(previousStatus)) {
-            await restoreStockForOrder(orderId);
-        }
+            const needRestoreStock = normalizedStatus === ORDER_STATUS.CANCELLED
+                && [ORDER_STATUS.CONFIRMED, ORDER_STATUS.SHIPPING, ORDER_STATUS.DELIVERED].includes(previousStatus)
+                && order.stockDeducted === true;
 
-        if (normalizedStatus === ORDER_STATUS.PENDING && previousStatus === ORDER_STATUS.CONFIRMED) {
-            await restoreStockForOrder(orderId);
-        }
+            const needRestoreCoupon = normalizedStatus === ORDER_STATUS.CANCELLED
+                && order.couponId
+                && order.couponRestored !== true;
 
-        if (normalizedStatus === ORDER_STATUS.RETURNED) { await openReturnModal(orderId); return { success: true, openedModal: true }; }
+            // Lecture des produits (si nécessaire)
+            let productRefs = [];
+            let productSnaps = [];
+            if ((needDeductStock || needRestoreStock) && order.items?.length > 0) {
+                productRefs = order.items.map(item => doc(db, "products", String(item.productId)));
+                productSnaps = await Promise.all(productRefs.map(ref => transaction.get(ref)));
+            }
 
-        await updateDoc(orderRef, { status: normalizedStatus, updatedAt: Timestamp.now() });
+            // Lecture du coupon (si nécessaire)
+            let couponRef = null;
+            let couponSnap = null;
+            let couponUseRef = null;
+            if (needRestoreCoupon) {
+                couponRef = doc(db, "coupons", order.couponId);
+                couponSnap = await transaction.get(couponRef);
+                couponUseRef = doc(db, "coupon_uses", `${order.couponId}_${order.userId}`);
+            }
 
-        const emailStatuses = ['confirmed', 'shipping', 'delivered', 'cancelled'];
-        if (emailStatuses.includes(normalizedStatus)) {
+            // ===== WRITES =====
+
+            // 1. Déduction stock (legacy orders uniquement)
+            if (needDeductStock) {
+                productSnaps.forEach((snap, i) => {
+                    if (!snap.exists()) return;
+                    const pData = snap.data();
+                    const qty = Number(order.items[i].quantity) || 0;
+                    const itemVariant = order.items[i].variant;
+
+                    if (itemVariant && Array.isArray(pData.variants)) {
+                        const variants = [...pData.variants];
+                        const idx = variants.findIndex(v =>
+                            (v.size || '') === (itemVariant.size || '') &&
+                            (v.color || '') === (itemVariant.color || '')
+                        );
+                        if (idx > -1) {
+                            variants[idx].stock = Math.max(0, Number(variants[idx].stock) - qty);
+                            const newStock = variants.reduce((s, v) => s + (Number(v.stock) || 0), 0);
+                            transaction.update(productRefs[i], {
+                                variants, stock: newStock,
+                                salesCount: (Number(pData.salesCount) || 0) + qty
+                            });
+                        }
+                    } else {
+                        transaction.update(productRefs[i], {
+                            stock: Math.max(0, (Number(pData.stock) || 0) - qty),
+                            salesCount: (Number(pData.salesCount) || 0) + qty
+                        });
+                    }
+                });
+            }
+
+            // 2. Restauration stock (annulation)
+            if (needRestoreStock) {
+                productSnaps.forEach((snap, i) => {
+                    if (!snap.exists()) return;
+                    const pData = snap.data();
+                    const qty = Number(order.items[i].quantity) || 0;
+                    const itemVariant = order.items[i].variant;
+
+                    if (itemVariant && Array.isArray(pData.variants)) {
+                        const variants = [...pData.variants];
+                        const idx = variants.findIndex(v =>
+                            (v.size || '') === (itemVariant.size || '') &&
+                            (v.color || '') === (itemVariant.color || '')
+                        );
+                        if (idx > -1) {
+                            variants[idx].stock = (Number(variants[idx].stock) || 0) + qty;
+                            const newStock = variants.reduce((s, v) => s + (Number(v.stock) || 0), 0);
+                            transaction.update(productRefs[i], {
+                                variants, stock: newStock,
+                                salesCount: Math.max(0, (Number(pData.salesCount) || 0) - qty)
+                            });
+                        }
+                    } else {
+                        transaction.update(productRefs[i], {
+                            stock: (Number(pData.stock) || 0) + qty,
+                            salesCount: Math.max(0, (Number(pData.salesCount) || 0) - qty)
+                        });
+                    }
+                });
+            }
+
+            // 3. Restauration coupon
+            if (needRestoreCoupon && couponSnap && couponSnap.exists()) {
+                transaction.update(couponRef, { usedCount: increment(-1) });
+                transaction.delete(couponUseRef);
+            }
+
+            // 4. Update order
+            const updateData = {
+                status: normalizedStatus,
+                updatedAt: Timestamp.now()
+            };
+            if (needDeductStock) updateData.stockDeducted = true;
+            if (needRestoreStock) updateData.stockDeducted = false;
+            if (needRestoreCoupon) updateData.couponRestored = true;
+            transaction.update(orderRef, updateData);
+        });
+
+        // ===== POST-TRANSACTION (non-critique) =====
+
+        // Emails
+        if (emailOrder && ['confirmed', 'shipping', 'delivered', 'cancelled'].includes(emailStatus)) {
             try {
-                await sendOrderEmail(order, normalizedStatus, 'client');
-                await sendOrderEmail(order, normalizedStatus, 'admin');
-            } catch (e) {}
+                await sendOrderEmail(emailOrder, emailStatus, 'client');
+                await sendOrderEmail(emailOrder, emailStatus, 'admin');
+            } catch (e) {
+                console.warn('⚠️ Email post-transaction échoué :', e);
+            }
         }
 
-        if (normalizedStatus === ORDER_STATUS.DELIVERED && previousStatus !== ORDER_STATUS.DELIVERED && order.userId) {
+        // Notification review_request (livraison)
+        if (emailStatus === ORDER_STATUS.DELIVERED && emailOrder?.userId) {
             try {
                 const { createNotification } = await import("./notifications.js");
-                await createNotification(order.userId, 'review_request', '⭐ Laissez un avis sur votre commande', `Votre commande #${orderId.slice(0, 8).toUpperCase()} est livrée ! Partagez votre expérience en laissant un avis sur vos produits.`, { orderId, persistent: true });
+                await createNotification(
+                    emailOrder.userId,
+                    NOTIFICATION_TYPES.REVIEW_REQUEST,
+                    '⭐ Laissez un avis sur votre commande',
+                    `Votre commande #${orderId.slice(0, 8).toUpperCase()} est livrée ! Partagez votre expérience.`,
+                    { orderId, persistent: true }
+                );
             } catch (e) {}
         }
 
+        // ✅ I6.4 : pas de 'pending' (créé à la commande dans cart.js)
         const notifMap = {
-            pending:   { type: 'order_created',   title: t('notificationOrderCreated'),   message: t('notificationOrderCreatedMsg').replace('{id}', orderId.slice(0, 8).toUpperCase()) },
             confirmed: { type: 'order_confirmed', title: t('notificationOrderConfirmed'), message: t('notificationOrderConfirmedMsg').replace('{id}', orderId.slice(0, 8).toUpperCase()) },
             shipping:  { type: 'order_shipping',  title: t('notificationOrderShipping'),  message: t('notificationOrderShippingMsg').replace('{id}', orderId.slice(0, 8).toUpperCase()) },
             delivered: { type: 'order_delivered', title: t('notificationOrderDelivered'), message: t('notificationOrderDeliveredMsg').replace('{id}', orderId.slice(0, 8).toUpperCase()) },
             cancelled: { type: 'order_cancelled', title: t('notificationOrderCancelled'), message: t('notificationOrderCancelledMsg').replace('{id}', orderId.slice(0, 8).toUpperCase()) }
         };
 
-        const notifData = notifMap[normalizedStatus];
-        if (notifData && order.userId) {
+        const notifData = notifMap[emailStatus];
+        if (notifData && emailOrder?.userId) {
             try {
                 const { createNotification } = await import("./notifications.js");
-                await createNotification(order.userId, notifData.type, notifData.title, notifData.message, { orderId });
+                await createNotification(emailOrder.userId, notifData.type, notifData.title, notifData.message, { orderId });
             } catch (e) {}
         }
 
+        document.dispatchEvent(new CustomEvent('order-stock-changed'));
         return { success: true };
+
     } catch (e) {
         console.error('❌ Erreur update statut :', e);
         return { success: false, error: e.message };
@@ -1360,36 +1581,95 @@ export async function updateOrderStatus(orderId, newStatus) {
 }
 
 // ============================================================
-// RENVOYER LA FACTURE
+// ✅ C6.3 — DELETE ORDER COMPLETELY (nettoyage orphelins)
+// ============================================================
+export async function deleteOrderCompletely(orderId) {
+    try {
+        const orderSnap = await getDoc(doc(db, "orders", orderId));
+        if (!orderSnap.exists()) return { success: false, error: 'not_found' };
+
+        const order = { id: orderId, ...orderSnap.data() };
+        const status = normalizeOrderStatus(order.status);
+
+        // 1. Restaurer stock si nécessaire
+        if (order.stockDeducted === true && ![ORDER_STATUS.CANCELLED, ORDER_STATUS.RETURNED].includes(status)) {
+            const r = await restoreStockForOrder(orderId);
+            if (!r.success) console.warn('⚠️ Échec restauration stock, on continue :', r.error);
+        }
+
+        // 2. Restaurer coupon + supprimer notifs + order (batch atomique)
+        const batch = writeBatch(db);
+
+        if (order.couponId && !order.couponRestored) {
+            batch.update(doc(db, "coupons", order.couponId), { usedCount: increment(-1) });
+            batch.delete(doc(db, "coupon_uses", `${order.couponId}_${order.userId}`));
+        }
+
+        const notifQ = query(collection(db, "notifications"), where("orderId", "==", orderId));
+        const notifSnap = await getDocs(notifQ);
+        notifSnap.forEach(d => batch.delete(d.ref));
+
+        batch.delete(doc(db, "orders", orderId));
+        await batch.commit();
+
+        console.log('✅ Commande supprimée complètement :', orderId);
+        return { success: true };
+
+    } catch (e) {
+        console.error('❌ Erreur deleteOrderCompletely :', e);
+        return { success: false, error: e.message };
+    }
+}
+
+// ============================================================
+// ✅ M6.6 — RENVOYER LA FACTURE (3 cas)
 // ============================================================
 export async function resendInvoice(orderId) {
     try {
         const snap = await getDoc(doc(db, "orders", orderId));
         if (!snap.exists()) { showToast('❌ ' + t('loadError')); return { success: false, error: 'not_found' }; }
+
         const order = { id: snap.id, ...snap.data() };
         if (normalizeOrderStatus(order.status) !== 'delivered') {
             showToast('⚠️ La facture ne peut être renvoyée que pour une commande livrée');
             return { success: false, error: 'not_delivered' };
         }
+
         showToast('⏳ Envoi de la facture...');
-        const [clientResult, adminResult] = await Promise.allSettled([sendOrderEmail(order, 'delivered', 'client'), sendOrderEmail(order, 'delivered', 'admin')]);
-        const clientOk = clientResult.status === 'fulfilled' && clientResult.value?.success;
-        const adminOk = adminResult.status === 'fulfilled' && adminResult.value?.success;
-        if (clientOk || adminOk) {
-            showToast(`✅ Facture ${getInvoiceNumber(order)} renvoyée`);
-            return { success: true, clientOk, adminOk };
-        } else {
-            showToast('❌ Échec de l\'envoi de la facture');
-            return { success: false, error: 'send_failed' };
+
+        const [clientResult, adminResult] = await Promise.allSettled([
+            sendOrderEmail(order, 'delivered', 'client'),
+            sendOrderEmail(order, 'delivered', 'admin')
+        ]);
+
+        const clientOk = clientResult.status === 'fulfilled' && clientResult.value?.success === true;
+        const adminOk = adminResult.status === 'fulfilled' && adminResult.value?.success === true;
+
+        if (clientOk && adminOk) {
+            showToast(`✅ Facture ${getInvoiceNumber(order)} envoyée (client + admin)`);
+            return { success: true, clientOk: true, adminOk: true };
         }
+        if (clientOk) {
+            showToast(`⚠️ Facture client envoyée, admin en échec`);
+            return { success: true, clientOk: true, adminOk: false, partial: true };
+        }
+        if (adminOk) {
+            showToast(`⚠️ Facture admin envoyée, client en échec`);
+            return { success: true, clientOk: false, adminOk: true, partial: true };
+        }
+
+        showToast('❌ Échec de l\'envoi de la facture');
+        return { success: false, error: 'send_failed' };
+
     } catch (e) {
+        console.error('❌ Erreur resendInvoice :', e);
         showToast('❌ ' + (e.message || t('error')));
         return { success: false, error: e.message };
     }
 }
 
 // ============================================================
-// ADMIN : Charger les commandes PAGINÉES
+// ADMIN : CHARGER LES COMMANDES (paginées)
 // ============================================================
 export async function loadAllOrders(reset = false) {
     if (reset) { adminLastVisible = null; adminHasMore = true; adminOrdersCache = []; }
@@ -1417,17 +1697,43 @@ export async function loadAllOrders(reset = false) {
 }
 
 // ============================================================
-// ADMIN : RENDRE LES COMMANDES
+// ✅ I6.1 + I6.5 + M6.9 — RENDRE LES COMMANDES ADMIN
 // ============================================================
-export async function renderAdminOrders(containerId = 'ordersList') {
+export async function renderAdminOrders(containerId = 'adminOrdersList') {
     const container = document.getElementById(containerId);
     if (!container) return;
+
+    // ✅ M6.9 : bouton "Rafraîchir" (une seule fois, hors du container)
+    if (!document.querySelector('.admin-orders-refresh-btn')) {
+        const refreshBtn = document.createElement('button');
+        refreshBtn.className = 'admin-btn-secondary admin-orders-refresh-btn';
+        refreshBtn.style.cssText = 'display:inline-flex;align-items:center;gap:0.4rem;margin-bottom:0.8rem;font-size:0.8rem;padding:0.4rem 0.9rem;';
+        refreshBtn.innerHTML = '🔄 Rafraîchir la liste';
+        refreshBtn.addEventListener('click', async () => {
+            resetAdminOrdersCache();
+            await renderAdminOrders(containerId);
+        });
+        container.insertAdjacentElement('beforebegin', refreshBtn);
+    }
+
     const isFirstLoad = adminOrdersCache.length === 0;
     if (isFirstLoad) container.innerHTML = `<div style="text-align:center;padding:1rem;color:var(--text-muted);">⏳ ${t('loadingOrders')}</div>`;
+
     try {
-        const { orders, hasMore } = await loadAllOrders(isFirstLoad);
-        if (orders.length === 0) { container.innerHTML = `<p style="text-align:center;color:var(--text-muted);padding:2rem;">${t('noOrders')}</p>`; return; }
-        
+        // ✅ I6.1 : utiliser le cache (pas de re-fetch)
+        let orders = adminOrdersCache;
+        let hasMore = adminHasMore;
+        if (isFirstLoad) {
+            const result = await loadAllOrders(true);
+            orders = result.orders;
+            hasMore = result.hasMore;
+        }
+
+        if (orders.length === 0) {
+            container.innerHTML = `<p style="text-align:center;color:var(--text-muted);padding:2rem;">${t('noOrders')}</p>`;
+            return;
+        }
+
         let html = '';
         orders.forEach(order => {
             const status = normalizeOrderStatus(order.status);
@@ -1435,20 +1741,35 @@ export async function renderAdminOrders(containerId = 'ordersList') {
             const date = formatDateTime(order.createdAt);
             const orderIdShort = order.id.slice(0, 8).toUpperCase();
             const itemCount = order.items?.length || 0;
-            const cityDisplay = getCityName({ name: order.deliveryAddress?.cityAr || order.deliveryAddress?.city, nameFr: order.deliveryAddress?.cityFr, nameAr: order.deliveryAddress?.cityAr });
-            
-            const stockBadge = order.stockDeducted === true ? `<span style="font-size:0.7rem;color:var(--success);font-weight:700;">📦 Stock déduit</span>` : `<span style="font-size:0.7rem;color:var(--warning);font-weight:700;">⏳ Stock non déduit</span>`;
+            const cityDisplay = getCityName({
+                name: order.deliveryAddress?.cityAr || order.deliveryAddress?.city,
+                nameFr: order.deliveryAddress?.cityFr,
+                nameAr: order.deliveryAddress?.cityAr
+            });
+
+            const stockBadge = order.stockDeducted === true
+                ? `<span style="font-size:0.7rem;color:var(--success);font-weight:700;">📦 Stock déduit</span>`
+                : `<span style="font-size:0.7rem;color:var(--warning);font-weight:700;">⏳ Stock non déduit</span>`;
             const returnBadge = getReturnBadgeText(order);
             const returnBadgeHtml = returnBadge ? ` · <span style="font-size:0.7rem;color:#9b59b6;font-weight:700;">${returnBadge}</span>` : '';
             const showReturnBtn = canReturnOrder(order);
-            const returnBtnHtml = showReturnBtn ? `<button class="btn-return" data-action="admin:return-order" data-id="${order.id}" style="padding:0.3rem 0.8rem;border-radius:30px;background:#9b59b6;color:white;border:none;cursor:pointer;font-weight:600;font-size:0.8rem;">↩️ Retour</button>` : '';
-            const invoiceBtnHtml = status === 'delivered' ? `<button class="btn-invoice" data-action="admin:resend-invoice" data-id="${order.id}" style="padding:0.3rem 0.8rem;border-radius:30px;background:linear-gradient(135deg,var(--gold),#7d5a1d);color:white;border:none;cursor:pointer;font-weight:600;font-size:0.8rem;" title="Renvoyer la facture par email">🧾 Facture</button>` : '';
-            const couponBadge = (Number(order.couponDiscount) > 0 && order.couponCode) ? `<br><span style="font-size:0.7rem;color:var(--success);font-weight:700;">🎟️ ${escapeHTML(order.couponCode)} (−${order.couponDiscount} MAD)</span>` : '';
+            const returnBtnHtml = showReturnBtn
+                ? `<button class="btn-return" data-action="admin:return-order" data-id="${order.id}" style="padding:0.3rem 0.8rem;border-radius:30px;background:#9b59b6;color:white;border:none;cursor:pointer;font-weight:600;font-size:0.8rem;">↩️ Retour</button>`
+                : '';
+            const invoiceBtnHtml = status === 'delivered'
+                ? `<button class="btn-invoice" data-action="admin:resend-invoice" data-id="${order.id}" style="padding:0.3rem 0.8rem;border-radius:30px;background:linear-gradient(135deg,var(--gold),#7d5a1d);color:white;border:none;cursor:pointer;font-weight:600;font-size:0.8rem;" title="Renvoyer la facture">🧾 Facture</button>`
+                : '';
+            const couponBadge = (Number(order.couponDiscount) > 0 && order.couponCode)
+                ? `<br><span style="font-size:0.7rem;color:var(--success);font-weight:700;">🎟️ ${escapeHTML(order.couponCode)} (−${order.couponDiscount} MAD)</span>`
+                : '';
 
-            // Résumé des articles pour l'admin
+            // ✅ I6.5 : échapper chaque item AVANT le join
             const itemsSummary = (order.items || []).map(i => {
-                const v = i.variant ? ` (${[i.variant.size, i.variant.color].filter(Boolean).join('-')})` : '';
-                return `${i.name}${v} x${i.quantity}`;
+                const name = escapeHTML(i.name || '');
+                const v = i.variant
+                    ? ` (${escapeHTML([i.variant.size, i.variant.color].filter(Boolean).join('-'))})`
+                    : '';
+                return `${name}${v} x${i.quantity}`;
             }).join(', ');
 
             html += `
@@ -1457,7 +1778,7 @@ export async function renderAdminOrders(containerId = 'ordersList') {
                         <div>
                             <strong style="color:var(--gold);">#${orderIdShort}</strong> ${emoji} — ${date}<br>
                             <small>👤 ${escapeHTML(order.deliveryAddress?.name || '—')} · 📞 ${escapeHTML(order.deliveryAddress?.phone || '')} · 🏙️ ${escapeHTML(cityDisplay)}</small><br>
-                            <small>🛒 <strong>${escapeHTML(itemsSummary)}</strong></small><br>
+                            <small>🛒 <strong>${itemsSummary}</strong></small><br>
                             <small>${itemCount} ${t('items')} · 💰 ${order.total || 0} ${t('currency')} · ${stockBadge}${returnBadgeHtml}${couponBadge}</small>
                         </div>
                     </div>
@@ -1484,9 +1805,10 @@ export async function renderAdminOrders(containerId = 'ordersList') {
 
         if (hasMore) html += `<div style="text-align:center;padding:1rem;"><button id="adminLoadMoreOrdersBtn" class="admin-btn-primary" style="margin:0 auto;">⬇️ ${t('loadingOrders')}</button></div>`;
         else if (orders.length >= ADMIN_PAGE_SIZE) html += `<div style="text-align:center;padding:1rem;font-size:0.8rem;color:var(--text-dim);">✓ ${t('success')}</div>`;
-        
+
         container.innerHTML = html;
 
+        // Listeners
         container.querySelectorAll('.status-select').forEach(select => {
             select.addEventListener('change', async () => {
                 const orderId = select.dataset.orderId;
@@ -1500,10 +1822,10 @@ export async function renderAdminOrders(containerId = 'ordersList') {
                             showToast('✅ ' + t('success'));
                             const cached = adminOrdersCache.find(o => o.id === orderId);
                             if (cached) cached.status = value;
+                            // ✅ I6.1 : pas de re-fetch
                             await renderAdminOrders(containerId);
                         } else {
                             showToast('❌ ' + result.error);
-                            await renderAdminOrders(containerId);
                         }
                     } else {
                         await updateDoc(doc(db, "orders", orderId), { [field]: value, updatedAt: Timestamp.now() });
@@ -1537,24 +1859,19 @@ export async function renderAdminOrders(containerId = 'ordersList') {
         container.querySelectorAll('[data-action="admin:delete-order"]').forEach(btn => {
             btn.addEventListener('click', async () => {
                 const orderId = btn.dataset.id;
-                const confirmed = await confirmAction(t('confirmDeleteOrderMsg').replace('{id}', orderId.slice(0, 8).toUpperCase()), { title: t('confirmDeleteOrderTitle'), confirmText: t('confirmDeleteYes'), cancelText: t('confirmDeleteNo'), variant: 'danger' });
+                const confirmed = await confirmAction(
+                    t('confirmDeleteOrderMsg').replace('{id}', orderId.slice(0, 8).toUpperCase()),
+                    { title: t('confirmDeleteOrderTitle'), confirmText: t('confirmDeleteYes'), cancelText: t('confirmDeleteNo'), variant: 'danger' }
+                );
                 if (!confirmed) return;
                 btn.disabled = true;
-                try {
-                    const orderSnap = await getDoc(doc(db, "orders", orderId));
-                    if (orderSnap.exists()) {
-                        const order = { id: orderId, ...orderSnap.data() };
-                        const status = normalizeOrderStatus(order.status);
-                        if (order.stockDeducted === true && status !== ORDER_STATUS.CANCELLED && status !== ORDER_STATUS.RETURNED) {
-                            await restoreStockForOrder(orderId);
-                        }
-                    }
-                    await deleteDoc(doc(db, "orders", orderId));
+                const result = await deleteOrderCompletely(orderId);
+                if (result.success) {
                     showToast('✅ ' + t('delete'));
                     adminOrdersCache = adminOrdersCache.filter(o => o.id !== orderId);
                     await renderAdminOrders(containerId);
-                } catch (e) {
-                    showToast('❌ ' + e.message);
+                } else {
+                    showToast('❌ ' + (result.error || t('error')));
                     btn.disabled = false;
                 }
             });
@@ -1585,18 +1902,28 @@ export function resetAdminOrdersCache() {
 }
 
 // ============================================================
-// Fonction refresh globale pour la modale retour
+// ADMIN : Refresh global (utilisé par openReturnModal)
 // ============================================================
 if (typeof window !== 'undefined') {
     window._adminRefreshOrders = async () => {
-        adminOrdersCache = [];
-        adminLastVisible = null;
-        adminHasMore = true;
+        resetAdminOrdersCache();
         await renderAdminOrders('adminOrdersList');
     };
 }
 
 // ============================================================
+// ✅ M6.1 — Invalidation du cache langue au logout
+// ============================================================
+if (typeof document !== 'undefined') {
+    document.addEventListener('auth-updated', (e) => {
+        if (!e.detail?.user) {
+            _userLangCache.clear();
+            console.log('🧹 Cache userLang vidé (logout)');
+        }
+    });
+}
+
+// ============================================================
 // LOG
 // ============================================================
-console.log('✅ orders.js chargé — v3.0.0 (Variantes complètes)');
+console.log('✅ orders.js chargé — v4.0.0 (transactions atomiques + factorisation)');
