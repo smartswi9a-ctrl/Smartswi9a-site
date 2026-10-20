@@ -1,11 +1,12 @@
 // js/services/coupons.js
 // ============================================================
 // SERVICE COUPONS - SMART SWI9A
-// Version 1.0.0 — Source unique pour le calcul et la validation
+// Version 1.1.0 — getDoc déterministe (fix C20.5)
 // ============================================================
-// CHANGEMENTS v1.0.0 :
-// ✅ I5.6 — Centralise calculateCouponDiscount + validateCoupon
-//            (était dupliqué dans cart.js ET panier.js)
+// CHANGEMENTS v1.1.0 :
+// ✅ C20.5 — getDoc ID déterministe (au lieu de query list)
+// ✅ Bonus — Vérif couponData.code === normalizedCode
+// ✅ Bonus — Fallback legacy query (compat anciens codes)
 // ============================================================
 // Dépend de : config, utils, firebase
 // Exporte   : calculateCouponDiscount(), validateCoupon()
@@ -26,7 +27,7 @@ import { t, toDate } from "../utils.js";
  * @param {Object} coupon - { type, value }
  *   - type : 'percentage' | 'fixed' | 'free_shipping'
  *   - value : nombre (ignoré pour free_shipping)
- * @param {number} subtotal - Sous-total du panier (avant réductions)
+ * @param {number} subtotal - Sous-total du panier
  * @param {number} deliveryFee - Frais de livraison actuels
  * @returns {number} Montant de la réduction (≥ 0)
  */
@@ -55,12 +56,73 @@ export function calculateCouponDiscount(coupon, subtotal, deliveryFee) {
 }
 
 // ============================================================
+// ✅ C20.5 : Génération de l'ID déterministe (cohérent avec admin.js)
+// ------------------------------------------------------------
+// admin.js utilise : code.replace(/[^A-Z0-9]/g, '_')
+// On fait pareil → mêmes IDs garantis
+// ============================================================
+function getDeterministicCouponId(code) {
+    return String(code || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '_');
+}
+
+// ============================================================
+// ✅ C20.5 : RÉCUPÉRATION DU COUPON (getDoc déterministe)
+// ------------------------------------------------------------
+// Avantage : pas besoin de `list` public dans firestore.rules
+// Fallback  : si le doc déterministe n'existe pas (ancien coupon
+//             créé avec addDoc), on utilise un query limité.
+// ============================================================
+async function fetchCouponByCode(code) {
+    const normalizedCode = String(code || '').trim().toUpperCase();
+    const deterministicId = getDeterministicCouponId(normalizedCode);
+
+    // 1. Tentative principale : getDoc par ID déterministe
+    try {
+        const ref = doc(db, "coupons", deterministicId);
+        const snap = await getDoc(ref);
+
+        if (snap.exists()) {
+            const data = snap.data();
+            // ✅ Double sécurité : le code doit matcher exactement
+            if (String(data.code || '').toUpperCase() === normalizedCode) {
+                return { id: snap.id, data };
+            }
+            // Si l'ID existe mais le code diffère → collision improbable
+            console.warn('⚠️ Coupon ID collision :', deterministicId);
+        }
+    } catch (e) {
+        // Permission-denied possible si rules strictes → fallback
+        console.warn('⚠️ getDoc coupon échoué, fallback query :', e?.code);
+    }
+
+    // 2. Fallback : query limit(1) sur le code
+    //    ⚠️ Nécessite `list` autorisé dans firestore.rules
+    //    (voir firestore.rules v2.0.0 : list si isActive == true)
+    try {
+        const q = query(
+            collection(db, "coupons"),
+            where("code", "==", normalizedCode)
+        );
+        const snap = await getDocs(q);
+
+        if (!snap.empty) {
+            const first = snap.docs[0];
+            return { id: first.id, data: first.data() };
+        }
+    } catch (e) {
+        console.warn('⚠️ Fallback query coupon échoué :', e?.code);
+    }
+
+    return null;
+}
+
+// ============================================================
 // VALIDATION ASYNCHRONE (avec I/O Firestore)
 // ============================================================
 /**
  * Valide un code promo par rapport à un panier donné.
  *
- * @param {string} code - Le code à valider (ex: PROMO10)
+ * @param {string} code - Le code à valider
  * @param {number} subtotal - Sous-total du panier
  * @param {number} deliveryFee - Frais de livraison
  * @param {string|null} userId - UID du client (pour oneUsePerUser)
@@ -68,21 +130,24 @@ export function calculateCouponDiscount(coupon, subtotal, deliveryFee) {
  */
 export async function validateCoupon(code, subtotal, deliveryFee, userId = null) {
     const normalizedCode = String(code || '').trim().toUpperCase();
+
     if (!normalizedCode || normalizedCode.length < 3) {
-        return { valid: false, coupon: null, error: t('couponCodeTooShort') || 'Code trop court', discountAmount: 0 };
+        return {
+            valid: false, coupon: null,
+            error: t('couponCodeTooShort') || 'Code trop court',
+            discountAmount: 0
+        };
     }
 
     try {
-        // 1. Récupération
-        const q = query(collection(db, "coupons"), where("code", "==", normalizedCode));
-        const snap = await getDocs(q);
+        // 1. Récupération (getDoc déterministe + fallback)
+        const couponEntry = await fetchCouponByCode(normalizedCode);
 
-        if (snap.empty) {
+        if (!couponEntry) {
             return { valid: false, coupon: null, error: 'Code promo introuvable', discountAmount: 0 };
         }
 
-        const couponDoc = snap.docs[0];
-        const couponData = couponDoc.data();
+        const { id: couponId, data: couponData } = couponEntry;
 
         // 2. Actif ?
         if (couponData.isActive !== true) {
@@ -106,8 +171,7 @@ export async function validateCoupon(code, subtotal, deliveryFee, userId = null)
         const minPurchase = Number(couponData.minPurchase) || 0;
         if (subtotal < minPurchase) {
             return {
-                valid: false,
-                coupon: null,
+                valid: false, coupon: null,
                 error: `Montant minimum requis : ${minPurchase} MAD`,
                 discountAmount: 0
             };
@@ -117,20 +181,33 @@ export async function validateCoupon(code, subtotal, deliveryFee, userId = null)
         if (couponData.oneUsePerUser === true) {
             if (!userId) {
                 return {
-                    valid: false,
-                    coupon: null,
+                    valid: false, coupon: null,
                     error: 'Connectez-vous pour utiliser ce code',
                     discountAmount: 0
                 };
             }
-            const usesQ = query(
-                collection(db, "coupon_uses"),
-                where("couponId", "==", couponDoc.id),
-                where("userId", "==", userId)
-            );
-            const usesSnap = await getDocs(usesQ);
-            if (!usesSnap.empty) {
-                return { valid: false, coupon: null, error: 'Vous avez déjà utilisé ce code', discountAmount: 0 };
+            // Vérif dans coupon_uses (ID déterministe ${couponId}_${userId})
+            try {
+                const useRef = doc(db, "coupon_uses", `${couponId}_${userId}`);
+                const useSnap = await getDoc(useRef);
+                if (useSnap.exists()) {
+                    return { valid: false, coupon: null, error: 'Vous avez déjà utilisé ce code', discountAmount: 0 };
+                }
+            } catch (e) {
+                // Fallback query (si ID pas encore déterministe)
+                try {
+                    const usesQ = query(
+                        collection(db, "coupon_uses"),
+                        where("couponId", "==", couponId),
+                        where("userId", "==", userId)
+                    );
+                    const usesSnap = await getDocs(usesQ);
+                    if (!usesSnap.empty) {
+                        return { valid: false, coupon: null, error: 'Vous avez déjà utilisé ce code', discountAmount: 0 };
+                    }
+                } catch (e2) {
+                    console.warn('⚠️ Vérif coupon_uses échouée :', e2?.code);
+                }
             }
         }
 
@@ -149,7 +226,7 @@ export async function validateCoupon(code, subtotal, deliveryFee, userId = null)
         return {
             valid: true,
             coupon: {
-                id: couponDoc.id,
+                id: couponId,
                 code: couponData.code,
                 type: couponData.type,
                 value: Number(couponData.value) || 0,
@@ -167,4 +244,4 @@ export async function validateCoupon(code, subtotal, deliveryFee, userId = null)
     }
 }
 
-console.log('✅ services/coupons.js chargé — v1.0.0');
+console.log('✅ services/coupons.js chargé — v1.1.0 (getDoc déterministe)');
