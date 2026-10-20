@@ -1,9 +1,17 @@
 // js/config.js
 // ============================================================
 // CONFIGURATION CENTRALISÉE - SMART SWI9A
-// Version 3.0.0 — Refonte : Arborescence des catégories & sous-catégories
-// ============================================================
-// Aucun import externe. Doit être chargé en premier.
+// Version 3.1.0 — Fix i18n catégories + legacy mapping + helper
+// CHANGEMENTS v3.1.0 :
+// ✅ C1.1 — tCat() helper + validation CATEGORY_GROUPS
+// ✅ C1.2 — LEGACY_CATEGORY_MAP + normalizeCategory()
+// ✅ I1.1 — productMatchesCategory() exporté
+// ✅ I1.2 — Catégorie 'general' ajoutée à BLOG
+// ✅ M1.1 — Naming cohérent (smartphones → filterSmartphones)
+// ✅ M1.2 — Ordre flattenCategories préservé
+// ✅ M1.3 — validateCategoryGroups() au boot
+// ✅ M1.4 — EMAIL_ON_STATUS centralisé
+// ✅ M1.5 — CONFIG.VERSION ajouté
 // ============================================================
 
 // ============================================================
@@ -13,14 +21,19 @@ export const VIDEO_BASE_URL = "https://videos.smartswi9a.top/";
 
 export const CONFIG = {
     // --- Firebase ---
+    // ⚠️ measurementId retiré (Analytics non activé — voir I4.2)
     FIREBASE: {
         apiKey: "AIzaSyBhULwDxPBRqjywsSD_0ny41Bmt968ofSA",
         authDomain: "smartswi9a-31063.firebaseapp.com",
         projectId: "smartswi9a-31063",
         storageBucket: "smartswi9a-31063.firebasestorage.app",
         messagingSenderId: "933677210664",
-        appId: "1:933677210664:web:1ee39f36dfa0806656e91d",
-        measurementId: "G-4Z470ZC04B"
+        appId: "1:933677210664:web:1ee39f36dfa0806656e91d"
+    },
+
+    // --- Versioning schéma ---
+    VERSION: {
+        CITIES_SCHEMA: 3
     },
 
     // --- Boutique ---
@@ -38,7 +51,7 @@ export const CONFIG = {
     // --- Stockage local ---
     STORAGE_KEYS: {
         CART: 'swi9a_cart',
-        THEME: 'swi9a_theme',
+        THEME: 'swi9a_theme', // legacy (mode clair unique)
         LANG: 'swi9a_lang',
         USER: 'swi9a_user',
         ABANDONED_CART: 'swi9a_abandoned_cart',
@@ -61,25 +74,27 @@ export const CONFIG = {
         MAX_EXCERPT_LENGTH: 250,
         MAX_CONTENT_LENGTH: 50000,
         CATEGORIES: [
-            { id: 'all',         label: 'Tous',           emoji: '📚' },
-            { id: 'conseils',    label: 'Conseils',       emoji: '💡' },
-            { id: 'tendances',   label: 'Tendances',      emoji: '🔥' },
-            { id: 'tests',       label: 'Tests & Avis',   emoji: '🧪' },
-            { id: 'tutoriels',   label: 'Tutoriels',      emoji: '📖' },
-            { id: 'smart-home',  label: 'Smart Home',     emoji: '🏠' },
-            { id: 'gadgets',     label: 'Gadgets',        emoji: '📱' },
-            { id: 'actualites',  label: 'Actualités',     emoji: '📰' }
+            { id: 'all',        label: 'Tous',         emoji: '📚' },
+            { id: 'conseils',   label: 'Conseils',     emoji: '💡' },
+            { id: 'tendances',  label: 'Tendances',    emoji: '🔥' },
+            { id: 'tests',      label: 'Tests & Avis', emoji: '🧪' },
+            { id: 'tutoriels',  label: 'Tutoriels',    emoji: '📖' },
+            { id: 'smart-home', label: 'Smart Home',   emoji: '🏠' },
+            { id: 'gadgets',    label: 'Gadgets',      emoji: '📱' },
+            { id: 'actualites', label: 'Actualités',   emoji: '📰' },
+            // ✅ I1.2 — Fallback pour articles sans catégorie
+            { id: 'general',    label: 'Général',      emoji: '📝' }
         ]
     },
 
     // --- Session ---
     SESSION: {
-        IDLE_TIMEOUT: 30 * 60 * 1000,          // 30 min
-        ABANDONED_CART_DELAY: 30 * 60 * 1000   // 30 min
+        IDLE_TIMEOUT: 30 * 60 * 1000,
+        ABANDONED_CART_DELAY: 30 * 60 * 1000
     },
 
     // ============================================================
-    // 6 STATUTS DE COMMANDE (v2.2.0)
+    // STATUTS DE COMMANDE (6 statuts)
     // ============================================================
     ORDERS: {
         CANCELLABLE_HOURS: 4,
@@ -89,7 +104,7 @@ export const CONFIG = {
             CONFIRMED:  'confirmed',
             SHIPPING:   'shipping',
             DELIVERED:  'delivered',
-            RETURNED:   'returned',     // ✅ v2.2.0 — Retour partiel ou total
+            RETURNED:   'returned',
             CANCELLED:  'cancelled'
         },
 
@@ -103,15 +118,15 @@ export const CONFIG = {
             PAID: 'paid'
         },
 
-        // ✅ v2.2.0 : statuts depuis lesquels un retour est possible
         RETURNABLE_FROM: ['confirmed', 'shipping', 'delivered'],
 
+        // ✅ M1.4 — Centralisé (était dupliqué dans orders.js)
         EMAIL_ON_STATUS: {
             pending:   { client: true,  admin: true  },
             confirmed: { client: true,  admin: false },
             shipping:  { client: true,  admin: false },
             delivered: { client: true,  admin: true  },
-            returned:  { client: true,  admin: true  },   // ✅ v2.2.0
+            returned:  { client: true,  admin: true  },
             cancelled: { client: true,  admin: false }
         }
     },
@@ -119,6 +134,7 @@ export const CONFIG = {
     // --- Avis ---
     REVIEWS: {
         MAX_PHOTOS: 5,
+        MAX_FEATURED: 3,
         STATUS: {
             PENDING: 'pending',
             APPROVED: 'approved',
@@ -127,7 +143,7 @@ export const CONFIG = {
     },
 
     // ============================================================
-    // TYPES DE NOTIFICATIONS (in-app)
+    // TYPES DE NOTIFICATIONS
     // ============================================================
     NOTIFICATIONS: {
         TYPES: {
@@ -135,9 +151,11 @@ export const CONFIG = {
             ORDER_CONFIRMED: 'order_confirmed',
             ORDER_SHIPPING:  'order_shipping',
             ORDER_DELIVERED: 'order_delivered',
-            ORDER_RETURNED:  'order_returned',      // ✅ v2.2.0
+            ORDER_RETURNED:  'order_returned',
             ORDER_CANCELLED: 'order_cancelled',
-            REVIEW_APPROVED: 'review_approved'
+            REVIEW_APPROVED: 'review_approved',
+            // ✅ I6.3 — Constante magique centralisée
+            REVIEW_REQUEST:  'review_request'
         }
     },
 
@@ -202,6 +220,72 @@ export function normalizeOrderStatus(status) {
 }
 
 // ============================================================
+// ✅ C1.2 — LEGACY_CATEGORY_MAP + normalizeCategory()
+// ============================================================
+// Migration des anciennes catégories v1/v2 → nouvelle arborescence v3
+export const LEGACY_CATEGORY_MAP = {
+    'smartphone':     'smartphones',
+    'computer':       'computers',
+    'accessories':    'tech-accessories',
+    'gaming':         'games',
+    'lighting':       'tech-accessories',
+    'pet':            'pets',
+    'beauty':         'skincare',
+    'chargers':       'tech-accessories',
+    'tablet':         'tablets',
+    'camera':         'cameras',
+    'watch':          'wearables',
+    'tv':             'electronics'
+};
+
+/**
+ * Normalise un ID de catégorie (legacy → nouveau)
+ * @param {string} catId
+ * @returns {string}
+ */
+export function normalizeCategory(catId) {
+    if (!catId) return 'all';
+    return LEGACY_CATEGORY_MAP[catId] || catId;
+}
+
+// ============================================================
+// ✅ I1.1 — productMatchesCategory() (helper réutilisable)
+// ============================================================
+/**
+ * Vérifie si un produit correspond à une catégorie.
+ * Gère :
+ *  - 'all' → toujours true
+ *  - catégorie parente → inclut tous les enfants
+ *  - catégorie legacy → normalisée avant comparaison
+ *  - catégorie exacte → match
+ *
+ * @param {Object} product - Le produit { category }
+ * @param {string} categoryId - L'ID de catégorie à tester
+ * @returns {boolean}
+ */
+export function productMatchesCategory(product, categoryId) {
+    if (!categoryId || categoryId === 'all') return true;
+    if (!product || !product.category) return false;
+
+    const productCat = product.category;
+    const normalized = normalizeCategory(productCat);
+
+    // Match exact
+    if (productCat === categoryId) return true;
+    if (normalized === categoryId) return true;
+
+    // Catégorie parente → vérifier les enfants
+    const parent = CATEGORY_GROUPS.find(g => g.id === categoryId);
+    if (parent) {
+        return parent.children.some(c =>
+            c.id === productCat || c.id === normalized
+        );
+    }
+
+    return false;
+}
+
+// ============================================================
 // ✅ v2.2.0 : HELPERS RETOUR
 // ============================================================
 /**
@@ -222,9 +306,14 @@ export function getReturnedQuantities(order) {
     if (!order || !order.returns || !Array.isArray(order.returns)) return result;
 
     order.returns.forEach(r => {
-        if (!r.productId) return;
-        const pid = String(r.productId);
-        result[pid] = (result[pid] || 0) + (Number(r.quantityReturned) || 0);
+        if (!r.items || !Array.isArray(r.items)) return;
+        r.items.forEach(item => {
+            if (!item.productId) return;
+            const pid = String(item.productId);
+            // On utilise delta (incrément) plutôt que quantityReturnedNow (cumul)
+            const delta = Number(item.delta) || 0;
+            result[pid] = (result[pid] || 0) + delta;
+        });
     });
 
     return result;
@@ -251,9 +340,11 @@ export const LANGUAGES = ['fr', 'ar', 'en'];
 export const DEFAULT_LANGUAGE = 'fr';
 
 // ============================================================
-// ✅ NOUVEAU v3.0.0 : ARBORESCENCE DES CATÉGORIES ET SOUS-CATÉGORIES
+// ✅ v3.0.0 : ARBORESCENCE DES CATÉGORIES ET SOUS-CATÉGORIES
 // ============================================================
-// Structure hiérarchique pour l'affichage (Admin & Menu)
+// ⚠️ IMPORTANT : les `label` sont des CLÉS i18n.
+// La fonction tCat() ci-dessous résout ces clés pour la langue courante.
+// Toutes les clés DOIVENT exister dans translations.js (voir v2.4.0).
 // ============================================================
 export const CATEGORY_GROUPS = [
     {
@@ -261,13 +352,13 @@ export const CATEGORY_GROUPS = [
         label: 'filterElectronics',
         emoji: '📱',
         children: [
-            { id: 'smartphones', label: 'filterSmartphones', emoji: '📱' },
-            { id: 'tablets', label: 'filterTablets', emoji: '📟' },
-            { id: 'audio', label: 'filterAudio', emoji: '🎧' },
-            { id: 'wearables', label: 'filterWearables', emoji: '⌚' },
-            { id: 'cameras', label: 'filterCameras', emoji: '📷' },
-            { id: 'computers', label: 'filterComputers', emoji: '💻' },
-            { id: 'tech-accessories', label: 'filterTechAccessories', emoji: '🔌' }
+            { id: 'smartphones',      label: 'filterSmartphones',      emoji: '📱' },
+            { id: 'tablets',          label: 'filterTablets',          emoji: '📟' },
+            { id: 'audio',            label: 'filterAudio',            emoji: '🎧' },
+            { id: 'wearables',        label: 'filterWearables',        emoji: '⌚' },
+            { id: 'cameras',          label: 'filterCameras',          emoji: '📷' },
+            { id: 'computers',        label: 'filterComputers',        emoji: '💻' },
+            { id: 'tech-accessories', label: 'filterTechAccessories',  emoji: '🔌' }
         ]
     },
     {
@@ -275,12 +366,12 @@ export const CATEGORY_GROUPS = [
         label: 'filterHome',
         emoji: '🏠',
         children: [
-            { id: 'appliances', label: 'filterAppliances', emoji: '🔌' },
-            { id: 'kitchen', label: 'filterKitchen', emoji: '🍳' },
-            { id: 'decoration', label: 'filterDecoration', emoji: '🖼️' },
-            { id: 'storage', label: 'filterStorage', emoji: '📦' },
-            { id: 'furniture', label: 'filterFurniture', emoji: '🪑' },
-            { id: 'smart-home', label: 'filterSmartHome', emoji: '🏠' }
+            { id: 'appliances',  label: 'filterAppliances',  emoji: '🔌' },
+            { id: 'kitchen',     label: 'filterKitchen',     emoji: '🍳' },
+            { id: 'decoration',  label: 'filterDecoration',  emoji: '🖼️' },
+            { id: 'storage',     label: 'filterStorage',     emoji: '📦' },
+            { id: 'furniture',   label: 'filterFurniture',   emoji: '🪑' },
+            { id: 'smart-home',  label: 'filterSmartHome',   emoji: '🏠' }
         ]
     },
     {
@@ -289,10 +380,10 @@ export const CATEGORY_GROUPS = [
         emoji: '👗',
         children: [
             { id: 'women-clothing', label: 'filterWomenClothing', emoji: '👗' },
-            { id: 'men-clothing', label: 'filterMenClothing', emoji: '👔' },
-            { id: 'shoes', label: 'filterShoes', emoji: '👟' },
-            { id: 'bags', label: 'filterBags', emoji: '👜' },
-            { id: 'jewelry', label: 'filterJewelry', emoji: '💍' }
+            { id: 'men-clothing',   label: 'filterMenClothing',   emoji: '👔' },
+            { id: 'shoes',          label: 'filterShoes',         emoji: '👟' },
+            { id: 'bags',           label: 'filterBags',          emoji: '👜' },
+            { id: 'jewelry',        label: 'filterJewelry',       emoji: '💍' }
         ]
     },
     {
@@ -300,12 +391,12 @@ export const CATEGORY_GROUPS = [
         label: 'filterBeauty',
         emoji: '💄',
         children: [
-            { id: 'skincare', label: 'filterSkincare', emoji: '🧴' },
-            { id: 'bodycare', label: 'filterBodycare', emoji: '🧼' },
-            { id: 'haircare', label: 'filterHaircare', emoji: '💇' },
-            { id: 'makeup', label: 'filterMakeup', emoji: '💄' },
-            { id: 'beauty-devices', label: 'filterBeautyDevices', emoji: '✨' },
-            { id: 'fragrances', label: 'filterFragrances', emoji: '🌸' }
+            { id: 'skincare',       label: 'filterSkincare',       emoji: '🧴' },
+            { id: 'bodycare',       label: 'filterBodycare',       emoji: '🧼' },
+            { id: 'haircare',       label: 'filterHaircare',       emoji: '💇' },
+            { id: 'makeup',         label: 'filterMakeup',         emoji: '💄' },
+            { id: 'beauty-devices', label: 'filterBeautyDevices',  emoji: '✨' },
+            { id: 'fragrances',     label: 'filterFragrances',     emoji: '🌸' }
         ]
     },
     {
@@ -313,10 +404,10 @@ export const CATEGORY_GROUPS = [
         label: 'filterBabyKids',
         emoji: '🧸',
         children: [
-            { id: 'baby-gear', label: 'filterBabyGear', emoji: '🍼' },
+            { id: 'baby-gear',     label: 'filterBabyGear',     emoji: '🍼' },
             { id: 'baby-clothing', label: 'filterBabyClothing', emoji: '👶' },
-            { id: 'toys', label: 'filterToys', emoji: '🧸' },
-            { id: 'baby-care', label: 'filterBabyCare', emoji: '🧴' }
+            { id: 'toys',          label: 'filterToys',         emoji: '🧸' },
+            { id: 'baby-care',     label: 'filterBabyCare',     emoji: '🧴' }
         ]
     },
     {
@@ -324,10 +415,10 @@ export const CATEGORY_GROUPS = [
         label: 'filterAutoMoto',
         emoji: '🚗',
         children: [
-            { id: 'auto', label: 'filterAuto', emoji: '🚗' },
-            { id: 'moto', label: 'filterMoto', emoji: '🏍️' },
-            { id: 'car-care', label: 'filterCarCare', emoji: '🧽' },
-            { id: 'car-electronics', label: 'filterCarElectronics', emoji: '📻' }
+            { id: 'auto',            label: 'filterAuto',            emoji: '🚗' },
+            { id: 'moto',            label: 'filterMoto',            emoji: '🏍️' },
+            { id: 'car-care',        label: 'filterCarCare',         emoji: '🧽' },
+            { id: 'car-electronics', label: 'filterCarElectronics',  emoji: '📻' }
         ]
     },
     {
@@ -337,8 +428,8 @@ export const CATEGORY_GROUPS = [
         children: [
             { id: 'fitness', label: 'filterFitness', emoji: '🏋️' },
             { id: 'outdoor', label: 'filterOutdoor', emoji: '⛺' },
-            { id: 'bikes', label: 'filterBikes', emoji: '🚲' },
-            { id: 'games', label: 'filterGames', emoji: '🎲' }
+            { id: 'bikes',   label: 'filterBikes',   emoji: '🚲' },
+            { id: 'games',   label: 'filterGames',   emoji: '🎲' }
         ]
     },
     {
@@ -346,8 +437,8 @@ export const CATEGORY_GROUPS = [
         label: 'filterPets',
         emoji: '🐾',
         children: [
-            { id: 'pet-food', label: 'filterPetFood', emoji: '🦴' },
-            { id: 'pet-toys', label: 'filterPetToys', emoji: '🎾' },
+            { id: 'pet-food',        label: 'filterPetFood',        emoji: '🦴' },
+            { id: 'pet-toys',        label: 'filterPetToys',        emoji: '🎾' },
             { id: 'pet-accessories', label: 'filterPetAccessories', emoji: '🐕' }
         ]
     },
@@ -356,10 +447,10 @@ export const CATEGORY_GROUPS = [
         label: 'filterTools',
         emoji: '🔧',
         children: [
-            { id: 'hand-tools', label: 'filterHandTools', emoji: '🔨' },
+            { id: 'hand-tools',  label: 'filterHandTools',  emoji: '🔨' },
             { id: 'power-tools', label: 'filterPowerTools', emoji: '🔌' },
-            { id: 'garden', label: 'filterGarden', emoji: '🌱' },
-            { id: 'security', label: 'filterSecurity', emoji: '🔒' }
+            { id: 'garden',      label: 'filterGarden',     emoji: '🌱' },
+            { id: 'security',    label: 'filterSecurity',   emoji: '🔒' }
         ]
     },
     {
@@ -367,9 +458,9 @@ export const CATEGORY_GROUPS = [
         label: 'filterOffice',
         emoji: '📄',
         children: [
-            { id: 'stationery', label: 'filterStationery', emoji: '✏️' },
-            { id: 'office-organization', label: 'filterOfficeOrganization', emoji: '📁' },
-            { id: 'printing', label: 'filterPrinting', emoji: '🖨️' }
+            { id: 'stationery',           label: 'filterStationery',          emoji: '✏️' },
+            { id: 'office-organization',  label: 'filterOfficeOrganization',  emoji: '📁' },
+            { id: 'printing',             label: 'filterPrinting',            emoji: '🖨️' }
         ]
     },
     {
@@ -377,31 +468,109 @@ export const CATEGORY_GROUPS = [
         label: 'filterMisc',
         emoji: '🎁',
         children: [
-            { id: 'gadgets', label: 'filterGadgets', emoji: '🔮' },
-            { id: 'party', label: 'filterParty', emoji: '🎉' },
+            { id: 'gadgets',    label: 'filterGadgets',    emoji: '🔮' },
+            { id: 'party',      label: 'filterParty',      emoji: '🎉' },
             { id: 'promotions', label: 'filterPromotions', emoji: '🔥' }
         ]
     }
 ];
 
 // ============================================================
-// LISTE APLATIE (Pour compatibilité avec le code existant et les filtres)
+// ✅ C1.1 — Helper i18n pour les catégories
+// ============================================================
+import { t } from './utils.js';
+
+/**
+ * Traduit une catégorie (label) selon la langue courante.
+ * Fallback sur le label brut si la clé i18n n'existe pas.
+ * @param {Object|string} category - Objet { label } ou string (id)
+ * @returns {string}
+ */
+export function tCat(category) {
+    if (!category) return '';
+    const label = typeof category === 'string' ? category : category.label;
+    if (!label) return '';
+    const translated = t(label);
+    // Si la traduction n'existe pas, t() retourne la clé → fallback
+    return translated === label ? (category.label || label) : translated;
+}
+
+// ============================================================
+// LISTE APLATIE (compatibilité + filtres)
+// ✅ M1.2 — Ordre : all, favorites, puis catégories
 // ============================================================
 const flattenCategories = () => {
-    let flat = [
-        { id: 'all', label: 'filterAll', emoji: '🛍️' },
+    const flat = [
+        { id: 'all',       label: 'filterAll',       emoji: '🛍️' },
         { id: 'favorites', label: 'filterFavorites', emoji: '❤️' }
     ];
     CATEGORY_GROUPS.forEach(group => {
-        flat.push({ id: group.id, label: group.label, emoji: group.emoji, isParent: true });
+        // Parent
+        flat.push({
+            id: group.id,
+            label: group.label,
+            emoji: group.emoji,
+            isParent: true
+        });
+        // Enfants
         group.children.forEach(child => {
-            flat.push({ id: child.id, label: child.label, emoji: child.emoji, parentId: group.id });
+            flat.push({
+                id: child.id,
+                label: child.label,
+                emoji: child.emoji,
+                parentId: group.id
+            });
         });
     });
     return flat;
 };
 
 export const CATEGORIES = flattenCategories();
+
+// ============================================================
+// ✅ M1.3 — Validation au boot (dev uniquement)
+// ============================================================
+(function validateCategoryGroups() {
+    const isDev = typeof window !== 'undefined' && (
+        window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1' ||
+        window.location.search.includes('debug=1')
+    );
+    if (!isDev) return;
+
+    const seenIds = new Set();
+    let errors = 0;
+
+    CATEGORY_GROUPS.forEach(group => {
+        if (seenIds.has(group.id)) {
+            console.error(`❌ [config] Catégorie parente dupliquée : ${group.id}`);
+            errors++;
+        }
+        seenIds.add(group.id);
+
+        if (!group.label) {
+            console.error(`❌ [config] Catégorie ${group.id} sans label`);
+            errors++;
+        }
+
+        group.children.forEach(child => {
+            if (seenIds.has(child.id)) {
+                console.error(`❌ [config] Catégorie enfant dupliquée : ${child.id}`);
+                errors++;
+            }
+            seenIds.add(child.id);
+
+            if (!child.label) {
+                console.error(`❌ [config] Catégorie ${child.id} sans label`);
+                errors++;
+            }
+        });
+    });
+
+    if (errors === 0) {
+        console.log(`✅ [config] ${seenIds.size} catégories validées`);
+    }
+})();
 
 // ============================================================
 // OPTIONS DE TRI
@@ -418,4 +587,4 @@ export const SORT_OPTIONS = [
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ config.js chargé — v3.0.0 (Arborescence des catégories)');
+console.log('✅ config.js chargé — v3.1.0 (Fix i18n + legacy + helper)');
