@@ -1,31 +1,25 @@
 // js/panier.js
 // ============================================================
 // PAGE PANIER DÉDIÉE - SMART SWI9A
-// Version 2.0.0 — Refonte coupons + checkout + suggestions
+// Version 2.1.0 — Suggestions parent-aware + cohérence catégories
 // ============================================================
-// CHANGEMENTS v2.0.0 :
-// ✅ C9.1 — validateCoupon/calculateCouponDiscount via services/coupons
-// ✅ C9.2 — revalidateCoupon(silent) avec toasts explicites
-// ✅ I9.1 — handleCheckoutFromPage try/finally + bouton réactivé
-// ✅ I9.2 — renderCartItem max = stock variante
-// ✅ I9.3 — Nettoyage items invalides (produit/variante supprimés)
-// ✅ I9.4 — trim() avant comparaison ville
-// ✅ I9.5 — refreshSummaryTotals met à jour la ligne coupon
-// ✅ C5.2 — waWindow pré-ouvert (anti popup-block)
-// ✅ M9.1 — document.click délégué (pas accumulé)
-// ✅ M9.2 — initCouponCode guard _initialized
-// ✅ M9.3 — renderSuggestions guard cartCategories.size
-// ✅ M9.4 — savings skip variants
-// ✅ M9.7 — cart-updated debounce 200ms
-// ✅ M9.8 — renderEmptyCart bouton retour
-// ✅ M9.10 — applyCouponCode race guard
+// CHANGEMENTS v2.1.0 :
+// ✅ FIX #5 — renderSuggestions() : cross-sell parent-aware
+//              (panier avec smartphones → suggère tablettes, audio…)
+// ✅ FIX #19 — cartCategories inclut parent + siblings (pas seulement exact)
+// ✅ (Repris v2.0.0) — C9.1, C9.2, I9.1→I9.5, C5.2, M9.1→M9.10
 // ============================================================
 // Dépend de : config, utils, store, auth, cart, ui-core, products,
 //             firebase, services/coupons
 // URL      : /panier (ou /panier.html)
 // ============================================================
 
-import { CONFIG } from "./config.js";
+import {
+    CONFIG,
+    getCategoryById,
+    getParentCategory,
+    normalizeCategory
+} from "./config.js";
 import {
     t, escapeHTML, getProductName, getProductImageUrl, getFallbackImage,
     getDiscountPercent, renderStars, getCityName, toDate
@@ -91,14 +85,13 @@ function saveAppliedCoupon() {
 }
 
 // ============================================================
-// ✅ C9.2 — REVALIDATION COUPON (avec param silent)
+// REVALIDATION COUPON (avec param silent)
 // ============================================================
 async function revalidateCoupon(silent = false) {
     if (!appliedCoupon) return false;
 
     const subtotal = getCartSubtotal();
 
-    // Panier vide
     if (subtotal <= 0) {
         if (!silent) showToast('⚠️ Code retiré : panier vide');
         appliedCoupon = null;
@@ -106,7 +99,6 @@ async function revalidateCoupon(silent = false) {
         return true;
     }
 
-    // Montant minimum
     const minPurchase = Number(appliedCoupon.minPurchase) || 0;
     if (subtotal < minPurchase) {
         const oldCode = appliedCoupon.code;
@@ -116,7 +108,6 @@ async function revalidateCoupon(silent = false) {
         return true;
     }
 
-    // Recalcul
     const deliveryFee = getCartDeliveryFee();
     const newDiscount = calculateCouponDiscount(appliedCoupon, subtotal, deliveryFee);
 
@@ -127,7 +118,6 @@ async function revalidateCoupon(silent = false) {
         return true;
     }
 
-    // Détecter changement de montant
     const oldAmount = Number(appliedCoupon.discountAmount) || 0;
     if (newDiscount !== oldAmount) {
         appliedCoupon.discountAmount = newDiscount;
@@ -169,12 +159,11 @@ async function initCartPage() {
 
     renderCartPage();
 
-    // ✅ M9.7 : debounce cart-updated (évite re-renders multiples)
     let cartUpdateTimer = null;
     document.addEventListener('cart-updated', async () => {
         if (cartUpdateTimer) clearTimeout(cartUpdateTimer);
         cartUpdateTimer = setTimeout(async () => {
-            const changed = await revalidateCoupon(true); // silent
+            const changed = await revalidateCoupon(true);
             renderCartPage({ skipSuggestions: true });
         }, 200);
     });
@@ -191,12 +180,7 @@ async function initCartPage() {
 }
 
 // ============================================================
-// ✅ I9.3 — NETTOYAGE ITEMS INVALIDES
-// ------------------------------------------------------------
-// Retire du panier :
-//  - produits supprimés du catalogue
-//  - variantes supprimées
-// Affiche un toast récapitulatif
+// NETTOYAGE ITEMS INVALIDES
 // ============================================================
 function cleanInvalidCartItems() {
     const cart = getCart();
@@ -247,7 +231,6 @@ function renderCartPage(options = {}) {
     const loading = document.getElementById('cartPageLoading');
     if (!container) return;
 
-    // ✅ I9.3 : nettoyage AVANT rendu
     cleanInvalidCartItems();
 
     const cart = getCart();
@@ -271,7 +254,6 @@ function renderCartPage(options = {}) {
 
 // ============================================================
 // PANIER VIDE
-// ✅ M9.8 : bouton "Retour aux produits" bien visible
 // ============================================================
 function renderEmptyCart() {
     return `
@@ -342,7 +324,7 @@ function renderFullCart(cart) {
 }
 
 // ============================================================
-// ✅ I9.2 — UNE CARTE PRODUIT (max=stock variante)
+// CARTE PRODUIT (max=stock variante)
 // ============================================================
 function renderCartItem(product, quantity, item) {
     const pid = Number(product.id);
@@ -350,7 +332,6 @@ function renderCartItem(product, quantity, item) {
     const img = getProductImageUrl(product);
     const fallback = getFallbackImage(name);
 
-    // ✅ I9.2 : prix/stock selon variante
     const variant = item?.variant || null;
     let price = Number(product.price) || 0;
     let oldPrice = Number(product.oldPrice) || 0;
@@ -365,7 +346,6 @@ function renderCartItem(product, quantity, item) {
         if (v) {
             price = Number(v.price) || price;
             stock = Number(v.stock) || 0;
-            // ✅ Pas de per-variant oldPrice → on n'affiche pas de barré
             oldPrice = 0;
         }
         variantLabel = [variant.size, variant.color].filter(Boolean).join(' / ');
@@ -393,7 +373,6 @@ function renderCartItem(product, quantity, item) {
         ? `<div class="cart-item-rating">${renderStars(rating)} <span>(${ratingCount})</span></div>`
         : '';
 
-    // ✅ I9.2 : max = stock (variante ou global)
     const maxStock = Math.max(1, stock || 999);
 
     return `
@@ -591,7 +570,7 @@ function renderCheckoutButton() {
 }
 
 // ============================================================
-// ✅ I9.5 — Mise à jour en place (coupon inclus)
+// Mise à jour en place (coupon inclus)
 // ============================================================
 function refreshSummaryTotals() {
     const deliveryEl = document.querySelector('.cart-delivery-value');
@@ -615,7 +594,6 @@ function refreshSummaryTotals() {
         ? calculateCouponDiscount(appliedCoupon, subtotal, deliveryFee)
         : 0;
 
-    // ✅ I9.5 : mise à jour ligne coupon
     if (appliedCoupon && couponDiscount > 0) {
         appliedCoupon.discountAmount = couponDiscount;
         saveAppliedCoupon();
@@ -686,9 +664,45 @@ function renderForm(user) {
 }
 
 // ============================================================
-// PRODUITS SUGGÉRÉS
-// ✅ M9.3 : guard cartCategories.size > 0
+// ✅ FIX #5 + #19 : PRODUITS SUGGÉRÉS (parent-aware)
+// ------------------------------------------------------------
+// AVANT : match exact uniquement (panier smartphones → suggère smartphones)
+// APRÈS : élargit aux parents + siblings
+//   panier = [smartphones] → suggère [tablets, audio, wearables, cameras…]
+//   (tous les enfants du parent 'electronics')
 // ============================================================
+function buildRelatedCategories() {
+    const products = getProducts();
+    const cart = getCart();
+    const relatedCategories = new Set();
+
+    cart.forEach(item => {
+        const p = products.find(pp => Number(pp.id) === Number(item.productId));
+        if (!p || !p.category) return;
+
+        // Normaliser via legacy map
+        const normalized = normalizeCategory(p.category);
+        const cat = getCategoryById(normalized);
+        if (!cat) return;
+
+        // Ajouter la catégorie elle-même
+        relatedCategories.add(cat.id);
+
+        // ✅ FIX #19 : ajouter le parent + tous les siblings
+        if (cat.parentId) {
+            relatedCategories.add(cat.parentId);
+            const parent = getCategoryById(cat.parentId);
+            if (parent && Array.isArray(parent.children)) {
+                parent.children.forEach(c => relatedCategories.add(c.id));
+            }
+        } else if (cat.isParent && Array.isArray(cat.children)) {
+            cat.children.forEach(c => relatedCategories.add(c.id));
+        }
+    });
+
+    return relatedCategories;
+}
+
 function renderSuggestions() {
     const container = document.getElementById('cartSuggestionsRoot');
     if (!container) return;
@@ -697,19 +711,21 @@ function renderSuggestions() {
     const cart = getCart();
     const cartIds = new Set(cart.map(i => Number(i.productId)));
 
-    const available = products.filter(p => !cartIds.has(Number(p.id)) && (Number(p.stock) || 0) > 0);
+    const available = products.filter(p =>
+        !cartIds.has(Number(p.id)) && (Number(p.stock) || 0) > 0
+    );
 
-    // ✅ M9.3 : guard categories empty
-    const cartCategories = new Set();
-    cart.forEach(item => {
-        const p = products.find(pp => Number(pp.id) === Number(item.productId));
-        if (p && p.category) cartCategories.add(p.category);
-    });
+    // ✅ FIX #5 + #19 : catégories étendues (parent + siblings)
+    const relatedCategories = buildRelatedCategories();
 
     let similar = [];
-    if (cartCategories.size > 0) {
+    if (relatedCategories.size > 0) {
         similar = available
-            .filter(p => cartCategories.has(p.category))
+            .filter(p => {
+                if (!p.category) return false;
+                const normalized = normalizeCategory(p.category);
+                return relatedCategories.has(p.category) || relatedCategories.has(normalized);
+            })
             .sort(() => Math.random() - 0.5)
             .slice(0, 4);
     }
@@ -819,7 +835,7 @@ function renderSuggestionCard(product) {
 }
 
 // ============================================================
-// ✅ M9.2 — COUPON LISTENERS (avec guard _initialized)
+// COUPON LISTENERS (avec guard _initialized)
 // ============================================================
 function initCouponCode() {
     const input = document.getElementById('couponCodeInput');
@@ -853,7 +869,7 @@ function initCouponCode() {
 }
 
 // ============================================================
-// ✅ C9.1 + M9.10 — APPLIQUER (via validateCoupon + race guard)
+// APPLIQUER COUPON (via validateCoupon + race guard)
 // ============================================================
 async function applyCouponCode() {
     if (couponValidationInProgress) return;
@@ -884,7 +900,6 @@ async function applyCouponCode() {
         const subtotal = getCartSubtotal();
         const deliveryFee = getCartDeliveryFee();
 
-        // ✅ C9.1 : utilise validateCoupon (service centralisé)
         const result = await validateCoupon(code, subtotal, deliveryFee, user?.uid || null);
 
         if (!result.valid) {
@@ -1023,7 +1038,7 @@ function attachFullCartEvents() {
 }
 
 // ============================================================
-// ✅ I9.4 — RECHERCHE VILLE (trim avant comparaison)
+// RECHERCHE VILLE (trim avant comparaison)
 // ============================================================
 function initCitySearchOnPage() {
     const input = document.getElementById('cityFilterInput');
@@ -1038,11 +1053,9 @@ function initCitySearchOnPage() {
     }
 
     input.addEventListener('input', () => {
-        // ✅ I9.4 : trim AVANT comparaison
         const raw = input.value;
         const q = raw.trim().toLowerCase();
 
-        // Si texte == ville sélectionnée (avec ou sans espaces) → ne rien faire
         const currentSelected = getSelectedCity();
         if (currentSelected) {
             const selectedName = getCityName(currentSelected).toLowerCase().trim();
@@ -1052,7 +1065,6 @@ function initCitySearchOnPage() {
         suggestions.innerHTML = '';
         const deliveryData = getState().deliveryData || [];
 
-        // Correspondance exacte
         if (q.length >= 2) {
             const exactMatch = deliveryData.find(c => {
                 const variants = [c.nameFr, c.nameEn, c.nameAr || c.name, c.key]
@@ -1077,7 +1089,6 @@ function initCitySearchOnPage() {
             }
         }
 
-        // Pas de correspondance → désélectionner
         delete input.dataset.cityId;
         setSelectedCity(null);
         refreshSummaryTotals();
@@ -1132,7 +1143,6 @@ function initCitySearchOnPage() {
         });
     });
 
-    // ✅ M9.1 : déléguer au document (pas accumulé)
     if (!window._cartPageCityClickDelegated) {
         window._cartPageCityClickDelegated = true;
         document.addEventListener('click', (e) => {
@@ -1147,7 +1157,7 @@ function initCitySearchOnPage() {
 }
 
 // ============================================================
-// ✅ I9.1 + C5.2 — CHECKOUT (try/finally + waWindow)
+// CHECKOUT (try/finally + waWindow)
 // ============================================================
 async function handleCheckoutFromPage() {
     const user = getCurrentUser();
@@ -1180,7 +1190,6 @@ async function handleCheckoutFromPage() {
 
     const checkoutBtn = document.getElementById('cartPageCheckout');
 
-    // ✅ C5.2 : ouvrir la fenêtre WhatsApp AVANT les awaits
     const waWindow = window.open('', '_blank');
     if (!waWindow) {
         showToast('⚠️ Veuillez autoriser les popups pour commander via WhatsApp');
@@ -1192,7 +1201,6 @@ async function handleCheckoutFromPage() {
     }
 
     try {
-        // ✅ C5.2 : passer waWindow
         await checkout(getCart(), {
             name, phone, address, email,
             city: cityName,
@@ -1203,12 +1211,10 @@ async function handleCheckoutFromPage() {
     } catch (e) {
         console.error('❌ Erreur checkout :', e);
         showToast('❌ ' + (e.message || t('error')));
-        // Fermer la fenêtre WhatsApp si erreur
         if (waWindow && !waWindow.closed) {
             try { waWindow.close(); } catch (err) {}
         }
     } finally {
-        // ✅ I9.1 : réactiver le bouton si le panier est toujours rempli
         if (getCart().length > 0 && checkoutBtn && checkoutBtn.isConnected) {
             checkoutBtn.disabled = false;
             checkoutBtn.textContent = '💬 ' + t('cartCheckout');
@@ -1228,4 +1234,4 @@ if (document.readyState === 'loading') {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ panier.js chargé — v2.0.0 (coupons centralisés + variants + checkout)');
+console.log('✅ panier.js chargé — v2.1.0 (suggestions parent-aware)');
