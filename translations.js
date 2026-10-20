@@ -1,7 +1,7 @@
 // translations.js
 // ============================================================
 // TRADUCTIONS - SMART SWI9A (FR / AR / EN)
-// Version 2.3.1 — Mise à jour des CGV / Politique de retour
+// Version 2.3.2 — Politique de retour détaillée (termsTextHtml)
 // ============================================================
 
 window.translations = {
@@ -431,7 +431,32 @@ window.translations = {
         privacySummary: "🔒 Politique de confidentialité",
         privacyText: "Nous respectons votre vie privée. Vos données ne sont pas partagées.",
         termsSummary: "📄 Conditions générales de vente",
-        termsText: "Délai de réclamation : 3 jours après réception (via WhatsApp avec facture, photos et vidéo). Garantie : 15 jours. Emballage d'origine intact obligatoire. Si le produit est défectueux à la livraison, le client peut le refuser devant le livreur. Pour les autres retours, les frais sont à la charge du client. Remboursement effectué après vérification du produit retourné.",
+        termsTextHtml: `
+            <strong style="color:var(--text);">1. Délais de réclamation et Garantie</strong><br>
+            • <strong>Défaut à la réception (3 jours) :</strong> Vous disposez de 3 jours après la livraison pour signaler un produit défectueux ou non conforme.<br>
+            • <strong>Garantie de fonctionnement (15 jours) :</strong> Au-delà des 3 jours, nos produits restent garantis 15 jours contre les défauts de fabrication.<br><br>
+            
+            <strong style="color:var(--text);">2. Conditions d'éligibilité</strong><br>
+            • Le produit doit être dans son <strong>emballage d'origine intact</strong> (boîte, notices, accessoires).<br>
+            • Le produit ne doit pas présenter de traces d'usure, de choc, de rayure ou d'infiltration d'eau.<br>
+            • Une <strong>preuve d'achat</strong> (la facture reçue par email) est obligatoire.<br><br>
+            
+            <strong style="color:var(--text);">3. Procédure de retour</strong><br>
+            • <strong>Avant expédition (Devant le livreur) :</strong> Si le colis est endommagé, vous pouvez le refuser directement devant le livreur. Vous ne payez rien.<br>
+            • <strong>Après réception :</strong> Contactez notre support WhatsApp avec votre facture, des photos et une <strong>vidéo continue</strong> montrant le problème. Aucun retour ne sera accepté sans ces preuves.<br><br>
+            
+            <strong style="color:var(--text);">4. Frais de retour</strong><br>
+            • <strong>Si le produit est défectueux ou erreur de notre part :</strong> Les frais de retour sont <strong>à notre charge</strong>.<br>
+            • <strong>Changement d'avis :</strong> Les frais de retour sont <strong>à votre charge</strong>.<br><br>
+            
+            <strong style="color:var(--text);">5. Remboursement et Échange</strong><br>
+            • Le remboursement n'est déclenché qu'<strong>après réception et vérification technique</strong> du produit retourné.<br>
+            • Le remboursement se fait par virement bancaire ou via une agence (Wafacash / Cash Plus) sous 48h à 72h ouvrés.<br>
+            • Un échange peut être proposé si le produit est en stock.<br><br>
+            
+            <strong style="color:var(--text);">6. Exclusions de garantie</strong><br>
+            La garantie ne couvre pas : les chocs physiques, les dégâts liés à l'eau, l'usure normale, ou une mauvaise utilisation de l'appareil.
+        `,
 
         footerDesc: "Votre boutique tech au Maroc. Livraison rapide, paiement à la livraison.",
         footerCopyright: "© 2026 Smart Swi9a 🇲🇦 — Tous droits réservés",
@@ -993,7 +1018,32 @@ window.translations = {
         privacySummary: "🔒 سياسة الخصوصية",
         privacyText: "نحن نحترم خصوصيتك. لا تتم مشاركة بياناتك.",
         termsSummary: "📄 الشروط العامة للبيع",
-        termsText: "مدة الشكوى: 3 أيام بعد الاستلام (عبر واتساب مع الفاتورة والصور والفيديو). الضمان: 15 يوماً. يجب أن يكون الغلاف الأصلي سليماً. في حالة وجود عيب أثناء التسليم، يمكن للعميل رفض الطلب أمام عامل التوصيل. بالنسبة للإرجاعات الأخرى، رسوم الشحن على حساب العميل. يتم الاسترداد بعد التحقق من المنتج المرتجع.",
+        termsTextHtml: `
+            <strong style="color:var(--text);">1. مدة الشكوى والضمان</strong><br>
+            • <strong>عيب عند الاستلام (3 أيام):</strong> لديك 3 أيام بعد التوصيل للإبلاغ عن منتج معيب أو غير مطابق.<br>
+            • <strong>ضمان التشغيل (15 يومًا):</strong> بعد 3 أيام، تظل منتجاتنا مضمونة لمدة 15 يومًا ضد عيوب التصنيع.<br><br>
+            
+            <strong style="color:var(--text);">2. شروط القبول</strong><br>
+            • يجب أن يكون المنتج في <strong>عبوته الأصلية سليمة</strong> (الصندوق، الكتيبات، الملحقات).<br>
+            • يجب ألا يظهر على المنتج أي آثار للاستخدام، الصدمات، الخدوش أو تسرب المياه.<br>
+            • <strong>إثبات الشراء</strong> (الفاتورة المرسلة عبر البريد الإلكتروني) إلزامي.<br><br>
+            
+            <strong style="color:var(--text);">3. إجراءات الإرجاع</strong><br>
+            • <strong>قبل الشحن (أمام عامل التوصيل):</strong> إذا كان الطلب تالفًا، يمكنك رفضه مباشرة أمام عامل التوصيل. لن تدفع شيئًا.<br>
+            • <strong>بعد الاستلام:</strong> اتصل بدعم واتساب مع الفاتورة والصور و<strong>فيديو مستمر</strong> يظهر المشكلة. لن يتم قبول أي إرجاع بدون هذه الأدلة.<br><br>
+            
+            <strong style="color:var(--text);">4. رسوم الإرجاع</strong><br>
+            • <strong>إذا كان المنتج معيبًا أو خطأ من جانبنا:</strong> رسوم الإرجاع <strong>على حسابنا</strong>.<br>
+            • <strong>تغيير الرأي:</strong> رسوم الإرجاع <strong>على حسابك</strong>.<br><br>
+            
+            <strong style="color:var(--text);">5. الاسترداد والاستبدال</strong><br>
+            • لا يتم بدء الاسترداد إلا <strong>بعد استلام المنتج المرتجع والتحقق منه تقنيًا</strong>.<br>
+            • يتم الاسترداد عبر تحويل بنكي أو وكالة (وفا كاش / كاش بلوس) في غضون 48 إلى 72 ساعة عمل.<br>
+            • قد يُقترح استبدال إذا كان المنتج متوفراً في المخزون.<br><br>
+            
+            <strong style="color:var(--text);">6. استثناءات الضمان</strong><br>
+            لا يغطي الضمان: الصدمات الجسدية، الأضرار الناتجة عن الماء، التآكل الطبيعي، أو سوء استخدام الجهاز.
+        `,
 
         footerDesc: "متجرك التقني في المغرب. توصيل سريع، الدفع عند الاستلام.",
         footerCopyright: "© 2026 سمارت سويقة 🇲🇦 — جميع الحقوق محفوظة",
@@ -1555,7 +1605,32 @@ window.translations = {
         privacySummary: "🔒 Privacy policy",
         privacyText: "We respect your privacy. Your data is not shared.",
         termsSummary: "📄 Terms of sale",
-        termsText: "Return policy: 3 days after receipt to report a defect (WhatsApp with invoice, photos and video). Warranty: 15 days. Original packaging must be intact. Customer can refuse the package in front of the delivery driver if defective. Return shipping costs are borne by the customer (unless manufacturing defect). Refund after verification.",
+        termsTextHtml: `
+            <strong style="color:var(--text);">1. Claim Deadlines and Warranty</strong><br>
+            • <strong>Defect upon receipt (3 days):</strong> You have 3 days after delivery to report a defective or non-compliant product.<br>
+            • <strong>Operational Warranty (15 days):</strong> Beyond 3 days, our products remain guaranteed for 15 days against manufacturing defects.<br><br>
+            
+            <strong style="color:var(--text);">2. Eligibility Conditions</strong><br>
+            • The product must be in its <strong>intact original packaging</strong> (box, manuals, accessories).<br>
+            • The product must not show signs of wear, impact, scratches, or water damage.<br>
+            • A <strong>proof of purchase</strong> (invoice received by email) is mandatory.<br><br>
+            
+            <strong style="color:var(--text);">3. Return Procedure</strong><br>
+            • <strong>Before shipping (In front of the driver):</strong> If the package is damaged, you can refuse it directly in front of the delivery driver. You pay nothing.<br>
+            • <strong>After receipt:</strong> Contact our WhatsApp support with your invoice, photos, and a <strong>continuous video</strong> showing the issue. No return will be accepted without this evidence.<br><br>
+            
+            <strong style="color:var(--text);">4. Return Fees</strong><br>
+            • <strong>If the product is defective or our mistake:</strong> Return fees are <strong>our responsibility</strong>.<br>
+            • <strong>Change of mind:</strong> Return fees are <strong>your responsibility</strong>.<br><br>
+            
+            <strong style="color:var(--text);">5. Refund and Exchange</strong><br>
+            • The refund is only triggered <strong>after receipt and technical verification</strong> of the returned product.<br>
+            • The refund is made by bank transfer or agency (Wafacash/Cash Plus) within 48 to 72 business hours.<br>
+            • An exchange may be offered if the product is in stock.<br><br>
+            
+            <strong style="color:var(--text);">6. Warranty Exclusions</strong><br>
+            The warranty does not cover: physical impact, water damage, normal wear and tear, or misuse of the device.
+        `,
 
         footerDesc: "Your tech shop in Morocco. Fast delivery, cash on delivery.",
         footerCopyright: "© 2026 Smart Swi9a 🇲🇦 — All rights reserved",
@@ -1692,4 +1767,4 @@ window.translations = {
     }
 };
 
-console.log('✅ translations.js chargé — Version 2.3.1 (FR + AR + EN + Politique de retour mise à jour)');
+console.log('✅ translations.js chargé — Version 2.3.2 (Politique de retour détaillée intégrée)');
