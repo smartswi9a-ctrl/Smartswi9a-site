@@ -1,20 +1,15 @@
 // js/products.js
 // ============================================================
 // GESTION DES PRODUITS - SMART SWI9A
-// Version 3.0.0 — Fixes critiques (filtres parents, races, cache)
+// Version 3.1.0 — Refonte filtres catégories (sous-catégories visibles)
 // ============================================================
-// CHANGEMENTS v3.0.0 :
-// ✅ C8.1 — Filtre parent via productMatchesCategory (config.js)
-// ✅ C8.2 — renderProducts guard _renderRequestId (fin race)
-// ✅ I8.1 — btn-choose-options séparé (au lieu de btn-add-to-cart)
-// ✅ I8.2 — toggleFavorite arrayUnion/arrayRemove (fin race)
-// ✅ I8.3 — Filtre inStock : variant-aware
-// ✅ I8.4 — Loading spinner immédiat
-// ✅ I8.5 — getProductStatsBatch : cache + TTL + invalidation
-// ✅ M8.1 — getNewProducts(onlyInStock = true)
-// ✅ M8.2 — getPromoProducts(onlyInStock = true)
-// ✅ M8.3 — Warning clair si > 30 IDs (limite Firestore 'in')
-// ✅ M8.x — Guards + favorites normalisés + favoris visibles
+// CHANGEMENTS v3.1.0 :
+// ✅ FIX #1 — renderCategoryFilters : 2 rangées (parents + enfants)
+// ✅ FIX #9 — Compteurs produits par catégorie (client)
+// ✅ FIX #11 — Badge catégorie sur la carte produit
+// ✅ FIX #13 — Bouton "Voir toute la catégorie" quand sous-catégorie active
+// ✅ FIX #4 — Fallback data-category sur le bouton complet
+// ✅ (Repris v3.0.0) — C8.1, C8.2, I8.1→I8.5, M8.1→M8.3
 // ============================================================
 
 import {
@@ -23,7 +18,12 @@ import {
 import { db } from "./firebase.js";
 import {
     CONFIG, CATEGORIES, SORT_OPTIONS,
-    productMatchesCategory
+    CATEGORY_GROUPS,
+    productMatchesCategory,
+    getCategoryById,
+    getParentCategory,
+    getCategoryPath,
+    normalizeCategory
 } from "./config.js";
 import {
     t, escapeHTML, getProductName, getProductDesc, getProductImageUrl,
@@ -41,10 +41,7 @@ import {
 import { showToast } from "./ui-core.js";
 
 // ============================================================
-// CACHE STATS AVIS (I8.5)
-// ------------------------------------------------------------
-// TTL 60s + invalidation sur 'review-submitted'
-// Cap à 100 entrées (évite fuite mémoire)
+// CACHE STATS AVIS
 // ============================================================
 const _statsCache = new Map();
 const STATS_CACHE_TTL = 60 * 1000;
@@ -119,8 +116,6 @@ export async function loadAllProducts() {
 
 // ============================================================
 // FILTRAGE ET TRI
-// ✅ C8.1 — productMatchesCategory (parents + legacy)
-// ✅ I8.3 — inStock variant-aware
 // ============================================================
 export function getFilteredProducts() {
     const products = getProducts();
@@ -132,17 +127,13 @@ export function getFilteredProducts() {
 
     let list = [...products];
 
-    // Favoris
     if (filters.category === 'favorites') {
         list = list.filter(p => favs.includes(Number(p.id)));
-    }
-    // Catégorie (parent OU enfant, gère legacy)
-    else if (filters.category && filters.category !== 'all') {
+    } else if (filters.category && filters.category !== 'all') {
         // ✅ C8.1 : productMatchesCategory gère parents + legacy
         list = list.filter(p => productMatchesCategory(p, filters.category));
     }
 
-    // Recherche
     if (filters.search && filters.search.trim()) {
         const q = filters.search.toLowerCase().trim();
         list = list.filter(p => {
@@ -152,7 +143,6 @@ export function getFilteredProducts() {
         });
     }
 
-    // ✅ I8.3 : En stock (variant-aware)
     if (filters.inStock) {
         list = list.filter(p => {
             if (Array.isArray(p.variants) && p.variants.length > 0) {
@@ -162,16 +152,13 @@ export function getFilteredProducts() {
         });
     }
 
-    // En promo
     if (filters.promos) {
         list = list.filter(p => p.oldPrice && Number(p.oldPrice) > Number(p.price));
     }
 
-    // Prix
     if (filters.priceMin > 0) list = list.filter(p => p.price >= filters.priceMin);
     if (filters.priceMax < 99999) list = list.filter(p => p.price <= filters.priceMax);
 
-    // Tri
     switch (filters.sort) {
         case 'price-asc':
             list.sort((a, b) => a.price - b.price);
@@ -230,6 +217,8 @@ export function setCategory(category) {
     setFilters({ category });
     setPagination({ currentPage: 1 });
     renderProducts();
+    // ✅ FIX #1 : re-render les filtres pour afficher la ligne sous-catégorie
+    renderCategoryFilters();
 }
 
 export function setSort(sort) {
@@ -266,6 +255,7 @@ export function clearAllFilters() {
     resetFilters();
     setPagination({ currentPage: 1 });
     renderProducts();
+    renderCategoryFilters();
 }
 
 // ============================================================
@@ -282,7 +272,7 @@ export function getProductById(id) {
 }
 
 // ============================================================
-// ✅ M8.1 — NOUVEAUTÉS (onlyInStock par défaut)
+// NOUVEAUTÉS & PROMOS
 // ============================================================
 export function getNewProducts(limit = 10, onlyInStock = true) {
     let products = getProducts().filter(p => p.isNew === true);
@@ -304,9 +294,6 @@ export function getNewProducts(limit = 10, onlyInStock = true) {
     return products.slice(0, limit);
 }
 
-// ============================================================
-// ✅ M8.2 — PROMOS (onlyInStock par défaut)
-// ============================================================
 export function getPromoProducts(onlyInStock = true) {
     let products = getProducts().filter(p =>
         p.oldPrice && Number(p.oldPrice) > Number(p.price)
@@ -329,12 +316,11 @@ export function getPromoProducts(onlyInStock = true) {
 }
 
 // ============================================================
-// ✅ I8.5 — STATS DES AVIS (avec cache)
+// STATS DES AVIS (avec cache)
 // ============================================================
 export async function getProductStatsBatch(productIds) {
     if (!Array.isArray(productIds) || productIds.length === 0) return {};
 
-    // ✅ M8.3 : warning explicite si > 30
     if (productIds.length > 30) {
         console.warn(`⚠️ getProductStatsBatch: ${productIds.length} IDs fournis (max 30 Firestore 'in') — troncature`);
     }
@@ -346,7 +332,6 @@ export async function getProductStatsBatch(productIds) {
     const toFetch = [];
     const result = {};
 
-    // 1. Servir depuis le cache
     ids.forEach(pid => {
         const cached = _statsCache.get(pid);
         if (cached && (now - cached.timestamp) < STATS_CACHE_TTL) {
@@ -358,7 +343,6 @@ export async function getProductStatsBatch(productIds) {
 
     if (toFetch.length === 0) return result;
 
-    // 2. Fetch le reste
     try {
         const q = query(
             collection(db, "reviews"),
@@ -385,7 +369,6 @@ export async function getProductStatsBatch(productIds) {
                 : { avg: null, count: 0 };
             result[pid] = stats;
 
-            // Cap taille cache
             if (_statsCache.size >= STATS_CACHE_MAX) {
                 const firstKey = _statsCache.keys().next().value;
                 if (firstKey !== undefined) _statsCache.delete(firstKey);
@@ -398,6 +381,54 @@ export async function getProductStatsBatch(productIds) {
         console.warn('⚠️ Erreur getProductStatsBatch :', e);
         return result;
     }
+}
+
+// ============================================================
+// ✅ FIX #9 : CALCUL COMPTEURS PAR CATÉGORIE (cache court)
+// ------------------------------------------------------------
+// Compte les produits par :
+//  - 'all'       → total
+//  - 'favorites' → non calculé ici (dépend du user, calculé séparément)
+//  - parent      → produits dont catégorie appartient au parent
+//  - child       → produits dont catégorie === child (ou legacy normalisé)
+// ============================================================
+let _categoryCountsCache = null;
+let _categoryCountsTime = 0;
+const CATEGORY_COUNTS_TTL = 30 * 1000; // 30s
+
+function computeCategoryCounts() {
+    const now = Date.now();
+    if (_categoryCountsCache && (now - _categoryCountsTime) < CATEGORY_COUNTS_TTL) {
+        return _categoryCountsCache;
+    }
+
+    const products = getProducts();
+    const counts = { all: products.length };
+
+    // Compteurs enfants
+    CATEGORY_GROUPS.forEach(group => {
+        let parentCount = 0;
+        group.children.forEach(child => {
+            const childCount = products.filter(p =>
+                p.category === child.id || normalizeCategory(p.category) === child.id
+            ).length;
+            counts[child.id] = childCount;
+            parentCount += childCount;
+        });
+        // ✅ Compteur parent = somme des enfants + produits directement dans le parent
+        const directCount = products.filter(p => p.category === group.id).length;
+        counts[group.id] = parentCount + directCount;
+    });
+
+    _categoryCountsCache = counts;
+    _categoryCountsTime = now;
+    return counts;
+}
+
+// Invalidation sur chargement produits
+export function invalidateCategoryCountsCache() {
+    _categoryCountsCache = null;
+    _categoryCountsTime = 0;
 }
 
 // ============================================================
@@ -428,16 +459,14 @@ function getEmptyProductsMessage() {
 }
 
 // ============================================================
-// ✅ C8.2 + I8.1 + I8.4 — RENDU DE LA GRILLE
+// RENDU DE LA GRILLE
 // ============================================================
 export async function renderProducts() {
     const grid = document.getElementById('productsGrid');
     if (!grid) return;
 
-    // ✅ C8.2 : guard anti-race
     const thisRequest = ++_renderRequestId;
 
-    // ✅ I8.4 : loading immédiat
     grid.innerHTML = `
         <div style="grid-column:1/-1;text-align:center;padding:3rem 1rem;">
             <div class="spinner" style="margin:0 auto;"></div>
@@ -456,14 +485,11 @@ export async function renderProducts() {
     const totalPages = getTotalPages();
     const currentPage = getPagination().currentPage;
 
-    // Fetch stats (await)
     const productIds = pageProducts.map(p => Number(p.id)).filter(Number.isFinite);
     const stats = await getProductStatsBatch(productIds);
 
-    // ✅ C8.2 : abandon si une autre requête a démarré entre-temps
     if (thisRequest !== _renderRequestId) return;
 
-    // Empty state
     if (pageProducts.length === 0) {
         const emptyMessage = getEmptyProductsMessage();
         grid.innerHTML = `
@@ -503,15 +529,25 @@ export async function renderProducts() {
 
         const favAriaLabel = isFav ? t('favRemoved') : t('favAdded');
 
-        // ✅ I8.1 : bouton différent pour les variantes
         const btnHtml = hasVariants
             ? `<button class="btn-choose-options" data-slug="${escapeHTML(p.slug || '')}" style="background:var(--gold);color:#fff;border:none;padding:0.3rem 0.7rem;border-radius:30px;font-size:0.7rem;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:0.3rem;">⚙️ ${t('chooseOptions') || 'Choisir les options'}</button>`
             : `<button class="btn-add-to-cart" data-id="${pid}">🛒 ${t('addToCart')}</button>`;
 
-        // Stock status : si variants, vérifier s'il y en a au moins une en stock
         const isOutOfStock = hasVariants
             ? !p.variants.some(v => (Number(v.stock) || 0) > 0)
             : stock === 0;
+
+        // ✅ FIX #11 : badge catégorie (parent › enfant)
+        const catPath = getCategoryPath(p.category);
+        let catBadgeHtml = '';
+        if (catPath.length > 0) {
+            const child = catPath[catPath.length - 1];
+            const parent = catPath.length > 1 ? catPath[0] : null;
+            const label = parent
+                ? `${parent.emoji} ${t(parent.label)} › ${t(child.label)}`
+                : `${child.emoji} ${t(child.label)}`;
+            catBadgeHtml = `<div style="font-size:0.65rem;color:var(--text-dim);margin-bottom:0.2rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHTML(label)}</div>`;
+        }
 
         html += `
             <div class="product-card" data-id="${pid}" data-slug="${escapeHTML(p.slug || '')}">
@@ -524,6 +560,7 @@ export async function renderProducts() {
                     ${isNew && !isOutOfStock && !isPromo ? `<span class="badge badge-new">${t('trending')}</span>` : ''}
                 </div>
                 <div class="product-body">
+                    ${catBadgeHtml}
                     <div class="p-name">${name}</div>
                     <div class="p-desc">${desc}</div>
                     <div class="p-stats">⭐ ${avgRating} <span style="color:var(--text-muted)">(${reviewCount})</span></div>
@@ -538,7 +575,6 @@ export async function renderProducts() {
 
     grid.innerHTML = html;
 
-    // ✅ I8.1 : handler dédié pour "Choisir les options"
     grid.querySelectorAll('.btn-choose-options').forEach(btn => {
         btn.addEventListener('click', (e) => {
             e.preventDefault();
@@ -550,10 +586,6 @@ export async function renderProducts() {
         });
     });
 
-    // ✅ I8.1 : les boutons "Ajouter au panier" sont gérés par events.js
-    // (délégation via .btn-add-to-cart) — pas besoin de listener ici
-
-    // Pagination
     if (!paginationEl) return;
     if (totalPages <= 1) { paginationEl.innerHTML = ''; return; }
 
@@ -567,32 +599,116 @@ export async function renderProducts() {
 }
 
 // ============================================================
-// ✅ M8.x — FILTRES CATÉGORIES (favoris maintenant visibles)
+// ✅ FIX #1 + #9 + #13 : FILTRES CATÉGORIES (2 rangées)
+// ------------------------------------------------------------
+// Rangée 1 : [Tout] [❤️ Favoris] [📱 Électronique (N)] [🏠 Maison (N)] ...
+// Rangée 2 : n'apparaît QUE si un parent est actif :
+//   [↳ Tout Électronique] [📱 Smartphones (N)] [📟 Tablettes (N)] ...
 // ============================================================
 export function renderCategoryFilters() {
     const container = document.getElementById('filtersCategories');
     if (!container) return;
 
     const filters = getFilters();
-    const categories = CATEGORIES || [];
+    const activeCat = filters.category || 'all';
+    const counts = computeCategoryCounts();
 
-    let html = '';
-    categories.forEach(cat => {
-        // Afficher : 'all', 'favorites', et catégories parentes uniquement
-        const isVisible = cat.id === 'all'
-            || cat.id === 'favorites'
-            || cat.isParent;
+    // ============================================
+    // Déterminer le parent actif (si sous-catégorie active)
+    // ============================================
+    const activeCatObj = getCategoryById(activeCat);
+    const activeParent = activeCatObj && !activeCatObj.isParent && activeCatObj.parentId
+        ? getCategoryById(activeCatObj.parentId)
+        : (activeCatObj && activeCatObj.isParent ? activeCatObj : null);
 
-        if (!isVisible) return;
+    // ============================================
+    // RANGÉE 1 — Parents + Tout + Favoris
+    // ============================================
+    let htmlRow1 = '<div class="filters-categories-row filters-categories-parents">';
 
-        const isActive = filters.category === cat.id;
-        html += `
-            <button class="filter-btn ${isActive ? 'active' : ''}" data-action="products:filter" data-category="${cat.id}" type="button">
-                ${cat.emoji || ''} ${t(cat.label)}
+    // [Tout]
+    const allActive = activeCat === 'all';
+    htmlRow1 += `
+        <button class="filter-btn ${allActive ? 'active' : ''}"
+                data-action="products:filter"
+                data-category="all"
+                type="button">
+            🛍️ ${t('filterAll')} (${counts.all || 0})
+        </button>
+    `;
+
+    // [Favoris]
+    const favActive = activeCat === 'favorites';
+    htmlRow1 += `
+        <button class="filter-btn ${favActive ? 'active' : ''}"
+                data-action="products:filter"
+                data-category="favorites"
+                type="button">
+            ❤️ ${t('filterFavorites')}
+        </button>
+    `;
+
+    // [Parents]
+    CATEGORY_GROUPS.forEach(group => {
+        const isActive = activeCat === group.id || (activeParent && activeParent.id === group.id);
+        const count = counts[group.id] || 0;
+        htmlRow1 += `
+            <button class="filter-btn filter-btn-parent ${isActive ? 'active' : ''}"
+                    data-action="products:filter"
+                    data-category="${group.id}"
+                    type="button">
+                ${group.emoji} ${t(group.label)} (${count})
             </button>
         `;
     });
-    container.innerHTML = html;
+
+    htmlRow1 += '</div>';
+
+    // ============================================
+    // RANGÉE 2 — Enfants du parent actif (si applicable)
+    // ============================================
+    let htmlRow2 = '';
+    if (activeParent && activeParent.children && activeParent.children.length > 0) {
+        const isParentActive = activeCat === activeParent.id;
+
+        htmlRow2 += '<div class="filters-categories-row filters-categories-children">';
+
+        // Bouton "Voir toute la catégorie"
+        htmlRow2 += `
+            <button class="filter-btn filter-btn-all-children ${isParentActive ? 'active' : ''}"
+                    data-action="products:filter"
+                    data-category="${activeParent.id}"
+                    type="button"
+                    title="Voir tous les produits de ${t(activeParent.label)}">
+                ↳ ${t('filterAllOf') || 'Tout'} ${t(activeParent.label)}
+            </button>
+        `;
+
+        // Enfants
+        activeParent.children.forEach(child => {
+            const isChildActive = activeCat === child.id;
+            const count = counts[child.id] || 0;
+            // Ne pas afficher les enfants vides (sauf si actif)
+            if (count === 0 && !isChildActive) return;
+            htmlRow2 += `
+                <button class="filter-btn filter-btn-child ${isChildActive ? 'active' : ''}"
+                        data-action="products:filter"
+                        data-category="${child.id}"
+                        type="button">
+                    ${child.emoji} ${t(child.label)} (${count})
+                </button>
+            `;
+        });
+
+        htmlRow2 += '</div>';
+    }
+
+    container.innerHTML = htmlRow1 + htmlRow2;
+
+    // ============================================
+    // Listener "clear temp filter" pour le bouton actif
+    // ============================================
+    // (géré par events.js via data-action)
 }
 
 // ============================================================
@@ -616,7 +732,7 @@ export function renderSortOptions() {
 }
 
 // ============================================================
-// ✅ I8.2 — TOGGLE FAVORI (arrayUnion/arrayRemove — atomique)
+// TOGGLE FAVORI (arrayUnion/arrayRemove — atomique)
 // ============================================================
 export async function toggleFavorite(productId) {
     const user = getCurrentUser();
@@ -639,12 +755,10 @@ export async function toggleFavorite(productId) {
     const isAdding = !currentFavs.includes(pid);
 
     try {
-        // ✅ I8.2 : opération atomique (pas de replace du tableau)
         await updateDoc(doc(db, "users", user.uid), {
             favorites: isAdding ? arrayUnion(pid) : arrayRemove(pid)
         });
 
-        // Sync local
         const newFavs = isAdding
             ? [...new Set([...currentFavs, pid])]
             : currentFavs.filter(id => id !== pid);
@@ -653,7 +767,6 @@ export async function toggleFavorite(productId) {
 
         showToast(isAdding ? '❤️ ' + t('favAdded') : '💔 ' + t('favRemoved'));
 
-        // Re-render (si sur home)
         if (document.getElementById('productsGrid')) {
             await renderProducts();
         }
@@ -674,4 +787,4 @@ export function openProductPage(slug) {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ products.js chargé — v3.0.0 (filtres parents, races, cache)');
+console.log('✅ products.js chargé — v3.1.0 (filtres 2 rangées + compteurs)');
