@@ -1,7 +1,7 @@
 // js/products.js
 // ============================================================
 // GESTION DES PRODUITS - SMART SWI9A
-// Version 3.3.0 — Bande défilante visuelle (23 catégories)
+// Version 3.3.1 — Bande défilante visuelle (images à la racine de assets)
 // ============================================================
 
 import {
@@ -538,7 +538,8 @@ export function renderCategoryFilters() {
     // 23 Catégories Parents
     CATEGORY_GROUPS.forEach(group => {
         const isActive = activeCat === group.id || activeParentId === group.id;
-        const imgPath = `/assets/categories/${group.id}.webp`;
+        // ✅ CHEMIN CORRIGÉ : on pointe directement vers /assets/
+        const imgPath = `/assets/${group.id}.webp`;
         mainHtml += `
             <button class="category-scroll-item ${isActive ? 'active' : ''}" data-action="products:filter" data-category="${group.id}">
                 <div class="category-scroll-img">
@@ -580,7 +581,8 @@ export function renderCategoryFilters() {
 
             parentGroup.children.forEach(child => {
                 const isActive = activeCat === child.id;
-                const imgPath = `/assets/categories/${child.id}.webp`;
+                // ✅ CHEMIN CORRIGÉ : on pointe directement vers /assets/
+                const imgPath = `/assets/${child.id}.webp`;
                 childHtml += `
                     <button class="category-scroll-item child-item ${isActive ? 'active' : ''}" data-action="products:filter" data-category="${child.id}">
                         <div class="category-scroll-img">
@@ -685,4 +687,4 @@ export function openProductPage(slug) {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ products.js chargé — v3.3.0 (Bande défilante visuelle)');
+console.log('✅ products.js chargé — v3.3.1 (images à la racine de assets)');
