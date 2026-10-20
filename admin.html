@@ -350,7 +350,6 @@
             margin-top: -0.2rem;
         }
 
-        /* Styles pour le tableau des variantes */
         #variantsContainer {
             display: none;
             background: var(--bg-surface);
@@ -1148,6 +1147,23 @@
                 </ul>
                 <button class="admin-btn-primary" id="migrateCitiesBtn">🚀 Lancer la migration des villes</button>
                 <div class="admin-tool-log" id="migrationLog"></div>
+            </div>
+
+            <!-- ✅ FIX #17 : Migration catégories legacy -->
+            <div class="admin-tool-card">
+                <h4>🔧 Migration des catégories legacy</h4>
+                <p>
+                    Migre automatiquement les anciennes catégories (<code>smartphone</code>, <code>tablet</code>, <code>watch</code>…) vers la nouvelle arborescence
+                    (<code>smartphones</code>, <code>tablets</code>, <code>wearables</code>…).
+                </p>
+                <ul style="font-size:0.85rem;color:var(--text-muted);margin-left:1.5rem;margin-bottom:1rem;line-height:1.8;">
+                    <li>✅ Aucune perte de données</li>
+                    <li>✅ Chaque produit est mis à jour individuellement</li>
+                    <li>✅ Les produits <code>category: 'smartphone'</code> deviennent <code>'smartphones'</code></li>
+                    <li>✅ Cohérence client ↔ admin rétablie</li>
+                </ul>
+                <button class="admin-btn-primary" id="migrateLegacyCategoriesBtn">🔧 Lancer la migration des catégories</button>
+                <div class="admin-tool-log" id="legacyMigrationLog"></div>
             </div>
 
             <div class="admin-tool-card">
