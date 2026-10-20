@@ -1,14 +1,14 @@
 // js/whatsapp.js
 // ============================================================
 // COMMANDE VIA WHATSAPP - SMART SWI9A
-// Version 2.0.0 — Variantes + sécurité + cleanup
+// Version 2.0.1 — Fix : suppression code mort openWhatsApp() (require ESM)
 // ============================================================
-// CHANGEMENTS v2.0.0 :
-// ✅ I17.1 — orderViaWhatsApp(productId, variant) gère les variants
-// ✅ I17.2 — orderCartViaWhatsApp() SUPPRIMÉE (dead code)
-// ✅ M17.1 — Limite 4096 chars + troncature propre
-// ✅ M17.2 — openWhatsApp() fallback same-tab si popup bloquée
-// ✅ M17.3 — Toast de confirmation après envoi
+// CHANGEMENTS v2.0.1 :
+// ✅ FIX MINEUR — suppression de openWhatsApp() qui contenait un
+//    `require()` (incompatible ESM) et n'était de toute façon
+//    JAMAIS appelée (seule openWhatsAppWithToast() l'était).
+//    → Code plus propre, pas de risque de crash si un jour appelée.
+// ✅ (Repris v2.0.0) — I17.1, I17.2, M17.1, M17.2, M17.3
 // ============================================================
 // Dépend de : config, utils, store
 // ============================================================
@@ -40,37 +40,11 @@ function truncateMessage(msg) {
 }
 
 // ============================================================
-// ✅ M17.2 : OUVRIR WHATSAPP (avec fallback popup bloquée)
-// ============================================================
-function openWhatsApp(message) {
-    const phone = String(CONFIG.SHOP.WHATSAPP_NUMBER).replace(/\D/g, '');
-    const safeMessage = truncateMessage(message);
-    const encoded = encodeURIComponent(safeMessage);
-    const url = `https://wa.me/${phone}?text=${encoded}`;
-
-    // Tentative popup
-    const win = window.open(url, '_blank', 'noopener,noreferrer');
-
-    // ✅ M17.2 : fallback si popup bloquée
-    if (!win || win.closed || typeof win.closed === 'undefined') {
-        console.warn('⚠️ Popup bloquée, fallback même onglet');
-        window.location.href = url;
-        return false;
-    }
-
-    // ✅ M17.3 : toast confirmation
-    try {
-        const { showToast } = require('./ui-core.js'); // Ne marche pas en ESM
-    } catch (e) { /* ignore */ }
-
-    // ⚠️ On retourne true pour indiquer succès (pas de toast ici car import dynamique)
-    return true;
-}
-
-// ============================================================
 // ✅ M17.3 : OUVRIR WHATSAPP + TOAST (version async)
 // ------------------------------------------------------------
 // Utilise import dynamique pour éviter le cycle avec ui-core
+// ✅ FIX v2.0.1 : c'est la SEULE fonction d'ouverture WhatsApp
+//    (l'ancienne openWhatsApp() avec require() a été supprimée)
 // ============================================================
 async function openWhatsAppWithToast(message, successMsg = null) {
     const phone = String(CONFIG.SHOP.WHATSAPP_NUMBER).replace(/\D/g, '');
@@ -213,4 +187,4 @@ export function shareProductOnWhatsApp(productId) {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ whatsapp.js chargé — v2.0.0 (variantes + fallback + troncature)');
+console.log('✅ whatsapp.js chargé — v2.0.1 (suppression openWhatsApp() dead code)');
