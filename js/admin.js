@@ -1,21 +1,17 @@
 // js/admin.js
 // ============================================================
 // PANNEAU ADMINISTRATION - SMART SWI9A
-// Version 6.0.0 — Fixes critiques (variants, quota, sécurité)
+// Version 6.1.0 — Fixes cohérence catégories (client ↔ admin)
 // ============================================================
-// CHANGEMENTS v6.0.0 :
-// ✅ C11.1 — emailVerified check au login
-// ✅ C11.2 — generateVariants préserve prix/stocks existants
-// ✅ C11.3 — Validation stricte prix/stock variantes
-// ✅ C11.4 — loadStats/refreshAdminAlerts : queries ciblées
-// ✅ C11.5 — Restock redirige vers editProduct si variantes
-// ✅ I11.1 — migrate cities : delete batch AVANT
-// ✅ I11.2 — Pagination blog affichée
-// ✅ I11.3 — Alerts : parcourt variants
-// ✅ I11.4 — validateImageFile + MAX_GALLERY_FILES
-// ✅ I11.5 — Coupons ID déterministe
-// ✅ I11.6 — escapeHTML labels variantes
-// ✅ M11.1-24 — Divers guards + cache + locale
+// CHANGEMENTS v6.1.0 :
+// ✅ FIX #2 — filterProductsList() utilise productMatchesCategory()
+//    (cohérence legacy avec le client)
+// ✅ FIX #3 — editProduct() gère les catégories legacy proprement
+// ✅ FIX #8 — Cascade parent→enfant : cas legacy géré
+// ✅ FIX #10 — Compteurs produits par catégorie dans le filtre admin
+// ✅ FIX #12 — <optgroup> dans productCategoryFilter (design pro)
+// ✅ FIX #17 — Bouton "Migrer catégories legacy" (Outils admin)
+// ✅ (Repris v6.0.0) — C11.1→C11.5, I11.1→I11.6, M11.1→M11.24
 // ============================================================
 
 import { auth, db, storage } from "./firebase.js";
@@ -29,7 +25,9 @@ import {
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import {
-    ROLES, ORDER_STATUS, CATEGORY_GROUPS, CONFIG, normalizeOrderStatus
+    ROLES, ORDER_STATUS, CATEGORY_GROUPS, CONFIG, normalizeOrderStatus,
+    productMatchesCategory, normalizeCategory, getCategoryById,
+    LEGACY_CATEGORY_MAP
 } from "./config.js";
 import {
     escapeHTML, slugify, getStoragePathFromUrl, isStorageUrl,
@@ -73,7 +71,7 @@ const BLOG_PER_PAGE = CONFIG.BLOG.PER_PAGE || 6;
 let blogCurrentPage = 1;
 
 // ✅ I11.4 : Validation uploads
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 Mo
+const MAX_FILE_SIZE = 5 * 1024 * 1024;
 const MAX_GALLERY_FILES = 5;
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
 
@@ -100,7 +98,7 @@ function tCategoryLabel(labelKey) {
 }
 
 // ============================================================
-// ✅ M11.5 : Formatage date localisé
+// Formatage date localisé
 // ============================================================
 function formatDateLocale(date) {
     if (!date) return '—';
@@ -195,7 +193,7 @@ async function deleteStorageImages(urls) {
 }
 
 // ============================================================
-// ✅ I11.4 : Validation uploads images
+// Validation uploads images
 // ============================================================
 function validateImageFile(file) {
     if (!file) throw new Error('Fichier manquant');
@@ -264,7 +262,7 @@ async function loadTransactions() {
 }
 
 // ============================================================
-// ✅ C11.4 + I11.3 : BANDEAU D'ALERTES (queries ciblées)
+// BANDEAU D'ALERTES (queries ciblées)
 // ============================================================
 function initAdminAlerts() {
     refreshAdminAlerts();
@@ -300,7 +298,6 @@ async function refreshAdminAlerts() {
     if (!banner || !auth.currentUser) return;
 
     try {
-        // ✅ C11.4 : queries ciblées (pas de getDocs massif)
         const [snapOrders, snapReviews] = await Promise.all([
             getDocs(query(collection(db, "orders"), where("status", "==", "pending"), limit(100))),
             getDocs(query(collection(db, "reviews"), where("status", "==", "pending"), limit(100)))
@@ -309,19 +306,15 @@ async function refreshAdminAlerts() {
         const pendingOrdersCount = snapOrders.size;
         const pendingReviewsCount = snapReviews.size;
 
-        // ✅ I11.3 : stockOut/Low calculés avec variants
         const stockOutNames = [];
         const stockLowNames = [];
 
-        // Query ciblée pour stock bas (nécessite d'avoir tous les produits avec stock < 5)
-        // On garde le getDocs pour les stock bas car on doit itérer sur variants
         const snapProducts = await getDocs(collection(db, "products"));
         snapProducts.forEach(d => {
             const p = d.data();
             const name = p.nameFr || p.nameEn || 'Sans nom';
 
             if (Array.isArray(p.variants) && p.variants.length > 0) {
-                // ✅ I11.3 : parcourir les variants
                 p.variants.forEach(v => {
                     const vStock = Number(v.stock) || 0;
                     const vLabel = [v.size, v.color].filter(Boolean).join('/');
@@ -401,14 +394,13 @@ function formatTooltipList(arr, max = 5) {
 }
 
 // ============================================================
-// ✅ C11.1 : INITIALISATION (check emailVerified)
+// INITIALISATION
 // ============================================================
 function initAdmin() {
     console.log('🚀 Admin : initialisation...');
 
     onAuthStateChanged(auth, async (user) => {
         if (user) {
-            // ✅ C11.1 : check emailVerified AVANT tout
             if (!user.emailVerified && user.providerData?.[0]?.providerId === 'password') {
                 console.log('⛔ Admin email non vérifié');
                 currentAdmin = null;
@@ -448,7 +440,6 @@ function initAdmin() {
 
     document.getElementById('adminLoginBtn')?.addEventListener('click', handleLogin);
     document.getElementById('adminLogoutBtn')?.addEventListener('click', async () => {
-        // ✅ M11.1 : reset currentAdmin
         currentAdmin = null;
         resetAdminOrdersCache();
         if (alertInterval) clearInterval(alertInterval);
@@ -496,7 +487,7 @@ function initAdmin() {
 
     document.addEventListener('order-stock-changed', async () => {
         try {
-            await loadProducts(true); // force refresh
+            await loadProducts(true);
             await loadStats();
             refreshAdminAlerts();
         } catch (e) {}
@@ -531,6 +522,9 @@ function initAdmin() {
 
     document.getElementById('migrateCitiesBtn')?.addEventListener('click', handleMigrateCities);
     document.getElementById('refreshCollectionsBtn')?.addEventListener('click', loadCollectionsStatus);
+
+    // ✅ FIX #17 : bouton migration catégories legacy
+    document.getElementById('migrateLegacyCategoriesBtn')?.addEventListener('click', handleMigrateLegacyCategories);
 
     document.getElementById('accRefreshBtn')?.addEventListener('click', refreshAccOverview);
     document.getElementById('accPeriod')?.addEventListener('change', (e) => {
@@ -934,11 +928,10 @@ async function loadAllData() {
 }
 
 // ============================================================
-// ✅ C11.4 : STATS (getCountFromServer uniquement)
+// STATS
 // ============================================================
 async function loadStats() {
     try {
-        // Produits
         try {
             const c = await getCountFromServer(collection(db, "products"));
             const el = document.getElementById('statProducts');
@@ -948,7 +941,6 @@ async function loadStats() {
             if (el) el.textContent = '—';
         }
 
-        // Commandes (revenue + pending nécessitent un scan limité)
         const ordersSnap = await getDocs(collection(db, "orders"));
         let pendingOrders = 0, revenue = 0;
         ordersSnap.forEach(d => {
@@ -964,7 +956,6 @@ async function loadStats() {
         if (sOP) sOP.textContent = pendingOrders;
         if (sR) sR.textContent = `${revenue} MAD`;
 
-        // Users
         try {
             const c = await getCountFromServer(collection(db, "users"));
             const el = document.getElementById('statUsers');
@@ -974,14 +965,12 @@ async function loadStats() {
             if (el) el.textContent = '—';
         }
 
-        // Reviews pending
         try {
             const snap = await getDocs(query(collection(db, "reviews"), where("status", "==", "pending"), limit(100)));
             const el = document.getElementById('statReviewsPending');
             if (el) el.textContent = snap.size;
         } catch (e) {}
 
-        // Cities
         try {
             const c = await getCountFromServer(collection(db, "cities"));
             const el = document.getElementById('statCities');
@@ -994,12 +983,11 @@ async function loadStats() {
 }
 
 // ============================================================
-// ✅ M11.3 : PRODUCTS (cache TTL 5min + force param)
+// PRODUCTS (cache TTL 5min + force param)
 // ============================================================
 async function loadProducts(force = false) {
     const container = document.getElementById('adminProductsList');
 
-    // ✅ M11.3 : cache TTL
     const now = Date.now();
     const cacheValid = !force
         && cachedProducts.length > 0
@@ -1019,34 +1007,65 @@ async function loadProducts(force = false) {
         cachedProducts.sort((a, b) => (a.nameFr || '').localeCompare(b.nameFr || ''));
         _productsCacheTime = now;
         productsCurrentPage = 1;
+        // ✅ FIX #10 : re-populate pour mettre à jour les compteurs
+        populateCategoriesFilter();
         if (container) filterProductsList(false);
     } catch (e) {
         if (container) container.innerHTML = `<div class="admin-empty" style="color:var(--danger);">${t('loadingError')}</div>`;
     }
 }
 
-// ✅ M11.3 : invalidation cache après mutation
 function invalidateProductsCache() {
     _productsCacheTime = 0;
 }
 
 // ============================================================
-// CATEGORIES (fix C1.1 : labels traduits via tCategoryLabel)
+// ✅ FIX #10 + #12 : CATEGORIES FILTER (optgroup + compteurs)
 // ============================================================
 function populateCategoriesFilter() {
     const selectFilter = document.getElementById('productCategoryFilter');
-    if (selectFilter && !selectFilter._populated) {
-        let html = `<option value="all">${t('filterAll')}</option>`;
+
+    // ✅ FIX #10 : on re-populate à chaque fois pour rafraîchir les compteurs
+    if (selectFilter) {
+        const prevValue = selectFilter.value || 'all';
+        const products = cachedProducts || [];
+
+        // Calcul des compteurs (parent = somme enfants + directs)
+        const counts = { all: products.length };
         CATEGORY_GROUPS.forEach(group => {
-            html += `<option value="${group.id}" style="font-weight:bold;">📁 ${tCategoryLabel(group.label)}</option>`;
-            group.children.forEach(cat => {
-                html += `<option value="${cat.id}">&nbsp;&nbsp;&nbsp;↳ ${cat.emoji} ${tCategoryLabel(cat.label)}</option>`;
+            let parentCount = 0;
+            group.children.forEach(child => {
+                const childCount = products.filter(p =>
+                    p.category === child.id || normalizeCategory(p.category) === child.id
+                ).length;
+                counts[child.id] = childCount;
+                parentCount += childCount;
             });
+            const direct = products.filter(p => p.category === group.id).length;
+            counts[group.id] = parentCount + direct;
+        });
+
+        // ✅ FIX #12 : <optgroup> pour un design pro
+        let html = `<option value="all">${t('filterAll')} (${counts.all})</option>`;
+        CATEGORY_GROUPS.forEach(group => {
+            html += `<optgroup label="${group.emoji} ${tCategoryLabel(group.label)} (${counts[group.id]})">`;
+            html += `<option value="${group.id}">📁 ${t('filterAllOf') || 'Toute la catégorie'} (${counts[group.id]})</option>`;
+            group.children.forEach(cat => {
+                html += `<option value="${cat.id}">&nbsp;&nbsp;↳ ${cat.emoji} ${tCategoryLabel(cat.label)} (${counts[cat.id]})</option>`;
+            });
+            html += `</optgroup>`;
         });
         selectFilter.innerHTML = html;
-        selectFilter._populated = true;
+
+        // Préserver la sélection
+        if ([...selectFilter.options].some(o => o.value === prevValue)) {
+            selectFilter.value = prevValue;
+        } else {
+            selectFilter.value = 'all';
+        }
     }
 
+    // Parent select (une seule fois)
     const parentSelect = document.getElementById('pParentCategory');
     const childSelect = document.getElementById('pCategory');
 
@@ -1086,7 +1105,7 @@ function attachClearTempFilterListener() {
 }
 
 // ============================================================
-// ✅ I11.6 : RENDER PRODUCTS LIST (escapeHTML labels)
+// RENDER PRODUCTS LIST (escapeHTML labels)
 // ============================================================
 function renderProductsList(products) {
     const container = document.getElementById('adminProductsList');
@@ -1140,10 +1159,16 @@ function renderProductsList(products) {
             ? `<span style="background:var(--info);color:#fff;font-size:0.65rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;" title="${p.variants.length} variante(s)">🎨</span>`
             : '';
 
+        // ✅ FIX #3 : badge legacy pour identifier les produits à migrer
+        const isLegacy = !!LEGACY_CATEGORY_MAP[category];
+        const legacyBadge = isLegacy
+            ? `<span style="background:var(--warning);color:#fff;font-size:0.65rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;" title="Catégorie legacy : ${escapeHTML(category)}">⚠️ legacy</span>`
+            : '';
+
         html += `
             <div class="admin-list-item" data-product-id="${p.id}">
                 <div class="admin-list-item-info">
-                    <strong>${name}${videoBadge}${variantBadge}</strong>
+                    <strong>${name}${videoBadge}${variantBadge}${legacyBadge}</strong>
                     <div style="font-size:0.8rem;color:var(--text-muted);margin-top:0.2rem;">
                         📂 ${escapeHTML(category)} · 💰 ${price} MAD ${isPromo ? `<small style="text-decoration:line-through;color:var(--text-dim);">${oldPrice}</small>` : ''} · <span style="color:${stockColor};font-weight:700;">${stockEmoji} ${stock}</span>
                     </div>
@@ -1190,19 +1215,17 @@ function renderProductsList(products) {
     });
 }
 
+// ============================================================
+// ✅ FIX #2 : FILTRE PRODUITS (cohérence client via productMatchesCategory)
+// ============================================================
 function filterProductsList(resetPage = true) {
     const search = document.getElementById('productSearchAdmin')?.value.toLowerCase().trim() || '';
     const category = document.getElementById('productCategoryFilter')?.value || 'all';
     let filtered = cachedProducts;
 
     if (category !== 'all') {
-        const isParent = CATEGORY_GROUPS.some(g => g.id === category);
-        if (isParent) {
-            const validChildIds = CATEGORY_GROUPS.find(g => g.id === category).children.map(c => c.id);
-            filtered = filtered.filter(p => validChildIds.includes(p.category) || p.category === category);
-        } else {
-            filtered = filtered.filter(p => p.category === category);
-        }
+        // ✅ FIX #2 : utilise productMatchesCategory (gère parents + enfants + legacy)
+        filtered = filtered.filter(p => productMatchesCategory(p, category));
     }
 
     if (search) filtered = filtered.filter(p => {
@@ -1225,7 +1248,7 @@ function filterProductsList(resetPage = true) {
 }
 
 // ============================================================
-// ✅ C11.5 : RESTOCK (redirige si variants)
+// RESTOCK (redirige si variants)
 // ============================================================
 async function openRestockModal(productId) {
     let product = cachedProducts.find(p => p.id === productId);
@@ -1235,7 +1258,6 @@ async function openRestockModal(productId) {
         product = { id: snap.id, ...snap.data() };
     }
 
-    // ✅ C11.5 : rediriger si variantes
     if (Array.isArray(product.variants) && product.variants.length > 0) {
         showToast('ℹ️ Ce produit a des variantes. Modifiez via édition.');
         await editProduct(productId);
@@ -1288,7 +1310,6 @@ async function openRestockModal(productId) {
 
     document.getElementById('confirmRestockBtn').addEventListener('click', async () => {
         const qty = parseInt(qtyInput.value) || 1;
-        // ✅ M11.4 : guard
         if (qty < 1) { showToast('⚠️ Quantité invalide (min 1)'); return; }
         if (qty > 99999) { showToast('⚠️ Quantité trop élevée (max 99999)'); return; }
 
@@ -1299,7 +1320,7 @@ async function openRestockModal(productId) {
             await updateDoc(doc(db, "products", productId), { stock: increment(qty), updatedAt: Timestamp.now() });
             showToast('✅ Stock +' + qty);
             closeModal();
-            invalidateProductsCache(); // ✅ M11.3
+            invalidateProductsCache();
             await loadProducts(true);
             await loadStats();
         } catch (e) {
@@ -1335,7 +1356,6 @@ function attachProductFormEvents() {
         imgFile.addEventListener('change', () => {
             const file = imgFile.files[0];
             if (!file) return;
-            // ✅ I11.4 : validation
             try {
                 validateImageFile(file);
             } catch (e) {
@@ -1352,7 +1372,6 @@ function attachProductFormEvents() {
     const galleryPreview = document.getElementById('pGalleryPreview');
     if (galleryFiles && galleryPreview) {
         galleryFiles.addEventListener('change', () => {
-            // ✅ I11.4 : max 5
             const files = Array.from(galleryFiles.files).slice(0, MAX_GALLERY_FILES);
             for (const file of files) {
                 try {
@@ -1390,7 +1409,7 @@ function attachProductFormEvents() {
 }
 
 // ============================================================
-// ✅ C11.2 : GÉNÉRATION VARIANTES (préserve les valeurs existantes)
+// GÉNÉRATION VARIANTES (préserve les valeurs existantes)
 // ============================================================
 function generateVariants() {
     const sizesRaw = document.getElementById('pSizes').value.trim();
@@ -1408,7 +1427,6 @@ function generateVariants() {
         return;
     }
 
-    // ✅ C11.2 : sauvegarder les valeurs existantes AVANT de vider
     const existingValues = {};
     tbody.querySelectorAll('tr').forEach(tr => {
         const key = `${tr.dataset.size || ''}__${tr.dataset.color || ''}`;
@@ -1439,7 +1457,6 @@ function generateVariants() {
         const key = `${combo.size}__${combo.color}`;
         const existing = existingValues[key];
 
-        // ✅ C11.2 : garder les valeurs existantes si présentes
         const price = existing && existing.price !== null ? existing.price : defaultPrice;
         const stock = existing && existing.stock !== null ? existing.stock : defaultStock;
 
@@ -1485,6 +1502,9 @@ function resetProductForm() {
     document.getElementById('tab-products')?.scrollIntoView({ behavior: 'smooth' });
 }
 
+// ============================================================
+// ✅ FIX #3 + #8 : ÉDITION PRODUIT (gère legacy proprement)
+// ============================================================
 async function editProduct(id) {
     try {
         const snap = await getDoc(doc(db, "products", id));
@@ -1500,19 +1520,33 @@ async function editProduct(id) {
         const parentSelect = document.getElementById('pParentCategory');
         const childSelect = document.getElementById('pCategory');
 
-        let foundParentId = '';
-        CATEGORY_GROUPS.forEach(g => {
-            if (g.children.some(c => c.id === p.category)) foundParentId = g.id;
-        });
+        // ✅ FIX #3 : résolution parent/enfant via helpers (gère legacy)
+        const catInfo = getCategoryById(p.category);
+        let parentId = '';
+        let childId = '';
 
-        if (foundParentId) {
-            parentSelect.value = foundParentId;
+        if (catInfo) {
+            if (catInfo.isParent) {
+                parentId = catInfo.id;
+                childId = '';
+            } else {
+                parentId = catInfo.parentId || '';
+                childId = catInfo.id;
+            }
+        }
+
+        if (parentId) {
+            parentSelect.value = parentId;
             parentSelect.dispatchEvent(new Event('change'));
-            childSelect.value = p.category || '';
+            childSelect.value = childId;
         } else {
+            // Catégorie vraiment inconnue (ni legacy, ni valide)
             parentSelect.value = '';
-            childSelect.innerHTML = `<option value="${escapeHTML(p.category || '')}">${escapeHTML(p.category || '')} (Ancienne)</option>`;
-            childSelect.value = p.category || '';
+            childSelect.innerHTML = `<option value="">-- Choisir une sous-catégorie --</option>`;
+            childSelect.value = '';
+            if (p.category) {
+                showToast(`⚠️ Catégorie "${p.category}" invalide — veuillez re-sélectionner`);
+            }
         }
 
         document.getElementById('pPrice').value = p.price || '';
@@ -1587,7 +1621,7 @@ async function editProduct(id) {
 }
 
 // ============================================================
-// ✅ C11.3 + I11.6 : SAVE PRODUCT (validation stricte variants)
+// SAVE PRODUCT (validation stricte variants)
 // ============================================================
 async function saveProduct() {
     const editId = document.getElementById('productEditId').value;
@@ -1631,7 +1665,6 @@ async function saveProduct() {
 
         const videoValue = document.getElementById('pVideo').value.trim();
 
-        // ✅ C11.3 + I11.6 : Validation stricte variants
         const variants = [];
         const variantsTbody = document.querySelector('#variantsTable tbody');
         if (document.getElementById('variantsContainer').style.display !== 'none') {
@@ -1646,7 +1679,6 @@ async function saveProduct() {
                 const vPrice = parseFloat(priceInput?.value);
                 const vStock = parseInt(stockInput?.value);
 
-                // ✅ C11.3 : validation stricte
                 if (!Number.isFinite(vPrice) || vPrice < 0 || vPrice > 100000) {
                     throw new Error(`Prix invalide pour ${label} (0-100000 MAD)`);
                 }
@@ -1721,7 +1753,7 @@ async function saveProduct() {
             showToast('✅ ' + t('success'));
         }
 
-        invalidateProductsCache(); // ✅ M11.3
+        invalidateProductsCache();
         resetProductForm();
         await loadProducts(true);
         await loadStats();
@@ -1749,7 +1781,7 @@ async function deleteProduct(id) {
         (product.gallery || []).forEach(u => { if (isStorageUrl(u)) toDel.push(u); });
         if (toDel.length) await deleteStorageImages(toDel);
         showToast('🗑️ ' + t('delete'));
-        invalidateProductsCache(); // ✅ M11.3
+        invalidateProductsCache();
         await loadProducts(true);
         await loadStats();
     } catch (e) { showToast('❌ ' + t('error')); }
@@ -1865,7 +1897,7 @@ function filterUsersList() {
 }
 
 // ============================================================
-// ✅ I11.2 : BLOG (pagination affichée)
+// BLOG
 // ============================================================
 async function loadBlogPosts() {
     const container = document.getElementById('adminBlogList');
@@ -1890,7 +1922,6 @@ async function loadBlogPosts() {
     }
 }
 
-// ✅ M11.5 : locale via getLang
 function renderBlogListAdmin(posts) {
     const container = document.getElementById('adminBlogList');
     if (!container) return;
@@ -1923,7 +1954,6 @@ function renderBlogListAdmin(posts) {
         `;
     });
 
-    // ✅ I11.2 : pagination
     if (totalPages > 1) {
         html += `<div style="display:flex;justify-content:center;gap:0.3rem;margin-top:1rem;flex-wrap:wrap;">`;
         html += `<button class="admin-btn-icon" data-blog-page="prev" ${blogCurrentPage === 1 ? 'disabled' : ''}>‹</button>`;
@@ -1937,7 +1967,6 @@ function renderBlogListAdmin(posts) {
     container.querySelectorAll('[data-action="edit-post"]').forEach(btn => btn.addEventListener('click', () => editBlogPost(btn.dataset.id)));
     container.querySelectorAll('[data-action="delete-post"]').forEach(btn => btn.addEventListener('click', () => deleteBlogPost(btn.dataset.id)));
 
-    // ✅ I11.2 : listeners pagination
     container.querySelectorAll('[data-blog-page]').forEach(btn => {
         btn.addEventListener('click', () => {
             const p = btn.dataset.blogPage;
@@ -2123,7 +2152,7 @@ async function deleteBlogPost(id) {
 }
 
 // ============================================================
-// ✅ I11.5 : COUPONS (ID déterministe)
+// COUPONS (ID déterministe)
 // ============================================================
 async function loadCoupons() {
     const container = document.getElementById('couponsList');
@@ -2220,7 +2249,6 @@ function renderCouponsList(coupons) {
             `;
         }
 
-        // ✅ M11.5 : formatDateLocale
         let expireLabel = '<span style="color:var(--text-dim);">Jamais</span>';
         if (expiresAt) {
             const dateStr = formatDateLocale(expiresAt);
@@ -2340,7 +2368,6 @@ async function editCoupon(id) {
     }
 }
 
-// ✅ I11.5 : ID déterministe
 async function saveCoupon() {
     const editId = document.getElementById('couponEditId').value;
     const saveBtn = document.getElementById('saveCouponBtn');
@@ -2366,12 +2393,10 @@ async function saveCoupon() {
     btnText.textContent = '⏳ ' + t('loading');
 
     try {
-        // ✅ I11.5 : ID déterministe (anti-race)
         const deterministicId = code.replace(/[^A-Z0-9]/g, '_');
         const couponRef = doc(db, "coupons", deterministicId);
         const existing = await getDoc(couponRef);
 
-        // Si le doc existe et n'est pas celui qu'on est en train d'éditer → conflit
         if (existing.exists() && existing.id !== editId) {
             showToast('⚠️ Ce code existe déjà — choisissez-en un autre');
             saveBtn.disabled = false;
@@ -2399,7 +2424,6 @@ async function saveCoupon() {
         }
 
         if (editId) {
-            // Si l'ID change (code modifié), supprimer l'ancien
             if (editId !== deterministicId) {
                 await setDoc(couponRef, couponData);
                 await deleteDoc(doc(db, "coupons", editId));
@@ -2476,7 +2500,7 @@ function filterCouponsList() {
 }
 
 // ============================================================
-// ✅ I11.1 : MIGRATION VILLES (delete batch AVANT)
+// MIGRATION VILLES (delete batch AVANT)
 // ============================================================
 async function handleMigrateCities() {
     const btn = document.getElementById('migrateCitiesBtn');
@@ -2510,7 +2534,6 @@ async function handleMigrateCities() {
         });
         if (!confirmed) { btn.disabled = false; return; }
 
-        // ✅ I11.1 : SUPPRIMER les anciennes AVANT (batch 400)
         log(`\n⏳ Suppression de ${existingSnap.size} anciennes villes...`);
         const oldDocs = existingSnap.docs;
         for (let i = 0; i < oldDocs.length; i += 400) {
@@ -2560,6 +2583,88 @@ async function handleMigrateCities() {
     loadCollectionsStatus();
     loadStats();
     showToast('🎉 ' + t('success'));
+}
+
+// ============================================================
+// ✅ FIX #17 : MIGRATION CATÉGORIES LEGACY
+// ============================================================
+async function handleMigrateLegacyCategories() {
+    const btn = document.getElementById('migrateLegacyCategoriesBtn');
+    const logEl = document.getElementById('legacyMigrationLog');
+    const log = (msg, isErr = false) => {
+        if (!logEl) return;
+        logEl.classList.add('active');
+        const span = document.createElement('div');
+        if (isErr) span.className = 'error';
+        span.textContent = msg;
+        logEl.appendChild(span);
+        logEl.scrollTop = logEl.scrollHeight;
+    };
+    if (logEl) logEl.innerHTML = '';
+    if (btn) btn.disabled = true;
+
+    if (!auth.currentUser) {
+        log('❌ Login requis', true);
+        if (btn) btn.disabled = false;
+        return;
+    }
+
+    const legacyKeys = Object.keys(LEGACY_CATEGORY_MAP);
+    log(`🔍 Recherche des produits avec catégorie legacy (${legacyKeys.join(', ')}...)`);
+
+    // Recharger les produits pour être à jour
+    invalidateProductsCache();
+    await loadProducts(true);
+
+    const toMigrate = cachedProducts.filter(p =>
+        p.category && LEGACY_CATEGORY_MAP[p.category]
+    );
+
+    log(`📦 ${toMigrate.length} produit(s) avec catégorie legacy trouvés`);
+
+    if (toMigrate.length === 0) {
+        log('✅ Aucune migration nécessaire — tout est déjà à jour !');
+        if (btn) { btn.disabled = false; btn.textContent = '✅ Aucune migration'; }
+        return;
+    }
+
+    const confirmed = await confirmAction(
+        `Migrer automatiquement ${toMigrate.length} produit(s) ? (ex: "smartphone" → "smartphones"). Aucune perte de données.`,
+        { title: '🔧 Migration catégories legacy', confirmText: 'Migrer', cancelText: 'Annuler', variant: 'primary' }
+    );
+    if (!confirmed) {
+        if (btn) btn.disabled = false;
+        return;
+    }
+
+    let processed = 0;
+    let errors = 0;
+
+    for (const p of toMigrate) {
+        try {
+            const newCat = LEGACY_CATEGORY_MAP[p.category];
+            await updateDoc(doc(db, "products", p.id), {
+                category: newCat,
+                updatedAt: Timestamp.now()
+            });
+            processed++;
+            log(`  ✓ ${p.nameFr || p.id} : "${p.category}" → "${newCat}"`);
+        } catch (e) {
+            errors++;
+            log(`  ❌ ${p.nameFr || p.id} : ${e.message}`, true);
+        }
+    }
+
+    log(`\n🎉 Migration terminée : ${processed} mis à jour, ${errors} erreur(s)`);
+    showToast(`✅ ${processed} produit(s) migré(s)`);
+
+    invalidateProductsCache();
+    await loadProducts(true);
+
+    if (btn) {
+        btn.disabled = false;
+        btn.textContent = '✅ Migration terminée';
+    }
 }
 
 async function loadCollectionsStatus() {
@@ -3429,4 +3534,4 @@ function calculateFinances() {
 // ============================================================
 initAdmin();
 
-console.log('✅ admin.js chargé — v6.0.0 (variants, quota, sécurité)');
+console.log('✅ admin.js chargé — v6.1.0 (catégories cohérentes client↔admin)');
