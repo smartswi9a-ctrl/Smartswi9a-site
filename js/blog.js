@@ -1,14 +1,21 @@
 // js/blog.js
 // ============================================================
 // BLOG CÔTÉ CLIENT - SMART SWI9A
-// Version 1.1.0 — i18n complet (catégories + read time)
+// Version 2.0.0 — Perf (index-free) + UX + sécurité images
+// ============================================================
+// CHANGEMENTS v2.0.0 :
+// ✅ C16.1 — Retiré orderBy (pas d'index requis), tri côté client
+// ✅ I16.1 — Fuite listener ESC (module-level _currentEscHandler)
+// ✅ I16.2 — renderBlogPagination guard parentNode
+// ✅ I16.3 — Validation images (whitelist http/https/relative)
+// ✅ I16.4 — Debounce interne dans searchBlog
+// ✅ M16.1-5 — Divers (truncate, overflow, imports cleanup)
 // ============================================================
 // Dépend de : config, utils, store, firebase, ui-core
-// Affiche la liste des articles + ouvre un article en modal
 // ============================================================
 
 import {
-    collection, query, where, getDocs, orderBy, limit
+    collection, query, where, getDocs, limit
 } from "firebase/firestore";
 import { db } from "./firebase.js";
 import { CONFIG } from "./config.js";
@@ -17,8 +24,7 @@ import {
 } from "./utils.js";
 import {
     getBlogPosts, setBlogPosts, getBlogFilters, setBlogFilters,
-    resetBlogFilters, getBlogPagination, setBlogPagination,
-    setBlogLoadedPromise, getBlogLoadedPromise
+    getBlogPagination, setBlogPagination, setBlogLoadedPromise
 } from "./store.js";
 import { showToast, openImageLightbox } from "./ui-core.js";
 
@@ -26,6 +32,13 @@ import { showToast, openImageLightbox } from "./ui-core.js";
 // CONSTANTES
 // ============================================================
 const POSTS_PER_PAGE = CONFIG.BLOG.PER_PAGE || 6;
+
+// ✅ I16.4 : debounce interne (self-contained)
+let _searchDebounceTimer = null;
+const SEARCH_DEBOUNCE_MS = 300;
+
+// ✅ I16.1 : ESC handler unique (fix fuite)
+let _currentEscHandler = null;
 
 // ============================================================
 // HELPERS i18n — Catégories blog + Read time
@@ -50,16 +63,56 @@ function tReadTime(min) {
 }
 
 // ============================================================
-// CHARGEMENT DES ARTICLES DEPUIS FIRESTORE
+// ✅ I16.3 : VALIDATION IMAGES (whitelist)
+// ------------------------------------------------------------
+// Accepte :
+//   - http://...  /  https://...
+//   - /chemin/relatif/...
+// Refuse :
+//   - data: (base64, vecteur XSS)
+//   - javascript: (XSS)
+//   - //evil.com (protocol-relative)
+//   - "" / null / undefined
+// ============================================================
+function isValidImageUrl(url) {
+    if (!url || typeof url !== 'string') return false;
+    const trimmed = url.trim();
+    if (!trimmed) return false;
+    if (trimmed.startsWith('//')) return false;         // protocol-relative
+    if (/^https?:\/\//i.test(trimmed)) return true;     // absolute
+    if (trimmed.startsWith('/')) return true;           // absolute path
+    return false;
+}
+
+// ============================================================
+// ✅ M16.2 : TRUNCATE au mot le plus proche
+// ============================================================
+function truncateWords(text, maxLength = 150) {
+    if (!text) return '';
+    const str = String(text).trim();
+    if (str.length <= maxLength) return str;
+    const cut = str.substring(0, maxLength);
+    const lastSpace = cut.lastIndexOf(' ');
+    // Si le dernier espace est trop loin du début → couper brutalement
+    return (lastSpace > maxLength * 0.7
+        ? cut.substring(0, lastSpace)
+        : cut) + '…';
+}
+
+// ============================================================
+// ✅ C16.1 : CHARGEMENT DES ARTICLES (sans orderBy, tri client)
+// ------------------------------------------------------------
+// Sans index composite, orderBy + where échoue.
+// On charge limit(50) puis on trie côté client.
 // ============================================================
 export async function loadBlogPosts() {
     try {
         console.log('⏳ Chargement des articles de blog...');
 
+        // ✅ C16.1 : PAS d'orderBy → pas d'index composite requis
         const q = query(
             collection(db, "blog"),
             where("status", "==", "published"),
-            orderBy("publishedAt", "desc"),
             limit(50)
         );
 
@@ -75,44 +128,21 @@ export async function loadBlogPosts() {
             };
         });
 
+        // ✅ C16.1 : tri côté client (plus récent d'abord)
         posts.sort((a, b) => {
-            const da = a.publishedAt ? a.publishedAt.getTime() : 0;
-            const dbb = b.publishedAt ? b.publishedAt.getTime() : 0;
+            const da = a.publishedAt?.getTime?.() || 0;
+            const dbb = b.publishedAt?.getTime?.() || 0;
             return dbb - da;
         });
 
         console.log(`✅ ${posts.length} articles chargés`);
         setBlogPosts(posts);
         return posts;
+
     } catch (e) {
         console.error('❌ Erreur chargement blog :', e);
-        // Fallback : essaie sans orderBy
-        try {
-            const q = query(
-                collection(db, "blog"),
-                where("status", "==", "published")
-            );
-            const snapshot = await getDocs(q);
-            const posts = snapshot.docs.map(d => {
-                const data = d.data();
-                return {
-                    id: d.id,
-                    ...data,
-                    publishedAt: toDate(data.publishedAt) || toDate(data.createdAt),
-                    createdAt: toDate(data.createdAt)
-                };
-            }).sort((a, b) => {
-                const da = a.publishedAt ? a.publishedAt.getTime() : 0;
-                const dbb = b.publishedAt ? b.publishedAt.getTime() : 0;
-                return dbb - da;
-            });
-            setBlogPosts(posts);
-            return posts;
-        } catch (e2) {
-            console.error('❌ Fallback blog échoué :', e2);
-            setBlogPosts([]);
-            return [];
-        }
+        setBlogPosts([]);
+        return [];
     }
 }
 
@@ -197,26 +227,23 @@ export async function renderBlogList() {
 }
 
 // ============================================================
-// CARTE ARTICLE
+// ✅ CARTE ARTICLE (validation image I16.3)
 // ============================================================
 function renderBlogCard(post, index) {
     const title = escapeHTML(post.title || 'Sans titre');
-    const excerpt = escapeHTML(truncate(post.excerpt || post.content || '', 130));
+    const excerpt = escapeHTML(truncateWords(post.excerpt || post.content || '', 130));
     const categoryLabel = escapeHTML(tCategory(post.category || 'general'));
     const date = formatDate(post.publishedAt || post.createdAt) || '';
     const readTime = estimateReadTime(post.content || '');
-    const hasImg = post.image && post.image !== '';
+
+    // ✅ I16.3 : validation URL
+    const hasImg = isValidImageUrl(post.image);
 
     const gradientClass = `blog-img-bg-${(index % 6) + 1}`;
 
     const catEmojiMap = {
-        conseils: '💡',
-        tendances: '🔥',
-        tests: '🧪',
-        tutoriels: '📖',
-        'smart-home': '🏠',
-        gadgets: '📱',
-        actualites: '📰'
+        conseils: '💡', tendances: '🔥', tests: '🧪',
+        tutoriels: '📖', 'smart-home': '🏠', gadgets: '📱', actualites: '📰'
     };
     const catEmoji = catEmojiMap[post.category] || '📝';
 
@@ -292,16 +319,27 @@ export function filterBlogByCategory(category) {
 }
 
 // ============================================================
-// RECHERCHE
+// ✅ I16.4 : RECHERCHE (debounce INTERNE)
+// ------------------------------------------------------------
+// Cette fonction est self-contained : elle peut être appelée
+// depuis n'importe où (events.js, input direct, etc.) sans
+// provoquer de render excessif.
 // ============================================================
 export function searchBlog(query) {
+    // Mise à jour immédiate du state (pour que l'input reflète la saisie)
     setBlogFilters({ search: query });
     setBlogPagination({ currentPage: 1 });
-    renderBlogList();
+
+    // Render debounced
+    if (_searchDebounceTimer) clearTimeout(_searchDebounceTimer);
+    _searchDebounceTimer = setTimeout(() => {
+        renderBlogList();
+        _searchDebounceTimer = null;
+    }, SEARCH_DEBOUNCE_MS);
 }
 
 // ============================================================
-// PAGINATION
+// ✅ I16.2 : PAGINATION (guard parentNode)
 // ============================================================
 function renderBlogPagination(totalPages, currentPage) {
     const existing = document.getElementById('blogPagination');
@@ -324,7 +362,14 @@ function renderBlogPagination(totalPages, currentPage) {
     html += `<button class="pagination-btn ${currentPage === totalPages ? 'disabled' : ''}" data-blog-page="${currentPage + 1}">›</button>`;
     pag.innerHTML = html;
 
-    container.parentNode.insertBefore(pag, container.nextSibling);
+    // ✅ I16.2 : guard parent + fallback
+    const parent = container.parentNode;
+    if (parent) {
+        parent.insertBefore(pag, container.nextSibling);
+    } else {
+        // Fallback : append dans le container lui-même
+        container.appendChild(pag);
+    }
 
     pag.querySelectorAll('[data-blog-page]').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -338,7 +383,7 @@ function renderBlogPagination(totalPages, currentPage) {
 }
 
 // ============================================================
-// OUVRIR UN ARTICLE (modal)
+// ✅ I16.1 : OUVRIR UN ARTICLE (fix fuite ESC + validation image)
 // ============================================================
 export function openBlogArticle(postId) {
     const post = getBlogPosts().find(p => p.id === postId);
@@ -363,7 +408,8 @@ export function openBlogArticle(postId) {
     };
     const catEmoji = catEmojiMap[post.category] || '📝';
 
-    const hasImg = post.image && post.image !== '';
+    // ✅ I16.3 : validation image
+    const hasImg = isValidImageUrl(post.image);
     const heroHtml = hasImg
         ? `<img src="${escapeHTML(post.image)}" alt="${title}" class="blog-article-hero" data-photo-url="${escapeHTML(post.image)}" style="cursor:zoom-in;">`
         : `<div class="blog-article-hero blog-img-bg-${(post.id.length % 6) + 1}" style="display:flex;align-items:center;justify-content:center;font-size:5rem;">${catEmoji}</div>`;
@@ -385,19 +431,22 @@ export function openBlogArticle(postId) {
 
     modal.classList.add('open');
     document.body.style.overflow = 'hidden';
+    modal.scrollTop = 0;
 
     document.getElementById('closeBlogArticleBtn').addEventListener('click', closeBlogArticle);
     modal.addEventListener('click', (e) => {
         if (e.target === modal) closeBlogArticle();
     });
 
-    const escHandler = (e) => {
-        if (e.key === 'Escape') {
-            closeBlogArticle();
-            document.removeEventListener('keydown', escHandler);
-        }
+    // ✅ I16.1 : cleanup AVANT d'attacher le nouveau
+    if (_currentEscHandler) {
+        document.removeEventListener('keydown', _currentEscHandler);
+        _currentEscHandler = null;
+    }
+    _currentEscHandler = (e) => {
+        if (e.key === 'Escape') closeBlogArticle();
     };
-    document.addEventListener('keydown', escHandler);
+    document.addEventListener('keydown', _currentEscHandler);
 
     const heroImg = content.querySelector('[data-photo-url]');
     if (heroImg) {
@@ -405,18 +454,22 @@ export function openBlogArticle(postId) {
             openImageLightbox(heroImg.dataset.photoUrl);
         });
     }
-
-    modal.scrollTop = 0;
 }
 
 // ============================================================
-// FERMER L'ARTICLE
+// ✅ I16.1 : FERMER L'ARTICLE (cleanup ESC)
 // ============================================================
 export function closeBlogArticle() {
     const modal = document.getElementById('blogArticleModal');
     if (!modal) return;
     modal.classList.remove('open');
     document.body.style.overflow = '';
+
+    // ✅ I16.1 : cleanup handler
+    if (_currentEscHandler) {
+        document.removeEventListener('keydown', _currentEscHandler);
+        _currentEscHandler = null;
+    }
 }
 
 // ============================================================
@@ -435,4 +488,4 @@ export async function initBlogPage() {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ blog.js chargé — v1.1.0 (i18n complet)');
+console.log('✅ blog.js chargé — v2.0.0 (index-free + debounce + sécurité images)');
