@@ -1,7 +1,7 @@
 // js/config.js
 // ============================================================
 // CONFIGURATION CENTRALISÉE - SMART SWI9A
-// Version 2.3.0 — Ajout de VIDEO_BASE_URL (Cloudflare R2)
+// Version 3.0.0 — Refonte : Arborescence des catégories & sous-catégories
 // ============================================================
 // Aucun import externe. Doit être chargé en premier.
 // ============================================================
@@ -251,28 +251,157 @@ export const LANGUAGES = ['fr', 'ar', 'en'];
 export const DEFAULT_LANGUAGE = 'fr';
 
 // ============================================================
-// CATÉGORIES PRODUITS
+// ✅ NOUVEAU v3.0.0 : ARBORESCENCE DES CATÉGORIES ET SOUS-CATÉGORIES
 // ============================================================
-export const CATEGORIES = [
-    { id: 'all',         label: 'filterAll',          emoji: '🛍️' },
-    { id: 'smartphone',  label: 'filterSmartphone',   emoji: '📱' },
-    { id: 'smart-home',  label: 'filterSmartHome',    emoji: '🏠' },
-    { id: 'audio',       label: 'filterAudio',        emoji: '🎧' },
-    { id: 'chargers',    label: 'filterChargers',     emoji: '🔌' },
-    { id: 'wearables',   label: 'filterWearables',    emoji: '⌚' },
-    { id: 'gaming',      label: 'filterGaming',       emoji: '🎮' },
-    { id: 'computer',    label: 'filterComputer',     emoji: '💻' },
-    { id: 'accessories', label: 'filterAccessories',  emoji: '🎒' },
-    { id: 'tools',       label: 'filterTools',        emoji: '🔧' },
-    { id: 'kitchen',     label: 'filterKitchen',      emoji: '🍳' },
-    { id: 'beauty',      label: 'filterBeauty',       emoji: '💄' },
-    { id: 'toys',        label: 'filterToys',         emoji: '🧸' },
-    { id: 'sports',      label: 'filterSports',       emoji: '⚽' },
-    { id: 'auto',        label: 'filterAuto',         emoji: '🚗' },
-    { id: 'pet',         label: 'filterPet',          emoji: '🐾' },
-    { id: 'lighting',    label: 'filterLighting',     emoji: '💡' },
-    { id: 'favorites',   label: 'filterFavorites',    emoji: '❤️' }
+// Structure hiérarchique pour l'affichage (Admin & Menu)
+// ============================================================
+export const CATEGORY_GROUPS = [
+    {
+        id: 'electronics',
+        label: 'filterElectronics',
+        emoji: '📱',
+        children: [
+            { id: 'smartphones', label: 'filterSmartphones', emoji: '📱' },
+            { id: 'tablets', label: 'filterTablets', emoji: '📟' },
+            { id: 'audio', label: 'filterAudio', emoji: '🎧' },
+            { id: 'wearables', label: 'filterWearables', emoji: '⌚' },
+            { id: 'cameras', label: 'filterCameras', emoji: '📷' },
+            { id: 'computers', label: 'filterComputers', emoji: '💻' },
+            { id: 'tech-accessories', label: 'filterTechAccessories', emoji: '🔌' }
+        ]
+    },
+    {
+        id: 'home',
+        label: 'filterHome',
+        emoji: '🏠',
+        children: [
+            { id: 'appliances', label: 'filterAppliances', emoji: '🔌' },
+            { id: 'kitchen', label: 'filterKitchen', emoji: '🍳' },
+            { id: 'decoration', label: 'filterDecoration', emoji: '🖼️' },
+            { id: 'storage', label: 'filterStorage', emoji: '📦' },
+            { id: 'furniture', label: 'filterFurniture', emoji: '🪑' },
+            { id: 'smart-home', label: 'filterSmartHome', emoji: '🏠' }
+        ]
+    },
+    {
+        id: 'fashion',
+        label: 'filterFashion',
+        emoji: '👗',
+        children: [
+            { id: 'women-clothing', label: 'filterWomenClothing', emoji: '👗' },
+            { id: 'men-clothing', label: 'filterMenClothing', emoji: '👔' },
+            { id: 'shoes', label: 'filterShoes', emoji: '👟' },
+            { id: 'bags', label: 'filterBags', emoji: '👜' },
+            { id: 'jewelry', label: 'filterJewelry', emoji: '💍' }
+        ]
+    },
+    {
+        id: 'beauty',
+        label: 'filterBeauty',
+        emoji: '💄',
+        children: [
+            { id: 'skincare', label: 'filterSkincare', emoji: '🧴' },
+            { id: 'bodycare', label: 'filterBodycare', emoji: '🧼' },
+            { id: 'haircare', label: 'filterHaircare', emoji: '💇' },
+            { id: 'makeup', label: 'filterMakeup', emoji: '💄' },
+            { id: 'beauty-devices', label: 'filterBeautyDevices', emoji: '✨' },
+            { id: 'fragrances', label: 'filterFragrances', emoji: '🌸' }
+        ]
+    },
+    {
+        id: 'baby-kids',
+        label: 'filterBabyKids',
+        emoji: '🧸',
+        children: [
+            { id: 'baby-gear', label: 'filterBabyGear', emoji: '🍼' },
+            { id: 'baby-clothing', label: 'filterBabyClothing', emoji: '👶' },
+            { id: 'toys', label: 'filterToys', emoji: '🧸' },
+            { id: 'baby-care', label: 'filterBabyCare', emoji: '🧴' }
+        ]
+    },
+    {
+        id: 'auto-moto',
+        label: 'filterAutoMoto',
+        emoji: '🚗',
+        children: [
+            { id: 'auto', label: 'filterAuto', emoji: '🚗' },
+            { id: 'moto', label: 'filterMoto', emoji: '🏍️' },
+            { id: 'car-care', label: 'filterCarCare', emoji: '🧽' },
+            { id: 'car-electronics', label: 'filterCarElectronics', emoji: '📻' }
+        ]
+    },
+    {
+        id: 'sports',
+        label: 'filterSports',
+        emoji: '⚽',
+        children: [
+            { id: 'fitness', label: 'filterFitness', emoji: '🏋️' },
+            { id: 'outdoor', label: 'filterOutdoor', emoji: '⛺' },
+            { id: 'bikes', label: 'filterBikes', emoji: '🚲' },
+            { id: 'games', label: 'filterGames', emoji: '🎲' }
+        ]
+    },
+    {
+        id: 'pets',
+        label: 'filterPets',
+        emoji: '🐾',
+        children: [
+            { id: 'pet-food', label: 'filterPetFood', emoji: '🦴' },
+            { id: 'pet-toys', label: 'filterPetToys', emoji: '🎾' },
+            { id: 'pet-accessories', label: 'filterPetAccessories', emoji: '🐕' }
+        ]
+    },
+    {
+        id: 'tools',
+        label: 'filterTools',
+        emoji: '🔧',
+        children: [
+            { id: 'hand-tools', label: 'filterHandTools', emoji: '🔨' },
+            { id: 'power-tools', label: 'filterPowerTools', emoji: '🔌' },
+            { id: 'garden', label: 'filterGarden', emoji: '🌱' },
+            { id: 'security', label: 'filterSecurity', emoji: '🔒' }
+        ]
+    },
+    {
+        id: 'office',
+        label: 'filterOffice',
+        emoji: '📄',
+        children: [
+            { id: 'stationery', label: 'filterStationery', emoji: '✏️' },
+            { id: 'office-organization', label: 'filterOfficeOrganization', emoji: '📁' },
+            { id: 'printing', label: 'filterPrinting', emoji: '🖨️' }
+        ]
+    },
+    {
+        id: 'misc',
+        label: 'filterMisc',
+        emoji: '🎁',
+        children: [
+            { id: 'gadgets', label: 'filterGadgets', emoji: '🔮' },
+            { id: 'party', label: 'filterParty', emoji: '🎉' },
+            { id: 'promotions', label: 'filterPromotions', emoji: '🔥' }
+        ]
+    }
 ];
+
+// ============================================================
+// LISTE APLATIE (Pour compatibilité avec le code existant et les filtres)
+// ============================================================
+const flattenCategories = () => {
+    let flat = [
+        { id: 'all', label: 'filterAll', emoji: '🛍️' },
+        { id: 'favorites', label: 'filterFavorites', emoji: '❤️' }
+    ];
+    CATEGORY_GROUPS.forEach(group => {
+        flat.push({ id: group.id, label: group.label, emoji: group.emoji, isParent: true });
+        group.children.forEach(child => {
+            flat.push({ id: child.id, label: child.label, emoji: child.emoji, parentId: group.id });
+        });
+    });
+    return flat;
+};
+
+export const CATEGORIES = flattenCategories();
 
 // ============================================================
 // OPTIONS DE TRI
@@ -289,4 +418,4 @@ export const SORT_OPTIONS = [
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ config.js chargé — v2.3.0 (VIDEO_BASE_URL + statut RETURNED + helpers retours)');
+console.log('✅ config.js chargé — v3.0.0 (Arborescence des catégories)');
