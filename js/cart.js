@@ -1,31 +1,13 @@
 // js/cart.js
 // ============================================================
 // PANIER ET COMMANDES - SMART SWI9A
-// Version 3.0.0 — Refonte complète (financier + sécurité + isolation)
+// Version 3.0.1 — Fix critique : cancelOrder restaure stock + coupon
 // ============================================================
-// CHANGEMENTS v3.0.0 :
-// ✅ C5.1 — revalidateCartPrices() : prix Firestore prioritaire
-// ✅ C5.2 — checkout(…, waWindow) : WhatsApp anti-popup-block
-// ✅ C5.3 — localStorage isolé par uid (fin contamination)
-// ✅ C5.4 — oneUsePerUser via ID déterministe DANS transaction
-// ✅ C5.5 — stockDeducted: true dès la création (fin surstock)
-// ✅ I5.1 — Variante supprimée → item retiré + toast
-// ✅ I5.2 — IDs variantes avec "::" (fin collision M_L)
-// ✅ I5.3 — (logique de restauration coupon dans orders.js)
-// ✅ I5.4 — getCartSavings skip variants
-// ✅ I5.5 — getCartTotal(appliedCoupon) accepte le coupon
-// ✅ I5.6 — calculateCouponDiscount via services/coupons.js
-// ✅ M5.1 — clearLocalCart() documenté
-// ✅ M5.2 — mergeCarts() plafonné au stock
-// ✅ M5.3 — Messages stock avec label variante
-// ✅ M5.4 — (fix WhatsApp dans whatsapp.js)
-// ✅ M5.5 — addToCart valide le variant
-// ✅ M5.6 — loadUserOrders orderBy + fallback
-// ✅ M5.7 — (TTL Firestore à documenter côté rules)
-// ✅ M5.8 — Toast au sync login
-// ✅ M5.9 — % promo via CONFIG.SHOP.DISCOUNT_PERCENT
-// ============================================================
-// Dépend de : config, utils, store, firebase, auth, ui-core, services/coupons
+// CHANGEMENTS v3.0.1 :
+// ✅ FIX CRITIQUE — cancelOrder() restaure le stock ET le coupon
+//    dans la transaction (stock perdu si annulation d'une commande
+//    pending car createOrder déduit dès la création)
+// ✅ (Repris v3.0.0) — C5.1, C5.2, C5.3, C5.4, C5.5, I5.1→I5.6, M5.1→M5.9
 // ============================================================
 
 import {
@@ -1225,10 +1207,17 @@ export async function loadUserOrders() {
 }
 
 // ============================================================
-// ANNULER UNE COMMANDE (côté CLIENT)
+// ✅ FIX v3.0.1 — ANNULER UNE COMMANDE (côté CLIENT)
 // ------------------------------------------------------------
-// Note : le stock est restauré côté orders.js (via updateOrderStatus)
-// Ici on ne fait que le statut + la notification.
+// BUG CORRIGÉ : avant, on ne restaurait ni le stock ni le coupon.
+// Or createOrder() déduit le stock dès la création (stockDeducted: true).
+// → Stock perdu après annulation d'une commande pending.
+//
+// MAINTENANT : tout est dans UNE seule transaction :
+//   1. Restauration stock (variants + global + salesCount)
+//   2. Restauration coupon (usedCount -1 + delete coupon_uses)
+//   3. Update order : status CANCELLED + stockDeducted: false
+//   4. Notification in-app
 // ============================================================
 export async function cancelOrder(orderId) {
     const user = getCurrentUser();
@@ -1236,11 +1225,14 @@ export async function cancelOrder(orderId) {
 
     try {
         await runTransaction(db, async (transaction) => {
+            // ============================================
+            // 1. Lire la commande
+            // ============================================
             const orderRef = doc(db, "orders", orderId);
             const orderSnap = await transaction.get(orderRef);
             if (!orderSnap.exists()) throw new Error('Commande introuvable');
 
-            const order = orderSnap.data();
+            const order = { id: orderId, ...orderSnap.data() };
             if (order.userId !== user.uid) throw new Error('Non autorisé');
 
             const currentStatus = normalizeOrderStatus(order.status);
@@ -1248,6 +1240,9 @@ export async function cancelOrder(orderId) {
                 throw new Error('Cette commande ne peut plus être annulée');
             }
 
+            // ============================================
+            // 2. Vérifier le délai d'annulation
+            // ============================================
             const cancellableUntilDate = toDate(order.cancellableUntil)
                 || (order.createdAt?.toDate
                     ? new Date(order.createdAt.toDate().getTime() + CONFIG.ORDERS.CANCELLABLE_HOURS * 3600 * 1000)
@@ -1257,12 +1252,97 @@ export async function cancelOrder(orderId) {
                 throw new Error(t('orderCancelTooLate'));
             }
 
+            // ============================================
+            // 3. ✅ FIX v3.0.1 : Déterminer ce qu'il faut restaurer
+            // ============================================
+            const needRestoreStock = order.stockDeducted === true
+                && Array.isArray(order.items)
+                && order.items.length > 0;
+
+            const needRestoreCoupon = !!order.couponId && order.couponRestored !== true;
+
+            // ============================================
+            // 4. Lire les produits (si nécessaire)
+            // ============================================
+            let productRefs = [];
+            let productSnaps = [];
+            if (needRestoreStock) {
+                productRefs = order.items.map(item => doc(db, "products", String(item.productId)));
+                productSnaps = await Promise.all(productRefs.map(ref => transaction.get(ref)));
+            }
+
+            // ============================================
+            // 5. Lire le coupon (si nécessaire)
+            // ============================================
+            let couponRef = null;
+            let couponSnap = null;
+            let couponUseRef = null;
+            if (needRestoreCoupon) {
+                couponRef = doc(db, "coupons", order.couponId);
+                couponSnap = await transaction.get(couponRef);
+                couponUseRef = doc(db, "coupon_uses", `${order.couponId}_${user.uid}`);
+            }
+
+            // ============================================
+            // 6. ✅ FIX v3.0.1 : Restaurer le stock
+            // ============================================
+            if (needRestoreStock) {
+                productSnaps.forEach((snap, i) => {
+                    if (!snap.exists()) return;
+                    const pData = snap.data();
+                    const qty = Number(order.items[i].quantity) || 0;
+                    if (qty <= 0) return;
+                    const itemVariant = order.items[i].variant;
+
+                    if (itemVariant && Array.isArray(pData.variants)) {
+                        const variants = [...pData.variants];
+                        const idx = variants.findIndex(v =>
+                            (v.size || '') === (itemVariant.size || '') &&
+                            (v.color || '') === (itemVariant.color || '')
+                        );
+                        if (idx > -1) {
+                            variants[idx] = {
+                                ...variants[idx],
+                                stock: (Number(variants[idx].stock) || 0) + qty
+                            };
+                            const newStock = variants.reduce((s, v) => s + (Number(v.stock) || 0), 0);
+                            transaction.update(productRefs[i], {
+                                variants,
+                                stock: newStock,
+                                salesCount: Math.max(0, (Number(pData.salesCount) || 0) - qty)
+                            });
+                        }
+                    } else {
+                        transaction.update(productRefs[i], {
+                            stock: (Number(pData.stock) || 0) + qty,
+                            salesCount: Math.max(0, (Number(pData.salesCount) || 0) - qty)
+                        });
+                    }
+                });
+            }
+
+            // ============================================
+            // 7. ✅ FIX v3.0.1 : Restaurer le coupon
+            // ============================================
+            if (needRestoreCoupon && couponSnap && couponSnap.exists()) {
+                transaction.update(couponRef, { usedCount: increment(-1) });
+                transaction.delete(couponUseRef);
+            }
+
+            // ============================================
+            // 8. Update order
+            // ============================================
             transaction.update(orderRef, {
                 status: ORDER_STATUS.CANCELLED,
                 cancelledAt: Timestamp.now(),
-                updatedAt: Timestamp.now()
+                updatedAt: Timestamp.now(),
+                stockDeducted: false,
+                couponRestored: needRestoreCoupon ? true : (order.couponRestored === true)
             });
 
+            // ============================================
+            // 9. Notification in-app
+            // ============================================
             const notifRef = doc(collection(db, "notifications"));
             transaction.set(notifRef, {
                 userId: user.uid,
@@ -1275,7 +1355,12 @@ export async function cancelOrder(orderId) {
             });
         });
 
+        // ✅ FIX v3.0.1 : notifier les listeners (admin, produits, stats)
+        document.dispatchEvent(new CustomEvent('order-stock-changed'));
+
+        console.log('✅ Commande annulée + stock/coupon restaurés :', orderId);
         return { success: true };
+
     } catch (error) {
         console.error('❌ Erreur annulation :', error);
         return { success: false, error: error.message };
@@ -1321,4 +1406,4 @@ export function checkAbandonedCart() {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ cart.js chargé — v3.0.0 (financier + isolation + transaction)');
+console.log('✅ cart.js chargé — v3.0.1 (fix cancelOrder restaure stock+coupon)');
