@@ -1,14 +1,16 @@
 // js/ui.js
 // ============================================================
 // INTERFACE UTILISATEUR - SMART SWI9A
-// Version 3.1.0 — Compat needsVerification (C10.1)
+// Version 3.1.1 — Fix : boutons "Renvoyer/Vérifier" si non connecté
 // ============================================================
-// CHANGEMENTS v3.1.0 :
-// ✅ C10.1 — renderAccountContent gère needsVerification
-// ✅ C10.1 — Bouton "Renvoyer" fonctionne vraiment (user connecté)
-// ✅ Bonus — checkEmailVerification au focus de l'onglet
-// ✅ Bonus — Auto-check après 30s (user peut vérifier sans reload)
-// ✅ M10.8 — TTL cache pendingReviews = 60s
+// CHANGEMENTS v3.1.1 :
+// ✅ FIX MOYEN — resendBtn : si !getCurrentUser(), affiche un
+//    message informatif (l'email a déjà été renvoyé par loginUser())
+//    au lieu d'échouer silencieusement.
+// ✅ FIX MOYEN — checkBtn : si !getCurrentUser(), affiche un
+//    message demandant de se reconnecter (checkEmailVerification
+//    exige un user connecté).
+// ✅ (Repris v3.1.0) — C10.1, C10.2, C10.3, I10.1→I10.5, M10.1→M10.8
 // ============================================================
 
 import { CONFIG } from "./config.js";
@@ -479,7 +481,19 @@ function renderVerifyEmailView(email, isConnected = false) {
 }
 
 // ============================================================
-// ✅ C10.1 : ÉVÉNEMENTS VÉRIFICATION EMAIL (bouton fonctionnel)
+// ✅ C10.1 + FIX v3.1.1 : ÉVÉNEMENTS VÉRIFICATION EMAIL
+// ------------------------------------------------------------
+// Le bouton "Renvoyer" et "Vérifier maintenant" ne fonctionnent
+// QUE si l'utilisateur est connecté.
+// Or après un login bloqué (email non vérifié), l'utilisateur est
+// signOut → getCurrentUser() === null.
+// Dans ce cas :
+//   - resendVerificationEmail() échoue (requires auth.currentUser)
+//   - checkEmailVerification() échoue aussi (requires auth.currentUser)
+//
+// → On affiche un message informatif au lieu d'échouer silencieusement.
+//   L'email de vérification a DÉJÀ été renvoyé par loginUser() lors
+//   de la dernière tentative.
 // ============================================================
 function attachVerifyEmailEvents() {
     const resendBtn = document.getElementById('resendVerifBtn');
@@ -494,6 +508,20 @@ function attachVerifyEmailEvents() {
             resendBtn.textContent = '⏳ ' + t('loading');
             if (msgEl) msgEl.textContent = '';
 
+            const currentUser = getCurrentUser();
+
+            // ✅ FIX v3.1.1 : pas connecté → message informatif
+            if (!currentUser) {
+                if (msgEl) {
+                    msgEl.textContent = 'ℹ️ Un nouveau lien vous a déjà été envoyé automatiquement lors de votre dernière tentative de connexion. Vérifiez votre boîte mail (et vos spams).';
+                    msgEl.style.color = 'var(--gold)';
+                }
+                resendBtn.textContent = '🔄 ' + t('verifyEmailResendBtn');
+                resendBtn.disabled = false;
+                return;
+            }
+
+            // Connecté → resend classique
             const ok = await resendVerificationEmail();
 
             if (msgEl) {
@@ -513,6 +541,17 @@ function attachVerifyEmailEvents() {
 
     if (checkBtn) {
         checkBtn.addEventListener('click', async () => {
+            const currentUser = getCurrentUser();
+
+            // ✅ FIX v3.1.1 : pas connecté → message informatif
+            if (!currentUser) {
+                if (msgEl) {
+                    msgEl.textContent = 'ℹ️ Si vous avez cliqué sur le lien reçu par email, votre adresse est vérifiée. Reconnectez-vous avec votre email et mot de passe.';
+                    msgEl.style.color = 'var(--gold)';
+                }
+                return;
+            }
+
             checkBtn.disabled = true;
             checkBtn.textContent = '⏳ Vérification...';
 
@@ -1140,4 +1179,4 @@ export function showAbandonedCartNotification() {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ ui.js chargé — v3.1.0 (needsVerification compatible)');
+console.log('✅ ui.js chargé — v3.1.1 (fix resend/check buttons si non connecté)');
