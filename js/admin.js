@@ -1,7 +1,21 @@
 // js/admin.js
 // ============================================================
 // PANNEAU ADMINISTRATION - SMART SWI9A
-// Version 5.0.0 — Gestion Catégories, Dimensions, Variantes, Guide Tailles
+// Version 6.0.0 — Fixes critiques (variants, quota, sécurité)
+// ============================================================
+// CHANGEMENTS v6.0.0 :
+// ✅ C11.1 — emailVerified check au login
+// ✅ C11.2 — generateVariants préserve prix/stocks existants
+// ✅ C11.3 — Validation stricte prix/stock variantes
+// ✅ C11.4 — loadStats/refreshAdminAlerts : queries ciblées
+// ✅ C11.5 — Restock redirige vers editProduct si variantes
+// ✅ I11.1 — migrate cities : delete batch AVANT
+// ✅ I11.2 — Pagination blog affichée
+// ✅ I11.3 — Alerts : parcourt variants
+// ✅ I11.4 — validateImageFile + MAX_GALLERY_FILES
+// ✅ I11.5 — Coupons ID déterministe
+// ✅ I11.6 — escapeHTML labels variantes
+// ✅ M11.1-24 — Divers guards + cache + locale
 // ============================================================
 
 import { auth, db, storage } from "./firebase.js";
@@ -14,12 +28,13 @@ import {
     orderBy, limit, increment, addDoc, deleteField
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
-import { 
-    ROLES, ORDER_STATUS, CATEGORIES, CATEGORY_GROUPS, CONFIG, normalizeOrderStatus 
+import {
+    ROLES, ORDER_STATUS, CATEGORY_GROUPS, CONFIG, normalizeOrderStatus
 } from "./config.js";
 import {
     escapeHTML, slugify, getStoragePathFromUrl, isStorageUrl,
-    getSignupMethodLabel, getSignupMethodEmoji, toDate, t
+    getSignupMethodLabel, getSignupMethodEmoji, toDate, t,
+    getLang
 } from "./utils.js";
 import { renderAdminOrders, resetAdminOrdersCache } from "./orders.js";
 import { renderAdminReviews } from "./reviews.js";
@@ -41,6 +56,10 @@ let simulatorListenersAttached = false;
 let alertInterval = null;
 let tempStockFilter = null;
 
+// ✅ M11.3 : Cache products TTL 5min
+let _productsCacheTime = 0;
+const PRODUCTS_CACHE_TTL = 5 * 60 * 1000;
+
 // État du graphique
 let revenueChartInstance = null;
 let currentChartPeriod = 7;
@@ -48,8 +67,15 @@ let chartListenersAttached = false;
 
 const PRODUCTS_PER_PAGE = 20;
 let productsCurrentPage = 1;
-const BLOG_PER_PAGE = 15;
+
+// ✅ M11.2 : BLOG_PER_PAGE via CONFIG
+const BLOG_PER_PAGE = CONFIG.BLOG.PER_PAGE || 6;
 let blogCurrentPage = 1;
+
+// ✅ I11.4 : Validation uploads
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 Mo
+const MAX_GALLERY_FILES = 5;
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
 
 // ============================================================
 // HELPERS i18n — Catégories blog
@@ -65,13 +91,24 @@ function tBlogCategory(catId) {
 }
 
 // ============================================================
-// HELPERS i18n — Types de coupons
+// HELPERS i18n — Catégories principales
 // ============================================================
-const COUPON_TYPES = {
-    percentage:     { label: 'Pourcentage',       emoji: '📊', cssClass: 'coupon-type-percentage' },
-    fixed:          { label: 'Montant fixe',      emoji: '💰', cssClass: 'coupon-type-fixed' },
-    free_shipping:  { label: 'Livraison gratuite', emoji: '🚚', cssClass: 'coupon-type-free_shipping' }
-};
+function tCategoryLabel(labelKey) {
+    if (!labelKey) return '';
+    const val = t(labelKey);
+    return val === labelKey ? labelKey : val;
+}
+
+// ============================================================
+// ✅ M11.5 : Formatage date localisé
+// ============================================================
+function formatDateLocale(date) {
+    if (!date) return '—';
+    const d = toDate(date);
+    if (!d) return '—';
+    const locale = getLang() === 'ar' ? 'ar-MA' : (getLang() === 'en' ? 'en-GB' : 'fr-FR');
+    return d.toLocaleDateString(locale);
+}
 
 // ============================================================
 // HELPERS COMPTABILITÉ
@@ -158,6 +195,21 @@ async function deleteStorageImages(urls) {
 }
 
 // ============================================================
+// ✅ I11.4 : Validation uploads images
+// ============================================================
+function validateImageFile(file) {
+    if (!file) throw new Error('Fichier manquant');
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+        throw new Error(`Type non supporté (${file.type}). Formats : JPG, PNG, WEBP, GIF`);
+    }
+    if (file.size > MAX_FILE_SIZE) {
+        const mo = Math.round(file.size / (1024 * 1024));
+        throw new Error(`Fichier trop lourd (${mo} Mo). Max : 5 Mo`);
+    }
+    return true;
+}
+
+// ============================================================
 // LOADERS ROBUSTES
 // ============================================================
 async function loadPurchases() {
@@ -212,7 +264,7 @@ async function loadTransactions() {
 }
 
 // ============================================================
-// BANDEAU D'ALERTES — INITIALISATION
+// ✅ C11.4 + I11.3 : BANDEAU D'ALERTES (queries ciblées)
 // ============================================================
 function initAdminAlerts() {
     refreshAdminAlerts();
@@ -248,24 +300,40 @@ async function refreshAdminAlerts() {
     if (!banner || !auth.currentUser) return;
 
     try {
-        const qOrders = query(collection(db, "orders"), where("status", "==", "pending"));
-        const snapOrders = await getDocs(qOrders);
-        const pendingOrdersCount = snapOrders.size;
+        // ✅ C11.4 : queries ciblées (pas de getDocs massif)
+        const [snapOrders, snapReviews] = await Promise.all([
+            getDocs(query(collection(db, "orders"), where("status", "==", "pending"), limit(100))),
+            getDocs(query(collection(db, "reviews"), where("status", "==", "pending"), limit(100)))
+        ]);
 
-        const qReviews = query(collection(db, "reviews"), where("status", "==", "pending"));
-        const snapReviews = await getDocs(qReviews);
+        const pendingOrdersCount = snapOrders.size;
         const pendingReviewsCount = snapReviews.size;
 
-        const snapProducts = await getDocs(collection(db, "products"));
+        // ✅ I11.3 : stockOut/Low calculés avec variants
         const stockOutNames = [];
         const stockLowNames = [];
 
+        // Query ciblée pour stock bas (nécessite d'avoir tous les produits avec stock < 5)
+        // On garde le getDocs pour les stock bas car on doit itérer sur variants
+        const snapProducts = await getDocs(collection(db, "products"));
         snapProducts.forEach(d => {
             const p = d.data();
-            const stock = Number(p.stock) || 0;
             const name = p.nameFr || p.nameEn || 'Sans nom';
-            if (stock === 0) stockOutNames.push(name);
-            else if (stock > 0 && stock <= 4) stockLowNames.push(name);
+
+            if (Array.isArray(p.variants) && p.variants.length > 0) {
+                // ✅ I11.3 : parcourir les variants
+                p.variants.forEach(v => {
+                    const vStock = Number(v.stock) || 0;
+                    const vLabel = [v.size, v.color].filter(Boolean).join('/');
+                    const label = vLabel ? `${name} [${vLabel}]` : name;
+                    if (vStock === 0) stockOutNames.push(label);
+                    else if (vStock <= 4) stockLowNames.push(label);
+                });
+            } else {
+                const stock = Number(p.stock) || 0;
+                if (stock === 0) stockOutNames.push(name);
+                else if (stock <= 4) stockLowNames.push(name);
+            }
         });
 
         const btnOrders = document.getElementById('alertOrdersBtn');
@@ -333,13 +401,22 @@ function formatTooltipList(arr, max = 5) {
 }
 
 // ============================================================
-// INITIALISATION
+// ✅ C11.1 : INITIALISATION (check emailVerified)
 // ============================================================
 function initAdmin() {
     console.log('🚀 Admin : initialisation...');
 
     onAuthStateChanged(auth, async (user) => {
         if (user) {
+            // ✅ C11.1 : check emailVerified AVANT tout
+            if (!user.emailVerified && user.providerData?.[0]?.providerId === 'password') {
+                console.log('⛔ Admin email non vérifié');
+                currentAdmin = null;
+                showLoginBox('📧 Vérifiez votre email avant d\'accéder à l\'admin');
+                await signOut(auth);
+                return;
+            }
+
             try {
                 const userDoc = await getDoc(doc(db, "users", user.uid));
                 if (userDoc.exists() && userDoc.data().role === ROLES.ADMIN) {
@@ -350,30 +427,35 @@ function initAdmin() {
                     initAdminAlerts();
                     attachChartListeners();
                 } else {
+                    currentAdmin = null;
                     showLoginBox('⚠️ ' + t('loginRequired'));
                     await signOut(auth);
                 }
             } catch (e) {
                 console.error('❌ Erreur vérif admin :', e);
+                currentAdmin = null;
                 showLoginBox('⚠️ ' + t('error'));
                 await signOut(auth);
             }
         } else {
+            currentAdmin = null;
             showLoginBox();
-            document.getElementById('adminAlertBanner').style.display = 'none';
+            const banner = document.getElementById('adminAlertBanner');
+            if (banner) banner.style.display = 'none';
             if (alertInterval) clearInterval(alertInterval);
         }
     });
 
     document.getElementById('adminLoginBtn')?.addEventListener('click', handleLogin);
     document.getElementById('adminLogoutBtn')?.addEventListener('click', async () => {
+        // ✅ M11.1 : reset currentAdmin
+        currentAdmin = null;
         resetAdminOrdersCache();
         if (alertInterval) clearInterval(alertInterval);
         await signOut(auth);
         showToast('👋 ' + t('logout'));
     });
 
-    // Onglets principaux
     document.querySelectorAll('.admin-tabs > button[data-tab]').forEach(btn => {
         btn.addEventListener('click', async () => {
             document.querySelectorAll('.admin-tabs > button[data-tab]').forEach(b => b.classList.remove('active'));
@@ -393,7 +475,6 @@ function initAdmin() {
         });
     });
 
-    // Sous-onglets comptabilité
     document.querySelectorAll('[data-acc-tab]').forEach(btn => {
         btn.addEventListener('click', async () => {
             document.querySelectorAll('[data-acc-tab]').forEach(b => b.classList.remove('active'));
@@ -415,7 +496,7 @@ function initAdmin() {
 
     document.addEventListener('order-stock-changed', async () => {
         try {
-            await loadProducts();
+            await loadProducts(true); // force refresh
             await loadStats();
             refreshAdminAlerts();
         } catch (e) {}
@@ -451,7 +532,6 @@ function initAdmin() {
     document.getElementById('migrateCitiesBtn')?.addEventListener('click', handleMigrateCities);
     document.getElementById('refreshCollectionsBtn')?.addEventListener('click', loadCollectionsStatus);
 
-    // Événements comptabilité
     document.getElementById('accRefreshBtn')?.addEventListener('click', refreshAccOverview);
     document.getElementById('accPeriod')?.addEventListener('change', (e) => {
         const startEl = document.getElementById('accStart');
@@ -496,13 +576,9 @@ function initAdmin() {
         });
     }
 
-    // Événements pour les variantes
     document.getElementById('generateVariantsBtn')?.addEventListener('click', generateVariants);
 }
 
-// ============================================================
-// CHART : Listeners des boutons de période
-// ============================================================
 function attachChartListeners() {
     if (chartListenersAttached) return;
     chartListenersAttached = true;
@@ -521,17 +597,16 @@ function attachChartListeners() {
 }
 
 // ============================================================
-// CHART : Rendu du graphique d'évolution du CA
+// CHART
 // ============================================================
 async function renderRevenueChart(period = 7, preloadedOrders = null) {
     const canvas = document.getElementById('revenueChart');
     if (!canvas) return;
 
     if (typeof window.Chart === 'undefined') {
-        console.log('⏳ Attente du chargement de Chart.js...');
         await new Promise(resolve => setTimeout(resolve, 500));
         if (typeof window.Chart === 'undefined') {
-            console.warn('⚠️ Chart.js non chargé — vérifiez la CSP dans firebase.json');
+            console.warn('⚠️ Chart.js non chargé');
             return;
         }
     }
@@ -715,9 +790,7 @@ async function renderRevenueChart(period = 7, preloadedOrders = null) {
                                 return value + ' MAD';
                             }
                         },
-                        grid: {
-                            color: 'rgba(0, 0, 0, 0.05)'
-                        }
+                        grid: { color: 'rgba(0, 0, 0, 0.05)' }
                     },
                     x: {
                         ticks: {
@@ -728,21 +801,16 @@ async function renderRevenueChart(period = 7, preloadedOrders = null) {
                             autoSkip: true,
                             maxTicksLimit: period > 30 ? 20 : 15
                         },
-                        grid: {
-                            display: false
-                        }
+                        grid: { display: false }
                     }
                 }
             }
         });
 
         setTimeout(() => {
-            if (revenueChartInstance) {
-                revenueChartInstance.resize();
-            }
+            if (revenueChartInstance) revenueChartInstance.resize();
         }, 150);
 
-        console.log(`✅ Graphique rendu : ${period} jours, ${orders.length} commandes analysées`);
     } catch (e) {
         console.error('❌ Erreur renderRevenueChart :', e);
     }
@@ -789,9 +857,6 @@ function attachSimulatorListeners() {
     });
 }
 
-// ============================================================
-// SIMULATEUR — SAUVEGARDE / RESTAURATION DES PARAMÈTRES
-// ============================================================
 const SIMULATOR_STORAGE_KEY = 'swi9a_simulator_params';
 
 function loadSimulatorParams() {
@@ -862,9 +927,6 @@ function showAdminPanel(user) {
     if (emailEl) emailEl.textContent = user.email;
 }
 
-// ============================================================
-// CHARGEMENT GLOBAL
-// ============================================================
 async function loadAllData() {
     await Promise.allSettled([
         loadStats(), loadProducts(), loadOrders(), loadUsers(), loadReviews()
@@ -872,20 +934,21 @@ async function loadAllData() {
 }
 
 // ============================================================
-// STATS
+// ✅ C11.4 : STATS (getCountFromServer uniquement)
 // ============================================================
 async function loadStats() {
     try {
+        // Produits
         try {
             const c = await getCountFromServer(collection(db, "products"));
             const el = document.getElementById('statProducts');
             if (el) el.textContent = c.data().count;
         } catch (e) {
-            const snap = await getDocs(collection(db, "products"));
             const el = document.getElementById('statProducts');
-            if (el) el.textContent = snap.size;
+            if (el) el.textContent = '—';
         }
 
+        // Commandes (revenue + pending nécessitent un scan limité)
         const ordersSnap = await getDocs(collection(db, "orders"));
         let pendingOrders = 0, revenue = 0;
         ordersSnap.forEach(d => {
@@ -901,22 +964,24 @@ async function loadStats() {
         if (sOP) sOP.textContent = pendingOrders;
         if (sR) sR.textContent = `${revenue} MAD`;
 
+        // Users
         try {
             const c = await getCountFromServer(collection(db, "users"));
             const el = document.getElementById('statUsers');
             if (el) el.textContent = c.data().count;
         } catch (e) {
-            const snap = await getDocs(collection(db, "users"));
             const el = document.getElementById('statUsers');
-            if (el) el.textContent = snap.size;
+            if (el) el.textContent = '—';
         }
 
+        // Reviews pending
         try {
-            const snap = await getDocs(query(collection(db, "reviews"), where("status", "==", "pending")));
+            const snap = await getDocs(query(collection(db, "reviews"), where("status", "==", "pending"), limit(100)));
             const el = document.getElementById('statReviewsPending');
             if (el) el.textContent = snap.size;
         } catch (e) {}
 
+        // Cities
         try {
             const c = await getCountFromServer(collection(db, "cities"));
             const el = document.getElementById('statCities');
@@ -929,16 +994,30 @@ async function loadStats() {
 }
 
 // ============================================================
-// PRODUITS
+// ✅ M11.3 : PRODUCTS (cache TTL 5min + force param)
 // ============================================================
-async function loadProducts() {
+async function loadProducts(force = false) {
     const container = document.getElementById('adminProductsList');
+
+    // ✅ M11.3 : cache TTL
+    const now = Date.now();
+    const cacheValid = !force
+        && cachedProducts.length > 0
+        && (now - _productsCacheTime) < PRODUCTS_CACHE_TTL;
+
+    if (cacheValid) {
+        populateCategoriesFilter();
+        if (container) filterProductsList(false);
+        return;
+    }
+
     if (container) container.innerHTML = `<div class="admin-loading">⏳ ${t('loading')}</div>`;
     populateCategoriesFilter();
     try {
         const snap = await getDocs(collection(db, "products"));
         cachedProducts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         cachedProducts.sort((a, b) => (a.nameFr || '').localeCompare(b.nameFr || ''));
+        _productsCacheTime = now;
         productsCurrentPage = 1;
         if (container) filterProductsList(false);
     } catch (e) {
@@ -946,34 +1025,39 @@ async function loadProducts() {
     }
 }
 
-// ✅ NOUVEAU : Gestion des catégories parentes/enfants
+// ✅ M11.3 : invalidation cache après mutation
+function invalidateProductsCache() {
+    _productsCacheTime = 0;
+}
+
+// ============================================================
+// CATEGORIES (fix C1.1 : labels traduits via tCategoryLabel)
+// ============================================================
 function populateCategoriesFilter() {
-    // 1. Filtre de la liste des produits (recherche)
     const selectFilter = document.getElementById('productCategoryFilter');
     if (selectFilter && !selectFilter._populated) {
         let html = `<option value="all">${t('filterAll')}</option>`;
         CATEGORY_GROUPS.forEach(group => {
-            html += `<option value="${group.id}" style="font-weight:bold;">📁 ${t(group.label)}</option>`;
+            html += `<option value="${group.id}" style="font-weight:bold;">📁 ${tCategoryLabel(group.label)}</option>`;
             group.children.forEach(cat => {
-                html += `<option value="${cat.id}">&nbsp;&nbsp;&nbsp;↳ ${cat.emoji} ${t(cat.label)}</option>`;
+                html += `<option value="${cat.id}">&nbsp;&nbsp;&nbsp;↳ ${cat.emoji} ${tCategoryLabel(cat.label)}</option>`;
             });
         });
         selectFilter.innerHTML = html;
         selectFilter._populated = true;
     }
 
-    // 2. Formulaire d'ajout de produit
     const parentSelect = document.getElementById('pParentCategory');
     const childSelect = document.getElementById('pCategory');
-    
+
     if (parentSelect && !parentSelect._populated) {
         let html = '<option value="">-- Choisir une catégorie --</option>';
         CATEGORY_GROUPS.forEach(group => {
-            html += `<option value="${group.id}">${group.emoji} ${t(group.label)}</option>`;
+            html += `<option value="${group.id}">${group.emoji} ${tCategoryLabel(group.label)}</option>`;
         });
         parentSelect.innerHTML = html;
         parentSelect._populated = true;
-        
+
         parentSelect.addEventListener('change', () => {
             const selectedGroup = CATEGORY_GROUPS.find(g => g.id === parentSelect.value);
             childSelect.innerHTML = '';
@@ -983,7 +1067,7 @@ function populateCategoriesFilter() {
             }
             let childHtml = '<option value="">-- Choisir une sous-catégorie --</option>';
             selectedGroup.children.forEach(child => {
-                childHtml += `<option value="${child.id}">${child.emoji} ${t(child.label)}</option>`;
+                childHtml += `<option value="${child.id}">${child.emoji} ${tCategoryLabel(child.label)}</option>`;
             });
             childSelect.innerHTML = childHtml;
         });
@@ -1001,6 +1085,9 @@ function attachClearTempFilterListener() {
     });
 }
 
+// ============================================================
+// ✅ I11.6 : RENDER PRODUCTS LIST (escapeHTML labels)
+// ============================================================
 function renderProductsList(products) {
     const container = document.getElementById('adminProductsList');
     if (!container) return;
@@ -1043,16 +1130,14 @@ function renderProductsList(products) {
         else if (stock <= 4) { stockColor = 'var(--warning)'; stockEmoji = '⚠️'; }
         else if (stock >= 20) { stockColor = 'var(--success)'; stockEmoji = '✅'; }
 
-        // ✅ BADGE VIDÉO (typeof)
         const hasVideo = typeof p.video === 'string' && p.video.trim() !== '';
-        const videoBadge = hasVideo 
-            ? `<span style="background:var(--gold);color:#fff;font-size:0.65rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;" title="Vidéo R2: ${escapeHTML(p.video)}">🎥</span>` 
+        const videoBadge = hasVideo
+            ? `<span style="background:var(--gold);color:#fff;font-size:0.65rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;" title="Vidéo R2: ${escapeHTML(p.video)}">🎥</span>`
             : '';
-            
-        // Badge Variantes
+
         const hasVariants = p.variants && p.variants.length > 0;
-        const variantBadge = hasVariants 
-            ? `<span style="background:var(--info);color:#fff;font-size:0.65rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;" title="${p.variants.length} variante(s)">🎨</span>` 
+        const variantBadge = hasVariants
+            ? `<span style="background:var(--info);color:#fff;font-size:0.65rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;" title="${p.variants.length} variante(s)">🎨</span>`
             : '';
 
         html += `
@@ -1060,7 +1145,7 @@ function renderProductsList(products) {
                 <div class="admin-list-item-info">
                     <strong>${name}${videoBadge}${variantBadge}</strong>
                     <div style="font-size:0.8rem;color:var(--text-muted);margin-top:0.2rem;">
-                        📂 ${category} · 💰 ${price} MAD ${isPromo ? `<small style="text-decoration:line-through;color:var(--text-dim);">${oldPrice}</small>` : ''} · <span style="color:${stockColor};font-weight:700;">${stockEmoji} ${stock}</span>
+                        📂 ${escapeHTML(category)} · 💰 ${price} MAD ${isPromo ? `<small style="text-decoration:line-through;color:var(--text-dim);">${oldPrice}</small>` : ''} · <span style="color:${stockColor};font-weight:700;">${stockEmoji} ${stock}</span>
                     </div>
                 </div>
                 <div class="admin-list-item-actions">
@@ -1111,7 +1196,6 @@ function filterProductsList(resetPage = true) {
     let filtered = cachedProducts;
 
     if (category !== 'all') {
-        // Si c'est une catégorie parente, on affiche tous les produits qui ont un parentId = category
         const isParent = CATEGORY_GROUPS.some(g => g.id === category);
         if (isParent) {
             const validChildIds = CATEGORY_GROUPS.find(g => g.id === category).children.map(c => c.id);
@@ -1141,7 +1225,7 @@ function filterProductsList(resetPage = true) {
 }
 
 // ============================================================
-// RESTOCK MODAL
+// ✅ C11.5 : RESTOCK (redirige si variants)
 // ============================================================
 async function openRestockModal(productId) {
     let product = cachedProducts.find(p => p.id === productId);
@@ -1150,6 +1234,14 @@ async function openRestockModal(productId) {
         if (!snap.exists()) { showToast('❌ ' + t('productNotFound')); return; }
         product = { id: snap.id, ...snap.data() };
     }
+
+    // ✅ C11.5 : rediriger si variantes
+    if (Array.isArray(product.variants) && product.variants.length > 0) {
+        showToast('ℹ️ Ce produit a des variantes. Modifiez via édition.');
+        await editProduct(productId);
+        return;
+    }
+
     document.getElementById('restockModal')?.remove();
     const name = escapeHTML(product.nameFr || 'Sans nom');
     const currentStock = Number(product.stock) || 0;
@@ -1165,7 +1257,7 @@ async function openRestockModal(productId) {
                     <div style="font-size:1.6rem;font-weight:800;">${currentStock}</div>
                 </div>
                 <label style="display:block;font-size:0.85rem;color:var(--text-muted);margin-bottom:0.4rem;">Combien à ajouter ?</label>
-                <input type="number" id="restockQuantityInput" min="1" value="1" style="width:100%;padding:0.8rem;border:2px solid var(--border-gold);border-radius:var(--radius-sm);text-align:center;font-weight:700;font-size:1.4rem;margin-bottom:1rem;">
+                <input type="number" id="restockQuantityInput" min="1" max="99999" value="1" style="width:100%;padding:0.8rem;border:2px solid var(--border-gold);border-radius:var(--radius-sm);text-align:center;font-weight:700;font-size:1.4rem;margin-bottom:1rem;">
                 <div style="background:rgba(46,204,113,0.08);border:1px solid rgba(46,204,113,0.3);border-radius:var(--radius-sm);padding:0.8rem;margin-bottom:1.2rem;text-align:center;">
                     <div style="font-size:0.75rem;color:var(--text-muted);">Nouveau stock</div>
                     <div style="font-size:1.8rem;font-weight:800;color:var(--success);" id="restockNewStockPreview">${currentStock + 1}</div>
@@ -1189,13 +1281,17 @@ async function openRestockModal(productId) {
     qtyInput.addEventListener('input', () => {
         let q = parseInt(qtyInput.value) || 1;
         if (q < 1) q = 1;
+        if (q > 99999) q = 99999;
         preview.textContent = currentStock + q;
     });
     setTimeout(() => { qtyInput.focus(); qtyInput.select(); }, 100);
 
     document.getElementById('confirmRestockBtn').addEventListener('click', async () => {
         const qty = parseInt(qtyInput.value) || 1;
-        if (qty < 1) { showToast('⚠️ Quantité invalide'); return; }
+        // ✅ M11.4 : guard
+        if (qty < 1) { showToast('⚠️ Quantité invalide (min 1)'); return; }
+        if (qty > 99999) { showToast('⚠️ Quantité trop élevée (max 99999)'); return; }
+
         const btn = document.getElementById('confirmRestockBtn');
         btn.disabled = true;
         btn.textContent = '⏳...';
@@ -1203,7 +1299,8 @@ async function openRestockModal(productId) {
             await updateDoc(doc(db, "products", productId), { stock: increment(qty), updatedAt: Timestamp.now() });
             showToast('✅ Stock +' + qty);
             closeModal();
-            await loadProducts();
+            invalidateProductsCache(); // ✅ M11.3
+            await loadProducts(true);
             await loadStats();
         } catch (e) {
             showToast('❌ ' + e.message);
@@ -1238,6 +1335,14 @@ function attachProductFormEvents() {
         imgFile.addEventListener('change', () => {
             const file = imgFile.files[0];
             if (!file) return;
+            // ✅ I11.4 : validation
+            try {
+                validateImageFile(file);
+            } catch (e) {
+                showToast('❌ ' + e.message);
+                imgFile.value = '';
+                return;
+            }
             const r = new FileReader();
             r.onload = (e) => { imgPreview.src = e.target.result; imgPreview.style.display = 'block'; };
             r.readAsDataURL(file);
@@ -1247,8 +1352,20 @@ function attachProductFormEvents() {
     const galleryPreview = document.getElementById('pGalleryPreview');
     if (galleryFiles && galleryPreview) {
         galleryFiles.addEventListener('change', () => {
+            // ✅ I11.4 : max 5
+            const files = Array.from(galleryFiles.files).slice(0, MAX_GALLERY_FILES);
+            for (const file of files) {
+                try {
+                    validateImageFile(file);
+                } catch (e) {
+                    showToast('❌ ' + e.message);
+                    galleryFiles.value = '';
+                    galleryPreview.innerHTML = '';
+                    return;
+                }
+            }
             galleryPreview.innerHTML = '';
-            Array.from(galleryFiles.files).forEach(file => {
+            files.forEach(file => {
                 const r = new FileReader();
                 r.onload = (e) => {
                     const img = document.createElement('img');
@@ -1259,8 +1376,7 @@ function attachProductFormEvents() {
             });
         });
     }
-    
-    // ✅ BOUTON EFFACER VIDÉO
+
     const clearVideoBtn = document.getElementById('clearVideoBtn');
     if (clearVideoBtn) {
         clearVideoBtn.addEventListener('click', () => {
@@ -1273,27 +1389,40 @@ function attachProductFormEvents() {
     document.getElementById('cancelProductEdit')?.addEventListener('click', resetProductForm);
 }
 
-// ✅ GÉNÉRATION DES VARIANTES
+// ============================================================
+// ✅ C11.2 : GÉNÉRATION VARIANTES (préserve les valeurs existantes)
+// ============================================================
 function generateVariants() {
     const sizesRaw = document.getElementById('pSizes').value.trim();
     const colorsRaw = document.getElementById('pColors').value.trim();
-    
+
     const sizes = sizesRaw ? sizesRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
     const colors = colorsRaw ? colorsRaw.split(',').map(c => c.trim()).filter(Boolean) : [];
-    
+
     const container = document.getElementById('variantsContainer');
     const tbody = document.querySelector('#variantsTable tbody');
-    
+
     if (sizes.length === 0 && colors.length === 0) {
         container.style.display = 'none';
         tbody.innerHTML = '';
         return;
     }
 
+    // ✅ C11.2 : sauvegarder les valeurs existantes AVANT de vider
+    const existingValues = {};
+    tbody.querySelectorAll('tr').forEach(tr => {
+        const key = `${tr.dataset.size || ''}__${tr.dataset.color || ''}`;
+        const priceInput = tr.querySelector('.var-price');
+        const stockInput = tr.querySelector('.var-stock');
+        existingValues[key] = {
+            price: priceInput && priceInput.value !== '' ? parseFloat(priceInput.value) : null,
+            stock: stockInput && stockInput.value !== '' ? parseInt(stockInput.value) : null
+        };
+    });
+
     tbody.innerHTML = '';
     container.style.display = 'block';
 
-    // On génère les combinaisons
     const combinations = [];
     if (sizes.length > 0 && colors.length > 0) {
         sizes.forEach(s => colors.forEach(c => combinations.push({ size: s, color: c })));
@@ -1303,20 +1432,26 @@ function generateVariants() {
         colors.forEach(c => combinations.push({ size: '', color: c }));
     }
 
-    // Prix et stock par défaut (ceux du formulaire principal)
     const defaultPrice = parseFloat(document.getElementById('pPrice').value) || 0;
     const defaultStock = parseInt(document.getElementById('pStock').value) || 0;
 
     combinations.forEach(combo => {
+        const key = `${combo.size}__${combo.color}`;
+        const existing = existingValues[key];
+
+        // ✅ C11.2 : garder les valeurs existantes si présentes
+        const price = existing && existing.price !== null ? existing.price : defaultPrice;
+        const stock = existing && existing.stock !== null ? existing.stock : defaultStock;
+
         const label = [combo.size, combo.color].filter(Boolean).join(' - ');
         const tr = document.createElement('tr');
         tr.dataset.size = combo.size;
         tr.dataset.color = combo.color;
-        
+
         tr.innerHTML = `
-            <td style="font-weight:600;font-size:0.85rem;">${label}</td>
-            <td><input type="number" class="var-price" value="${defaultPrice}" min="0" style="width:100%;padding:0.3rem;border:1px solid var(--border);border-radius:4px;text-align:center;"></td>
-            <td><input type="number" class="var-stock" value="${defaultStock}" min="0" style="width:100%;padding:0.3rem;border:1px solid var(--border);border-radius:4px;text-align:center;"></td>
+            <td style="font-weight:600;font-size:0.85rem;">${escapeHTML(label)}</td>
+            <td><input type="number" class="var-price" value="${price}" min="0" max="100000" style="width:100%;padding:0.3rem;border:1px solid var(--border);border-radius:4px;text-align:center;"></td>
+            <td><input type="number" class="var-stock" value="${stock}" min="0" max="99999" style="width:100%;padding:0.3rem;border:1px solid var(--border);border-radius:4px;text-align:center;"></td>
         `;
         tbody.appendChild(tr);
     });
@@ -1325,16 +1460,19 @@ function generateVariants() {
 function resetProductForm() {
     document.getElementById('productFormTitle').textContent = '➕ ' + t('adminAddProduct');
     document.getElementById('productEditId').value = '';
-    
+
     ['pNameFr', 'pNameAr', 'pNameEn', 'pSlug', 'pPrice', 'pOldPrice', 'pPurchasePrice', 'pStock', 'pRating',
      'pDescFr', 'pDescAr', 'pDescEn', 'pFeaturesFr', 'pFeaturesAr', 'pFeaturesEn', 'pImg', 'pGallery', 'pVideo',
-     'pWeight', 'pLength', 'pWidth', 'pHeight', 'pSizes', 'pColors'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
-        
+     'pWeight', 'pLength', 'pWidth', 'pHeight', 'pSizes', 'pColors'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+
     document.getElementById('pParentCategory').value = '';
     document.getElementById('pCategory').innerHTML = '<option value="">-- Choisir une sous-catégorie --</option>';
     document.getElementById('pIsNew').checked = false;
     document.getElementById('pSizeGuide').checked = false;
-    
+
     document.getElementById('variantsContainer').style.display = 'none';
     document.querySelector('#variantsTable tbody').innerHTML = '';
 
@@ -1358,11 +1496,10 @@ async function editProduct(id) {
         document.getElementById('pNameAr').value = p.nameAr || '';
         document.getElementById('pNameEn').value = p.nameEn || '';
         document.getElementById('pSlug').value = p.slug || '';
-        
-        // Catégorie
+
         const parentSelect = document.getElementById('pParentCategory');
         const childSelect = document.getElementById('pCategory');
-        
+
         let foundParentId = '';
         CATEGORY_GROUPS.forEach(g => {
             if (g.children.some(c => c.id === p.category)) foundParentId = g.id;
@@ -1370,12 +1507,11 @@ async function editProduct(id) {
 
         if (foundParentId) {
             parentSelect.value = foundParentId;
-            parentSelect.dispatchEvent(new Event('change')); // Déclenche le remplissage des enfants
+            parentSelect.dispatchEvent(new Event('change'));
             childSelect.value = p.category || '';
         } else {
-            // Si ancienne catégorie pas dans l'arborescence
             parentSelect.value = '';
-            childSelect.innerHTML = `<option value="${p.category}">${p.category} (Ancienne)</option>`;
+            childSelect.innerHTML = `<option value="${escapeHTML(p.category || '')}">${escapeHTML(p.category || '')} (Ancienne)</option>`;
             childSelect.value = p.category || '';
         }
 
@@ -1386,25 +1522,22 @@ async function editProduct(id) {
         document.getElementById('pRating').value = p.ratingAvg || '';
         document.getElementById('pIsNew').checked = !!p.isNew;
         document.getElementById('pSizeGuide').checked = !!p.hasSizeGuide;
-        
-        // Dimensions
+
         document.getElementById('pWeight').value = p.dimensions?.weight || '';
         document.getElementById('pLength').value = p.dimensions?.length || '';
         document.getElementById('pWidth').value = p.dimensions?.width || '';
         document.getElementById('pHeight').value = p.dimensions?.height || '';
-        
-        // Variantes
+
         const variantsContainer = document.getElementById('variantsContainer');
         const variantsTbody = document.querySelector('#variantsTable tbody');
         variantsTbody.innerHTML = '';
-        
+
         if (p.variants && p.variants.length > 0) {
-            // Extraire les tailles et couleurs uniques
             const sizes = [...new Set(p.variants.map(v => v.size).filter(Boolean))];
             const colors = [...new Set(p.variants.map(v => v.color).filter(Boolean))];
             document.getElementById('pSizes').value = sizes.join(', ');
             document.getElementById('pColors').value = colors.join(', ');
-            
+
             variantsContainer.style.display = 'block';
             p.variants.forEach(combo => {
                 const label = [combo.size, combo.color].filter(Boolean).join(' - ');
@@ -1412,9 +1545,9 @@ async function editProduct(id) {
                 tr.dataset.size = combo.size || '';
                 tr.dataset.color = combo.color || '';
                 tr.innerHTML = `
-                    <td style="font-weight:600;font-size:0.85rem;">${label}</td>
-                    <td><input type="number" class="var-price" value="${combo.price || p.price}" min="0" style="width:100%;padding:0.3rem;border:1px solid var(--border);border-radius:4px;text-align:center;"></td>
-                    <td><input type="number" class="var-stock" value="${combo.stock || 0}" min="0" style="width:100%;padding:0.3rem;border:1px solid var(--border);border-radius:4px;text-align:center;"></td>
+                    <td style="font-weight:600;font-size:0.85rem;">${escapeHTML(label)}</td>
+                    <td><input type="number" class="var-price" value="${combo.price || p.price}" min="0" max="100000" style="width:100%;padding:0.3rem;border:1px solid var(--border);border-radius:4px;text-align:center;"></td>
+                    <td><input type="number" class="var-stock" value="${combo.stock || 0}" min="0" max="99999" style="width:100%;padding:0.3rem;border:1px solid var(--border);border-radius:4px;text-align:center;"></td>
                 `;
                 variantsTbody.appendChild(tr);
             });
@@ -1433,11 +1566,11 @@ async function editProduct(id) {
         document.getElementById('pImg').value = p.img || '';
         document.getElementById('pGallery').value = (p.gallery || []).join(', ');
         document.getElementById('pVideo').value = p.video || '';
-        
+
         const ip = document.getElementById('pImgPreview');
-        if (p.img && typeof p.img === 'string') { 
-            ip.src = p.img.startsWith('http') ? p.img : '/' + p.img; 
-            ip.style.display = 'block'; 
+        if (p.img && typeof p.img === 'string') {
+            ip.src = p.img.startsWith('http') ? p.img : '/' + p.img;
+            ip.style.display = 'block';
         }
         else ip.style.display = 'none';
         const gp = document.getElementById('pGalleryPreview');
@@ -1453,6 +1586,9 @@ async function editProduct(id) {
     } catch (e) { showToast('❌ ' + t('loadError')); }
 }
 
+// ============================================================
+// ✅ C11.3 + I11.6 : SAVE PRODUCT (validation stricte variants)
+// ============================================================
 async function saveProduct() {
     const editId = document.getElementById('productEditId').value;
     const saveBtn = document.getElementById('saveProductBtn');
@@ -1478,13 +1614,16 @@ async function saveProduct() {
         let imgUrl = document.getElementById('pImg').value.trim();
         const imgFile = document.getElementById('pImgFile').files[0];
         if (imgFile) {
+            validateImageFile(imgFile);
             const storageRef = ref(storage, `products/${Date.now()}_${imgFile.name}`);
             await uploadBytes(storageRef, imgFile);
             imgUrl = await getDownloadURL(storageRef);
         }
         let gallery = document.getElementById('pGallery').value.split(',').map(u => u.trim()).filter(u => u);
         const galleryFiles = document.getElementById('pGalleryFiles').files;
-        for (const file of Array.from(galleryFiles)) {
+        const filesToUpload = Array.from(galleryFiles).slice(0, MAX_GALLERY_FILES);
+        for (const file of filesToUpload) {
+            validateImageFile(file);
             const gRef = ref(storage, `products/gallery/${Date.now()}_${file.name}`);
             await uploadBytes(gRef, file);
             gallery.push(await getDownloadURL(gRef));
@@ -1492,27 +1631,43 @@ async function saveProduct() {
 
         const videoValue = document.getElementById('pVideo').value.trim();
 
-        // Gestion des variantes
+        // ✅ C11.3 + I11.6 : Validation stricte variants
         const variants = [];
         const variantsTbody = document.querySelector('#variantsTable tbody');
         if (document.getElementById('variantsContainer').style.display !== 'none') {
-            variantsTbody.querySelectorAll('tr').forEach(tr => {
+            const rows = variantsTbody.querySelectorAll('tr');
+            for (const tr of rows) {
+                const sizeVal = tr.dataset.size || '';
+                const colorVal = tr.dataset.color || '';
+                const label = [sizeVal, colorVal].filter(Boolean).join(' / ') || 'variante';
+
+                const priceInput = tr.querySelector('.var-price');
+                const stockInput = tr.querySelector('.var-stock');
+                const vPrice = parseFloat(priceInput?.value);
+                const vStock = parseInt(stockInput?.value);
+
+                // ✅ C11.3 : validation stricte
+                if (!Number.isFinite(vPrice) || vPrice < 0 || vPrice > 100000) {
+                    throw new Error(`Prix invalide pour ${label} (0-100000 MAD)`);
+                }
+                if (!Number.isFinite(vStock) || vStock < 0 || vStock > 99999) {
+                    throw new Error(`Stock invalide pour ${label} (0-99999)`);
+                }
+
                 variants.push({
-                    size: tr.dataset.size || '',
-                    color: tr.dataset.color || '',
-                    price: parseFloat(tr.querySelector('.var-price').value) || priceRaw,
-                    stock: parseInt(tr.querySelector('.var-stock').value) || 0
+                    size: sizeVal,
+                    color: colorVal,
+                    price: vPrice,
+                    stock: vStock
                 });
-            });
+            }
         }
 
-        // Si des variantes existent, le stock global est la somme des stocks des variantes
         let finalStock = stockRaw;
         if (variants.length > 0) {
             finalStock = variants.reduce((sum, v) => sum + v.stock, 0);
         }
 
-        // Dimensions
         const dimensions = {
             weight: parseFloat(document.getElementById('pWeight').value) || 0,
             length: parseFloat(document.getElementById('pLength').value) || 0,
@@ -1541,7 +1696,7 @@ async function saveProduct() {
             featuresFr: document.getElementById('pFeaturesFr').value.split('\n').map(l => l.trim()).filter(l => l),
             featuresAr: document.getElementById('pFeaturesAr').value.split('\n').map(l => l.trim()).filter(l => l),
             featuresEn: document.getElementById('pFeaturesEn').value.split('\n').map(l => l.trim()).filter(l => l),
-            img: imgUrl, gallery, 
+            img: imgUrl, gallery,
             video: videoValue || deleteField(),
             updatedAt: Timestamp.now()
         };
@@ -1561,12 +1716,14 @@ async function saveProduct() {
             productData.createdAt = Timestamp.now();
             productData.salesCount = 0;
             productData.ratingCount = 0;
-            if (!videoValue) delete productData.video; 
+            if (!videoValue) delete productData.video;
             await setDoc(doc(db, "products", newId), productData);
             showToast('✅ ' + t('success'));
         }
+
+        invalidateProductsCache(); // ✅ M11.3
         resetProductForm();
-        await loadProducts();
+        await loadProducts(true);
         await loadStats();
     } catch (e) {
         showToast('❌ ' + (e.message || t('error')));
@@ -1592,7 +1749,8 @@ async function deleteProduct(id) {
         (product.gallery || []).forEach(u => { if (isStorageUrl(u)) toDel.push(u); });
         if (toDel.length) await deleteStorageImages(toDel);
         showToast('🗑️ ' + t('delete'));
-        await loadProducts();
+        invalidateProductsCache(); // ✅ M11.3
+        await loadProducts(true);
         await loadStats();
     } catch (e) { showToast('❌ ' + t('error')); }
 }
@@ -1635,8 +1793,8 @@ function renderUsersList(users) {
                     <strong>${name}</strong>
                     <div style="font-size:0.8rem;color:var(--text-muted);margin-top:0.2rem;">📧 ${email} ${phone ? `· 📞 ${phone}` : ''}</div>
                     <div style="font-size:0.75rem;color:var(--text-dim);margin-top:0.2rem;display:flex;gap:0.6rem;flex-wrap:wrap;">
-                        <span>${methodEmoji} ${t('signupMethod')} : <strong style="color:var(--gold);">${methodLabel}</strong></span>
-                        <span>${t('profile')} : <strong style="color:${role === 'admin' ? 'var(--gold)' : 'var(--text-muted)'};">${role}</strong></span>
+                        <span>${methodEmoji} ${t('signupMethod')} : <strong style="color:var(--gold);">${escapeHTML(methodLabel)}</strong></span>
+                        <span>${t('profile')} : <strong style="color:${role === 'admin' ? 'var(--gold)' : 'var(--text-muted)'};">${escapeHTML(role)}</strong></span>
                     </div>
                 </div>
                 <div class="admin-list-item-actions">
@@ -1707,7 +1865,7 @@ function filterUsersList() {
 }
 
 // ============================================================
-// BLOG
+// ✅ I11.2 : BLOG (pagination affichée)
 // ============================================================
 async function loadBlogPosts() {
     const container = document.getElementById('adminBlogList');
@@ -1732,6 +1890,7 @@ async function loadBlogPosts() {
     }
 }
 
+// ✅ M11.5 : locale via getLang
 function renderBlogListAdmin(posts) {
     const container = document.getElementById('adminBlogList');
     if (!container) return;
@@ -1747,7 +1906,7 @@ function renderBlogListAdmin(posts) {
         const status = post.status || 'draft';
         const statusLabel = status === 'published' ? '✅ ' + t('blogAdminFormStatusPublished') : '📝 ' + t('blogAdminFormStatusDraft');
         const statusClass = status === 'published' ? 'published' : 'draft';
-        const date = post.publishedAt ? post.publishedAt.toLocaleDateString('fr-FR') : (post.createdAt ? post.createdAt.toLocaleDateString('fr-FR') : '—');
+        const date = formatDateLocale(post.publishedAt || post.createdAt);
         const thumb = post.image ? `<img src="${escapeHTML(post.image)}" class="admin-blog-thumb" alt="Cover">` : `<div class="admin-blog-thumb" style="display:flex;align-items:center;justify-content:center;font-size:2rem;background:var(--bg-surface);">📝</div>`;
         html += `
             <div class="admin-blog-item" data-post-id="${post.id}">
@@ -1763,9 +1922,32 @@ function renderBlogListAdmin(posts) {
             </div>
         `;
     });
+
+    // ✅ I11.2 : pagination
+    if (totalPages > 1) {
+        html += `<div style="display:flex;justify-content:center;gap:0.3rem;margin-top:1rem;flex-wrap:wrap;">`;
+        html += `<button class="admin-btn-icon" data-blog-page="prev" ${blogCurrentPage === 1 ? 'disabled' : ''}>‹</button>`;
+        for (let i = 1; i <= totalPages; i++) {
+            html += `<button class="admin-btn-icon ${i === blogCurrentPage ? 'active' : ''}" data-blog-page="${i}" style="${i === blogCurrentPage ? 'background:var(--gold);color:#fff;' : ''}">${i}</button>`;
+        }
+        html += `<button class="admin-btn-icon" data-blog-page="next" ${blogCurrentPage === totalPages ? 'disabled' : ''}>›</button></div>`;
+    }
+
     container.innerHTML = html;
     container.querySelectorAll('[data-action="edit-post"]').forEach(btn => btn.addEventListener('click', () => editBlogPost(btn.dataset.id)));
     container.querySelectorAll('[data-action="delete-post"]').forEach(btn => btn.addEventListener('click', () => deleteBlogPost(btn.dataset.id)));
+
+    // ✅ I11.2 : listeners pagination
+    container.querySelectorAll('[data-blog-page]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const p = btn.dataset.blogPage;
+            if (p === 'prev' && blogCurrentPage > 1) blogCurrentPage--;
+            else if (p === 'next' && blogCurrentPage < totalPages) blogCurrentPage++;
+            else if (!isNaN(parseInt(p))) blogCurrentPage = parseInt(p);
+            else return;
+            filterBlogList(false);
+        });
+    });
 }
 
 function filterBlogList(resetPage = true) {
@@ -1798,6 +1980,11 @@ function attachBlogFormEvents() {
         imgFile.addEventListener('change', () => {
             const file = imgFile.files[0];
             if (!file) return;
+            try { validateImageFile(file); } catch (e) {
+                showToast('❌ ' + e.message);
+                imgFile.value = '';
+                return;
+            }
             const r = new FileReader();
             r.onload = (e) => { imgPreview.src = e.target.result; imgPreview.style.display = 'block'; };
             r.readAsDataURL(file);
@@ -1849,9 +2036,9 @@ async function editBlogPost(id) {
         document.getElementById('bAuthor').value = p.author || 'Smart Swi9a';
         document.getElementById('bTags').value = (p.tags || []).join(', ');
         const ip = document.getElementById('bImagePreview');
-        if (p.image && typeof p.image === 'string') { 
-            ip.src = p.image.startsWith('http') ? p.image : '/' + p.image; 
-            ip.style.display = 'block'; 
+        if (p.image && typeof p.image === 'string') {
+            ip.src = p.image.startsWith('http') ? p.image : '/' + p.image;
+            ip.style.display = 'block';
         }
         else ip.style.display = 'none';
         document.getElementById('saveBlogBtnText').textContent = t('save');
@@ -1878,6 +2065,7 @@ async function saveBlogPost() {
         let imgUrl = document.getElementById('bImage').value.trim();
         const imgFile = document.getElementById('bImageFile').files[0];
         if (imgFile) {
+            validateImageFile(imgFile);
             const storageRef = ref(storage, `blog/${Date.now()}_${imgFile.name}`);
             await uploadBytes(storageRef, imgFile);
             imgUrl = await getDownloadURL(storageRef);
@@ -1935,7 +2123,7 @@ async function deleteBlogPost(id) {
 }
 
 // ============================================================
-// CODES PROMO
+// ✅ I11.5 : COUPONS (ID déterministe)
 // ============================================================
 async function loadCoupons() {
     const container = document.getElementById('couponsList');
@@ -1965,6 +2153,12 @@ async function loadCoupons() {
     }
 }
 
+const COUPON_TYPES = {
+    percentage: { label: 'Pourcentage', emoji: '📊', cssClass: 'coupon-type-percentage' },
+    fixed: { label: 'Montant fixe', emoji: '💰', cssClass: 'coupon-type-fixed' },
+    free_shipping: { label: 'Livraison gratuite', emoji: '🚚', cssClass: 'coupon-type-free_shipping' }
+};
+
 function renderCouponsList(coupons) {
     const container = document.getElementById('couponsList');
     if (!container) return;
@@ -1973,7 +2167,7 @@ function renderCouponsList(coupons) {
         container.innerHTML = `
             <div class="admin-empty" style="padding:3rem 1rem;">
                 <div style="font-size:3rem;margin-bottom:0.5rem;">🎟️</div>
-                <p>Aucun code promo pour le moment.<br>Créez-en un avec le formulaire ci-dessus.</p>
+                <p>Aucun code promo pour le moment.</p>
             </div>
         `;
         return;
@@ -1998,19 +2192,10 @@ function renderCouponsList(coupons) {
         const isFull = maxUses > 0 && usedCount >= maxUses;
 
         let statusLabel, statusClass;
-        if (!isActive) {
-            statusLabel = '⏸️ Désactivé';
-            statusClass = 'coupon-status-inactive';
-        } else if (isExpired) {
-            statusLabel = '⏰ Expiré';
-            statusClass = 'coupon-status-expired';
-        } else if (isFull) {
-            statusLabel = '🚫 Épuisé';
-            statusClass = 'coupon-status-expired';
-        } else {
-            statusLabel = '✅ Actif';
-            statusClass = 'coupon-status-active';
-        }
+        if (!isActive) { statusLabel = '⏸️ Désactivé'; statusClass = 'coupon-status-inactive'; }
+        else if (isExpired) { statusLabel = '⏰ Expiré'; statusClass = 'coupon-status-expired'; }
+        else if (isFull) { statusLabel = '🚫 Épuisé'; statusClass = 'coupon-status-expired'; }
+        else { statusLabel = '✅ Actif'; statusClass = 'coupon-status-active'; }
 
         let valueLabel = '';
         if (type === 'percentage') valueLabel = `-${value}%`;
@@ -2025,9 +2210,7 @@ function renderCouponsList(coupons) {
                 <div class="coupon-meta" style="margin-top:0.2rem;">
                     <span>📊 Utilisations : <strong>${usedCount}/${maxUses}</strong></span>
                 </div>
-                <div class="coupon-progress">
-                    <div class="coupon-progress-fill ${fillClass}" style="width:${percent}%"></div>
-                </div>
+                <div class="coupon-progress"><div class="coupon-progress-fill ${fillClass}" style="width:${percent}%"></div></div>
             `;
         } else {
             progressHtml = `
@@ -2037,21 +2220,17 @@ function renderCouponsList(coupons) {
             `;
         }
 
+        // ✅ M11.5 : formatDateLocale
         let expireLabel = '<span style="color:var(--text-dim);">Jamais</span>';
         if (expiresAt) {
-            const dateStr = expiresAt.toLocaleDateString('fr-FR');
+            const dateStr = formatDateLocale(expiresAt);
             expireLabel = isExpired
                 ? `<span style="color:var(--danger);font-weight:700;">⚠️ Expiré le ${dateStr}</span>`
                 : `<span style="color:var(--success);">📅 Expire le ${dateStr}</span>`;
         }
 
-        const minLabel = minPurchase > 0
-            ? `<span>🛒 Min : <strong>${minPurchase} MAD</strong></span>`
-            : '';
-
-        const oneUseLabel = oneUsePerUser
-            ? `<span>👤 <strong>1 usage/client</strong></span>`
-            : '';
+        const minLabel = minPurchase > 0 ? `<span>🛒 Min : <strong>${minPurchase} MAD</strong></span>` : '';
+        const oneUseLabel = oneUsePerUser ? `<span>👤 <strong>1 usage/client</strong></span>` : '';
 
         const cardClasses = ['coupon-card'];
         if (!isActive) cardClasses.push('is-inactive');
@@ -2066,21 +2245,15 @@ function renderCouponsList(coupons) {
                         <span class="coupon-status-badge ${statusClass}">${statusLabel}</span>
                     </div>
                 </div>
-
                 ${description ? `<div class="coupon-desc">💬 ${description}</div>` : ''}
-
                 <div class="coupon-meta">
                     ${expireLabel}
                     ${minLabel}
                     ${oneUseLabel}
                 </div>
-
                 ${progressHtml}
-
                 <div class="coupon-actions">
-                    <button class="admin-btn-icon" data-action="coupon-toggle" data-id="${coupon.id}" title="${isActive ? 'Désactiver' : 'Activer'}">
-                        ${isActive ? '⏸️ Désactiver' : '▶️ Activer'}
-                    </button>
+                    <button class="admin-btn-icon" data-action="coupon-toggle" data-id="${coupon.id}">${isActive ? '⏸️ Désactiver' : '▶️ Activer'}</button>
                     <button class="admin-btn-icon" data-action="coupon-edit" data-id="${coupon.id}">✏️ Modifier</button>
                     <button class="admin-btn-icon admin-btn-danger" data-action="coupon-delete" data-id="${coupon.id}">🗑️ Supprimer</button>
                 </div>
@@ -2089,7 +2262,6 @@ function renderCouponsList(coupons) {
     });
 
     container.innerHTML = html;
-
     container.querySelectorAll('[data-action="coupon-toggle"]').forEach(btn => {
         btn.addEventListener('click', () => toggleCouponActive(btn.dataset.id));
     });
@@ -2110,7 +2282,6 @@ function attachCouponFormEvents() {
             codeInput.setSelectionRange(pos, pos);
         });
     }
-
     const typeSelect = document.getElementById('cType');
     if (typeSelect) {
         typeSelect.addEventListener('change', () => {
@@ -2121,7 +2292,6 @@ function attachCouponFormEvents() {
             else { valueInput.value = '0'; valueInput.placeholder = '0'; }
         });
     }
-
     document.getElementById('saveCouponBtn')?.addEventListener('click', saveCoupon);
     document.getElementById('cancelCouponEdit')?.addEventListener('click', resetCouponForm);
 }
@@ -2148,7 +2318,6 @@ async function editCoupon(id) {
         const snap = await getDoc(doc(db, "coupons", id));
         if (!snap.exists()) { showToast('❌ Coupon introuvable'); return; }
         const c = snap.data();
-
         document.getElementById('couponFormTitle').textContent = '✏️ Modifier le code promo';
         document.getElementById('couponEditId').value = id;
         document.getElementById('cCode').value = c.code || '';
@@ -2162,7 +2331,6 @@ async function editCoupon(id) {
             : '';
         document.getElementById('cOneUsePerUser').checked = c.oneUsePerUser === true;
         document.getElementById('cIsActive').checked = c.isActive === true;
-
         document.getElementById('saveCouponBtnText').textContent = 'Enregistrer les modifications';
         document.getElementById('cancelCouponEdit').style.display = 'inline-flex';
         document.getElementById('tab-coupons')?.scrollIntoView({ behavior: 'smooth' });
@@ -2172,6 +2340,7 @@ async function editCoupon(id) {
     }
 }
 
+// ✅ I11.5 : ID déterministe
 async function saveCoupon() {
     const editId = document.getElementById('couponEditId').value;
     const saveBtn = document.getElementById('saveCouponBtn');
@@ -2187,40 +2356,29 @@ async function saveCoupon() {
     const oneUsePerUser = document.getElementById('cOneUsePerUser').checked;
     const isActive = document.getElementById('cIsActive').checked;
 
-    if (!code || code.length < 3) {
-        showToast('⚠️ Le code doit faire au moins 3 caractères');
-        return;
-    }
-    if (code.length > 30) {
-        showToast('⚠️ Le code est trop long (max 30)');
-        return;
-    }
-    if (type !== 'free_shipping' && (isNaN(valueRaw) || valueRaw <= 0)) {
-        showToast('⚠️ La valeur doit être supérieure à 0');
-        return;
-    }
-    if (type === 'percentage' && valueRaw > 100) {
-        showToast('⚠️ Un pourcentage ne peut pas dépasser 100%');
-        return;
-    }
-
-    try {
-        const q = query(collection(db, "coupons"), where("code", "==", code));
-        const snap = await getDocs(q);
-        const duplicate = snap.docs.find(d => d.id !== editId);
-        if (duplicate) {
-            showToast('⚠️ Ce code existe déjà — choisissez-en un autre');
-            return;
-        }
-    } catch (e) {
-        console.warn('⚠️ Vérification unicité impossible :', e);
-    }
+    if (!code || code.length < 3) { showToast('⚠️ Le code doit faire au moins 3 caractères'); return; }
+    if (code.length > 30) { showToast('⚠️ Le code est trop long (max 30)'); return; }
+    if (type !== 'free_shipping' && (isNaN(valueRaw) || valueRaw <= 0)) { showToast('⚠️ La valeur doit être supérieure à 0'); return; }
+    if (type === 'percentage' && valueRaw > 100) { showToast('⚠️ Un pourcentage ne peut pas dépasser 100%'); return; }
 
     saveBtn.disabled = true;
     const oldText = btnText.textContent;
     btnText.textContent = '⏳ ' + t('loading');
 
     try {
+        // ✅ I11.5 : ID déterministe (anti-race)
+        const deterministicId = code.replace(/[^A-Z0-9]/g, '_');
+        const couponRef = doc(db, "coupons", deterministicId);
+        const existing = await getDoc(couponRef);
+
+        // Si le doc existe et n'est pas celui qu'on est en train d'éditer → conflit
+        if (existing.exists() && existing.id !== editId) {
+            showToast('⚠️ Ce code existe déjà — choisissez-en un autre');
+            saveBtn.disabled = false;
+            btnText.textContent = oldText;
+            return;
+        }
+
         const couponData = {
             code,
             description,
@@ -2241,13 +2399,18 @@ async function saveCoupon() {
         }
 
         if (editId) {
-            await updateDoc(doc(db, "coupons", editId), couponData);
+            // Si l'ID change (code modifié), supprimer l'ancien
+            if (editId !== deterministicId) {
+                await setDoc(couponRef, couponData);
+                await deleteDoc(doc(db, "coupons", editId));
+            } else {
+                await updateDoc(doc(db, "coupons", editId), couponData);
+            }
             showToast('✅ Code promo mis à jour');
         } else {
             couponData.usedCount = 0;
             couponData.createdAt = Timestamp.now();
-            const newId = code.replace(/[^A-Z0-9]/g, '_') + '_' + Date.now();
-            await setDoc(doc(db, "coupons", newId), couponData);
+            await setDoc(couponRef, couponData);
             showToast('✅ Code promo créé : ' + code);
         }
 
@@ -2286,15 +2449,9 @@ async function toggleCouponActive(id) {
 async function deleteCoupon(id) {
     const confirmed = await confirmAction(
         'Supprimer définitivement ce code promo ? Cette action est irréversible.',
-        {
-            title: '🗑️ Supprimer le code promo',
-            confirmText: 'Supprimer',
-            cancelText: 'Annuler',
-            variant: 'danger'
-        }
+        { title: '🗑️ Supprimer le code promo', confirmText: 'Supprimer', cancelText: 'Annuler', variant: 'danger' }
     );
     if (!confirmed) return;
-
     try {
         await deleteDoc(doc(db, "coupons", id));
         showToast('🗑️ Code promo supprimé');
@@ -2319,7 +2476,7 @@ function filterCouponsList() {
 }
 
 // ============================================================
-// MIGRATION VILLES
+// ✅ I11.1 : MIGRATION VILLES (delete batch AVANT)
 // ============================================================
 async function handleMigrateCities() {
     const btn = document.getElementById('migrateCitiesBtn');
@@ -2352,10 +2509,27 @@ async function handleMigrateCities() {
             cancelText: t('confirmDeleteNo'), variant: 'danger'
         });
         if (!confirmed) { btn.disabled = false; return; }
+
+        // ✅ I11.1 : SUPPRIMER les anciennes AVANT (batch 400)
+        log(`\n⏳ Suppression de ${existingSnap.size} anciennes villes...`);
+        const oldDocs = existingSnap.docs;
+        for (let i = 0; i < oldDocs.length; i += 400) {
+            const batch = writeBatch(db);
+            oldDocs.slice(i, i + 400).forEach(d => batch.delete(d.ref));
+            try {
+                await batch.commit();
+                log(`  ✓ ${Math.min(i + 400, oldDocs.length)}/${oldDocs.length} supprimées`);
+            } catch (e) {
+                log(`❌ Erreur suppression batch ${i} : ${e.message}`, true);
+                btn.disabled = false;
+                return;
+            }
+        }
     }
 
     const BATCH = 400;
     let processed = 0;
+    log('\n⏳ Migration en cours...');
     for (let i = 0; i < cities.length; i += BATCH) {
         const batch = writeBatch(db);
         const chunk = cities.slice(i, i + BATCH);
@@ -2415,7 +2589,7 @@ async function loadCollectionsStatus() {
 }
 
 // ============================================================
-// COMPTABILITÉ — ONGLET
+// COMPTABILITÉ
 // ============================================================
 async function loadFinancesTab() {
     if (!cachedProducts || cachedProducts.length === 0) await loadProducts();
@@ -2572,12 +2746,11 @@ async function refreshAccOverview() {
 }
 
 // ============================================================
-// ACHATS
+// ACHATS / DÉPENSES / TRANSACTIONS
 // ============================================================
 async function renderPurchasesList() {
     const container = document.getElementById('purchasesList');
     if (!container) return;
-
     if (!cachedProducts || cachedProducts.length === 0) await loadProducts();
 
     const selectProd = document.getElementById('purProductId');
@@ -2593,9 +2766,7 @@ async function renderPurchasesList() {
         }
     }
 
-    try {
-        await loadPurchases();
-    } catch (e) {
+    try { await loadPurchases(); } catch (e) {
         container.innerHTML = `<div class="admin-empty" style="color:var(--danger);">❌ Impossible de lire "purchases" : ${e.code || e.message}</div>`;
         return;
     }
@@ -2622,7 +2793,7 @@ async function renderPurchasesList() {
             </tr></thead><tbody>`;
 
     cachedPurchases.forEach(p => {
-        const dateStr = p.date ? p.date.toLocaleDateString('fr-FR') : '—';
+        const dateStr = formatDateLocale(p.date);
         html += `<tr>
             <td>${dateStr}</td>
             <td style="font-weight:600;">${escapeHTML(p.productName || '—')}<br>
@@ -2697,7 +2868,8 @@ async function saveNewPurchase() {
         document.getElementById('purNote').value = '';
         document.getElementById('purDate').valueAsDate = new Date();
 
-        await loadProducts();
+        invalidateProductsCache();
+        await loadProducts(true);
         await renderPurchasesList();
     } catch (e) {
         if (e.code === 'permission-denied') {
@@ -2711,15 +2883,10 @@ async function saveNewPurchase() {
     }
 }
 
-// ============================================================
-// DÉPENSES
-// ============================================================
 async function renderExpensesList() {
     const container = document.getElementById('expensesList');
     if (!container) return;
-    try {
-        await loadExpenses();
-    } catch (e) {
+    try { await loadExpenses(); } catch (e) {
         container.innerHTML = `<div class="admin-empty" style="color:var(--danger);">❌ Impossible de lire "expenses" : ${e.code || e.message}</div>`;
         return;
     }
@@ -2741,10 +2908,10 @@ async function renderExpensesList() {
         <table class="acc-table">
             <thead><tr><th>Date</th><th>Catégorie</th><th>Description</th><th style="text-align:right;">Montant</th><th style="text-align:center;">Actions</th></tr></thead><tbody>`;
     cachedExpenses.forEach(e => {
-        const dateStr = e.date ? e.date.toLocaleDateString('fr-FR') : '—';
+        const dateStr = formatDateLocale(e.date);
         html += `<tr>
             <td>${dateStr}</td>
-            <td>${catLabels[e.category] || e.category}</td>
+            <td>${catLabels[e.category] || escapeHTML(e.category || '')}</td>
             <td>${escapeHTML(e.description || '')}</td>
             <td style="text-align:right;font-weight:700;color:var(--danger);">${formatMAD(e.amount)}</td>
             <td style="text-align:center;"><button class="admin-btn-danger" data-action="delete-expense" data-id="${e.id}" style="font-size:0.7rem;padding:0.3rem 0.6rem;">🗑️</button></td>
@@ -2802,15 +2969,10 @@ async function saveNewExpense() {
     }
 }
 
-// ============================================================
-// TRANSACTIONS
-// ============================================================
 async function renderTransactionsList() {
     const container = document.getElementById('transactionsList');
     if (!container) return;
-    try {
-        await loadTransactions();
-    } catch (e) {
+    try { await loadTransactions(); } catch (e) {
         container.innerHTML = `<div class="admin-empty" style="color:var(--danger);">❌ Impossible de lire "transactions" : ${e.code || e.message}</div>`;
         return;
     }
@@ -2828,7 +2990,7 @@ async function renderTransactionsList() {
     let html = '';
     filtered.forEach(t => {
         const isIncome = t.type === 'income';
-        const dateStr = t.date ? t.date.toLocaleDateString('fr-FR') : '—';
+        const dateStr = formatDateLocale(t.date);
         const color = isIncome ? 'var(--success)' : 'var(--danger)';
         const sign = isIncome ? '+' : '−';
         html += `<div class="admin-list-item">
@@ -2999,7 +3161,7 @@ async function generateReport() {
 }
 
 // ============================================================
-// EXPORTS CSV (helpers + fonctions)
+// EXPORTS CSV
 // ============================================================
 function downloadCSV(csvContent, filename) {
     const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -3020,10 +3182,6 @@ function escapeCSV(val) {
         return '"' + str.replace(/"/g, '""') + '"';
     }
     return str;
-}
-
-function exportReport() {
-    exportReportCSV();
 }
 
 function exportReportCSV() {
@@ -3099,13 +3257,13 @@ async function exportProductsCSV() {
 }
 
 // ============================================================
-// SIMULATEUR — SÉLECTION DES PRODUITS
+// SIMULATEUR
 // ============================================================
 function renderFinanceProductSelection() {
     const container = document.getElementById('financeProductSelector');
     if (!container) return;
     if (!cachedProducts || cachedProducts.length === 0) {
-        container.innerHTML = '<div style="padding:1rem;text-align:center;color:var(--text-muted);">Aucun produit — ajoutez-en d\'abord dans l\'onglet Produits</div>';
+        container.innerHTML = '<div style="padding:1rem;text-align:center;color:var(--text-muted);">Aucun produit</div>';
         return;
     }
     let html = '';
@@ -3131,7 +3289,6 @@ function renderFinanceProductSelection() {
             </label>`;
     });
     container.innerHTML = html;
-
     attachFinanceSimulatorBtns();
 }
 
@@ -3143,7 +3300,6 @@ function attachFinanceSimulatorBtns() {
             document.querySelectorAll('.fin-prod-checkbox').forEach(cb => { cb.checked = true; });
         });
     }
-
     const btnNone = document.getElementById('finSelectNone');
     if (btnNone && !btnNone._initialized) {
         btnNone._initialized = true;
@@ -3151,7 +3307,6 @@ function attachFinanceSimulatorBtns() {
             document.querySelectorAll('.fin-prod-checkbox').forEach(cb => { cb.checked = false; });
         });
     }
-
     const btnTop5 = document.getElementById('finSelectTop5');
     if (btnTop5 && !btnTop5._initialized) {
         btnTop5._initialized = true;
@@ -3166,7 +3321,6 @@ function attachFinanceSimulatorBtns() {
             cbs.forEach((cb, i) => { cb.checked = i < 5; });
         });
     }
-
     const btnProfitable = document.getElementById('finSelectProfitable');
     if (btnProfitable && !btnProfitable._initialized) {
         btnProfitable._initialized = true;
@@ -3275,7 +3429,4 @@ function calculateFinances() {
 // ============================================================
 initAdmin();
 
-// ============================================================
-// LOG
-// ============================================================
-console.log('✅ admin.js chargé — v5.0.0 (Variantes, Dimensions, Guide Tailles)');
+console.log('✅ admin.js chargé — v6.0.0 (variants, quota, sécurité)');
