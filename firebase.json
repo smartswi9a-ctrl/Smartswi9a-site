@@ -43,6 +43,19 @@
         ]
       },
       {
+        "source": "**/*.@(woff|woff2|ttf|otf)",
+        "headers": [
+          { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+        ]
+      },
+      {
+        "source": "/site.webmanifest",
+        "headers": [
+          { "key": "Cache-Control", "value": "public, max-age=86400" },
+          { "key": "Content-Type", "value": "application/manifest+json" }
+        ]
+      },
+      {
         "source": "**/*.html",
         "headers": [
           { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
@@ -56,11 +69,18 @@
           { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
           { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=(self), payment=()" },
           { "key": "Strict-Transport-Security", "value": "max-age=31536000; includeSubDomains; preload" },
-          { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.gstatic.com https://apis.google.com https://smartswi9a-31063.firebaseapp.com https://accounts.google.com https://connect.facebook.net https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://firebasestorage.googleapis.com https://*.googleusercontent.com https://*.googleapis.com https://*.fbcdn.net https://graph.facebook.com; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.cloudfunctions.net wss://*.firebaseio.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://graph.facebook.com https://accounts.google.com; frame-src 'self' https://smartswi9a-31063.firebaseapp.com https://accounts.google.com https://www.facebook.com https://web.facebook.com https://www.gstatic.com; object-src 'none'; base-uri 'self'; form-action 'self'" }
+          {
+            "key": "Content-Security-Policy",
+            "value": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.gstatic.com https://apis.google.com https://smartswi9a-31063.firebaseapp.com https://accounts.google.com https://connect.facebook.net https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://firebasestorage.googleapis.com https://*.googleusercontent.com https://*.googleapis.com https://*.fbcdn.net https://graph.facebook.com; media-src 'self' blob: https://videos.smartswi9a.top https://firebasestorage.googleapis.com; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.cloudfunctions.net wss://*.firebaseio.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://graph.facebook.com https://accounts.google.com https://api.emailjs.com https://videos.smartswi9a.top https://cdn.jsdelivr.net; frame-src 'self' https://smartswi9a-31063.firebaseapp.com https://accounts.google.com https://www.facebook.com https://web.facebook.com https://www.gstatic.com; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';"
+          }
         ]
       }
     ],
     "rewrites": [
+      {
+        "source": "/villes",
+        "destination": "/villesmaroc.html"
+      },
       {
         "source": "/villes.html",
         "destination": "/villesmaroc.html"
