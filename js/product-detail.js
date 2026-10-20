@@ -1,7 +1,7 @@
 // js/product-detail.js
 // ============================================================
 // PAGE PRODUIT DYNAMIQUE - SMART SWI9A
-// Version 1.8.1 — FIX : Sécurité innerHTML, trim() vidéo, ordre pause
+// Version 2.0.0 — Variantes (Tailles/Couleurs), Guide des tailles, Dimensions
 // ============================================================
 
 import { collection, query, where, getDocs } from "firebase/firestore";
@@ -23,6 +23,11 @@ import { showToast, openImageLightbox } from "./ui-core.js";
 // ============================================================
 let currentProduct = null;
 let currentVideoElement = null;
+
+// État de sélection des variantes
+let selectedSize = null;
+let selectedColor = null;
+let currentVariant = null;
 
 // ============================================================
 // LECTURE DU SLUG
@@ -67,15 +72,20 @@ export async function renderProductDetail() {
     }
 
     currentProduct = product;
+    selectedSize = null;
+    selectedColor = null;
+    currentVariant = null;
+    
     document.title = `${getProductName(product)} | Smart Swi9a`;
 
     updateMetaTags(product);
     renderBreadcrumbs(product);
     
-    // ✅ Rendu unifié des images et de la vidéo
     renderMediaGallery(product);
 
     renderInfoSection(product);
+    renderVariantsSection(product); // ✅ NOUVEAU
+    renderDimensions(product);      // ✅ NOUVEAU
     renderFeaturesSection(product);
     await renderReviewsSection(product);
     renderRelatedProducts(product);
@@ -232,20 +242,17 @@ function renderMediaGallery(product) {
     const mainImageUrl = getProductImageUrl(product);
     galleryContainer.innerHTML = '';
     
-    // ✅ FIX : Mettre en pause AVANT de vider le conteneur
     if (currentVideoElement) {
         currentVideoElement.pause();
         currentVideoElement = null;
     }
     wrapper.innerHTML = '';
 
-    // Fonction pour afficher une image dans le grand cadre
     const showImage = (src, activeThumb) => {
         if (currentVideoElement) {
             currentVideoElement.pause();
             currentVideoElement = null;
         }
-        // ✅ FIX : escapeHTML pour sécuriser l'URL
         wrapper.innerHTML = `
             <img id="mainImage" class="main-media-element" src="${escapeHTML(src)}" alt="${escapeHTML(getProductName(product))}" loading="eager">
         `;
@@ -257,9 +264,7 @@ function renderMediaGallery(product) {
         if (activeThumb) activeThumb.classList.add('active');
     };
 
-    // Fonction pour afficher la vidéo dans le grand cadre
     const showVideo = (videoUrl, activeThumb) => {
-        // ✅ FIX : escapeHTML pour sécuriser les URLs vidéo et poster
         wrapper.innerHTML = `
             <video id="mainVideo" class="main-media-element" src="${escapeHTML(videoUrl)}" controls preload="metadata" playsinline poster="${escapeHTML(mainImageUrl)}" style="background: #000;"></video>
         `;
@@ -269,7 +274,6 @@ function renderMediaGallery(product) {
         if (activeThumb) activeThumb.classList.add('active');
     };
 
-    // 1. Créer les miniatures des photos
     const images = (product.gallery && product.gallery.length > 0)
         ? [product.img, ...product.gallery]
         : [product.img];
@@ -291,8 +295,6 @@ function renderMediaGallery(product) {
         galleryContainer.appendChild(thumb);
     });
 
-    // 2. Ajouter la vidéo si elle existe
-    // ✅ FIX : typeof product.video === 'string' pour éviter le crash si la donnée est corrompue
     const hasVideo = typeof product.video === 'string' && product.video.trim() !== '';
     let videoThumb = null;
 
@@ -302,7 +304,6 @@ function renderMediaGallery(product) {
 
         videoThumb = document.createElement('div');
         videoThumb.className = 'thumb-video';
-        // On utilise la première image comme fond pour la miniature vidéo
         videoThumb.innerHTML = `
             <img src="${escapeHTML(mainImageUrl)}" style="filter: brightness(0.5);">
             <div class="play-icon-overlay">
@@ -314,23 +315,18 @@ function renderMediaGallery(product) {
 
         videoThumb.addEventListener('click', () => showVideo(videoUrl, videoThumb));
 
-        // Placer la vidéo en première position
         galleryContainer.insertBefore(videoThumb, galleryContainer.firstChild);
-        
-        // ✅ AFFICHER LA VIDÉO PAR DÉFAUT DANS LE GRAND CADRE
         showVideo(videoUrl, videoThumb);
         
-        // Retirer l'état actif de la première image
         if (firstImageThumb) firstImageThumb.classList.remove('active');
 
     } else {
-        // S'il n'y a pas de vidéo, afficher l'image principale par défaut
         showImage(mainImageUrl, firstImageThumb);
     }
 }
 
 // ============================================================
-// SECTION INFO
+// SECTION INFO (Prix, Stock, Boutons)
 // ============================================================
 function renderInfoSection(product) {
     const titleEl = document.getElementById('productTitleEl');
@@ -397,6 +393,267 @@ function renderInfoSection(product) {
 
     const waBtn = document.getElementById('whatsappOrderBtn');
     if (waBtn) waBtn.dataset.id = product.id;
+}
+
+// ============================================================
+// ✅ NOUVEAU : SECTION DES VARIANTES (Tailles / Couleurs)
+// ============================================================
+function renderVariantsSection(product) {
+    const root = document.getElementById('productVariantsRoot');
+    if (!root) return;
+
+    if (!product.variants || product.variants.length === 0) {
+        root.innerHTML = '';
+        return;
+    }
+
+    // Extraire les tailles et couleurs uniques
+    const sizes = [...new Set(product.variants.map(v => v.size).filter(Boolean))];
+    const colors = [...new Set(product.variants.map(v => v.color).filter(Boolean))];
+
+    let html = '';
+
+    // Bouton Guide des tailles
+    const guideBtnHtml = product.hasSizeGuide 
+        ? `<button class="size-guide-btn" id="openSizeGuideBtn">📏 Guide des tailles (US/EU)</button>`
+        : '';
+
+    // Sélecteur de taille
+    if (sizes.length > 0) {
+        html += `
+            <div class="variant-options-group">
+                <div class="variant-label">
+                    <span>Taille : <span id="selectedSizeLabel" style="color:var(--gold);">Sélectionnez</span></span>
+                    ${guideBtnHtml}
+                </div>
+                <div class="variant-buttons" id="sizeButtons">
+                    ${sizes.map(s => `<button type="button" class="variant-btn" data-size="${escapeHTML(s)}">${escapeHTML(s)}</button>`).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    // Sélecteur de couleur
+    if (colors.length > 0) {
+        html += `
+            <div class="variant-options-group">
+                <div class="variant-label">
+                    <span>Couleur : <span id="selectedColorLabel" style="color:var(--gold);">Sélectionnez</span></span>
+                </div>
+                <div class="variant-buttons" id="colorButtons">
+                    ${colors.map(c => `<button type="button" class="variant-btn" data-color="${escapeHTML(c)}">${escapeHTML(c)}</button>`).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    root.innerHTML = html;
+
+    // Attacher les événements
+    if (guideBtnHtml) {
+        document.getElementById('openSizeGuideBtn')?.addEventListener('click', openSizeGuideModal);
+    }
+
+    document.querySelectorAll('#sizeButtons .variant-btn').forEach(btn => {
+        btn.addEventListener('click', () => selectVariantOption('size', btn.dataset.size));
+    });
+
+    document.querySelectorAll('#colorButtons .variant-btn').forEach(btn => {
+        btn.addEventListener('click', () => selectVariantOption('color', btn.dataset.color));
+    });
+
+    // Si une seule taille ou couleur, on la sélectionne par défaut
+    if (sizes.length === 1) selectVariantOption('size', sizes[0]);
+    if (colors.length === 1) selectVariantOption('color', colors[0]);
+}
+
+// ✅ Gestion de la sélection d'une option
+function selectVariantOption(type, value) {
+    if (type === 'size') {
+        selectedSize = value;
+        document.getElementById('selectedSizeLabel').textContent = value;
+        document.querySelectorAll('#sizeButtons .variant-btn').forEach(b => {
+            b.classList.toggle('active', b.dataset.size === value);
+        });
+    } else if (type === 'color') {
+        selectedColor = value;
+        document.getElementById('selectedColorLabel').textContent = value;
+        document.querySelectorAll('#colorButtons .variant-btn').forEach(b => {
+            b.classList.toggle('active', b.dataset.color === value);
+        });
+    }
+
+    // Trouver la variante correspondante
+    const variant = currentProduct.variants.find(v => {
+        const matchSize = !selectedSize || v.size === selectedSize;
+        const matchColor = !selectedColor || v.color === selectedColor;
+        return matchSize && matchColor;
+    });
+
+    currentVariant = variant;
+    updateVariantDisplay();
+}
+
+// ✅ Mise à jour du prix et du stock en fonction de la variante
+function updateVariantDisplay() {
+    const priceEl = document.getElementById('productPrice');
+    const stockEl = document.getElementById('productStockStatus');
+    const addBtn = document.getElementById('addToCartBtn');
+
+    if (!currentVariant) {
+        const totalStock = currentProduct.variants.reduce((sum, v) => sum + (v.stock || 0), 0);
+        if (stockEl) {
+            stockEl.innerHTML = totalStock > 0 
+                ? `<span style="color:#22c55e;">${t('productInStock')}</span>` 
+                : `<span style="color:#b03a2e;">${t('productOutOfStock')}</span>`;
+        }
+        if (addBtn) {
+            addBtn.disabled = true;
+            addBtn.style.opacity = '0.5';
+        }
+        return;
+    }
+
+    if (priceEl) priceEl.textContent = `${currentVariant.price} ${t('currency')}`;
+
+    if (currentVariant.stock > 0) {
+        stockEl.innerHTML = `<span style="color:#22c55e;">${t('productInStock')} (${currentVariant.stock})</span>`;
+        if (addBtn) {
+            addBtn.disabled = false;
+            addBtn.style.opacity = '1';
+            addBtn.style.cursor = 'pointer';
+        }
+    } else {
+        stockEl.innerHTML = `<span style="color:#b03a2e;">${t('productOutOfStock')}</span>`;
+        if (addBtn) {
+            addBtn.disabled = true;
+            addBtn.style.opacity = '0.5';
+            addBtn.style.cursor = 'not-allowed';
+        }
+    }
+}
+
+// ✅ Modale du Guide des tailles (US/EU)
+function openSizeGuideModal() {
+    document.getElementById('sizeGuideModal')?.remove();
+
+    const modalHtml = `
+        <div class="modal-overlay open" id="sizeGuideModal" style="z-index:2000;">
+            <div class="modal" style="max-width:600px;">
+                <button class="modal-close" id="closeSizeGuideBtn">✕</button>
+                <h2 style="font-family:var(--font-secondary);color:var(--gold);text-align:center;margin-bottom:1rem;">📏 Guide des tailles</h2>
+                
+                <div style="background:var(--bg-surface);padding:1rem;border-radius:var(--radius-sm);margin-bottom:1rem;">
+                    <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.5rem;text-align:center;">
+                        Ce guide est basé sur des mesures standard. Si vous êtes entre deux tailles, nous vous conseillons de choisir la taille supérieure.
+                    </p>
+                    
+                    <div style="display:flex; justify-content:center; gap:1rem; margin-bottom:1rem;">
+                        <button class="variant-btn active" id="tabUS">🇺🇸 US</button>
+                        <button class="variant-btn" id="tabEU">🇪🇺 EU</button>
+                    </div>
+
+                    <table class="acc-table" id="sizeGuideTable">
+                        <thead>
+                            <tr>
+                                <th>Taille</th>
+                                <th id="col1Header">US</th>
+                                <th>Buste (cm)</th>
+                                <th>Taille (cm)</th>
+                                <th>Longueur (cm)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sizeGuideBody">
+                            <!-- Rempli par JS -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <div style="font-size:0.8rem;color:var(--text-muted);line-height:1.6;">
+                    <strong style="color:var(--text);">Comment prendre vos mesures ?</strong><br>
+                    • <strong>Buste :</strong> Mesurez horizontalement autour de la partie la plus forte de la poitrine.<br>
+                    • <strong>Taille :</strong> Mesurez autour de la partie la plus fine de votre taille (au-dessus du nombril).<br>
+                    • <strong>Longueur :</strong> Du point le plus haut de l'épaule jusqu'au bas du vêtement.
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    const modal = document.getElementById('sizeGuideModal');
+    const closeModal = () => modal?.remove();
+
+    document.getElementById('closeSizeGuideBtn').addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
+    const tableBody = document.getElementById('sizeGuideBody');
+    const col1Header = document.getElementById('col1Header');
+    const tabUS = document.getElementById('tabUS');
+    const tabEU = document.getElementById('tabEU');
+
+    const sizeData = [
+        { size: 'S', us: '36', eu: '46', buste: '88-92', taille: '72-76', longueur: '68' },
+        { size: 'M', us: '38', eu: '48', buste: '92-96', taille: '76-80', longueur: '70' },
+        { size: 'L', us: '40', eu: '50', buste: '96-100', taille: '80-84', longueur: '72' },
+        { size: 'XL', us: '42', eu: '52', buste: '100-104', taille: '84-88', longueur: '74' },
+        { size: 'XXL', us: '44', eu: '54', buste: '104-108', taille: '88-92', longueur: '76' }
+    ];
+
+    const renderTable = (standard) => {
+        col1Header.textContent = standard === 'us' ? '🇺🇸 US' : '🇪🇺 EU';
+        let rows = '';
+        sizeData.forEach(row => {
+            rows += `<tr>
+                <td style="font-weight:700;">${row.size}</td>
+                <td>${row[standard]}</td>
+                <td>${row.buste}</td>
+                <td>${row.taille}</td>
+                <td>${row.longueur}</td>
+            </tr>`;
+        });
+        tableBody.innerHTML = rows;
+        
+        tabUS.classList.toggle('active', standard === 'us');
+        tabEU.classList.toggle('active', standard === 'eu');
+    };
+
+    tabUS.addEventListener('click', () => renderTable('us'));
+    tabEU.addEventListener('click', () => renderTable('eu'));
+
+    renderTable('us'); // Par défaut
+}
+
+// ============================================================
+// ✅ NOUVEAU : SECTION DES DIMENSIONS
+// ============================================================
+function renderDimensions(product) {
+    const root = document.getElementById('productDimensionsRoot');
+    if (!root) return;
+
+    if (!product.dimensions) {
+        root.innerHTML = '';
+        return;
+    }
+
+    const { weight, length, width, height } = product.dimensions;
+
+    if (!weight && !length && !width && !height) {
+        root.innerHTML = '';
+        return;
+    }
+
+    let html = `
+        <h4 style="font-family:var(--font-secondary);color:var(--gold);margin-top:1.5rem;margin-bottom:0.5rem;font-size:1.1rem;">📏 Dimensions & Poids</h4>
+        <table class="dimensions-table">
+    `;
+
+    if (weight) html += `<tr><th>Poids</th><td>${weight} g</td></tr>`;
+    if (length) html += `<tr><th>Longueur</th><td>${length} cm</td></tr>`;
+    if (width) html += `<tr><th>Largeur</th><td>${width} cm</td></tr>`;
+    if (height) html += `<tr><th>Hauteur</th><td>${height} cm</td></tr>`;
+
+    html += `</table>`;
+    root.innerHTML = html;
 }
 
 // ============================================================
@@ -686,7 +943,7 @@ function attachReviewEvents(product) {
 }
 
 // ============================================================
-// PRODUITS SIMILAIRES (avec shuffle aléatoire)
+// PRODUITS SIMILAIRES
 // ============================================================
 function renderRelatedProducts(product) {
     const container = document.getElementById('relatedProductsRoot');
@@ -726,7 +983,6 @@ function renderRelatedProducts(product) {
         const price = p.price;
         const oldPrice = p.oldPrice;
 
-        // ✅ FIX : escapeHTML sur l'URL et gestion des quotes dans onerror
         const safeImg = escapeHTML(img);
         const safeFallback = getFallbackImage(name).replace(/'/g, "%27");
 
@@ -770,10 +1026,47 @@ function renderRelatedProducts(product) {
 // ÉVÉNEMENTS PRINCIPAUX
 // ============================================================
 function attachProductEvents(product) {
+    // Gestion du bouton Ajouter au panier
+    const addBtn = document.getElementById('addToCartBtn');
+    if (addBtn) {
+        // On remplace l'événement pour gérer les variantes
+        addBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            if (product.variants && product.variants.length > 0) {
+                if (!selectedSize && product.variants.some(v => v.size)) {
+                    showToast('⚠️ Veuillez choisir une taille');
+                    return;
+                }
+                if (!selectedColor && product.variants.some(v => v.color)) {
+                    showToast('⚠️ Veuillez choisir une couleur');
+                    return;
+                }
+                
+                if (!currentVariant) {
+                    showToast('⚠️ Cette combinaison est introuvable');
+                    return;
+                }
+                
+                if (currentVariant.stock <= 0) {
+                    showToast('⚠️ ' + t('outOfStock'));
+                    return;
+                }
+                
+                // On ajoute au panier avec l'ID de la variante
+                import('./cart.js').then(m => m.addToCart(product.id, currentVariant));
+            } else {
+                // Pas de variantes, ajout classique
+                import('./cart.js').then(m => m.addToCart(product.id));
+            }
+        });
+    }
+    
     console.log('📦 Page produit prête :', product.slug);
 }
 
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ product-detail.js chargé — v1.8.1 (Sécurité innerHTML + trim fix)');
+console.log('✅ product-detail.js chargé — v2.0.0 (Variantes, Guide tailles, Dimensions)');
