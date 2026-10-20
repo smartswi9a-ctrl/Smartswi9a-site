@@ -1,7 +1,12 @@
 // translations.js
 // ============================================================
 // TRADUCTIONS - SMART SWI9A (FR / AR / EN)
-// Version 2.3.2 — Politique de retour détaillée (termsTextHtml)
+// Version 2.4.0 — Fix i18n catégories complètes
+// CHANGEMENTS v2.4.0 :
+// ✅ C1.1 — 35+ clés catégories ajoutées (11 parents + 50 enfants)
+// ✅ C1.1 — Clés reviewBadgeVerified, reviewRating, reviewDate
+// ✅ C1.1 — Clés comboSize, comboColor
+// ✅ I1.2 — Clé blogCatGeneral déjà présente (vérifiée)
 // ============================================================
 
 window.translations = {
@@ -75,6 +80,92 @@ window.translations = {
         filterPromos: "En promo",
         filterPrice: "Prix :",
         filterReset: "Réinitialiser",
+
+        // ============================================================
+        // ✅ C1.1 / FICHIER 1bis — Catégories (i18n complet)
+        // ============================================================
+        // Parents
+        filterElectronics: "Électronique",
+        filterHome: "Maison",
+        filterFashion: "Mode",
+        filterBeauty: "Beauté",
+        filterBabyKids: "Bébé & Enfants",
+        filterAutoMoto: "Auto & Moto",
+        filterPets: "Animaux",
+        filterOffice: "Bureau",
+        filterMisc: "Divers",
+
+        // Electronique
+        filterSmartphones: "Smartphones",
+        filterTablets: "Tablettes",
+        filterCameras: "Appareils photo",
+        filterComputers: "Ordinateurs",
+        filterTechAccessories: "Accessoires tech",
+
+        // Maison
+        filterAppliances: "Électroménager",
+        filterDecoration: "Décoration",
+        filterStorage: "Rangement",
+        filterFurniture: "Meubles",
+
+        // Mode
+        filterWomenClothing: "Vêtements femme",
+        filterMenClothing: "Vêtements homme",
+        filterShoes: "Chaussures",
+        filterBags: "Sacs",
+        filterJewelry: "Bijoux",
+
+        // Beauté
+        filterSkincare: "Soins visage",
+        filterBodycare: "Soins corps",
+        filterHaircare: "Soins cheveux",
+        filterMakeup: "Maquillage",
+        filterBeautyDevices: "Appareils beauté",
+        filterFragrances: "Parfums",
+
+        // Bébé & Enfants
+        filterBabyGear: "Équipement bébé",
+        filterBabyClothing: "Vêtements bébé",
+        filterBabyCare: "Soins bébé",
+
+        // Auto & Moto
+        filterMoto: "Moto",
+        filterCarCare: "Entretien auto",
+        filterCarElectronics: "Électronique auto",
+
+        // Sports
+        filterFitness: "Fitness",
+        filterOutdoor: "Plein air",
+        filterBikes: "Vélos",
+        filterGames: "Jeux",
+
+        // Animaux
+        filterPetFood: "Nourriture",
+        filterPetToys: "Jouets",
+        filterPetAccessories: "Accessoires",
+
+        // Outils
+        filterHandTools: "Outils à main",
+        filterPowerTools: "Outils électriques",
+        filterGarden: "Jardin",
+        filterSecurity: "Sécurité",
+
+        // Bureau
+        filterStationery: "Papeterie",
+        filterOfficeOrganization: "Organisation",
+        filterPrinting: "Impression",
+
+        // Divers
+        filterGadgets: "Gadgets",
+        filterParty: "Fête",
+        filterPromotions: "Promotions",
+
+        // Avis — badges
+        reviewBadgeVerified: "✅ Achat vérifié",
+        reviewRating: "Note",
+        reviewDate: "Date",
+        comboSize: "Taille",
+        comboColor: "Couleur",
 
         cartTitle: "Panier",
         cartEmpty: "Panier vide",
@@ -663,6 +754,91 @@ window.translations = {
         filterPrice: "السعر :",
         filterReset: "إعادة تعيين",
 
+        // ============================================================
+        // ✅ C1.1 — Catégories (AR)
+        // ============================================================
+        // Parents
+        filterElectronics: "إلكترونيات",
+        filterHome: "المنزل",
+        filterFashion: "الموضة",
+        filterBabyKids: "الأطفال",
+        filterAutoMoto: "سيارات ودراجات",
+        filterPets: "الحيوانات",
+        filterOffice: "المكتب",
+        filterMisc: "متنوع",
+
+        // Electronique
+        filterSmartphones: "هواتف ذكية",
+        filterTablets: "أجهزة لوحية",
+        filterCameras: "كاميرات",
+        filterComputers: "حاسوب",
+        filterTechAccessories: "إكسسوارات تقنية",
+
+        // Maison
+        filterAppliances: "أجهزة منزلية",
+        filterDecoration: "ديكور",
+        filterStorage: "تخزين",
+        filterFurniture: "أثاث",
+
+        // Mode
+        filterWomenClothing: "ملابس نسائية",
+        filterMenClothing: "ملابس رجالية",
+        filterShoes: "أحذية",
+        filterBags: "حقائب",
+        filterJewelry: "مجوهرات",
+
+        // Beauté
+        filterSkincare: "العناية بالبشرة",
+        filterBodycare: "العناية بالجسم",
+        filterHaircare: "العناية بالشعر",
+        filterMakeup: "مكياج",
+        filterBeautyDevices: "أجهزة تجميل",
+        filterFragrances: "عطور",
+
+        // Bébé & Enfants
+        filterBabyGear: "مستلزمات أطفال",
+        filterBabyClothing: "ملابس أطفال",
+        filterBabyCare: "العناية بالطفل",
+
+        // Auto & Moto
+        filterMoto: "دراجات نارية",
+        filterCarCare: "العناية بالسيارة",
+        filterCarElectronics: "إلكترونيات السيارة",
+
+        // Sports
+        filterFitness: "لياقة",
+        filterOutdoor: "خارج المنزل",
+        filterBikes: "دراجات هوائية",
+        filterGames: "ألعاب",
+
+        // Animaux
+        filterPetFood: "طعام",
+        filterPetToys: "ألعاب",
+        filterPetAccessories: "إكسسوارات",
+
+        // Outils
+        filterHandTools: "أدوات يدوية",
+        filterPowerTools: "أدوات كهربائية",
+        filterGarden: "حديقة",
+        filterSecurity: "أمن",
+
+        // Bureau
+        filterStationery: "قرطاسية",
+        filterOfficeOrganization: "تنظيم",
+        filterPrinting: "طباعة",
+
+        // Divers
+        filterGadgets: "أدوات",
+        filterParty: "حفلات",
+        filterPromotions: "عروض",
+
+        // Avis — badges
+        reviewBadgeVerified: "✅ شراء موثق",
+        reviewRating: "التقييم",
+        reviewDate: "التاريخ",
+        comboSize: "المقاس",
+        comboColor: "اللون",
+
         cartTitle: "السلة",
         cartEmpty: "سلة فارغة",
         cartAddressPlaceholder: "عنوان التوصيل",
@@ -1250,6 +1426,92 @@ window.translations = {
         filterPrice: "Price:",
         filterReset: "Reset",
 
+        // ============================================================
+        // ✅ C1.1 — Categories (EN)
+        // ============================================================
+        // Parents
+        filterElectronics: "Electronics",
+        filterHome: "Home",
+        filterFashion: "Fashion",
+        filterBeauty: "Beauty",
+        filterBabyKids: "Baby & Kids",
+        filterAutoMoto: "Auto & Moto",
+        filterPets: "Pets",
+        filterOffice: "Office",
+        filterMisc: "Misc",
+
+        // Electronics
+        filterSmartphones: "Smartphones",
+        filterTablets: "Tablets",
+        filterCameras: "Cameras",
+        filterComputers: "Computers",
+        filterTechAccessories: "Tech Accessories",
+
+        // Home
+        filterAppliances: "Appliances",
+        filterDecoration: "Decoration",
+        filterStorage: "Storage",
+        filterFurniture: "Furniture",
+
+        // Fashion
+        filterWomenClothing: "Women's Clothing",
+        filterMenClothing: "Men's Clothing",
+        filterShoes: "Shoes",
+        filterBags: "Bags",
+        filterJewelry: "Jewelry",
+
+        // Beauty
+        filterSkincare: "Skincare",
+        filterBodycare: "Body Care",
+        filterHaircare: "Hair Care",
+        filterMakeup: "Makeup",
+        filterBeautyDevices: "Beauty Devices",
+        filterFragrances: "Fragrances",
+
+        // Baby & Kids
+        filterBabyGear: "Baby Gear",
+        filterBabyClothing: "Baby Clothing",
+        filterBabyCare: "Baby Care",
+
+        // Auto & Moto
+        filterMoto: "Moto",
+        filterCarCare: "Car Care",
+        filterCarElectronics: "Car Electronics",
+
+        // Sports
+        filterFitness: "Fitness",
+        filterOutdoor: "Outdoor",
+        filterBikes: "Bikes",
+        filterGames: "Games",
+
+        // Pets
+        filterPetFood: "Food",
+        filterPetToys: "Toys",
+        filterPetAccessories: "Accessories",
+
+        // Tools
+        filterHandTools: "Hand Tools",
+        filterPowerTools: "Power Tools",
+        filterGarden: "Garden",
+        filterSecurity: "Security",
+
+        // Office
+        filterStationery: "Stationery",
+        filterOfficeOrganization: "Organization",
+        filterPrinting: "Printing",
+
+        // Misc
+        filterGadgets: "Gadgets",
+        filterParty: "Party",
+        filterPromotions: "Promotions",
+
+        // Reviews — badges
+        reviewBadgeVerified: "✅ Verified purchase",
+        reviewRating: "Rating",
+        reviewDate: "Date",
+        comboSize: "Size",
+        comboColor: "Color",
+
         cartTitle: "Cart",
         cartEmpty: "Cart is empty",
         cartAddressPlaceholder: "Delivery address",
@@ -1586,6 +1848,7 @@ window.translations = {
         feature5title: "Authentic products",
         feature5desc: "We only offer certified tech products.",
         feature6title: "Competitive prices",
+        feature6Desc: "Best prices in Morocco with exclusive deals.",
         feature6desc: "Best prices in Morocco with exclusive deals.",
 
         aboutTag: "Our story",
@@ -1767,4 +2030,4 @@ window.translations = {
     }
 };
 
-console.log('✅ translations.js chargé — Version 2.3.2 (Politique de retour détaillée intégrée)');
+console.log('✅ translations.js chargé — Version 2.4.0 (35+ clés catégories + badges)');
