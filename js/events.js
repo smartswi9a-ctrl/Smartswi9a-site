@@ -1,14 +1,38 @@
 // js/events.js
 // ============================================================
 // DÉLÉGATION D'ÉVÉNEMENTS GLOBALE - SMART SWI9A
-// Version 1.10.0 — Retrait du double handler burger (géré par navbar.js)
+// Version 2.0.0 — Nettoyage handlers morts + guards + UX
+// ============================================================
+// CHANGEMENTS v2.0.0 :
+// ✅ C14.1 — (fix dans product-detail.js _listenerAttached)
+// ✅ I14.1 — Guard _eventsAttached (anti-accumulation)
+// ✅ I14.2 — 8 handlers morts supprimés
+// ✅ I14.4 — Spinner visuel sur lang:change (home)
+// ✅ I14.6 — Titre produit sync + re-render async
+// ✅ I14.7 — Debounce séparé products:search / blog:search
+// ✅ M14.1 — cart:clear guard _initialized (double dialog)
 // ============================================================
 
 import { t, setLang, getLang } from "./utils.js";
 import { showToast } from "./ui-core.js";
 
 // ============================================================
-// HANDLERS DES ACTIONS
+// ✅ I14.1 : GUARD GLOBAL
+// ============================================================
+let _eventsAttached = false;
+
+// ============================================================
+// HANDLERS (post-nettoyage v2.0.0)
+// ------------------------------------------------------------
+// ⚠️ SUPPRIMÉS (I14.2 — délégation couvre) :
+//   - cart:add        → couvert par .btn-add-to-cart
+//   - order:whatsapp  → couvert par .btn-secondary[data-product-id]
+//   - favorite:toggle → couvert par .favorite-btn
+//   - products:page   → couvert par .pagination-btn
+//   - blog:filter     → blog.js gère data-blog-category directement
+//   - blog:open       → couvert par .blog-card
+//   - blog:close      → blog.js gère bouton close dans modal
+//   - menu:toggle     → navbar.js gère en capture phase
 // ============================================================
 const eventHandlers = {
 
@@ -16,28 +40,20 @@ const eventHandlers = {
         const { openCart } = await import("./ui.js");
         openCart();
     },
+
     'cart:close': async () => {
         const { closeCart } = await import("./ui.js");
         closeCart();
     },
-    'cart:add': async (e) => {
-        const actionEl = e.target.closest('[data-action]');
-        const id = parseInt(actionEl?.dataset?.id || e.target.dataset.id);
-        if (isNaN(id)) return;
-        const { addToCart } = await import("./cart.js");
-        await addToCart(id);
-    },
-    'cart:clear': async () => {
+
+    // ✅ M14.1 : guard _initialized pour éviter double dialog avec panier.js
+    'cart:clear': async (e) => {
+        const btn = e.target.closest('[data-action="cart:clear"]');
+        // Si panier.js a déjà attaché son listener → on skip
+        if (btn && btn._initialized) return;
+        // Fallback (bouton hors page panier)
         const { clearCart } = await import("./cart.js");
         clearCart();
-    },
-
-    'order:whatsapp': async (e) => {
-        const actionEl = e.target.closest('[data-action]');
-        const id = parseInt(actionEl?.dataset?.id || e.target.dataset.id);
-        if (isNaN(id)) return;
-        const { orderViaWhatsApp } = await import("./whatsapp.js");
-        orderViaWhatsApp(id);
     },
 
     'products:filter': async (e) => {
@@ -47,25 +63,30 @@ const eventHandlers = {
         setCategory(category);
         renderCategoryFilters();
     },
+
     'products:sort': async (e) => {
         const sort = e.target.value;
         if (!sort) return;
         const { setSort } = await import("./products.js");
         setSort(sort);
     },
+
     'products:search': async (e) => {
         const query = e.target.value;
         const { setSearch } = await import("./products.js");
         setSearch(query);
     },
+
     'products:filter-stock': async (e) => {
         const { setInStock } = await import("./products.js");
         setInStock(e.target.checked);
     },
+
     'products:filter-promos': async (e) => {
         const { setPromos } = await import("./products.js");
         setPromos(e.target.checked);
     },
+
     'products:filter-reset': async () => {
         const { clearAllFilters, renderCategoryFilters } = await import("./products.js");
         clearAllFilters();
@@ -75,29 +96,17 @@ const eventHandlers = {
         if (checkStock) checkStock.checked = false;
         if (checkPromos) checkPromos.checked = false;
     },
-    'products:page': async (e) => {
-        const page = parseInt(e.target.dataset.page);
-        if (isNaN(page)) return;
-        const { goToPage } = await import("./products.js");
-        goToPage(page);
-    },
-
-    'favorite:toggle': async (e) => {
-        e.stopPropagation();
-        const id = parseInt(e.target.dataset.id);
-        if (isNaN(id)) return;
-        const { toggleFavorite } = await import("./products.js");
-        await toggleFavorite(id);
-    },
 
     'account:open': async () => {
         const { openAccountModal } = await import("./ui.js");
         await openAccountModal();
     },
+
     'account:close': async () => {
         const { closeAccountModal } = await import("./ui.js");
         closeAccountModal();
     },
+
     'logout': async () => {
         const { logoutUser } = await import("./auth.js");
         const { closeAccountModal, updateAccountButton } = await import("./ui.js");
@@ -111,12 +120,31 @@ const eventHandlers = {
         const { loginWithGoogle } = await import("./auth.js");
         await loginWithGoogle();
     },
+
     'auth:facebook': async () => {
         const { loginWithFacebook } = await import("./auth.js");
         await loginWithFacebook();
     },
 
-    'lang:change': (e) => {
+    'notifications:open': async () => {
+        const { openNotificationsPanel } = await import("./notifications.js");
+        await openNotificationsPanel();
+    },
+
+    'scroll:top': () => {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    },
+
+    'blog:search': async (e) => {
+        const query = e.target.value;
+        const { searchBlog } = await import("./blog.js");
+        searchBlog(query);
+    },
+
+    // ============================================================
+    // ✅ I14.4 + I14.6 : LANG CHANGE (spinner + titre produit sync)
+    // ============================================================
+    'lang:change': async (e) => {
         const lang = e.target.value;
         if (!lang) return;
 
@@ -150,74 +178,82 @@ const eventHandlers = {
             || path.endsWith('/panier')
             || document.getElementById('cartPageContent') !== null;
 
+        // ============================================
+        // HOME : spinner + re-render async
+        // ============================================
         if (isHome) {
-            import("./products.js").then(m => {
-                m.renderCategoryFilters();
-                m.renderProducts();
-                m.renderSortOptions();
-            });
-            import("./banner.js").then(m => m.refreshBanners());
-            import("./testimonials.js").then(m => m.initDynamicTestimonials());
+            // ✅ I14.4 : feedback immédiat
+            const grid = document.getElementById('productsGrid');
+            if (grid) {
+                grid.innerHTML = `
+                    <div style="grid-column:1/-1;text-align:center;padding:3rem 1rem;">
+                        <div class="spinner" style="margin:0 auto;"></div>
+                    </div>
+                `;
+            }
+
+            Promise.all([
+                import("./products.js").then(m => {
+                    m.renderCategoryFilters();
+                    m.renderSortOptions();
+                    return m.renderProducts();
+                }),
+                import("./banner.js").then(m => m.refreshBanners()).catch(() => {}),
+                import("./testimonials.js").then(m => m.initDynamicTestimonials()).catch(() => {})
+            ]).catch(err => console.warn('⚠️ Re-render home failed:', err));
         }
 
+        // ============================================
+        // BLOG
+        // ============================================
         if (isBlog) {
-            import("./blog.js").then(m => m.renderBlogList?.());
+            import("./blog.js").then(m => m.renderBlogList?.()).catch(err => console.warn('⚠️ Re-render blog failed:', err));
         }
 
+        // ============================================
+        // PRODUCT : titre sync + full re-render async
+        // ============================================
         if (isProduct) {
-            import("./product-detail.js").then(m => m.renderProductDetail?.());
+            // ✅ I14.6 : titre mis à jour SYNCHRONE (fast)
+            try {
+                const { getProducts } = await import("./store.js");
+                const { getProductName } = await import("./utils.js");
+                const params = new URLSearchParams(window.location.search);
+                const slug = params.get('slug');
+                if (slug) {
+                    const product = getProducts().find(p => p.slug === slug);
+                    if (product) {
+                        document.title = `${getProductName(product)} | Smart Swi9a`;
+                    }
+                }
+            } catch (err) {
+                console.warn('⚠️ Sync title update failed:', err);
+            }
+
+            // Full re-render async (galerie, variantes, avis, related)
+            import("./product-detail.js")
+                .then(m => m.renderProductDetail?.())
+                .catch(err => console.warn('⚠️ Re-render product failed:', err));
         }
 
+        // ============================================
+        // VILLES : géré en interne par villesmaroc.html
+        // ============================================
         if (isVilles) {
             console.log('ℹ️ Page villes : refresh géré en interne');
         }
 
+        // ============================================
+        // CART : géré par panier.js via event 'lang-changed'
+        // ============================================
         if (isCartPage) {
-            console.log('ℹ️ Page panier : refresh géré par panier.js');
+            console.log('ℹ️ Page panier : refresh géré par panier.js (event lang-changed)');
         }
-    },
-
-    // ⚠️ Conservé pour la délégation, mais le clic burger est intercepté
-    // par navbar.js (capture phase) AVANT d'arriver ici.
-    'menu:toggle': () => {
-        console.log('ℹ️ menu:toggle : géré par navbar.js — ignoré');
-    },
-
-    'notifications:open': async () => {
-        const { openNotificationsPanel } = await import("./notifications.js");
-        await openNotificationsPanel();
-    },
-
-    'scroll:top': () => {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-    },
-
-    'blog:filter': async (e) => {
-        const category = e.target.dataset.category;
-        if (!category) return;
-        const { filterBlogByCategory } = await import("./blog.js");
-        filterBlogByCategory(category);
-    },
-    'blog:search': async (e) => {
-        const query = e.target.value;
-        const { searchBlog } = await import("./blog.js");
-        searchBlog(query);
-    },
-    'blog:open': async (e) => {
-        const actionEl = e.target.closest('[data-action]');
-        const postId = actionEl?.dataset?.id;
-        if (!postId) return;
-        const { openBlogArticle } = await import("./blog.js");
-        openBlogArticle(postId);
-    },
-    'blog:close': async () => {
-        const { closeBlogArticle } = await import("./blog.js");
-        closeBlogArticle();
     }
 };
 
 // ============================================================
-// ✅ FERMER LE MENU MOBILE (helper — utilisé au clic extérieur)
+// ✅ FERMER LE MENU MOBILE (helper)
 // ============================================================
 function closeMobileMenu() {
     const burger = document.getElementById('burgerBtn');
@@ -231,6 +267,9 @@ function closeMobileMenu() {
 
 // ============================================================
 // APPLIQUER LES TRADUCTIONS
+// ------------------------------------------------------------
+// ⚠️ Note : le titre produit est géré dans 'lang:change' (I14.6)
+// car il dépend du produit courant (slug dynamique).
 // ============================================================
 export function applyTranslations() {
     // 1. data-key → texte / placeholder / innerHTML
@@ -243,6 +282,7 @@ export function applyTranslations() {
         if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
             if (el.placeholder !== undefined) el.placeholder = value;
         } else if (key.endsWith('Html') || key === 'heroTitleHtml') {
+            // ✅ M14.2 : clés se terminant par 'Html' → innerHTML
             el.innerHTML = value;
         } else {
             el.textContent = value;
@@ -268,7 +308,8 @@ export function applyTranslations() {
         });
     }
 
-    // 4. <title> dynamique
+    // 4. <title> dynamique (pages avec titleKey statique)
+    // ⚠️ Le produit est EXCLU (géré par lang:change I14.6)
     const titleEl = document.querySelector('title');
     if (titleEl) {
         const path = window.location.pathname;
@@ -279,6 +320,7 @@ export function applyTranslations() {
         else if (path.endsWith('panier.html') || path === '/panier' || path.endsWith('/panier')) titleKey = 'cartPageTitle';
         else if (path.endsWith('404.html')) titleKey = 'pageNotFoundTitle';
         else if (path.endsWith('reset-password.html')) titleKey = 'resetPasswordTitle';
+        // ✅ I14.6 : /produit → PAS de titleKey, laissé à lang:change
 
         if (titleKey) {
             const tVal = t(titleKey);
@@ -297,13 +339,30 @@ export function applyTranslations() {
 }
 
 // ============================================================
-// ATTACHER LES ÉVÉNEMENTS GLOBAUX
+// ✅ I14.7 : DEBOUNCE SÉPARÉ (par action)
+// ------------------------------------------------------------
+// Avant : un seul timer partagé → taper dans products pouvait
+// annuler la recherche dans blog (et vice-versa)
+// ============================================================
+const searchTimers = {
+    'products:search': null,
+    'blog:search': null
+};
+
+// ============================================================
+// ✅ I14.1 : ATTACHER LES ÉVÉNEMENTS (avec guard)
 // ============================================================
 export function attachEvents() {
+    // ✅ I14.1 : guard anti-accumulation
+    if (_eventsAttached) {
+        console.log('ℹ️ events.js : événements déjà attachés — skip');
+        return;
+    }
+    _eventsAttached = true;
 
     // ============================================
     // FERMETURE DU MENU MOBILE AU CLIC EXTÉRIEUR
-    // (le toggle est géré par navbar.js en capture)
+    // (toggle géré par navbar.js en capture)
     // ============================================
     document.addEventListener('click', (e) => {
         const mobileMenu = document.getElementById('mobileMenu');
@@ -317,12 +376,12 @@ export function attachEvents() {
     });
 
     // ============================================
-    // DÉLÉGATION PRINCIPALE (autres actions)
+    // DÉLÉGATION PRINCIPALE (clicks)
     // ============================================
     document.addEventListener('click', (e) => {
         const actionEl = e.target.closest('[data-action]');
         if (actionEl) {
-            // Le burger est géré par navbar.js → ignorer ici
+            // Burger géré par navbar.js → ignorer
             if (actionEl.id === 'burgerBtn') return;
 
             const action = actionEl.dataset.action;
@@ -333,6 +392,9 @@ export function attachEvents() {
             }
         }
 
+        // ============ FALLBACK DÉLÉGATIONS ============
+
+        // Pagination produits
         const pageBtn = e.target.closest('.pagination-btn:not(.disabled)');
         if (pageBtn && pageBtn.dataset.page) {
             const page = parseInt(pageBtn.dataset.page);
@@ -342,6 +404,7 @@ export function attachEvents() {
             }
         }
 
+        // Bouton "Ajouter au panier" (produits sans variantes)
         const addBtn = e.target.closest('.btn-add-to-cart, .btn-product-add');
         if (addBtn && !addBtn.closest('[data-action]')) {
             e.preventDefault();
@@ -352,6 +415,7 @@ export function attachEvents() {
             }
         }
 
+        // Bouton favoris
         const favBtn = e.target.closest('.favorite-btn');
         if (favBtn && !favBtn.closest('[data-action]')) {
             e.stopPropagation();
@@ -362,6 +426,7 @@ export function attachEvents() {
             }
         }
 
+        // Bouton "Commander via WhatsApp" (page produit)
         const waBtn = e.target.closest('.btn-secondary[data-product-id]');
         if (waBtn && !waBtn.closest('[data-action]')) {
             e.preventDefault();
@@ -372,6 +437,7 @@ export function attachEvents() {
             }
         }
 
+        // Carte produit (navigation)
         const card = e.target.closest('.product-card');
         if (card && !e.target.closest('button')) {
             const slug = card.dataset.slug;
@@ -388,6 +454,7 @@ export function attachEvents() {
             }
         }
 
+        // Carte blog (ouverture modal)
         const blogCard = e.target.closest('.blog-card');
         if (blogCard && !e.target.closest('button, a')) {
             const postId = blogCard.dataset.id;
@@ -399,7 +466,7 @@ export function attachEvents() {
     });
 
     // ============================================
-    // ESC → fermer menu
+    // ESC → fermer menu mobile
     // ============================================
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
@@ -408,34 +475,34 @@ export function attachEvents() {
     });
 
     // ============================================
-    // CHANGEMENTS (select, checkbox)
+    // CHANGE (select, checkbox)
     // ============================================
     document.addEventListener('change', (e) => {
         const target = e.target.closest('[data-action]');
-        if (target) {
-            const action = target.dataset.action;
-            if (eventHandlers[action]) {
-                eventHandlers[action](e);
-            }
+        if (!target) return;
+        const action = target.dataset.action;
+        if (eventHandlers[action]) {
+            eventHandlers[action](e);
         }
     });
 
     // ============================================
-    // SAISIES (input) — debounce
+    // ✅ I14.7 : INPUT (debounce séparé par action)
     // ============================================
-    let searchTimer = null;
     document.addEventListener('input', (e) => {
         const target = e.target.closest('[data-action]');
-        if (target) {
-            const action = target.dataset.action;
-            if (action === 'products:search' || action === 'blog:search') {
-                clearTimeout(searchTimer);
-                searchTimer = setTimeout(() => {
-                    if (eventHandlers[action]) eventHandlers[action](e);
-                }, 300);
-            } else if (eventHandlers[action]) {
-                eventHandlers[action](e);
-            }
+        if (!target) return;
+        const action = target.dataset.action;
+
+        if (action in searchTimers) {
+            // ✅ I14.7 : timer indépendant par action
+            if (searchTimers[action]) clearTimeout(searchTimers[action]);
+            searchTimers[action] = setTimeout(() => {
+                if (eventHandlers[action]) eventHandlers[action](e);
+                searchTimers[action] = null;
+            }, 300);
+        } else if (eventHandlers[action]) {
+            eventHandlers[action](e);
         }
     });
 
@@ -447,7 +514,7 @@ export function attachEvents() {
         window.addEventListener('scroll', () => {
             if (window.scrollY > 400) backToTop.classList.add('visible');
             else backToTop.classList.remove('visible');
-        });
+        }, { passive: true });
         backToTop.addEventListener('click', () => {
             window.scrollTo({ top: 0, behavior: 'smooth' });
         });
@@ -464,7 +531,10 @@ export function attachEvents() {
         }
     });
 
-    console.log('✅ events.js : événements attachés (v1.10.0)');
+    console.log('✅ events.js : événements attachés (v2.0.0)');
 }
 
-console.log('✅ events.js chargé — v1.10.0 (double handler burger retiré)');
+// ============================================================
+// LOG
+// ============================================================
+console.log('✅ events.js chargé — v2.0.0 (handlers nettoyés + guards + spinner)');
