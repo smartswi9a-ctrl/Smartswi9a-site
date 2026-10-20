@@ -28,7 +28,7 @@ body {
 /* ============================================================
    STYLE.CSS - SMART SWI9A
    Design complet responsive + RTL — MODE CLAIR UNIQUEMENT
-   Version 3.9.2 — Fix dark mode forcé
+   Version 4.1.0 — Filtres catégories 2 rangées (sous-catégories)
    ============================================================ */
 
 /* ============================================================
@@ -3124,7 +3124,7 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
 }
 
 /* ============================================================
-   ✅ PAGE PANIER DÉDIÉE (/panier) — v3.8.0
+   PAGE PANIER DÉDIÉE (/panier)
    ============================================================ */
 
 .cart-page-main {
@@ -3885,7 +3885,7 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
 }
 
 /* ============================================================
-   ✅ v3.8.1 : COMPATIBILITÉ MULTI-PLATEFORME
+   COMPATIBILITÉ MULTI-PLATEFORME
    ============================================================ */
 
 @supports (padding-top: env(safe-area-inset-top)) {
@@ -4349,3 +4349,306 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
         padding-top: 0;
     }
 }
+
+/* ============================================================
+   ✅ v4.1.0 — FILTRES CATÉGORIES (2 rangées, sous-catégories)
+   ------------------------------------------------------------
+   Design : rangée 1 (parents + Tout + Favoris)
+            rangée 2 (enfants, apparaît quand un parent est actif)
+   ============================================================ */
+
+/* ============================================================
+   Conteneur principal des filtres
+   ============================================================ */
+#filtersCategories {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    margin-bottom: 1rem;
+    width: 100%;
+}
+
+/* ============================================================
+   Rangées de chips
+   ============================================================ */
+.filters-categories-row {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    width: 100%;
+    align-items: center;
+}
+
+/* Rangée 1 — parents (toujours visible) */
+.filters-categories-parents {
+    position: relative;
+}
+
+/* Rangée 2 — enfants (apparaît si un parent est actif) */
+.filters-categories-children {
+    padding: 0.55rem 0.7rem;
+    background: linear-gradient(135deg, rgba(var(--gold-rgb), 0.08), rgba(var(--gold-rgb), 0.03));
+    border: 1px dashed var(--border-gold);
+    border-radius: var(--radius-md);
+    margin-top: 0.1rem;
+    animation: subcategoriesSlideIn 0.25s ease-out;
+    padding-left: 0.9rem;
+    position: relative;
+}
+
+/* Petit marqueur vertical pour matérialiser la hiérarchie */
+.filters-categories-children::before {
+    content: '';
+    position: absolute;
+    left: 0.4rem;
+    top: 0.6rem;
+    bottom: 0.6rem;
+    width: 2px;
+    background: linear-gradient(180deg, var(--gold), transparent);
+    border-radius: 2px;
+    opacity: 0.6;
+}
+
+@keyframes subcategoriesSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-6px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ============================================================
+   Bouton parent (chip rangée 1)
+   ============================================================ */
+.filter-btn-parent {
+    font-weight: 700;
+    position: relative;
+    transition: all var(--transition-fast);
+}
+
+.filter-btn-parent.active {
+    background: var(--gold);
+    color: #ffffff;
+    border-color: var(--gold);
+    box-shadow: 0 2px 8px rgba(var(--gold-rgb), 0.3);
+}
+
+/* Petit chevron ▾ indique qu'il y a des sous-catégories */
+.filter-btn-parent::after {
+    content: '▾';
+    display: inline-block;
+    margin-left: 0.25rem;
+    font-size: 0.65rem;
+    opacity: 0.55;
+    transition: transform var(--transition-fast), opacity var(--transition-fast);
+}
+
+.filter-btn-parent.active::after {
+    transform: rotate(180deg);
+    opacity: 0.9;
+}
+
+/* ============================================================
+   Bouton enfant (chip rangée 2)
+   ============================================================ */
+.filter-btn-child {
+    font-size: 0.72rem;
+    padding: 0.35rem 0.85rem;
+    background: var(--bg-card);
+    border-color: var(--border);
+    color: var(--text-muted);
+    transition: all var(--transition-fast);
+}
+
+.filter-btn-child:hover {
+    border-color: var(--gold);
+    color: var(--gold);
+    background: rgba(var(--gold-rgb), 0.06);
+}
+
+.filter-btn-child.active {
+    background: linear-gradient(135deg, var(--gold), #7d5a1d);
+    color: #ffffff;
+    border-color: var(--gold);
+    box-shadow: 0 2px 6px rgba(var(--gold-rgb), 0.25);
+    font-weight: 700;
+}
+
+/* ============================================================
+   Bouton "Tout [Catégorie parente]" (rangée 2, 1er bouton)
+   ============================================================ */
+.filter-btn-all-children {
+    font-size: 0.72rem;
+    padding: 0.35rem 0.85rem;
+    background: transparent;
+    border: 1px dashed var(--border-gold);
+    color: var(--gold);
+    font-weight: 700;
+    transition: all var(--transition-fast);
+}
+
+.filter-btn-all-children:hover {
+    background: rgba(var(--gold-rgb), 0.08);
+    border-style: solid;
+}
+
+.filter-btn-all-children.active {
+    background: rgba(var(--gold-rgb), 0.12);
+    border-style: solid;
+    border-color: var(--gold);
+    color: var(--gold);
+    box-shadow: 0 0 0 2px rgba(var(--gold-rgb), 0.15);
+}
+
+/* ============================================================
+   Compteurs (N) — style uniforme
+   ============================================================ */
+.filter-btn .filter-count {
+    font-size: 0.65rem;
+    font-weight: 700;
+    opacity: 0.75;
+    margin-left: 0.15rem;
+}
+
+.filter-btn.active .filter-count {
+    opacity: 0.9;
+}
+
+/* ============================================================
+   Responsive — Tablette
+   ============================================================ */
+@media (max-width: 768px) {
+    .filters-categories-children {
+        padding: 0.5rem 0.6rem;
+        padding-left: 0.8rem;
+    }
+
+    .filter-btn-child,
+    .filter-btn-all-children {
+        font-size: 0.7rem;
+        padding: 0.32rem 0.7rem;
+    }
+}
+
+/* ============================================================
+   Responsive — Mobile (scroll horizontal sur rangée 2)
+   ============================================================ */
+@media (max-width: 600px) {
+    .filters-categories-children {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: thin;
+        scrollbar-color: var(--gold) transparent;
+        padding: 0.5rem 0.6rem;
+        padding-left: 0.8rem;
+        mask-image: linear-gradient(90deg, transparent 0%, black 4%, black 96%, transparent 100%);
+        -webkit-mask-image: linear-gradient(90deg, transparent 0%, black 4%, black 96%, transparent 100%);
+    }
+
+    .filters-categories-children::-webkit-scrollbar {
+        height: 3px;
+    }
+    .filters-categories-children::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    .filters-categories-children::-webkit-scrollbar-thumb {
+        background: var(--gold);
+        border-radius: 3px;
+    }
+
+    .filter-btn-child,
+    .filter-btn-all-children {
+        flex-shrink: 0;
+        white-space: nowrap;
+    }
+
+    .filters-categories-parents {
+        flex-wrap: wrap;
+    }
+
+    .filter-btn-parent {
+        font-size: 0.72rem;
+        padding: 0.35rem 0.8rem;
+    }
+}
+
+/* ============================================================
+   Responsive — Très petit mobile
+   ============================================================ */
+@media (max-width: 400px) {
+    .filters-categories-children {
+        padding: 0.45rem 0.55rem;
+        padding-left: 0.7rem;
+    }
+
+    .filter-btn-child,
+    .filter-btn-all-children {
+        font-size: 0.68rem;
+        padding: 0.3rem 0.65rem;
+    }
+
+    .filter-btn-parent {
+        font-size: 0.68rem;
+        padding: 0.3rem 0.7rem;
+    }
+
+    .filter-btn-parent::after {
+        font-size: 0.6rem;
+    }
+}
+
+/* ============================================================
+   RTL — Support arabe
+   ============================================================ */
+[dir="rtl"] .filters-categories-children {
+    padding-left: 0.6rem;
+    padding-right: 0.9rem;
+}
+
+[dir="rtl"] .filters-categories-children::before {
+    left: auto;
+    right: 0.4rem;
+}
+
+[dir="rtl"] .filter-btn-parent::after {
+    margin-left: 0;
+    margin-right: 0.25rem;
+}
+
+[dir="rtl"] .filter-btn .filter-count {
+    margin-left: 0;
+    margin-right: 0.15rem;
+}
+
+[dir="rtl"] .filters-categories-children {
+    mask-image: linear-gradient(270deg, transparent 0%, black 4%, black 96%, transparent 100%);
+    -webkit-mask-image: linear-gradient(270deg, transparent 0%, black 4%, black 96%, transparent 100%);
+}
+
+/* ============================================================
+   Accessibilité — Focus visible
+   ============================================================ */
+.filter-btn:focus-visible {
+    outline: 2px solid var(--gold);
+    outline-offset: 2px;
+}
+
+/* ============================================================
+   Print — Masquer les filtres
+   ============================================================ */
+@media print {
+    #filtersCategories,
+    .filters-categories-row {
+        display: none !important;
+    }
+}
+
+/* ============================================================
+   LOG
+   ============================================================ */
+/* style.css v4.1.0 — Filtres catégories 2 rangées + sous-catégories */
