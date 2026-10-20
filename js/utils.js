@@ -1,22 +1,13 @@
 // js/utils.js
 // ============================================================
 // UTILITAIRES - SMART SWI9A
-// Version 1.4.0 — Fixes critiques + importants + mineurs
-// CHANGEMENTS v1.4.0 :
-// ✅ C2.1 — getFallbackImage() encodeURIComponent (SVG fiable)
-// ✅ C2.2 — renderStars() Math.round (4.8 → 5 étoiles)
-// ✅ C2.3 — getCurrentPage() gère cleanUrls
-// ✅ I2.1 — fetchWithRetry() stop 4xx
-// ✅ I2.2 — firestoreWithRetry() stop permission-denied
-// ✅ I2.3 — currentLang = source unique (store.lang déprécié)
-// ✅ I2.4 — t() warn si clé manquante (dev only)
-// ✅ M2.1 — loadCities() → CONFIG.VERSION.CITIES_SCHEMA
-// ✅ M2.2 — getProductImageUrl() rejette //evil.com
-// ✅ M2.3 — getProductFeatures/Desc fallback AR complet
-// ✅ M2.4 — debounce/throttle .cancel()
-// ✅ M2.5 — toDate() seuil 1e12
-// ✅ M2.6 — isOrderCancellable() utilise cancellableUntil
-// ✅ M2.7 — productMatchesCategory dispo via config.js
+// Version 1.4.1 — Fix TDZ cycle config.js ↔ utils.js
+// ============================================================
+// CHANGEMENTS v1.4.1 :
+// ✅ FIX TDZ — currentLang = 'fr' (littéral) au lieu de DEFAULT_LANGUAGE
+//    → Évite ReferenceError : Cannot access 'DEFAULT_LANGUAGE' before initialization
+//    → DEFAULT_LANGUAGE reste utilisé dans t(), setLang(), initLang() (runtime safe)
+// ✅ (Repris v1.4.0) — C2.1, C2.2, C2.3, I2.1, I2.2, I2.4, M2.1→M2.6
 // ============================================================
 
 import {
@@ -29,16 +20,22 @@ import {
     REVIEW_STATUS,
     normalizeOrderStatus,
     getReturnedQuantities
-    // ⚠️ M2.7 : productMatchesCategory est dans config.js
-    // Import direct : import { productMatchesCategory } from './config.js'
 } from './config.js';
 
 // ============================================================
-// LANGUE (état interne — source unique de vérité)
-// ⚠️ I2.3 : Le store.lang est déprécié (voir store.js)
-// Cette variable module-level est la SEULE source de vérité.
+// ✅ FIX v1.4.1 — LANGUE (état interne — source unique de vérité)
+// ------------------------------------------------------------
+// ⚠️ IMPORTANT : ne PAS utiliser DEFAULT_LANGUAGE ici.
+//    Raison : cycle d'import config.js ↔ utils.js.
+//    config.js importe t() de utils.js → déclenche l'éval de utils.js
+//    avant que DEFAULT_LANGUAGE ne soit initialisé dans config.js
+//    → ReferenceError (TDZ) si on l'utilise au chargement du module.
+//
+//    On démarre sur 'fr' en littéral. initLang() (appelé par app.js)
+//    corrige via setLang() selon localStorage/navigateur.
+//    DEFAULT_LANGUAGE reste utilisé DANS les fonctions (runtime safe).
 // ============================================================
-let currentLang = DEFAULT_LANGUAGE;
+let currentLang = 'fr';
 
 // ============================================================
 // DÉTECTION DEV (pour warnings i18n)
@@ -52,19 +49,16 @@ function isDevMode() {
 
 // ============================================================
 // I18N
-// ✅ I2.4 : warn en dev si clé manquante + support `??` (préserve "")
 // ============================================================
 export function t(key) {
     const translations = window.translations || {};
 
-    // ✅ Utiliser ?? (nullish) au lieu de || pour préserver les valeurs ""
     const langValue = translations[currentLang]?.[key];
     if (langValue !== undefined && langValue !== null) return langValue;
 
     const defaultVal = translations[DEFAULT_LANGUAGE]?.[key];
     if (defaultVal !== undefined && defaultVal !== null) return defaultVal;
 
-    // ⚠️ Warning en dev
     if (isDevMode()) {
         console.warn(`⚠️ [i18n] Clé manquante : "${key}" (lang: ${currentLang})`);
     }
@@ -155,21 +149,18 @@ export function getProductName(p) {
     return p[key] || p.nameFr || p.nameEn || p.nameAr || 'Produit';
 }
 
-// ✅ M2.3 : ajout du fallback AR
 export function getProductDesc(p) {
     if (!p) return '';
     const key = `desc${currentLang.charAt(0).toUpperCase() + currentLang.slice(1)}`;
     return p[key] || p.descFr || p.descEn || p.descAr || '';
 }
 
-// ✅ M2.3 : ajout du fallback AR
 export function getProductFeatures(p) {
     if (!p) return [];
     const key = `features${currentLang.charAt(0).toUpperCase() + currentLang.slice(1)}`;
     return p[key] ?? p.featuresFr ?? p.featuresEn ?? p.featuresAr ?? [];
 }
 
-// ✅ M2.2 : rejeter les URLs protocol-relative (//evil.com)
 export function getProductImageUrl(p) {
     const fallback = getFallbackImage(getProductName(p));
     if (!p || !p.img || p.img === '') return fallback;
@@ -177,22 +168,15 @@ export function getProductImageUrl(p) {
     const img = String(p.img).trim();
     if (!img) return fallback;
 
-    // ❌ Protocole relatif : //evil.com → XSS / tracking
     if (img.startsWith('//')) return fallback;
-
-    // ✅ Absolute URL (http:// ou https://)
     if (/^https?:\/\//.test(img)) return img;
-
-    // ✅ Chemin relatif (commence par /)
     if (img.startsWith('/')) return img;
 
-    // ✅ Chemin relatif (ajouter /)
     return '/' + img;
 }
 
 // ============================================================
-// ✅ C2.1 — IMAGE FALLBACK (SVG inline fiable)
-// Correction : encodeURIComponent évite les caractères cassés (&, ', etc.)
+// IMAGE FALLBACK (SVG inline fiable)
 // ============================================================
 export function getFallbackImage(name) {
     const safe = String(name || 'Produit')
@@ -233,7 +217,7 @@ export function safeDivide(numerator, denominator, fallback = 0) {
 }
 
 // ============================================================
-// STORAGE HELPERS (centralisés)
+// STORAGE HELPERS
 // ============================================================
 export function getStoragePathFromUrl(url) {
     if (!url || typeof url !== 'string') return null;
@@ -286,31 +270,24 @@ export function formatDateTime(dateStr) {
 
 // ============================================================
 // toDate() robuste
-// ✅ M2.5 : seuil epoch ms plus précis (>= 1e12)
 // ============================================================
 export function toDate(value) {
     if (!value) return null;
 
-    // 1. Firestore Timestamp
     if (typeof value.toDate === 'function') {
         try { return value.toDate(); } catch (e) { /* continue */ }
     }
 
-    // 2. Objet Date natif
     if (value instanceof Date) {
         return isNaN(value.getTime()) ? null : value;
     }
 
-    // 3. Nombre (epoch) — seuil 1e12 = 2001-09-09 en ms, 33658 en secondes
-    //    ✅ M2.5 : plus robuste que 1e11
     if (typeof value === 'number') {
         const ms = value >= 1e12 ? value : value * 1000;
         const d = new Date(ms);
         if (isNaN(d.getTime())) return null;
-        // Sanity : rejeter dates absurdes (< 2000 ou > 2100)
         const year = d.getFullYear();
         if (year < 2000 || year > 2100) {
-            // Try the other interpretation
             const alt = value >= 1e12 ? value * 1000 : value;
             const altD = new Date(alt);
             const altYear = altD.getFullYear();
@@ -321,13 +298,11 @@ export function toDate(value) {
         return d;
     }
 
-    // 4. Objet Firestore-like (avec .seconds)
     if (typeof value === 'object' && typeof value.seconds === 'number') {
         const d = new Date(value.seconds * 1000);
         return isNaN(d.getTime()) ? null : d;
     }
 
-    // 5. String
     if (typeof value === 'string') {
         const frMatch = value.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
         if (frMatch) {
@@ -344,7 +319,7 @@ export function toDate(value) {
 }
 
 // ============================================================
-// COMMANDES - Statuts (6 statuts + compat legacy)
+// COMMANDES - Statuts
 // ============================================================
 export function getOrderStatusEmoji(status) {
     const normalized = normalizeOrderStatus(status);
@@ -388,7 +363,7 @@ export function getOrderStatusLabel(status) {
 }
 
 // ============================================================
-// Timeline — étapes de progression d'une commande
+// Timeline
 // ============================================================
 export function getOrderTimelineSteps(status) {
     const normalized = normalizeOrderStatus(status);
@@ -422,19 +397,16 @@ export function getOrderTimelineSteps(status) {
     }));
 }
 
-// ✅ M2.6 : utiliser cancellableUntil (server-set) si présent
 export function isOrderCancellable(order) {
     if (!order) return false;
     const status = normalizeOrderStatus(order.status);
     if (status !== ORDER_STATUS.PENDING) return false;
 
-    // Priorité : cancellableUntil (fixé côté serveur dans createOrder)
     const cancellableUntilDate = toDate(order.cancellableUntil);
     if (cancellableUntilDate) {
         return Date.now() < cancellableUntilDate.getTime();
     }
 
-    // Fallback : createdAt + CANCELLABLE_HOURS
     const createdDate = toDate(order.createdAt);
     if (!createdDate) return false;
     const hoursElapsed = (Date.now() - createdDate.getTime()) / (1000 * 60 * 60);
@@ -446,14 +418,12 @@ export function getTimeRemainingForCancellation(order) {
     const status = normalizeOrderStatus(order.status);
     if (status !== ORDER_STATUS.PENDING) return null;
 
-    // Priorité : cancellableUntil
     const cancellableUntilDate = toDate(order.cancellableUntil);
     if (cancellableUntilDate) {
         const remaining = cancellableUntilDate.getTime() - Date.now();
         return remaining > 0 ? remaining : null;
     }
 
-    // Fallback
     const createdDate = toDate(order.createdAt);
     if (!createdDate) return null;
     const cancellableUntil = createdDate.getTime() + (CONFIG.ORDERS.CANCELLABLE_HOURS * 60 * 60 * 1000);
@@ -543,7 +513,6 @@ export function getReviewStatusLabel(status) {
     return t(labels[status] || 'reviewStatusUnknown');
 }
 
-// ✅ C2.2 : Math.round au lieu de Math.floor (4.8 → 5 ★)
 export function renderStars(rating) {
     const num = Math.round(Number(rating) || 0);
     const full = '★'.repeat(Math.min(5, Math.max(0, num)));
@@ -553,7 +522,6 @@ export function renderStars(rating) {
 
 // ============================================================
 // RETRY RÉSEAU (résilience)
-// ✅ I2.1 : ne retry plus les erreurs 4xx (définitives)
 // ============================================================
 export async function fetchWithRetry(url, options = {}, retries = 3, delay = 1000) {
     let attempt = 0;
@@ -562,7 +530,6 @@ export async function fetchWithRetry(url, options = {}, retries = 3, delay = 100
             const response = await fetch(url, options);
             if (response.ok) return response;
 
-            // ✅ 4xx = erreur client définitive, pas de retry
             const isNonRetryable = response.status >= 400 && response.status < 500;
             const err = new Error(`HTTP ${response.status}`);
             err.status = response.status;
@@ -578,7 +545,6 @@ export async function fetchWithRetry(url, options = {}, retries = 3, delay = 100
     }
 }
 
-// ✅ I2.2 : ne retry plus permission-denied, etc.
 export async function firestoreWithRetry(fn, retries = 3, delay = 1000) {
     const NON_RETRYABLE_CODES = [
         'permission-denied',
@@ -605,7 +571,7 @@ export async function firestoreWithRetry(fn, retries = 3, delay = 1000) {
 }
 
 // ============================================================
-// DEVICE (responsive JS)
+// DEVICE
 // ============================================================
 export function isMobile() {
     return window.innerWidth <= CONFIG.BREAKPOINTS.MOBILE_MAX;
@@ -628,7 +594,6 @@ export function getDevice() {
 
 // ============================================================
 // DEBOUNCE / THROTTLE
-// ✅ M2.4 : .cancel() exposé
 // ============================================================
 export function debounce(fn, delay = 300) {
     let timer = null;
@@ -728,8 +693,7 @@ export function initLang() {
 }
 
 // ============================================================
-// LOAD CITIES depuis Firestore (avec fallback JSON)
-// ✅ M2.1 : CACHE_VERSION via CONFIG.VERSION.CITIES_SCHEMA
+// LOAD CITIES
 // ============================================================
 export async function loadCities(force = false) {
     const CACHE_KEY = CONFIG.STORAGE_KEYS.CITIES_CACHE;
@@ -797,7 +761,7 @@ export async function loadCities(force = false) {
 }
 
 // ============================================================
-// SLUGIFY (utilisé par admin pour générer les slugs)
+// SLUGIFY
 // ============================================================
 export function slugify(text) {
     return String(text)
@@ -810,7 +774,7 @@ export function slugify(text) {
 }
 
 // ============================================================
-// HELPERS VILLES — Nom multilingue
+// HELPERS VILLES
 // ============================================================
 const CITY_LOWERCASE_WORDS = new Set([
     'de', 'du', 'des', 'la', 'le', 'les', 'et', 'sur',
@@ -831,7 +795,6 @@ function smartTitleCase(str) {
         .join(' ');
 }
 
-// Corrections manuelles des orthographes officielles françaises
 const CITY_FR_OVERRIDES = {
     'fes': 'Fès',
     'meknes': 'Meknès',
@@ -944,10 +907,8 @@ export function getSignupMethodEmoji(method) {
 
 // ============================================================
 // Détection Type de Page
-// ✅ C2.3 : gère cleanUrls (/produit sans .html)
 // ============================================================
 export function getCurrentPage() {
-    // Normaliser : retirer .html et trailing slash
     let path = window.location.pathname.replace(/\.html$/, '').replace(/\/$/, '');
     if (path === '') path = '/';
 
@@ -961,7 +922,7 @@ export function getCurrentPage() {
 }
 
 // ============================================================
-// Format Email / Phone (nettoyage)
+// Format Email / Phone
 // ============================================================
 export function cleanEmail(email) {
     if (!email) return '';
@@ -976,4 +937,4 @@ export function cleanPhone(phone) {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ utils.js chargé — v1.4.0 (fixes critiques + i18n dev warn)');
+console.log('✅ utils.js chargé — v1.4.1 (fix TDZ cycle config↔utils)');
