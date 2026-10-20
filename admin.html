@@ -6,7 +6,6 @@
     <title>Administration | Smart Swi9a</title>
     <meta name="robots" content="noindex, nofollow">
     <meta name="theme-color" content="#f8f6f2">
-    <!-- ✅ FIX DARK MODE — force le mode clair uniquement -->
     <meta name="color-scheme" content="only light">
     <meta name="supported-color-schemes" content="light">
 
@@ -100,6 +99,7 @@
             border: 1px solid var(--border-gold); margin-bottom: 1.5rem; box-shadow: var(--shadow-sm);
         }
         .admin-form h3 { font-family: var(--font-secondary); color: var(--gold); margin-bottom: 1rem; font-size: 1.2rem; }
+        .admin-form h4 { font-family: var(--font-secondary); color: var(--gold); margin: 1.5rem 0 0.5rem; font-size: 1.05rem; border-bottom: 1px dashed var(--border); padding-bottom: 0.3rem; }
         .admin-form label { display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.3rem; margin-top: 0.5rem; }
         .admin-form input, .admin-form select, .admin-form textarea {
             width: 100%; padding: 0.6rem 0.9rem; border: 1px solid var(--border);
@@ -113,6 +113,7 @@
         @media (min-width: 768px) {
             .admin-form-row { grid-template-columns: repeat(2, 1fr); gap: 0.8rem; }
             .admin-form-row.cols-3 { grid-template-columns: repeat(3, 1fr); }
+            .admin-form-row.cols-4 { grid-template-columns: repeat(4, 1fr); }
         }
 
         .admin-btn-primary {
@@ -349,6 +350,18 @@
             margin-top: -0.2rem;
         }
 
+        /* Styles pour le tableau des variantes */
+        #variantsContainer {
+            display: none;
+            background: var(--bg-surface);
+            padding: 1rem;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+            max-height: 300px;
+            overflow-y: auto;
+            margin-bottom: 1rem;
+        }
+
         .admin-alert-banner {
             position: fixed;
             bottom: 0; left: 0; right: 0;
@@ -542,6 +555,8 @@
             <div class="admin-form">
                 <h3 id="productFormTitle">➕ Ajouter un produit</h3>
                 <input type="hidden" id="productEditId">
+                
+                <!-- INFOS DE BASE -->
                 <div class="admin-form-row">
                     <div><label>🇫🇷 Nom (Français) *</label><input type="text" id="pNameFr" placeholder="Ex: Prise Connectée WiFi"></div>
                     <div><label>🇲🇦 Nom (Arabe)</label><input type="text" id="pNameAr" placeholder="اسم المنتج"></div>
@@ -550,22 +565,69 @@
                     <div><label>🇬🇧 Nom (Anglais)</label><input type="text" id="pNameEn" placeholder="Product name"></div>
                     <div><label>🔗 Slug (URL) *</label><input type="text" id="pSlug" placeholder="prise-connectee-wifi"></div>
                 </div>
-                <div class="admin-form-row cols-3">
-                    <div><label>📂 Catégorie *</label><select id="pCategory"></select></div>
+
+                <!-- CATÉGORIES (Parent / Enfant) -->
+                <div class="admin-form-row">
+                    <div>
+                        <label>📂 Catégorie Principale *</label>
+                        <select id="pParentCategory"></select>
+                    </div>
+                    <div>
+                        <label>📂 Sous-Catégorie *</label>
+                        <select id="pCategory"></select>
+                    </div>
+                </div>
+
+                <!-- PRIX ET STOCK -->
+                <div class="admin-form-row cols-4">
                     <div><label>💰 Prix de vente (MAD) *</label><input type="number" id="pPrice" placeholder="149" min="0"></div>
                     <div><label>💰 Ancien prix (MAD)</label><input type="number" id="pOldPrice" placeholder="199" min="0"></div>
-                </div>
-                <div class="admin-form-row cols-3">
                     <div><label>💸 Prix d'achat (MAD)</label><input type="number" id="pPurchasePrice" placeholder="75" min="0" title="Prix payé au grossiste"></div>
                     <div><label>📦 Stock *</label><input type="number" id="pStock" placeholder="10" min="0"></div>
-                    <div><label>⭐ Note moyenne</label><input type="number" id="pRating" placeholder="4.8" min="0" max="5" step="0.1"></div>
                 </div>
-                <div class="admin-form-row" style="margin-top:0.5rem;">
-                    <div style="display:flex;align-items:center;gap:0.4rem;cursor:pointer;color:var(--text);font-size:0.9rem;">
+                <div class="admin-form-row cols-4" style="margin-top:0.5rem;">
+                    <div><label>⭐ Note moyenne</label><input type="number" id="pRating" placeholder="4.8" min="0" max="5" step="0.1"></div>
+                    <div style="display:flex;align-items:center;gap:0.4rem;cursor:pointer;color:var(--text);font-size:0.9rem; margin-top:1.5rem;">
                         <input type="checkbox" id="pIsNew" style="width:auto;margin:0;">
                         <label for="pIsNew" style="margin:0;cursor:pointer;">🆕 Nouveau Produit</label>
                     </div>
                 </div>
+
+                <!-- DIMENSIONS & POIDS -->
+                <h4>📏 Dimensions & Poids</h4>
+                <div class="admin-form-row cols-4">
+                    <div><label>Poids (g)</label><input type="number" id="pWeight" placeholder="500" min="0"></div>
+                    <div><label>Longueur (cm)</label><input type="number" id="pLength" placeholder="20" min="0" step="0.1"></div>
+                    <div><label>Largeur (cm)</label><input type="number" id="pWidth" placeholder="15" min="0" step="0.1"></div>
+                    <div><label>Hauteur (cm)</label><input type="number" id="pHeight" placeholder="10" min="0" step="0.1"></div>
+                </div>
+
+                <!-- VARIANTES (Tailles / Couleurs) -->
+                <h4>🎨 Variantes (Tailles / Couleurs)</h4>
+                <div class="admin-form-row">
+                    <div><label>Tailles (séparées par virgule)</label><input type="text" id="pSizes" placeholder="S, M, L, XL"></div>
+                    <div><label>Couleurs (séparées par virgule)</label><input type="text" id="pColors" placeholder="Rouge, Bleu, Noir"></div>
+                </div>
+                <button type="button" class="admin-btn-secondary" id="generateVariantsBtn" style="margin-top:0.5rem;margin-bottom:1rem;">🔄 Générer les combinaisons</button>
+                
+                <div id="variantsContainer">
+                    <p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.5rem;">Ajustez le stock et le prix pour chaque combinaison :</p>
+                    <table class="acc-table" id="variantsTable">
+                        <thead><tr><th>Combinaison</th><th>Prix (MAD)</th><th>Stock</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+
+                <!-- GUIDE DES TAILLES -->
+                <div style="margin-top:1rem; padding:1rem; background:rgba(var(--gold-rgb), 0.05); border:1px solid var(--border-gold); border-radius:var(--radius-sm);">
+                    <div style="display:flex;align-items:center;gap:0.4rem;cursor:pointer;color:var(--text);font-size:0.9rem;">
+                        <input type="checkbox" id="pSizeGuide" style="width:auto;margin:0;">
+                        <label for="pSizeGuide" style="margin:0;cursor:pointer;font-weight:600;">📏 Activer le Guide des Tailles Automatique (US / EU)</label>
+                    </div>
+                    <small style="color:var(--text-muted);font-size:0.75rem;display:block;margin-top:0.2rem;">Affichera un bouton "Guide des tailles" sur la page du produit avec les schémas de mesure.</small>
+                </div>
+
+                <!-- DESCRIPTIONS & CARACTÉRISTIQUES -->
                 <label>🇫🇷 Description (Français)</label>
                 <textarea id="pDescFr" placeholder="Description en français..."></textarea>
                 <label>🇲🇦 Description (Arabe)</label>
@@ -579,6 +641,7 @@
                 <label>🇬🇧 Caractéristiques EN (une par ligne)</label>
                 <textarea id="pFeaturesEn" placeholder="Bluetooth 5.3&#10;30h battery"></textarea>
                 
+                <!-- IMAGES & VIDÉO -->
                 <label>📸 Image principale (URL ou upload)</label>
                 <input type="text" id="pImg" placeholder="https://... ou /photos/image.jpg">
                 <input type="file" id="pImgFile" accept="image/*" style="margin-top:0.5rem;">
@@ -589,7 +652,6 @@
                 <input type="file" id="pGalleryFiles" accept="image/*" multiple style="margin-top:0.5rem;">
                 <div class="admin-gallery-preview" id="pGalleryPreview"></div>
 
-                <!-- ✅ CHAMP VIDÉO AVEC BOUTON EFFACER -->
                 <label>🎥 Vidéo de démonstration (Nom du fichier R2)</label>
                 <div style="display:flex;gap:0.5rem;align-items:center;">
                     <input type="text" id="pVideo" placeholder="Ex: demo-montre.mp4" title="Entrez uniquement le nom du fichier tel qu'il est dans votre bucket R2" style="flex:1;">
