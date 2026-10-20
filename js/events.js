@@ -1,38 +1,27 @@
 // js/events.js
 // ============================================================
 // DÉLÉGATION D'ÉVÉNEMENTS GLOBALE - SMART SWI9A
-// Version 2.0.0 — Nettoyage handlers morts + guards + UX
+// Version 2.1.0 — Fix clic catégories + reset complet
 // ============================================================
-// CHANGEMENTS v2.0.0 :
-// ✅ C14.1 — (fix dans product-detail.js _listenerAttached)
-// ✅ I14.1 — Guard _eventsAttached (anti-accumulation)
-// ✅ I14.2 — 8 handlers morts supprimés
-// ✅ I14.4 — Spinner visuel sur lang:change (home)
-// ✅ I14.6 — Titre produit sync + re-render async
-// ✅ I14.7 — Debounce séparé products:search / blog:search
-// ✅ M14.1 — cart:clear guard _initialized (double dialog)
+// CHANGEMENTS v2.1.0 :
+// ✅ FIX #4 — products:filter : closest('[data-category]')
+//             (clic sur emoji/texte fonctionne maintenant)
+// ✅ FIX #16 — products:filter-reset : reset complet (chips + checkboxes + ligne sous-cat)
+// ✅ FIX — products:filter / filter-reset : pas de double render
+//           (products.js.setCategory/clearAllFilters gèrent déjà le render)
+// ✅ (Repris v2.0.0) — I14.1, I14.2, I14.4, I14.6, I14.7, M14.1
 // ============================================================
 
 import { t, setLang, getLang } from "./utils.js";
 import { showToast } from "./ui-core.js";
 
 // ============================================================
-// ✅ I14.1 : GUARD GLOBAL
+// GUARD GLOBAL
 // ============================================================
 let _eventsAttached = false;
 
 // ============================================================
-// HANDLERS (post-nettoyage v2.0.0)
-// ------------------------------------------------------------
-// ⚠️ SUPPRIMÉS (I14.2 — délégation couvre) :
-//   - cart:add        → couvert par .btn-add-to-cart
-//   - order:whatsapp  → couvert par .btn-secondary[data-product-id]
-//   - favorite:toggle → couvert par .favorite-btn
-//   - products:page   → couvert par .pagination-btn
-//   - blog:filter     → blog.js gère data-blog-category directement
-//   - blog:open       → couvert par .blog-card
-//   - blog:close      → blog.js gère bouton close dans modal
-//   - menu:toggle     → navbar.js gère en capture phase
+// HANDLERS
 // ============================================================
 const eventHandlers = {
 
@@ -46,22 +35,28 @@ const eventHandlers = {
         closeCart();
     },
 
-    // ✅ M14.1 : guard _initialized pour éviter double dialog avec panier.js
     'cart:clear': async (e) => {
         const btn = e.target.closest('[data-action="cart:clear"]');
-        // Si panier.js a déjà attaché son listener → on skip
         if (btn && btn._initialized) return;
-        // Fallback (bouton hors page panier)
         const { clearCart } = await import("./cart.js");
         clearCart();
     },
 
+    // ============================================================
+    // ✅ FIX #4 : products:filter avec closest (emoji/texte cliquables)
+    // ============================================================
     'products:filter': async (e) => {
-        const category = e.target.dataset.category;
+        // ⚠️ e.target peut être le <span> emoji ou le texte à l'intérieur
+        // → On cherche le bouton [data-category] le plus proche
+        const btn = e.target.closest('[data-category]');
+        if (!btn) return;
+        const category = btn.dataset.category;
         if (!category) return;
-        const { setCategory, renderCategoryFilters } = await import("./products.js");
-        setCategory(category);
-        renderCategoryFilters();
+
+        const { setCategory } = await import("./products.js");
+        // ✅ setCategory() dans products.js appelle déjà renderCategoryFilters()
+        // → pas de double render ici
+        await setCategory(category);
     },
 
     'products:sort': async (e) => {
@@ -87,14 +82,36 @@ const eventHandlers = {
         setPromos(e.target.checked);
     },
 
+    // ============================================================
+    // ✅ FIX #16 : products:filter-reset (reset complet)
+    // ------------------------------------------------------------
+    // AVANT : clearAllFilters() + renderCategoryFilters() → double render
+    // APRÈS :
+    //   1. Reset les checkboxes AVANT le render
+    //   2. clearAllFilters() (qui re-render les chips et la grille)
+    //   3. La ligne sous-catégorie disparaît car activeCat='all'
+    // ============================================================
     'products:filter-reset': async () => {
-        const { clearAllFilters, renderCategoryFilters } = await import("./products.js");
-        clearAllFilters();
-        renderCategoryFilters();
+        // 1. Reset checkboxes (avant render)
         const checkStock = document.getElementById('filterInStock');
         const checkPromos = document.getElementById('filterPromos');
         if (checkStock) checkStock.checked = false;
         if (checkPromos) checkPromos.checked = false;
+
+        // 2. Reset search input
+        const searchInput = document.getElementById('productSearch');
+        if (searchInput) searchInput.value = '';
+
+        // 3. Reset sort
+        const sortSelect = document.getElementById('sortSelect');
+        if (sortSelect) sortSelect.value = 'default';
+
+        // 4. clearAllFilters() → resetFilters() + renderProducts() + renderCategoryFilters()
+        //    → la ligne sous-catégorie disparaît automatiquement (activeCat='all')
+        const { clearAllFilters } = await import("./products.js");
+        clearAllFilters();
+
+        showToast('🔄 ' + (t('filterReset') || 'Filtres réinitialisés'));
     },
 
     'account:open': async () => {
@@ -142,7 +159,7 @@ const eventHandlers = {
     },
 
     // ============================================================
-    // ✅ I14.4 + I14.6 : LANG CHANGE (spinner + titre produit sync)
+    // LANG CHANGE (spinner + titre produit sync)
     // ============================================================
     'lang:change': async (e) => {
         const lang = e.target.value;
@@ -178,11 +195,7 @@ const eventHandlers = {
             || path.endsWith('/panier')
             || document.getElementById('cartPageContent') !== null;
 
-        // ============================================
-        // HOME : spinner + re-render async
-        // ============================================
         if (isHome) {
-            // ✅ I14.4 : feedback immédiat
             const grid = document.getElementById('productsGrid');
             if (grid) {
                 grid.innerHTML = `
@@ -203,18 +216,11 @@ const eventHandlers = {
             ]).catch(err => console.warn('⚠️ Re-render home failed:', err));
         }
 
-        // ============================================
-        // BLOG
-        // ============================================
         if (isBlog) {
             import("./blog.js").then(m => m.renderBlogList?.()).catch(err => console.warn('⚠️ Re-render blog failed:', err));
         }
 
-        // ============================================
-        // PRODUCT : titre sync + full re-render async
-        // ============================================
         if (isProduct) {
-            // ✅ I14.6 : titre mis à jour SYNCHRONE (fast)
             try {
                 const { getProducts } = await import("./store.js");
                 const { getProductName } = await import("./utils.js");
@@ -230,22 +236,15 @@ const eventHandlers = {
                 console.warn('⚠️ Sync title update failed:', err);
             }
 
-            // Full re-render async (galerie, variantes, avis, related)
             import("./product-detail.js")
                 .then(m => m.renderProductDetail?.())
                 .catch(err => console.warn('⚠️ Re-render product failed:', err));
         }
 
-        // ============================================
-        // VILLES : géré en interne par villesmaroc.html
-        // ============================================
         if (isVilles) {
             console.log('ℹ️ Page villes : refresh géré en interne');
         }
 
-        // ============================================
-        // CART : géré par panier.js via event 'lang-changed'
-        // ============================================
         if (isCartPage) {
             console.log('ℹ️ Page panier : refresh géré par panier.js (event lang-changed)');
         }
@@ -253,7 +252,7 @@ const eventHandlers = {
 };
 
 // ============================================================
-// ✅ FERMER LE MENU MOBILE (helper)
+// FERMER LE MENU MOBILE
 // ============================================================
 function closeMobileMenu() {
     const burger = document.getElementById('burgerBtn');
@@ -267,12 +266,8 @@ function closeMobileMenu() {
 
 // ============================================================
 // APPLIQUER LES TRADUCTIONS
-// ------------------------------------------------------------
-// ⚠️ Note : le titre produit est géré dans 'lang:change' (I14.6)
-// car il dépend du produit courant (slug dynamique).
 // ============================================================
 export function applyTranslations() {
-    // 1. data-key → texte / placeholder / innerHTML
     document.querySelectorAll('[data-key]').forEach(el => {
         const key = el.getAttribute('data-key');
         if (!key) return;
@@ -282,14 +277,12 @@ export function applyTranslations() {
         if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
             if (el.placeholder !== undefined) el.placeholder = value;
         } else if (key.endsWith('Html') || key === 'heroTitleHtml') {
-            // ✅ M14.2 : clés se terminant par 'Html' → innerHTML
             el.innerHTML = value;
         } else {
             el.textContent = value;
         }
     });
 
-    // 2. data-aria-key → aria-label
     document.querySelectorAll('[data-aria-key]').forEach(el => {
         const key = el.getAttribute('data-aria-key');
         if (!key) return;
@@ -297,7 +290,6 @@ export function applyTranslations() {
         if (value && value !== key) el.setAttribute('aria-label', value);
     });
 
-    // 3. LOGO (navbar + footer)
     const logoVal = t('logoText');
     if (logoVal && logoVal !== 'logoText') {
         document.querySelectorAll('.logo-text').forEach(el => {
@@ -308,8 +300,6 @@ export function applyTranslations() {
         });
     }
 
-    // 4. <title> dynamique (pages avec titleKey statique)
-    // ⚠️ Le produit est EXCLU (géré par lang:change I14.6)
     const titleEl = document.querySelector('title');
     if (titleEl) {
         const path = window.location.pathname;
@@ -320,7 +310,6 @@ export function applyTranslations() {
         else if (path.endsWith('panier.html') || path === '/panier' || path.endsWith('/panier')) titleKey = 'cartPageTitle';
         else if (path.endsWith('404.html')) titleKey = 'pageNotFoundTitle';
         else if (path.endsWith('reset-password.html')) titleKey = 'resetPasswordTitle';
-        // ✅ I14.6 : /produit → PAS de titleKey, laissé à lang:change
 
         if (titleKey) {
             const tVal = t(titleKey);
@@ -328,21 +317,16 @@ export function applyTranslations() {
         }
     }
 
-    // 5. og:locale
     const localeMap = { fr: 'fr_FR', ar: 'ar_MA', en: 'en_US' };
     const ogLocale = document.querySelector('meta[property="og:locale"]');
     if (ogLocale) ogLocale.setAttribute('content', localeMap[getLang()] || 'fr_FR');
 
-    // 6. html lang + dir
     document.documentElement.lang = getLang();
     document.documentElement.dir = getLang() === 'ar' ? 'rtl' : 'ltr';
 }
 
 // ============================================================
-// ✅ I14.7 : DEBOUNCE SÉPARÉ (par action)
-// ------------------------------------------------------------
-// Avant : un seul timer partagé → taper dans products pouvait
-// annuler la recherche dans blog (et vice-versa)
+// DEBOUNCE SÉPARÉ (par action)
 // ============================================================
 const searchTimers = {
     'products:search': null,
@@ -350,10 +334,9 @@ const searchTimers = {
 };
 
 // ============================================================
-// ✅ I14.1 : ATTACHER LES ÉVÉNEMENTS (avec guard)
+// ATTACHER LES ÉVÉNEMENTS (avec guard)
 // ============================================================
 export function attachEvents() {
-    // ✅ I14.1 : guard anti-accumulation
     if (_eventsAttached) {
         console.log('ℹ️ events.js : événements déjà attachés — skip');
         return;
@@ -362,7 +345,6 @@ export function attachEvents() {
 
     // ============================================
     // FERMETURE DU MENU MOBILE AU CLIC EXTÉRIEUR
-    // (toggle géré par navbar.js en capture)
     // ============================================
     document.addEventListener('click', (e) => {
         const mobileMenu = document.getElementById('mobileMenu');
@@ -381,7 +363,6 @@ export function attachEvents() {
     document.addEventListener('click', (e) => {
         const actionEl = e.target.closest('[data-action]');
         if (actionEl) {
-            // Burger géré par navbar.js → ignorer
             if (actionEl.id === 'burgerBtn') return;
 
             const action = actionEl.dataset.action;
@@ -487,7 +468,7 @@ export function attachEvents() {
     });
 
     // ============================================
-    // ✅ I14.7 : INPUT (debounce séparé par action)
+    // INPUT (debounce séparé par action)
     // ============================================
     document.addEventListener('input', (e) => {
         const target = e.target.closest('[data-action]');
@@ -495,7 +476,6 @@ export function attachEvents() {
         const action = target.dataset.action;
 
         if (action in searchTimers) {
-            // ✅ I14.7 : timer indépendant par action
             if (searchTimers[action]) clearTimeout(searchTimers[action]);
             searchTimers[action] = setTimeout(() => {
                 if (eventHandlers[action]) eventHandlers[action](e);
@@ -531,10 +511,10 @@ export function attachEvents() {
         }
     });
 
-    console.log('✅ events.js : événements attachés (v2.0.0)');
+    console.log('✅ events.js : événements attachés (v2.1.0)');
 }
 
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ events.js chargé — v2.0.0 (handlers nettoyés + guards + spinner)');
+console.log('✅ events.js chargé — v2.1.0 (clic catégories + reset complet)');
