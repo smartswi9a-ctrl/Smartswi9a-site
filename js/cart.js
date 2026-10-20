@@ -1,7 +1,7 @@
 // js/cart.js
 // ============================================================
 // PANIER ET COMMANDES - SMART SWI9A
-// Version 1.7.0 — Ajout codes promo (coupons + coupon_uses)
+// Version 2.0.0 — Gestion des Variantes (Tailles / Couleurs)
 // ============================================================
 // Dépend de : config, utils, store, firebase, auth, ui-core
 // ============================================================
@@ -34,21 +34,40 @@ let firestoreSaveTimeout = null;
 let isSyncing = false;
 
 // ============================================================
+// HELPER : Générer un ID unique pour un article (produit + variante)
+// ============================================================
+function generateItemId(productId, variant) {
+    if (!variant) return String(productId);
+    const size = variant.size ? String(variant.size).trim() : '';
+    const color = variant.color ? String(variant.color).trim() : '';
+    return `${productId}_${size}_${color}`;
+}
+
+// ============================================================
 // CHARGER LE PANIER
 // ============================================================
 export function loadCart() {
     try {
         const data = safeGetItem(CONFIG.STORAGE_KEYS.CART);
         cart = Array.isArray(data) ? data : [];
+        
+        // Normalisation et compatibilité avec les anciens paniers
         cart = cart.filter(item =>
             item &&
             Number.isFinite(Number(item.productId)) &&
             Number.isFinite(Number(item.quantity)) &&
             Number(item.quantity) > 0
-        ).map(item => ({
-            productId: Number(item.productId),
-            quantity: Math.max(1, Math.floor(Number(item.quantity)))
-        }));
+        ).map(item => {
+            // Si l'item n'a pas d'ID unique (ancien panier), on le génère
+            const id = item.id || generateItemId(item.productId, item.variant);
+            return {
+                ...item,
+                id: id,
+                productId: Number(item.productId),
+                quantity: Math.max(1, Math.floor(Number(item.quantity))),
+                variant: item.variant || null
+            };
+        });
         setCart(cart);
     } catch (e) {
         console.warn('⚠️ Erreur chargement panier :', e);
@@ -138,14 +157,20 @@ function mergeCarts(localCart, firestoreCart) {
     const merged = [...localCart];
     firestoreCart.forEach(fi => {
         if (!fi || !fi.productId) return;
-        const pid = Number(fi.productId);
+        const itemId = fi.id || generateItemId(fi.productId, fi.variant);
         const qty = Number(fi.quantity) || 0;
         if (qty < 1) return;
-        const existing = merged.find(li => li.productId === pid);
-        if (existing) {
-            existing.quantity = Math.max(existing.quantity, qty);
+        
+        const existingIdx = merged.findIndex(li => li.id === itemId);
+        if (existingIdx > -1) {
+            merged[existingIdx].quantity = Math.max(merged[existingIdx].quantity, qty);
         } else {
-            merged.push({ productId: pid, quantity: qty });
+            merged.push({ 
+                id: itemId, 
+                productId: Number(fi.productId), 
+                variant: fi.variant || null,
+                quantity: qty 
+            });
         }
     });
     return merged;
@@ -257,9 +282,9 @@ export function updateCartBadge() {
 }
 
 // ============================================================
-// AJOUTER AU PANIER
+// AJOUTER AU PANIER (Gestion des variantes)
 // ============================================================
-export async function addToCart(productId) {
+export async function addToCart(productId, variant = null) {
     const user = getCurrentUser();
     if (!user) {
         showToast('🔒 ' + t('loginRequired'));
@@ -276,24 +301,45 @@ export async function addToCart(productId) {
         return;
     }
 
-    const stock = Number(product.stock) || 0;
-    const existing = cart.find(i => i.productId === pid);
+    // ✅ NOUVEAU : Redirection si le produit a des variantes mais qu'aucune n'est sélectionnée
+    const hasVariants = product.variants && product.variants.length > 0;
+    if (hasVariants && !variant) {
+        showToast('⚠️ Veuillez choisir votre taille et votre couleur');
+        window.location.href = `/produit?slug=${encodeURIComponent(product.slug || '')}`;
+        return;
+    }
+
+    // Déterminer le stock et le prix selon la variante ou le produit de base
+    const itemStock = variant ? Number(variant.stock) : (Number(product.stock) || 0);
+    const itemPrice = variant ? Number(variant.price) : (Number(product.price) || 0);
+    const itemId = generateItemId(pid, variant);
+
+    const existing = cart.find(i => i.id === itemId);
     const currentQty = existing ? existing.quantity : 0;
     const newQty = currentQty + 1;
 
-    if (stock === 0) {
+    if (itemStock === 0) {
         showToast('⚠️ ' + t('outOfStock'));
         return;
     }
-    if (newQty > stock) {
-        showToast('⚠️ ' + t('stockAvailable').replace('{n}', stock));
+    if (newQty > itemStock) {
+        showToast('⚠️ ' + t('stockAvailable').replace('{n}', itemStock));
         return;
     }
 
     if (existing) {
         existing.quantity = newQty;
     } else {
-        cart.push({ productId: pid, quantity: 1 });
+        cart.push({ 
+            id: itemId,
+            productId: pid, 
+            variant: variant ? {
+                size: variant.size || '',
+                color: variant.color || '',
+                price: itemPrice
+            } : null,
+            quantity: 1 
+        });
     }
 
     saveCart();
@@ -303,9 +349,8 @@ export async function addToCart(productId) {
 // ============================================================
 // RETIRER DU PANIER
 // ============================================================
-export function removeFromCart(productId) {
-    const pid = Number(productId);
-    cart = cart.filter(i => i.productId !== pid);
+export function removeFromCart(itemId) {
+    cart = cart.filter(i => i.id !== itemId);
     saveCart();
 }
 
@@ -328,19 +373,28 @@ export function clearCart() {
 // ============================================================
 // MODIFIER LA QUANTITÉ
 // ============================================================
-export function updateCartQuantity(productId, quantity) {
-    const pid = Number(productId);
-    const item = cart.find(i => i.productId === pid);
+export function updateCartQuantity(itemId, quantity) {
+    const item = cart.find(i => i.id === itemId);
     if (!item) return;
 
     const products = getProducts();
-    const product = products.find(p => Number(p.id) === pid);
-    const stock = product ? Number(product.stock) || Infinity : Infinity;
+    const product = products.find(p => Number(p.id) === item.productId);
+    
+    let maxStock = Infinity;
+    if (item.variant) {
+        const v = product?.variants?.find(v => 
+            (v.size || '') === (item.variant.size || '') && 
+            (v.color || '') === (item.variant.color || '')
+        );
+        maxStock = v ? Number(v.stock) : 0;
+    } else {
+        maxStock = product ? Number(product.stock) || Infinity : Infinity;
+    }
 
     let newQty = Math.max(1, parseInt(quantity) || 1);
-    if (Number.isFinite(stock) && newQty > stock) {
-        newQty = stock;
-        showToast('⚠️ ' + t('stockAvailable').replace('{n}', stock));
+    if (Number.isFinite(maxStock) && newQty > maxStock) {
+        newQty = maxStock;
+        showToast('⚠️ ' + t('stockAvailable').replace('{n}', maxStock));
     }
 
     item.quantity = newQty;
@@ -354,7 +408,9 @@ export function getCartSubtotal() {
     const products = getProducts();
     return cart.reduce((sum, item) => {
         const p = products.find(pp => Number(pp.id) === item.productId);
-        return sum + (p ? (Number(p.price) || 0) * item.quantity : 0);
+        if (!p) return sum;
+        const price = item.variant ? Number(item.variant.price) : (Number(p.price) || 0);
+        return sum + price * item.quantity;
     }, 0);
 }
 
@@ -367,6 +423,7 @@ export function getCartSavings() {
     return cart.reduce((sum, item) => {
         const p = products.find(pp => Number(pp.id) === item.productId);
         if (p && p.oldPrice && Number(p.oldPrice) > Number(p.price)) {
+            // Le prix barré est basé sur le prix de base du produit
             return sum + (Number(p.oldPrice) - Number(p.price)) * item.quantity;
         }
         return sum;
@@ -501,7 +558,6 @@ export async function checkout(cartItems, deliveryInfo, appliedCoupon = null) {
         }
     })();
 
-    // ✅ Nettoyer le coupon du sessionStorage après succès
     if (appliedCoupon) {
         try {
             sessionStorage.removeItem('swi9a_applied_coupon');
@@ -516,14 +572,13 @@ export async function checkout(cartItems, deliveryInfo, appliedCoupon = null) {
 }
 
 // ============================================================
-// ✅ CRÉATION DE COMMANDE (avec coupon)
+// ✅ CRÉATION DE COMMANDE (avec variantes et coupon)
 // ============================================================
 export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
     const user = getCurrentUser();
     if (!user) return { success: false, error: 'NO_USER' };
 
     // ✅ ÉTAPE 1 : Vérifier oneUsePerUser AVANT la transaction
-    // (les queries ne sont pas supportées dans une transaction Firestore)
     if (appliedCoupon && appliedCoupon.oneUsePerUser && appliedCoupon.id) {
         try {
             const usesQ = query(
@@ -563,7 +618,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
             }
 
             // ============================================
-            // 3. Calculer le sous-total + valider les stocks
+            // 3. Calculer le sous-total + valider les stocks (Variantes)
             // ============================================
             let subtotal = 0;
             let discountableItems = 0;
@@ -575,15 +630,36 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                 }
                 const data = snap.data();
                 const qty = Math.max(1, Math.floor(Number(items[i].quantity) || 1));
-                const stock = Number(data.stock) || 0;
-                if (stock < qty) {
+                
+                // Gestion du stock selon la variante
+                let availableStock = 0;
+                let unitPrice = Number(data.price) || 0;
+                const itemVariant = items[i].variant;
+
+                if (itemVariant) {
+                    const v = (data.variants || []).find(v => 
+                        (v.size || '') === (itemVariant.size || '') && 
+                        (v.color || '') === (itemVariant.color || '')
+                    );
+                    if (!v) {
+                        throw new Error(`La variante sélectionnée n'existe plus pour ${data.nameFr || 'ce produit'}`);
+                    }
+                    availableStock = Number(v.stock) || 0;
+                    unitPrice = Number(v.price) || unitPrice;
+                } else {
+                    availableStock = Number(data.stock) || 0;
+                }
+
+                if (availableStock < qty) {
                     throw new Error(`Stock insuffisant pour ${data.nameFr || data.nameEn || 'le produit'}`);
                 }
-                const unitPrice = Number(data.price) || 0;
+
                 subtotal += unitPrice * qty;
                 discountableItems += qty;
                 validatedItems.push({
+                    id: items[i].id,
                     productId: items[i].productId,
+                    variant: itemVariant || null,
                     quantity: qty,
                     price: unitPrice,
                     name: data.nameFr || data.nameEn || 'Produit'
@@ -599,7 +675,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
             const discount = Math.round(subtotal * discountRate);
 
             // ============================================
-            // 5. Vérifier et calculer le coupon (DANS la transaction)
+            // 5. Vérifier et calculer le coupon
             // ============================================
             const deliveryFee = cityData ? (Number(cityData.price) || 0) : 0;
             let couponData = null;
@@ -610,46 +686,26 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                 couponRef = doc(db, "coupons", appliedCoupon.id);
                 const couponSnap = await transaction.get(couponRef);
 
-                if (!couponSnap.exists()) {
-                    throw new Error('Code promo introuvable');
-                }
-
+                if (!couponSnap.exists()) throw new Error('Code promo introuvable');
                 const c = couponSnap.data();
+                if (c.isActive !== true) throw new Error('Code promo inactif');
 
-                if (c.isActive !== true) {
-                    throw new Error('Code promo inactif');
-                }
-
-                // Vérifier expiration
                 if (c.expiresAt) {
-                    const expDate = c.expiresAt.toDate
-                        ? c.expiresAt.toDate()
-                        : new Date(c.expiresAt);
-                    if (expDate.getTime() < Date.now()) {
-                        throw new Error('Code promo expiré');
-                    }
+                    const expDate = c.expiresAt.toDate ? c.expiresAt.toDate() : new Date(c.expiresAt);
+                    if (expDate.getTime() < Date.now()) throw new Error('Code promo expiré');
                 }
 
-                // Vérifier maxUses
                 const maxUses = Number(c.maxUses) || 0;
                 const usedCount = Number(c.usedCount) || 0;
-                if (maxUses > 0 && usedCount >= maxUses) {
-                    throw new Error('Code promo épuisé');
-                }
+                if (maxUses > 0 && usedCount >= maxUses) throw new Error('Code promo épuisé');
 
-                // Vérifier minPurchase
                 const minPurchase = Number(c.minPurchase) || 0;
                 if (minPurchase > 0 && subtotal < minPurchase) {
                     throw new Error(`Montant minimum ${minPurchase} MAD requis pour ce code`);
                 }
 
-                // Calculer la réduction
                 couponDiscount = calculateCouponDiscount(c, subtotal, deliveryFee);
-
-                if (couponDiscount <= 0) {
-                    throw new Error('Ce code ne produit aucune réduction');
-                }
-
+                if (couponDiscount <= 0) throw new Error('Ce code ne produit aucune réduction');
                 couponData = c;
             }
 
@@ -673,12 +729,11 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                 userId: user.uid,
                 userName: user.name || '',
                 userEmail: user.email || '',
-                items: validatedItems,
+                items: validatedItems, // Contient maintenant les variantes
                 status: ORDER_STATUS.PENDING,
                 paymentStatus: 'unpaid',
                 subtotal,
                 discount,
-                // ✅ Champs coupon
                 couponId: appliedCoupon?.id || null,
                 couponCode: appliedCoupon?.code || null,
                 couponDiscount: couponDiscount,
@@ -707,13 +762,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
             // 8. Incrémenter usedCount + enregistrer coupon_uses
             // ============================================
             if (couponData && couponRef) {
-                // ✅ Incrément ATOMIQUE de usedCount
-                // ATTENTION : on ne modifie QUE usedCount (les rules Firestore l'exigent)
-                transaction.update(couponRef, {
-                    usedCount: increment(1)
-                });
-
-                // ✅ Créer le document dans coupon_uses
+                transaction.update(couponRef, { usedCount: increment(1) });
                 const couponUseRef = doc(collection(db, "coupon_uses"));
                 transaction.set(couponUseRef, {
                     couponId: appliedCoupon.id,
@@ -723,8 +772,6 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                     discountApplied: couponDiscount,
                     usedAt: now
                 });
-
-                console.log(`✅ Coupon ${couponData.code} utilisé (-${couponDiscount} MAD)`);
             }
 
             // ============================================
@@ -768,12 +815,15 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
 }
 
 // ============================================================
-// ✅ MESSAGE WHATSAPP (avec coupon)
+// ✅ MESSAGE WHATSAPP (avec variantes)
 // ============================================================
 function buildWhatsAppMessage(validatedItems, deliveryInfo, orderId, totals) {
     const productList = validatedItems.map(item => {
         const lineTotal = (item.price || 0) * (item.quantity || 0);
-        return `  • ${item.name} (x${item.quantity}) — ${lineTotal} MAD`;
+        const variantText = item.variant 
+            ? ` (${[item.variant.size, item.variant.color].filter(Boolean).join(' - ')})`
+            : '';
+        return `  • ${item.name}${variantText} x${item.quantity} — ${lineTotal} MAD`;
     }).join('\n');
 
     let msg = `🛒 *${t('waNewOrder')}*\n\n`;
@@ -788,7 +838,6 @@ function buildWhatsAppMessage(validatedItems, deliveryInfo, orderId, totals) {
     if (totals.discount > 0) {
         msg += `🔻 ${t('waDiscount')} (-${CONFIG.SHOP.DISCOUNT_PERCENT}%) : -${totals.discount} MAD\n`;
     }
-    // ✅ Ligne coupon
     if (totals.couponCode && totals.couponDiscount > 0) {
         msg += `🎟️ Code ${totals.couponCode} : -${totals.couponDiscount} MAD\n`;
     }
@@ -905,11 +954,7 @@ function saveAbandonedCart(items) {
 }
 
 // ============================================================
-// PANIER ABANDONNÉ — LECTURE (v1.6.0 FIX)
-// ------------------------------------------------------------
-// AVANT : on supprimait le panier abandonné s'il était trop vieux
-// APRÈS  : on le retourne SI le délai est dépassé (pour afficher
-//          la notification), sinon on retourne null.
+// PANIER ABANDONNÉ — LECTURE
 // ============================================================
 export function checkAbandonedCart() {
     try {
@@ -921,12 +966,9 @@ export function checkAbandonedCart() {
         const elapsed = Date.now() - (data.timestamp || 0);
         const delay = CONFIG.SESSION.ABANDONED_CART_DELAY;
 
-        // Si le délai est dépassé → retourner les données
         if (elapsed >= delay) {
             return data;
         }
-
-        // Sinon (trop récent) → ne pas afficher
         return null;
     } catch (e) {
         return null;
@@ -936,4 +978,4 @@ export function checkAbandonedCart() {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ cart.js chargé — v1.7.0 (codes promo intégrés)');
+console.log('✅ cart.js chargé — v2.0.0 (Gestion des variantes)');
