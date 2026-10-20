@@ -1,14 +1,30 @@
 // js/products.js
 // ============================================================
 // GESTION DES PRODUITS - SMART SWI9A
-// Version 2.0.0 — Badge "Options" pour les produits avec variantes
+// Version 3.0.0 — Fixes critiques (filtres parents, races, cache)
 // ============================================================
-// Dépend de : config, utils, store, firebase, auth, ui-core
+// CHANGEMENTS v3.0.0 :
+// ✅ C8.1 — Filtre parent via productMatchesCategory (config.js)
+// ✅ C8.2 — renderProducts guard _renderRequestId (fin race)
+// ✅ I8.1 — btn-choose-options séparé (au lieu de btn-add-to-cart)
+// ✅ I8.2 — toggleFavorite arrayUnion/arrayRemove (fin race)
+// ✅ I8.3 — Filtre inStock : variant-aware
+// ✅ I8.4 — Loading spinner immédiat
+// ✅ I8.5 — getProductStatsBatch : cache + TTL + invalidation
+// ✅ M8.1 — getNewProducts(onlyInStock = true)
+// ✅ M8.2 — getPromoProducts(onlyInStock = true)
+// ✅ M8.3 — Warning clair si > 30 IDs (limite Firestore 'in')
+// ✅ M8.x — Guards + favorites normalisés + favoris visibles
 // ============================================================
 
-import { collection, getDocs, query, where } from "firebase/firestore";
+import {
+    collection, getDocs, query, where, doc, updateDoc, arrayUnion, arrayRemove
+} from "firebase/firestore";
 import { db } from "./firebase.js";
-import { CONFIG, CATEGORIES, SORT_OPTIONS } from "./config.js";
+import {
+    CONFIG, CATEGORIES, SORT_OPTIONS,
+    productMatchesCategory
+} from "./config.js";
 import {
     t, escapeHTML, getProductName, getProductDesc, getProductImageUrl,
     getFallbackImage, getLang, fetchWithRetry, firestoreWithRetry,
@@ -20,9 +36,33 @@ import {
     getPagination, setPagination
 } from "./store.js";
 import {
-    getCurrentUser, getUserProfile, saveUserProfile, setCurrentUser
+    getCurrentUser, saveUserProfile, setCurrentUser
 } from "./auth.js";
 import { showToast } from "./ui-core.js";
+
+// ============================================================
+// CACHE STATS AVIS (I8.5)
+// ------------------------------------------------------------
+// TTL 60s + invalidation sur 'review-submitted'
+// Cap à 100 entrées (évite fuite mémoire)
+// ============================================================
+const _statsCache = new Map();
+const STATS_CACHE_TTL = 60 * 1000;
+const STATS_CACHE_MAX = 100;
+
+// ✅ C8.2 : Guard race condition renderProducts
+let _renderRequestId = 0;
+
+// ✅ I8.5 : Invalidation sur review-submitted
+if (typeof document !== 'undefined') {
+    document.addEventListener('review-submitted', (e) => {
+        const pid = String(e.detail?.productId || '');
+        if (pid) {
+            _statsCache.delete(Number(pid));
+            _statsCache.delete(pid);
+        }
+    });
+}
 
 // ============================================================
 // CHARGEMENT DES PRODUITS
@@ -79,24 +119,30 @@ export async function loadAllProducts() {
 
 // ============================================================
 // FILTRAGE ET TRI
+// ✅ C8.1 — productMatchesCategory (parents + legacy)
+// ✅ I8.3 — inStock variant-aware
 // ============================================================
 export function getFilteredProducts() {
     const products = getProducts();
     const filters = getFilters();
     const user = getCurrentUser();
-    // ✅ Normalisation des favoris en Number
     const favs = Array.isArray(user?.favorites)
-        ? user.favorites.map(Number)
+        ? user.favorites.map(Number).filter(Number.isFinite)
         : [];
 
     let list = [...products];
 
+    // Favoris
     if (filters.category === 'favorites') {
         list = list.filter(p => favs.includes(Number(p.id)));
-    } else if (filters.category && filters.category !== 'all') {
-        list = list.filter(p => p.category === filters.category);
+    }
+    // Catégorie (parent OU enfant, gère legacy)
+    else if (filters.category && filters.category !== 'all') {
+        // ✅ C8.1 : productMatchesCategory gère parents + legacy
+        list = list.filter(p => productMatchesCategory(p, filters.category));
     }
 
+    // Recherche
     if (filters.search && filters.search.trim()) {
         const q = filters.search.toLowerCase().trim();
         list = list.filter(p => {
@@ -106,17 +152,26 @@ export function getFilteredProducts() {
         });
     }
 
+    // ✅ I8.3 : En stock (variant-aware)
     if (filters.inStock) {
-        list = list.filter(p => (p.stock || 0) > 0);
+        list = list.filter(p => {
+            if (Array.isArray(p.variants) && p.variants.length > 0) {
+                return p.variants.some(v => (Number(v.stock) || 0) > 0);
+            }
+            return (Number(p.stock) || 0) > 0;
+        });
     }
 
+    // En promo
     if (filters.promos) {
-        list = list.filter(p => p.oldPrice && p.oldPrice > p.price);
+        list = list.filter(p => p.oldPrice && Number(p.oldPrice) > Number(p.price));
     }
 
+    // Prix
     if (filters.priceMin > 0) list = list.filter(p => p.price >= filters.priceMin);
     if (filters.priceMax < 99999) list = list.filter(p => p.price <= filters.priceMax);
 
+    // Tri
     switch (filters.sort) {
         case 'price-asc':
             list.sort((a, b) => a.price - b.price);
@@ -150,13 +205,15 @@ export function getFilteredProducts() {
 export function getPaginatedProducts() {
     const filtered = getFilteredProducts();
     const pagination = getPagination();
-    const start = (pagination.currentPage - 1) * pagination.perPage;
-    return filtered.slice(start, start + pagination.perPage);
+    const perPage = pagination.perPage || CONFIG.PRODUCTS.PER_PAGE;
+    const start = (pagination.currentPage - 1) * perPage;
+    return filtered.slice(start, start + perPage);
 }
 
 export function getTotalPages() {
     const total = getFilteredProducts().length;
-    return Math.max(1, Math.ceil(total / getPagination().perPage));
+    const perPage = getPagination().perPage || CONFIG.PRODUCTS.PER_PAGE;
+    return Math.max(1, Math.ceil(total / perPage));
 }
 
 export function goToPage(page) {
@@ -212,7 +269,7 @@ export function clearAllFilters() {
 }
 
 // ============================================================
-// RECHERCHE PAR SLUG / ID
+// RECHERCHE
 // ============================================================
 export function getProductBySlug(slug) {
     if (!slug) return null;
@@ -225,12 +282,20 @@ export function getProductById(id) {
 }
 
 // ============================================================
-// NOUVEAUTÉS ET PROMOS
+// ✅ M8.1 — NOUVEAUTÉS (onlyInStock par défaut)
 // ============================================================
-export function getNewProducts(limit = 10) {
-    // ✅ FIX v1.6.1 : Filtre uniquement les produits avec la case "Nouveau" cochée
-    const products = getProducts().filter(p => p.isNew === true);
-    
+export function getNewProducts(limit = 10, onlyInStock = true) {
+    let products = getProducts().filter(p => p.isNew === true);
+
+    if (onlyInStock) {
+        products = products.filter(p => {
+            if (Array.isArray(p.variants) && p.variants.length > 0) {
+                return p.variants.some(v => (Number(v.stock) || 0) > 0);
+            }
+            return (Number(p.stock) || 0) > 0;
+        });
+    }
+
     products.sort((a, b) => {
         const da = toDate(a.createdAt)?.getTime() || 0;
         const dbb = toDate(b.createdAt)?.getTime() || 0;
@@ -239,57 +304,104 @@ export function getNewProducts(limit = 10) {
     return products.slice(0, limit);
 }
 
-export function getPromoProducts() {
-    return getProducts()
-        .filter(p => p.oldPrice && p.oldPrice > p.price)
-        .sort((a, b) => {
-            const da = a.oldPrice > 0 ? (a.oldPrice - a.price) / a.oldPrice : 0;
-            const dbb = b.oldPrice > 0 ? (b.oldPrice - b.price) / b.oldPrice : 0;
-            return dbb - da;
+// ============================================================
+// ✅ M8.2 — PROMOS (onlyInStock par défaut)
+// ============================================================
+export function getPromoProducts(onlyInStock = true) {
+    let products = getProducts().filter(p =>
+        p.oldPrice && Number(p.oldPrice) > Number(p.price)
+    );
+
+    if (onlyInStock) {
+        products = products.filter(p => {
+            if (Array.isArray(p.variants) && p.variants.length > 0) {
+                return p.variants.some(v => (Number(v.stock) || 0) > 0);
+            }
+            return (Number(p.stock) || 0) > 0;
         });
+    }
+
+    return products.sort((a, b) => {
+        const da = a.oldPrice > 0 ? (a.oldPrice - a.price) / a.oldPrice : 0;
+        const dbb = b.oldPrice > 0 ? (b.oldPrice - b.price) / b.oldPrice : 0;
+        return dbb - da;
+    });
 }
 
 // ============================================================
-// STATS DES AVIS (batch pour cartes produit)
+// ✅ I8.5 — STATS DES AVIS (avec cache)
 // ============================================================
 export async function getProductStatsBatch(productIds) {
-    if (!productIds || productIds.length === 0) return {};
+    if (!Array.isArray(productIds) || productIds.length === 0) return {};
 
+    // ✅ M8.3 : warning explicite si > 30
     if (productIds.length > 30) {
-        console.warn(`⚠️ getProductStatsBatch : ${productIds.length} IDs fournis (max 30). Troncature.`);
+        console.warn(`⚠️ getProductStatsBatch: ${productIds.length} IDs fournis (max 30 Firestore 'in') — troncature`);
     }
 
+    const ids = productIds.slice(0, 30).map(Number).filter(Number.isFinite);
+    if (ids.length === 0) return {};
+
+    const now = Date.now();
+    const toFetch = [];
+    const result = {};
+
+    // 1. Servir depuis le cache
+    ids.forEach(pid => {
+        const cached = _statsCache.get(pid);
+        if (cached && (now - cached.timestamp) < STATS_CACHE_TTL) {
+            result[pid] = cached.stats;
+        } else {
+            toFetch.push(pid);
+        }
+    });
+
+    if (toFetch.length === 0) return result;
+
+    // 2. Fetch le reste
     try {
-        const ids = productIds.slice(0, 30).map(Number);
         const q = query(
             collection(db, "reviews"),
-            where("productId", "in", ids),
+            where("productId", "in", toFetch),
             where("status", "==", "approved")
         );
         const snap = await getDocs(q);
+
         const ratings = {};
+        toFetch.forEach(pid => { ratings[pid] = { sum: 0, count: 0 }; });
+
         snap.forEach(doc => {
             const r = doc.data();
-            if (!ratings[r.productId]) ratings[r.productId] = { sum: 0, count: 0 };
-            ratings[r.productId].sum += r.rating || 0;
-            ratings[r.productId].count++;
+            const pid = Number(r.productId);
+            if (!ratings[pid]) return;
+            ratings[pid].sum += Number(r.rating) || 0;
+            ratings[pid].count++;
         });
-        const result = {};
-        for (const pid in ratings) {
-            result[pid] = {
-                avg: (ratings[pid].sum / ratings[pid].count).toFixed(1),
-                count: ratings[pid].count
-            };
-        }
+
+        toFetch.forEach(pid => {
+            const stat = ratings[pid];
+            const stats = stat.count > 0
+                ? { avg: (stat.sum / stat.count).toFixed(1), count: stat.count }
+                : { avg: null, count: 0 };
+            result[pid] = stats;
+
+            // Cap taille cache
+            if (_statsCache.size >= STATS_CACHE_MAX) {
+                const firstKey = _statsCache.keys().next().value;
+                if (firstKey !== undefined) _statsCache.delete(firstKey);
+            }
+            _statsCache.set(pid, { stats, timestamp: now });
+        });
+
         return result;
     } catch (e) {
-        console.warn('⚠️ Erreur stats avis :', e);
-        return {};
+        console.warn('⚠️ Erreur getProductStatsBatch :', e);
+        return result;
     }
 }
 
 // ============================================================
-// ✅ HELPER : Message vide contextuel
+// HELPER : Message vide contextuel
 // ============================================================
 function getEmptyProductsMessage() {
     const filters = getFilters();
@@ -316,46 +428,58 @@ function getEmptyProductsMessage() {
 }
 
 // ============================================================
-// RENDU DE LA GRILLE PRODUITS
+// ✅ C8.2 + I8.1 + I8.4 — RENDU DE LA GRILLE
 // ============================================================
 export async function renderProducts() {
     const grid = document.getElementById('productsGrid');
     if (!grid) return;
 
-    const pagination = document.getElementById('paginationContainer');
+    // ✅ C8.2 : guard anti-race
+    const thisRequest = ++_renderRequestId;
+
+    // ✅ I8.4 : loading immédiat
+    grid.innerHTML = `
+        <div style="grid-column:1/-1;text-align:center;padding:3rem 1rem;">
+            <div class="spinner" style="margin:0 auto;"></div>
+        </div>
+    `;
+
+    const paginationEl = document.getElementById('paginationContainer');
+    if (paginationEl) paginationEl.innerHTML = '';
+
     const user = getCurrentUser();
-    // ✅ Normalisation des favoris en Number
     const favs = Array.isArray(user?.favorites)
-        ? user.favorites.map(Number)
+        ? user.favorites.map(Number).filter(Number.isFinite)
         : [];
+
     const pageProducts = getPaginatedProducts();
     const totalPages = getTotalPages();
     const currentPage = getPagination().currentPage;
 
-    const productIds = pageProducts.map(p => Number(p.id));
+    // Fetch stats (await)
+    const productIds = pageProducts.map(p => Number(p.id)).filter(Number.isFinite);
     const stats = await getProductStatsBatch(productIds);
 
+    // ✅ C8.2 : abandon si une autre requête a démarré entre-temps
+    if (thisRequest !== _renderRequestId) return;
+
+    // Empty state
     if (pageProducts.length === 0) {
         const emptyMessage = getEmptyProductsMessage();
         grid.innerHTML = `
-            <div style="
-                text-align:center;
-                padding:3rem 1rem;
-                color:var(--text-muted);
-                grid-column:1/-1;
-                font-size:0.95rem;
-            ">
+            <div style="text-align:center;padding:3rem 1rem;color:var(--text-muted);grid-column:1/-1;font-size:0.95rem;">
                 <div style="font-size:3rem;margin-bottom:1rem;line-height:1;">🔍</div>
                 <p style="margin:0;">${emptyMessage}</p>
             </div>
         `;
-        if (pagination) pagination.innerHTML = '';
         return;
     }
 
     let html = '';
     pageProducts.forEach(p => {
         const pid = Number(p.id);
+        if (!Number.isFinite(pid)) return;
+
         const isFav = favs.includes(pid);
         const name = escapeHTML(getProductName(p));
         const desc = escapeHTML(getProductDesc(p));
@@ -363,14 +487,13 @@ export async function renderProducts() {
         const price = p.price;
         const oldPrice = p.oldPrice;
         const stock = Number(p.stock) || 0;
-        const isPromo = oldPrice && oldPrice > price;
+        const isPromo = oldPrice && Number(oldPrice) > Number(price);
         const isNew = p.isNew || false;
         const discountPercent = getDiscountPercent(oldPrice, price);
 
-        // ✅ NOUVEAU : Détection des variantes
-        const hasVariants = p.variants && p.variants.length > 0;
-        const optionsBadge = hasVariants 
-            ? `<span class="badge" style="background:var(--info);color:#fff;font-size:0.6rem;padding:0.15rem 0.4rem;border-radius:30px;position:absolute;top:0.5rem;right:0.5rem;z-index:2;">⚙️ Options</span>` 
+        const hasVariants = Array.isArray(p.variants) && p.variants.length > 0;
+        const optionsBadge = hasVariants
+            ? `<span class="badge" style="background:var(--info);color:#fff;font-size:0.6rem;padding:0.15rem 0.4rem;border-radius:30px;position:absolute;top:0.5rem;right:0.5rem;z-index:2;">⚙️ Options</span>`
             : '';
 
         const r = stats[pid] || { avg: null, count: 0 };
@@ -379,20 +502,26 @@ export async function renderProducts() {
         const reviewCount = r.count || 0;
 
         const favAriaLabel = isFav ? t('favRemoved') : t('favAdded');
-        
-        // ✅ NOUVEAU : Texte du bouton adapté
-        const btnText = hasVariants ? 'Choisir les options' : t('addToCart');
-        const btnIcon = hasVariants ? '⚙️' : '🛒';
+
+        // ✅ I8.1 : bouton différent pour les variantes
+        const btnHtml = hasVariants
+            ? `<button class="btn-choose-options" data-slug="${escapeHTML(p.slug || '')}" style="background:var(--gold);color:#fff;border:none;padding:0.3rem 0.7rem;border-radius:30px;font-size:0.7rem;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:0.3rem;">⚙️ ${t('chooseOptions') || 'Choisir les options'}</button>`
+            : `<button class="btn-add-to-cart" data-id="${pid}">🛒 ${t('addToCart')}</button>`;
+
+        // Stock status : si variants, vérifier s'il y en a au moins une en stock
+        const isOutOfStock = hasVariants
+            ? !p.variants.some(v => (Number(v.stock) || 0) > 0)
+            : stock === 0;
 
         html += `
             <div class="product-card" data-id="${pid}" data-slug="${escapeHTML(p.slug || '')}">
                 <div class="product-img">
-                    <img src="${img}" alt="${name}" loading="lazy" onerror="this.src='${getFallbackImage(name)}'">
+                    <img src="${img}" alt="${name}" loading="lazy" onerror="this.onerror=null; this.src='${getFallbackImage(name)}'">
                     <button class="favorite-btn ${isFav ? 'is-fav' : ''}" data-id="${pid}" aria-label="${favAriaLabel}">${isFav ? '❤️' : '🤍'}</button>
                     ${optionsBadge}
-                    ${stock === 0 ? `<span class="badge badge-hot">${t('outOfStock')}</span>` : ''}
+                    ${isOutOfStock ? `<span class="badge badge-hot">${t('outOfStock')}</span>` : ''}
                     ${isPromo ? `<span class="badge badge-promo">-${discountPercent}%</span>` : ''}
-                    ${isNew && stock > 0 && !isPromo ? `<span class="badge badge-new">${t('trending')}</span>` : ''}
+                    ${isNew && !isOutOfStock && !isPromo ? `<span class="badge badge-new">${t('trending')}</span>` : ''}
                 </div>
                 <div class="product-body">
                     <div class="p-name">${name}</div>
@@ -400,16 +529,33 @@ export async function renderProducts() {
                     <div class="p-stats">⭐ ${avgRating} <span style="color:var(--text-muted)">(${reviewCount})</span></div>
                     <div class="p-footer">
                         <div class="p-price">${price} ${t('currency')} ${oldPrice ? `<small>${oldPrice} ${t('currency')}</small>` : ''}</div>
-                        <button class="btn-add-to-cart" data-id="${pid}">${btnIcon} ${btnText}</button>
+                        ${btnHtml}
                     </div>
                 </div>
             </div>
         `;
     });
+
     grid.innerHTML = html;
 
-    if (!pagination) return;
-    if (totalPages <= 1) { pagination.innerHTML = ''; return; }
+    // ✅ I8.1 : handler dédié pour "Choisir les options"
+    grid.querySelectorAll('.btn-choose-options').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const slug = btn.dataset.slug;
+            if (slug) {
+                window.location.href = `/produit?slug=${encodeURIComponent(slug)}`;
+            }
+        });
+    });
+
+    // ✅ I8.1 : les boutons "Ajouter au panier" sont gérés par events.js
+    // (délégation via .btn-add-to-cart) — pas besoin de listener ici
+
+    // Pagination
+    if (!paginationEl) return;
+    if (totalPages <= 1) { paginationEl.innerHTML = ''; return; }
 
     let pgHtml = `<span class="pagination-info">${currentPage}/${totalPages}</span>`;
     pgHtml += `<button class="pagination-btn ${currentPage === 1 ? 'disabled' : ''}" data-page="${currentPage - 1}">‹</button>`;
@@ -417,11 +563,11 @@ export async function renderProducts() {
         pgHtml += `<button class="pagination-btn ${i === currentPage ? 'active' : ''}" data-page="${i}">${i}</button>`;
     }
     pgHtml += `<button class="pagination-btn ${currentPage === totalPages ? 'disabled' : ''}" data-page="${currentPage + 1}">›</button>`;
-    pagination.innerHTML = pgHtml;
+    paginationEl.innerHTML = pgHtml;
 }
 
 // ============================================================
-// RENDU DES FILTRES CATÉGORIES
+// ✅ M8.x — FILTRES CATÉGORIES (favoris maintenant visibles)
 // ============================================================
 export function renderCategoryFilters() {
     const container = document.getElementById('filtersCategories');
@@ -432,15 +578,19 @@ export function renderCategoryFilters() {
 
     let html = '';
     categories.forEach(cat => {
+        // Afficher : 'all', 'favorites', et catégories parentes uniquement
+        const isVisible = cat.id === 'all'
+            || cat.id === 'favorites'
+            || cat.isParent;
+
+        if (!isVisible) return;
+
         const isActive = filters.category === cat.id;
-        // On n'affiche que les catégories principales et "Tout"
-        if (cat.isParent || cat.id === 'all') {
-            html += `
-                <button class="filter-btn ${isActive ? 'active' : ''}" data-action="products:filter" data-category="${cat.id}" type="button">
-                    ${cat.emoji || ''} ${t(cat.label)}
-                </button>
-            `;
-        }
+        html += `
+            <button class="filter-btn ${isActive ? 'active' : ''}" data-action="products:filter" data-category="${cat.id}" type="button">
+                ${cat.emoji || ''} ${t(cat.label)}
+            </button>
+        `;
     });
     container.innerHTML = html;
 }
@@ -451,7 +601,7 @@ export function renderCategoryFilters() {
 export function renderSortOptions() {
     const select = document.getElementById('sortSelect');
     if (!select) return;
-    if (!SORT_OPTIONS || SORT_OPTIONS.length === 0) return;
+    if (!Array.isArray(SORT_OPTIONS) || SORT_OPTIONS.length === 0) return;
 
     const currentValue = select.value || 'default';
     let html = '';
@@ -466,7 +616,7 @@ export function renderSortOptions() {
 }
 
 // ============================================================
-// TOGGLE FAVORI
+// ✅ I8.2 — TOGGLE FAVORI (arrayUnion/arrayRemove — atomique)
 // ============================================================
 export async function toggleFavorite(productId) {
     const user = getCurrentUser();
@@ -486,33 +636,31 @@ export async function toggleFavorite(productId) {
     const currentFavs = Array.isArray(user.favorites)
         ? user.favorites.map(Number).filter(Number.isFinite)
         : [];
-    const favs = [...currentFavs];
-    const existingIdx = favs.indexOf(pid);
+    const isAdding = !currentFavs.includes(pid);
 
-    let isAdding = false;
-    if (existingIdx !== -1) {
-        favs.splice(existingIdx, 1);
-    } else {
-        favs.push(pid);
-        isAdding = true;
-    }
+    try {
+        // ✅ I8.2 : opération atomique (pas de replace du tableau)
+        await updateDoc(doc(db, "users", user.uid), {
+            favorites: isAdding ? arrayUnion(pid) : arrayRemove(pid)
+        });
 
-    const ok = await saveUserProfile(user.uid, { favorites: favs });
+        // Sync local
+        const newFavs = isAdding
+            ? [...new Set([...currentFavs, pid])]
+            : currentFavs.filter(id => id !== pid);
 
-    if (!ok) {
+        setCurrentUser({ ...user, favorites: newFavs });
+
+        showToast(isAdding ? '❤️ ' + t('favAdded') : '💔 ' + t('favRemoved'));
+
+        // Re-render (si sur home)
+        if (document.getElementById('productsGrid')) {
+            await renderProducts();
+        }
+    } catch (e) {
+        console.error('❌ toggleFavorite :', e);
         showToast('❌ ' + t('error'));
-        return;
     }
-
-    setCurrentUser({ ...user, favorites: favs });
-
-    if (isAdding) {
-        showToast('❤️ ' + t('favAdded'));
-    } else {
-        showToast('💔 ' + t('favRemoved'));
-    }
-
-    renderProducts();
 }
 
 // ============================================================
@@ -526,4 +674,4 @@ export function openProductPage(slug) {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ products.js chargé — v2.0.0 (Badge variantes)');
+console.log('✅ products.js chargé — v3.0.0 (filtres parents, races, cache)');
