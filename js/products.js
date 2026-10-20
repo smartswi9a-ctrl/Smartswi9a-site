@@ -1,7 +1,7 @@
 // js/products.js
 // ============================================================
 // GESTION DES PRODUITS - SMART SWI9A
-// Version 1.6.1 — FIX : favoris persistants + bannière Nouveautés (isNew)
+// Version 2.0.0 — Badge "Options" pour les produits avec variantes
 // ============================================================
 // Dépend de : config, utils, store, firebase, auth, ui-core
 // ============================================================
@@ -367,21 +367,32 @@ export async function renderProducts() {
         const isNew = p.isNew || false;
         const discountPercent = getDiscountPercent(oldPrice, price);
 
+        // ✅ NOUVEAU : Détection des variantes
+        const hasVariants = p.variants && p.variants.length > 0;
+        const optionsBadge = hasVariants 
+            ? `<span class="badge" style="background:var(--info);color:#fff;font-size:0.6rem;padding:0.15rem 0.4rem;border-radius:30px;position:absolute;top:0.5rem;right:0.5rem;z-index:2;">⚙️ Options</span>` 
+            : '';
+
         const r = stats[pid] || { avg: null, count: 0 };
         const hasReviews = r.count > 0;
         const avgRating = hasReviews ? r.avg : '--';
         const reviewCount = r.count || 0;
 
         const favAriaLabel = isFav ? t('favRemoved') : t('favAdded');
+        
+        // ✅ NOUVEAU : Texte du bouton adapté
+        const btnText = hasVariants ? 'Choisir les options' : t('addToCart');
+        const btnIcon = hasVariants ? '⚙️' : '🛒';
 
         html += `
             <div class="product-card" data-id="${pid}" data-slug="${escapeHTML(p.slug || '')}">
                 <div class="product-img">
                     <img src="${img}" alt="${name}" loading="lazy" onerror="this.src='${getFallbackImage(name)}'">
                     <button class="favorite-btn ${isFav ? 'is-fav' : ''}" data-id="${pid}" aria-label="${favAriaLabel}">${isFav ? '❤️' : '🤍'}</button>
+                    ${optionsBadge}
                     ${stock === 0 ? `<span class="badge badge-hot">${t('outOfStock')}</span>` : ''}
                     ${isPromo ? `<span class="badge badge-promo">-${discountPercent}%</span>` : ''}
-                    ${isNew && stock > 0 ? `<span class="badge badge-new">${t('trending')}</span>` : ''}
+                    ${isNew && stock > 0 && !isPromo ? `<span class="badge badge-new">${t('trending')}</span>` : ''}
                 </div>
                 <div class="product-body">
                     <div class="p-name">${name}</div>
@@ -389,7 +400,7 @@ export async function renderProducts() {
                     <div class="p-stats">⭐ ${avgRating} <span style="color:var(--text-muted)">(${reviewCount})</span></div>
                     <div class="p-footer">
                         <div class="p-price">${price} ${t('currency')} ${oldPrice ? `<small>${oldPrice} ${t('currency')}</small>` : ''}</div>
-                        <button class="btn-add-to-cart" data-id="${pid}">🛒 ${t('addToCart')}</button>
+                        <button class="btn-add-to-cart" data-id="${pid}">${btnIcon} ${btnText}</button>
                     </div>
                 </div>
             </div>
@@ -422,21 +433,20 @@ export function renderCategoryFilters() {
     let html = '';
     categories.forEach(cat => {
         const isActive = filters.category === cat.id;
-        html += `
-            <button
-                class="filter-btn ${isActive ? 'active' : ''}"
-                data-action="products:filter"
-                data-category="${cat.id}"
-                type="button">
-                ${cat.emoji || ''} ${t(cat.label)}
-            </button>
-        `;
+        // On n'affiche que les catégories principales et "Tout"
+        if (cat.isParent || cat.id === 'all') {
+            html += `
+                <button class="filter-btn ${isActive ? 'active' : ''}" data-action="products:filter" data-category="${cat.id}" type="button">
+                    ${cat.emoji || ''} ${t(cat.label)}
+                </button>
+            `;
+        }
     });
     container.innerHTML = html;
 }
 
 // ============================================================
-// RENDU DU SELECT DE TRI (dynamique)
+// RENDU DU SELECT DE TRI
 // ============================================================
 export function renderSortOptions() {
     const select = document.getElementById('sortSelect');
@@ -456,33 +466,29 @@ export function renderSortOptions() {
 }
 
 // ============================================================
-// ✅ TOGGLE FAVORI — v1.6.1 FIX PERSISTANCE
+// TOGGLE FAVORI
 // ============================================================
 export async function toggleFavorite(productId) {
     const user = getCurrentUser();
 
-    // 1. Vérifier connexion
     if (!user || !user.uid) {
         showToast('🔒 ' + t('loginRequired'));
         document.dispatchEvent(new CustomEvent('open-account'));
         return;
     }
 
-    // 2. Normaliser l'ID
     const pid = Number(productId);
     if (!Number.isFinite(pid)) {
         console.warn('⚠️ toggleFavorite : ID invalide', productId);
         return;
     }
 
-    // 3. Récupérer les favoris locaux (source de vérité)
     const currentFavs = Array.isArray(user.favorites)
         ? user.favorites.map(Number).filter(Number.isFinite)
         : [];
     const favs = [...currentFavs];
     const existingIdx = favs.indexOf(pid);
 
-    // 4. Ajouter ou retirer
     let isAdding = false;
     if (existingIdx !== -1) {
         favs.splice(existingIdx, 1);
@@ -491,28 +497,21 @@ export async function toggleFavorite(productId) {
         isAdding = true;
     }
 
-    console.log(`🔄 [toggleFavorite] ${isAdding ? 'Ajout' : 'Retrait'} produit #${pid}`, favs);
-
-    // 5. Sauvegarder dans Firestore
     const ok = await saveUserProfile(user.uid, { favorites: favs });
 
     if (!ok) {
-        console.error('❌ [toggleFavorite] Échec de la sauvegarde Firestore');
         showToast('❌ ' + t('error'));
         return;
     }
 
-    // 6. ✅ Mettre à jour l'état global (store + localStorage)
     setCurrentUser({ ...user, favorites: favs });
 
-    // 7. Toast de confirmation
     if (isAdding) {
         showToast('❤️ ' + t('favAdded'));
     } else {
         showToast('💔 ' + t('favRemoved'));
     }
 
-    // 8. Re-render les produits
     renderProducts();
 }
 
@@ -521,11 +520,10 @@ export async function toggleFavorite(productId) {
 // ============================================================
 export function openProductPage(slug) {
     if (!slug) return;
-    // ✅ On garde votre URL propre (sans .html) qui fonctionne avec Cloudflare
     window.location.href = `/produit?slug=${encodeURIComponent(slug)}`;
 }
 
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ products.js chargé — v1.6.1 (favoris + bannière Nouveautés fixés)');
+console.log('✅ products.js chargé — v2.0.0 (Badge variantes)');
