@@ -1,13 +1,19 @@
 // js/auth.js
 // ============================================================
 // AUTHENTIFICATION - SMART SWI9A
-// Version 2.1.0 — Email de vérification OBLIGATOIRE
+// Version 3.0.0 — Fix C10.1 (ne plus signOut après signup)
 // ============================================================
-// Dépend de : config, utils, store, firebase, ui-core
-// Gère : Firebase Auth natif (lien email) + Google + Facebook
-//        + signupMethod + session + idle timer
+// CHANGEMENTS v3.0.0 :
+// ✅ C10.1 — registerWithFirebase : garde connecté (needsVerification)
+// ✅ C10.1 — initAuthListener : garde non-vérifiés (pas de signOut forcé)
+// ✅ Login : signOut conservé si non vérifié (sécurité)
+// ✅ checkEmailVerification() : sync le store
+// ✅ resendVerificationEmail() : marche maintenant (user connecté)
+// ✅ Reset idle timer au logout
 // ============================================================
-// ⚠️ RÈGLE : Impossible de se connecter sans email vérifié
+// ⚠️ RÈGLE : Email vérifié requis AVANT login (via password).
+//    Exception : après signup, user reste connecté avec needsVerification=true.
+//    ui.js affiche la vue verify et permet de renvoyer l'email.
 // ============================================================
 
 import {
@@ -34,7 +40,7 @@ import { setUser, getUser } from "./store.js";
 import { showToast } from "./ui-core.js";
 
 // ============================================================
-// ÉTAT GLOBAL (session + inscription en cours)
+// ÉTAT GLOBAL
 // ============================================================
 let pendingRegistration = null;
 let pendingPassword = null;
@@ -68,7 +74,10 @@ export function setCurrentUser(user) {
     setUser(user);
     if (user) {
         safeSetItem(CONFIG.STORAGE_KEYS.USER, user);
-        startIdleTimer();
+        // ✅ Ne démarrer le timer que si l'utilisateur est vérifié
+        if (user.emailVerified !== false && !user.needsVerification) {
+            startIdleTimer();
+        }
     } else {
         safeRemoveItem(CONFIG.STORAGE_KEYS.USER);
         stopIdleTimer();
@@ -153,10 +162,13 @@ function getAuthErrorMessage(error, context = 'generic') {
 }
 
 // ============================================================
-// INSCRIPTION FIREBASE (Email + Password + lien vérification)
-// ============================================================
-// ✅ RÈGLE : Après inscription → DÉCONNEXION IMMÉDIATE
-// Le client doit vérifier son email AVANT de pouvoir se connecter
+// ✅ C10.1 : INSCRIPTION FIREBASE
+// ------------------------------------------------------------
+// CHANGEMENT MAJEUR : on NE FAIT PLUS signOut après inscription.
+// L'utilisateur reste connecté mais marqué needsVerification=true.
+// → ui.js affiche la vue verify et permet de renvoyer l'email.
+// → L'idle timer n'est PAS démarré tant que non vérifié.
+// → Les features critiques (dashboard) affichent la vue verify.
 // ============================================================
 export async function registerWithFirebase(name, email, phone, dob, password) {
     console.log('📝 Inscription Firebase pour :', email);
@@ -205,7 +217,7 @@ export async function registerWithFirebase(name, email, phone, dob, password) {
         // 3. Sauvegarder dans Firestore
         await saveUserProfile(uid, profile);
 
-        // 4. Envoyer l'email de vérification Firebase
+        // 4. Envoyer l'email de vérification
         try {
             await sendEmailVerification(user, {
                 url: `${CONFIG.SHOP.URL}/`,
@@ -216,22 +228,22 @@ export async function registerWithFirebase(name, email, phone, dob, password) {
             console.warn('⚠️ Erreur envoi email vérif :', e);
         }
 
-        // 5. Déconnexion IMMÉDIATE après inscription
-        try {
-            await signOut(auth);
-            setUser(null);
-            safeRemoveItem(CONFIG.STORAGE_KEYS.USER);
-            console.log('🚪 Déconnecté immédiatement après inscription');
-        } catch (e) {
-            console.warn('⚠️ Erreur signOut après inscription :', e);
-        }
+        // 5. ✅ C10.1 : GARDER CONNECTÉ avec needsVerification
+        setCurrentUser({
+            uid,
+            email: cleanEmail(email),
+            emailVerified: false,
+            needsVerification: true,
+            ...profile
+        });
+        console.log('✅ Inscription Firebase réussie — email de vérification envoyé (user connecté)');
 
-        console.log('✅ Inscription Firebase réussie — email de vérification envoyé');
         return {
             success: true,
             uid,
             email: cleanEmail(email),
-            emailSent: true
+            emailSent: true,
+            needsVerification: true
         };
 
     } catch (error) {
@@ -243,11 +255,18 @@ export async function registerWithFirebase(name, email, phone, dob, password) {
 
 // ============================================================
 // RENVOYER L'EMAIL DE VÉRIFICATION (utilisateur connecté)
+// ------------------------------------------------------------
+// ✅ C10.1 : fonctionne maintenant car le user reste connecté
 // ============================================================
 export async function resendVerificationEmail() {
     const user = auth.currentUser;
     if (!user) {
-        showToast('⚠️ Aucun utilisateur connecté');
+        showToast('⚠️ Aucun utilisateur connecté — connectez-vous pour renvoyer l\'email');
+        return false;
+    }
+
+    if (user.emailVerified) {
+        showToast('ℹ️ Votre email est déjà vérifié');
         return false;
     }
 
@@ -271,6 +290,9 @@ export async function resendVerificationEmail() {
 
 // ============================================================
 // RENVOYER LE LIEN POUR UN EMAIL NON CONNECTÉ
+// ------------------------------------------------------------
+// Utilisé par loginUser quand l'email n'est pas vérifié :
+// on signIn temporairement pour envoyer, puis signOut.
 // ============================================================
 export async function resendVerificationForEmail(email, password) {
     try {
@@ -302,6 +324,8 @@ export async function resendVerificationForEmail(email, password) {
 
 // ============================================================
 // VÉRIFIER SI L'EMAIL EST CONFIRMÉ
+// ------------------------------------------------------------
+// Recharge le user Firebase + met à jour le store si vérifié.
 // ============================================================
 export async function checkEmailVerification() {
     const user = auth.currentUser;
@@ -316,8 +340,11 @@ export async function checkEmailVerification() {
             const currentUser = getCurrentUser();
             if (currentUser) {
                 currentUser.emailVerified = true;
+                currentUser.needsVerification = false;
                 setCurrentUser(currentUser);
             }
+            // Vérifié → démarrer le timer idle
+            startIdleTimer();
         }
         return verified;
     } catch (error) {
@@ -363,7 +390,7 @@ export async function loginWithGoogle() {
             console.log('✅ Nouveau compte Google :', uid);
         }
 
-        setCurrentUser({ uid, email: user.email, ...profile });
+        setCurrentUser({ uid, email: user.email, ...profile, emailVerified: true, needsVerification: false });
         showToast(isNewUser ? '🎉 Bienvenue !' : '👋 ' + t('loginSuccess'));
         return { uid, email: user.email, ...profile };
 
@@ -414,7 +441,7 @@ export async function loginWithFacebook() {
             console.log('✅ Nouveau compte Facebook :', uid);
         }
 
-        setCurrentUser({ uid, email: user.email, ...profile });
+        setCurrentUser({ uid, email: user.email, ...profile, emailVerified: true, needsVerification: false });
         showToast(isNewUser ? '🎉 Bienvenue !' : '👋 ' + t('loginSuccess'));
         return { uid, email: user.email, ...profile };
 
@@ -429,6 +456,10 @@ export async function loginWithFacebook() {
 
 // ============================================================
 // CONNEXION (avec vérification email OBLIGATOIRE)
+// ------------------------------------------------------------
+// Comportement conservé : si email non vérifié → signOut + return
+// email_not_verified (l'utilisateur doit cliquer sur le lien reçu
+// par email). C'est le SEUL cas où on signOut un utilisateur valide.
 // ============================================================
 export async function loginUser(email, password) {
     try {
@@ -440,6 +471,7 @@ export async function loginUser(email, password) {
         if (!firebaseUser.emailVerified) {
             console.log('⛔ Email non vérifié — connexion bloquée');
 
+            // Renvoyer l'email automatiquement
             try {
                 await sendEmailVerification(firebaseUser, {
                     url: `${CONFIG.SHOP.URL}/`,
@@ -481,6 +513,7 @@ export async function loginUser(email, password) {
             uid,
             email,
             emailVerified: true,
+            needsVerification: false,
             ...profile
         });
 
@@ -537,41 +570,54 @@ export async function updateUserPassword(newPassword) {
 }
 
 // ============================================================
-// LISTENER D'AUTHENTIFICATION
+// ✅ C10.1 : LISTENER D'AUTHENTIFICATION
+// ------------------------------------------------------------
+// CHANGEMENT : on NE SIGNOUT PLUS les non-vérifiés.
+// → L'utilisateur reste connecté avec needsVerification=true.
+// → ui.js affiche la vue verify et permet de renvoyer l'email.
+// → L'idle timer ne démarre PAS tant que non vérifié.
 // ============================================================
 export function initAuthListener() {
     onAuthStateChanged(auth, async (user) => {
         if (user) {
-            // ⚠️ Ne pas laisser entrer les utilisateurs non vérifiés
-            if (!user.emailVerified && user.providerData?.[0]?.providerId === 'password') {
-                console.log('⛔ Utilisateur non vérifié détecté dans le listener — déconnexion');
-                try {
-                    await signOut(auth);
-                } catch (e) { /* ignore */ }
-                setUser(null);
-                safeRemoveItem(CONFIG.STORAGE_KEYS.USER);
-                authReady = true;
-                if (authReadyResolve) {
-                    authReadyResolve();
-                    authReadyResolve = null;
-                }
-                return;
-            }
+            const isPasswordProvider = user.providerData?.[0]?.providerId === 'password';
+            const needsVerification = isPasswordProvider && !user.emailVerified;
 
-            const cached = getUser();
-            if (cached && cached.uid === user.uid && cached.email === user.email && cached.role) {
-                console.log('✅ Profil en cache');
-            } else {
+            if (needsVerification) {
+                console.log('📧 User password non vérifié — connecté avec needsVerification');
+
+                // Charger le profil pour les données affichage
                 const profile = await getUserProfile(user.uid);
-                if (profile) {
-                    setCurrentUser({
-                        uid: user.uid,
-                        email: user.email,
-                        emailVerified: user.emailVerified,
-                        ...profile
-                    });
+                setCurrentUser({
+                    uid: user.uid,
+                    email: user.email,
+                    emailVerified: false,
+                    needsVerification: true,
+                    ...(profile || {})
+                });
+            } else {
+                // Profil normal (vérifié ou social)
+                const cached = getUser();
+                if (cached && cached.uid === user.uid && cached.email === user.email && cached.role) {
+                    console.log('✅ Profil en cache');
                 } else {
-                    setCurrentUser({ uid: user.uid, email: user.email });
+                    const profile = await getUserProfile(user.uid);
+                    if (profile) {
+                        setCurrentUser({
+                            uid: user.uid,
+                            email: user.email,
+                            emailVerified: user.emailVerified,
+                            needsVerification: false,
+                            ...profile
+                        });
+                    } else {
+                        setCurrentUser({
+                            uid: user.uid,
+                            email: user.email,
+                            emailVerified: user.emailVerified,
+                            needsVerification: false
+                        });
+                    }
                 }
             }
         } else {
@@ -599,7 +645,7 @@ function startIdleTimer() {
 
     const resetActivity = () => { lastActivity = Date.now(); };
     const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
-    events.forEach(evt => document.addEventListener(evt, resetActivity));
+    events.forEach(evt => document.addEventListener(evt, resetActivity, { passive: true }));
     idleListeners = events.map(evt => [evt, resetActivity]);
 
     idleTimer = setInterval(async () => {
@@ -642,4 +688,4 @@ export function restoreSession() {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ auth.js chargé — Vérification email OBLIGATOIRE');
+console.log('✅ auth.js chargé — v3.0.0 (C10.1 fix : needsVerification)');
