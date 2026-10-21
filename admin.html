@@ -248,14 +248,9 @@
         }
 
         .coupon-card {
-            display: flex;
-            flex-direction: column;
-            gap: 0.6rem;
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-md);
-            padding: 1rem;
-            margin-bottom: 0.8rem;
+            display: flex; flex-direction: column; gap: 0.6rem;
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--radius-md); padding: 1rem; margin-bottom: 0.8rem;
             transition: border-color var(--transition-fast), opacity var(--transition-fast);
             box-shadow: var(--shadow-sm);
         }
@@ -263,234 +258,103 @@
         .coupon-card.is-inactive { opacity: 0.65; background: rgba(0,0,0,0.02); }
         .coupon-card.is-expired { border-color: var(--danger); }
 
-        .coupon-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            flex-wrap: wrap;
-            gap: 0.5rem;
-        }
+        .coupon-header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.5rem; }
         .coupon-code-badge {
-            font-family: 'Courier New', monospace;
-            font-weight: 800;
-            font-size: 1.1rem;
-            letter-spacing: 2px;
-            padding: 0.35rem 0.9rem;
+            font-family: 'Courier New', monospace; font-weight: 800; font-size: 1.1rem;
+            letter-spacing: 2px; padding: 0.35rem 0.9rem;
             background: linear-gradient(135deg, var(--gold), #7d5a1d);
-            color: #ffffff;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(165,123,46,0.3);
+            color: #ffffff; border-radius: 8px; box-shadow: 0 2px 8px rgba(165,123,46,0.3);
             display: inline-block;
         }
 
         .coupon-type-badge {
-            font-size: 0.75rem;
-            font-weight: 700;
-            padding: 0.2rem 0.6rem;
-            border-radius: 30px;
-            border: 1px solid currentColor;
-            display: inline-block;
+            font-size: 0.75rem; font-weight: 700; padding: 0.2rem 0.6rem;
+            border-radius: 30px; border: 1px solid currentColor; display: inline-block;
         }
         .coupon-type-percentage { color: #3498db; background: rgba(52,152,219,0.1); }
         .coupon-type-fixed { color: var(--gold); background: rgba(165,123,46,0.1); }
         .coupon-type-free_shipping { color: #2ecc71; background: rgba(46,204,113,0.1); }
 
         .coupon-status-badge {
-            font-size: 0.7rem;
-            font-weight: 700;
-            padding: 0.2rem 0.6rem;
-            border-radius: 30px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
+            font-size: 0.7rem; font-weight: 700; padding: 0.2rem 0.6rem;
+            border-radius: 30px; text-transform: uppercase; letter-spacing: 0.5px;
             display: inline-block;
         }
         .coupon-status-active { background: var(--success-bg); color: var(--success); }
         .coupon-status-inactive { background: var(--text-dim); color: #ffffff; }
         .coupon-status-expired { background: var(--danger-bg); color: var(--danger); }
 
-        .coupon-meta {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.4rem 1.2rem;
-            font-size: 0.8rem;
-            color: var(--text-muted);
-        }
+        .coupon-meta { display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; font-size: 0.8rem; color: var(--text-muted); }
         .coupon-meta strong { color: var(--text); }
 
-        .coupon-progress {
-            height: 6px;
-            background: rgba(0,0,0,0.08);
-            border-radius: 30px;
-            overflow: hidden;
-            margin-top: 0.2rem;
-        }
+        .coupon-progress { height: 6px; background: rgba(0,0,0,0.08); border-radius: 30px; overflow: hidden; margin-top: 0.2rem; }
         .coupon-progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, var(--gold), #7d5a1d);
-            border-radius: 30px;
-            transition: width 0.4s ease;
+            height: 100%; background: linear-gradient(90deg, var(--gold), #7d5a1d);
+            border-radius: 30px; transition: width 0.4s ease;
         }
-        .coupon-progress-fill.full {
-            background: linear-gradient(90deg, var(--danger), #7d241a);
-        }
+        .coupon-progress-fill.full { background: linear-gradient(90deg, var(--danger), #7d241a); }
 
-        .coupon-actions {
-            display: flex;
-            gap: 0.4rem;
-            flex-wrap: wrap;
-            margin-top: 0.3rem;
-            padding-top: 0.5rem;
-            border-top: 1px solid var(--border);
-        }
-
-        .coupon-desc {
-            font-size: 0.78rem;
-            color: var(--text-dim);
-            font-style: italic;
-            margin-top: -0.2rem;
-        }
+        .coupon-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.3rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+        .coupon-desc { font-size: 0.78rem; color: var(--text-dim); font-style: italic; margin-top: -0.2rem; }
 
         #variantsContainer {
-            display: none;
-            background: var(--bg-surface);
-            padding: 1rem;
-            border-radius: var(--radius-sm);
-            border: 1px solid var(--border);
-            max-height: 300px;
-            overflow-y: auto;
-            margin-bottom: 1rem;
+            display: none; background: var(--bg-surface); padding: 1rem;
+            border-radius: var(--radius-sm); border: 1px solid var(--border);
+            max-height: 300px; overflow-y: auto; margin-bottom: 1rem;
         }
 
         .admin-alert-banner {
-            position: fixed;
-            bottom: 0; left: 0; right: 0;
-            background: var(--bg-card);
-            border-top: 2px solid var(--gold);
+            position: fixed; bottom: 0; left: 0; right: 0;
+            background: var(--bg-card); border-top: 2px solid var(--gold);
             box-shadow: 0 -4px 20px rgba(0,0,0,0.08);
-            z-index: 9999;
-            padding: 0.55rem 1rem;
+            z-index: 9999; padding: 0.55rem 1rem;
             animation: slideUpBanner 0.3s ease-out;
         }
         @keyframes slideUpBanner { from { transform: translateY(100%); } to { transform: translateY(0); } }
 
-        .admin-alert-content {
-            max-width: 1300px;
-            margin: 0 auto;
-            display: flex;
-            align-items: center;
-            gap: 0.8rem;
-            flex-wrap: wrap;
-        }
-
-        .admin-alert-title {
-            font-weight: 700;
-            color: var(--text);
-            font-size: 0.8rem;
-            display: flex;
-            align-items: center;
-            white-space: nowrap;
-            margin-right: 0.5rem;
-        }
-
-        .admin-alert-items {
-            display: flex;
-            gap: 0.4rem;
-            flex-wrap: wrap;
-            flex: 1;
-        }
+        .admin-alert-content { max-width: 1300px; margin: 0 auto; display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap; }
+        .admin-alert-title { font-weight: 700; color: var(--text); font-size: 0.8rem; display: flex; align-items: center; white-space: nowrap; margin-right: 0.5rem; }
+        .admin-alert-items { display: flex; gap: 0.4rem; flex-wrap: wrap; flex: 1; }
 
         .alert-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.3rem;
-            padding: 0.35rem 0.7rem;
-            border-radius: 30px;
-            font-size: 0.75rem;
-            font-weight: 700;
-            cursor: pointer;
-            border: 1px solid transparent;
-            transition: all 0.15s;
-            position: relative;
+            display: inline-flex; align-items: center; gap: 0.3rem;
+            padding: 0.35rem 0.7rem; border-radius: 30px;
+            font-size: 0.75rem; font-weight: 700; cursor: pointer;
+            border: 1px solid transparent; transition: all 0.15s; position: relative;
         }
-        .alert-badge:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-        }
+        .alert-badge:hover { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
         .alert-badge:hover .alert-tooltip { opacity: 1; visibility: visible; transform: translate(-50%, -100%) translateY(-5px); }
 
-        .alert-danger {
-            background: rgba(176, 58, 46, 0.1);
-            color: var(--danger);
-            border-color: rgba(176, 58, 46, 0.3);
-        }
-        .alert-warning {
-            background: rgba(230, 126, 34, 0.1);
-            color: var(--warning);
-            border-color: rgba(230, 126, 34, 0.3);
-        }
-        .alert-info {
-            background: rgba(52, 152, 219, 0.1);
-            color: #3498db;
-            border-color: rgba(52, 152, 219, 0.3);
-        }
+        .alert-danger { background: rgba(176, 58, 46, 0.1); color: var(--danger); border-color: rgba(176, 58, 46, 0.3); }
+        .alert-warning { background: rgba(230, 126, 34, 0.1); color: var(--warning); border-color: rgba(230, 126, 34, 0.3); }
+        .alert-info { background: rgba(52, 152, 219, 0.1); color: #3498db; border-color: rgba(52, 152, 219, 0.3); }
 
         .alert-tooltip {
-            position: absolute;
-            bottom: 100%;
-            left: 50%;
+            position: absolute; bottom: 100%; left: 50%;
             transform: translate(-50%, -100%) translateY(-10px);
-            background: #1a1a2e;
-            color: #fff;
-            padding: 0.5rem 0.8rem;
-            border-radius: 8px;
-            font-size: 0.72rem;
-            font-weight: 500;
-            white-space: nowrap;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-            opacity: 0;
-            visibility: hidden;
-            transition: all 0.2s;
-            pointer-events: none;
-            z-index: 10001;
-            max-width: 300px;
-            white-space: normal;
-            line-height: 1.4;
-            text-align: center;
+            background: #1a1a2e; color: #fff; padding: 0.5rem 0.8rem;
+            border-radius: 8px; font-size: 0.72rem; font-weight: 500;
+            white-space: nowrap; box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            opacity: 0; visibility: hidden; transition: all 0.2s;
+            pointer-events: none; z-index: 10001; max-width: 300px;
+            white-space: normal; line-height: 1.4; text-align: center;
         }
         .alert-tooltip::after {
-            content: '';
-            position: absolute;
-            top: 100%;
-            left: 50%;
-            transform: translateX(-50%);
-            border: 6px solid transparent;
-            border-top-color: #1a1a2e;
+            content: ''; position: absolute; top: 100%; left: 50%;
+            transform: translateX(-50%); border: 6px solid transparent; border-top-color: #1a1a2e;
         }
 
         .admin-alert-close {
-            background: transparent;
-            border: none;
-            font-size: 1.1rem;
-            color: var(--text-muted);
-            cursor: pointer;
-            padding: 0.3rem 0.6rem;
-            border-radius: 50%;
-            transition: all 0.15s;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-shrink: 0;
+            background: transparent; border: none; font-size: 1.1rem;
+            color: var(--text-muted); cursor: pointer; padding: 0.3rem 0.6rem;
+            border-radius: 50%; transition: all 0.15s; display: flex;
+            align-items: center; justify-content: center; flex-shrink: 0;
         }
         .admin-alert-close:hover { background: var(--danger-bg); color: var(--danger); }
 
         @media (max-width: 700px) {
             .admin-alert-title { display: none; }
-            .admin-alert-items {
-                overflow-x: auto;
-                flex-wrap: nowrap;
-                padding-bottom: 0.2rem;
-                scrollbar-width: thin;
-            }
+            .admin-alert-items { overflow-x: auto; flex-wrap: nowrap; padding-bottom: 0.2rem; scrollbar-width: thin; }
             .admin-alert-items::-webkit-scrollbar { height: 4px; }
             .admin-alert-items::-webkit-scrollbar-thumb { background: var(--border-gold); border-radius: 4px; }
             .alert-badge { white-space: nowrap; flex-shrink: 0; }
@@ -508,7 +372,7 @@
         <input type="email" id="adminEmail" placeholder="📧 Email" autocomplete="email">
         <input type="password" id="adminPassword" placeholder="🔒 Mot de passe" autocomplete="current-password">
         <button id="adminLoginBtn">🔓 Se connecter</button>
-        <p id="adminLoginMsg" style="color:var(--danger);font-size:0.85rem;margin-top:1rem;"></p>
+        <p id="adminLoginMsg" style="color:var(--danger);font-size:0.85rem;margin-top:1rem;min-height:1.2rem;"></p>
         <p style="font-size:0.75rem;color:var(--text-dim);margin-top:1.5rem;">
             <a href="/" style="color:var(--gold);">← Retour au site</a>
         </p>
@@ -528,6 +392,7 @@
             <button class="active" data-tab="dashboard">📊 Tableau de bord</button>
             <button data-tab="products">📦 Produits</button>
             <button data-tab="orders">📋 Commandes</button>
+            <button data-tab="speedaf">🚀 Speedaf</button>
             <button data-tab="users">👥 Clients</button>
             <button data-tab="reviews">⭐ Avis</button>
             <button data-tab="blog">📝 Blog</button>
@@ -593,7 +458,7 @@
                 </div>
 
                 <!-- DIMENSIONS & POIDS -->
-                <h4>📏 Dimensions & Poids</h4>
+                <h4>📏 Dimensions & Poids (Requis pour Speedaf)</h4>
                 <div class="admin-form-row cols-4">
                     <div><label>Poids (g)</label><input type="number" id="pWeight" placeholder="500" min="0"></div>
                     <div><label>Longueur (cm)</label><input type="number" id="pLength" placeholder="20" min="0" step="0.1"></div>
@@ -683,6 +548,44 @@
                 <button class="admin-btn-secondary" id="exportOrdersCSVBtn" style="display:inline-flex;align-items:center;gap:0.4rem;">📥 Exporter CSV (Speedaf)</button>
             </div>
             <div id="adminOrdersList"><div class="admin-loading">⏳ Chargement des commandes...</div></div>
+        </div>
+
+        <!-- 🚀 NOUVEAU : SPEEDAF -->
+        <div class="admin-content" id="tab-speedaf">
+            <div class="admin-header" style="margin-bottom:1rem; padding:1rem;">
+                <h2 style="font-family:var(--font-secondary);color:var(--gold);margin:0;">🚀 Gestion des livraisons Speedaf</h2>
+                <button class="admin-btn-primary" id="syncAllSpeedafBtn" style="margin:0; padding:0.6rem 1.2rem;">🔄 Synchroniser tous les statuts</button>
+            </div>
+            
+            <div class="admin-stats" style="margin-bottom:1.5rem;">
+                <div class="admin-stat-card">
+                    <span class="stat-value" id="speedafStatPending">—</span>
+                    <span class="stat-label">⏳ À expédier</span>
+                </div>
+                <div class="admin-stat-card">
+                    <span class="stat-value" id="speedafStatShipping">—</span>
+                    <span class="stat-label">🚚 En cours de livraison</span>
+                </div>
+                <div class="admin-stat-card">
+                    <span class="stat-value" id="speedafStatDelivered">—</span>
+                    <span class="stat-label">📦 Livrés</span>
+                </div>
+            </div>
+
+            <div class="admin-search-bar">
+                <input type="text" id="speedafSearchAdmin" placeholder="🔍 Rechercher (N° commande, N° suivi, client)...">
+                <select id="speedafStatusFilter">
+                    <option value="all">Tous les statuts</option>
+                    <option value="pending">⏳ À expédier</option>
+                    <option value="shipping">🚚 En cours de livraison</option>
+                    <option value="delivered">📦 Livrés</option>
+                    <option value="returned">↩️ Retournés</option>
+                </select>
+            </div>
+
+            <div id="adminSpeedafList">
+                <div class="admin-loading">⏳ Chargement des commandes Speedaf...</div>
+            </div>
         </div>
 
         <!-- CLIENTS -->
@@ -1149,7 +1052,7 @@
                 <div class="admin-tool-log" id="migrationLog"></div>
             </div>
 
-            <!-- ✅ NOUVEAU : Migration catégories legacy -->
+            <!-- ✅ Migration catégories legacy -->
             <div class="admin-tool-card">
                 <h4>🔧 Migration des catégories legacy</h4>
                 <p>
