@@ -1,23 +1,7 @@
 // js/notifications.js
 // ============================================================
 // NOTIFICATIONS CLIENT - SMART SWI9A
-// Version 2.0.0 — Fixes critiques (badge, logout, index)
-// ============================================================
-// CHANGEMENTS v2.0.0 :
-// ✅ C12.1 — unreadCount exclut review_request
-// ✅ C12.2 — Cache vidé au logout (auth-updated listener)
-// ✅ I12.1 — deleteReviewRequestForOrder centralisée
-// ✅ I12.2 — loadNotifications : orderBy + limit + fallback
-// ✅ I12.3 — attachGlobalUIEvents guard
-// ✅ I12.4 — Bouton "Tout marquer" re-render complet
-// ✅ I12.5 — escapeHTML(notif.id) (défense profondeur)
-// ✅ I12.6 — markAsRead toast sur permission-denied
-// ✅ M12.1-2 — NOTIFICATION_TYPES.REVIEW_REQUEST centralisé
-// ✅ M12.3 — Guard loadNotifications (race)
-// ✅ M12.4 — Validation type notification
-// ✅ M12.5 — Cloche cachée si non connecté
-// ============================================================
-// Dépend de : config, utils, firebase, auth, ui-core
+// Version 2.0.0 — Fix Double Comptage, Fuite Cache, Optimisation
 // ============================================================
 
 import {
@@ -36,40 +20,31 @@ import { showToast, trapFocus, releaseFocusTrap } from "./ui-core.js";
 let notificationsCache = [];
 let unreadCount = 0;
 
-// ✅ I12.3 : guard global listeners
-let _globalUIListenersAttached = false;
-
-// ✅ M12.3 : guard race loadNotifications
-let _loadInProgress = false;
-
-// ✅ M12.1 : constante depuis config (plus de string magique)
-const REVIEW_REQUEST_TYPE = NOTIFICATION_TYPES.REVIEW_REQUEST;
-const ORDER_RETURNED_TYPE = NOTIFICATION_TYPES.ORDER_RETURNED;
-
-// ✅ M12.4 : types valides
-const VALID_TYPES = new Set([
-    NOTIFICATION_TYPES.ORDER_CREATED,
-    NOTIFICATION_TYPES.ORDER_CONFIRMED,
-    NOTIFICATION_TYPES.ORDER_SHIPPING,
-    NOTIFICATION_TYPES.ORDER_DELIVERED,
-    NOTIFICATION_TYPES.ORDER_RETURNED,
-    NOTIFICATION_TYPES.ORDER_CANCELLED,
-    NOTIFICATION_TYPES.REVIEW_APPROVED,
-    NOTIFICATION_TYPES.REVIEW_REQUEST,
-    // Legacy (anciens documents)
-    'order_validated',
-    'order_received'
-]);
+const REVIEW_REQUEST_TYPE = 'review_request';
 
 // ============================================================
-// CHARGER LES NOTIFICATIONS
-// ✅ I12.2 : orderBy + limit + fallback
-// ✅ M12.3 : guard race
+// ✅ NEW : Vider le cache au logout
+// ============================================================
+if (typeof document !== 'undefined') {
+    document.addEventListener('auth-updated', async (e) => {
+        const user = e.detail?.user;
+        if (!user) {
+            notificationsCache = [];
+            unreadCount = 0;
+            updateNotificationBadge();
+        } else {
+            // Recharger pour le nouvel utilisateur
+            await loadNotifications();
+            updateNotificationBadge();
+        }
+    });
+}
+
+// ============================================================
+// CHARGER LES NOTIFICATIONS (Optimisé)
 // ============================================================
 export async function loadNotifications() {
     const user = getCurrentUser();
-
-    // Pas connecté → vider + retour
     if (!user) {
         notificationsCache = [];
         unreadCount = 0;
@@ -77,87 +52,42 @@ export async function loadNotifications() {
         return [];
     }
 
-    // ✅ M12.3 : guard race
-    if (_loadInProgress) {
-        console.log('ℹ️ loadNotifications déjà en cours — skip');
-        return notificationsCache;
-    }
-    _loadInProgress = true;
-
     try {
-        let snapshot;
-
-        // ✅ I12.2 : tentative avec orderBy + limit
-        try {
-            const q = query(
-                collection(db, "notifications"),
-                where("userId", "==", user.uid),
-                orderBy("createdAt", "desc"),
-                limit(50)
-            );
-            snapshot = await getDocs(q);
-        } catch (e) {
-            // Fallback si index composite manquant (userId ASC + createdAt DESC)
-            if (e?.code === 'failed-precondition' || /index/i.test(e?.message || '')) {
-                console.warn('⚠️ Index manquant pour notifications, fallback sans orderBy');
-                const qFallback = query(
-                    collection(db, "notifications"),
-                    where("userId", "==", user.uid),
-                    limit(50)
-                );
-                snapshot = await getDocs(qFallback);
-            } else {
-                throw e;
-            }
-        }
-
+        // ✅ Ajout de orderBy et limit pour économiser le quota Firestore
+        const q = query(
+            collection(db, "notifications"),
+            where("userId", "==", user.uid),
+            orderBy("createdAt", "desc"),
+            limit(50)
+        );
+        const snapshot = await getDocs(q);
+        
         notificationsCache = snapshot.docs.map(d => {
             const data = d.data();
-
-            // ✅ M12.4 : validation type (défense)
-            const type = data.type && VALID_TYPES.has(data.type)
-                ? data.type
-                : 'unknown';
-
             return {
                 id: d.id,
                 ...data,
-                type,
                 createdAt: toDate(data.createdAt)
             };
         });
-
-        // Tri côté client (fallback ou déjà trié)
-        notificationsCache.sort((a, b) => {
-            const da = a.createdAt?.getTime?.() || 0;
-            const dbb = b.createdAt?.getTime?.() || 0;
-            return dbb - da;
-        });
-
-        // ✅ C12.1 : unreadCount EXCLUT les review_request
-        unreadCount = notificationsCache.filter(n =>
-            !n.read && n.type !== REVIEW_REQUEST_TYPE
-        ).length;
-
+        
+        // ✅ FIX DOUBLE COMPTAGE : On ne compte que les non-lus qui NE SONT PAS des review_request
+        unreadCount = notificationsCache.filter(n => !n.read && !isReviewRequest(n)).length;
         updateNotificationBadge();
         return notificationsCache;
-
     } catch (e) {
         console.error('❌ Erreur chargement notifications :', e);
-        return notificationsCache;
-    } finally {
-        _loadInProgress = false;
+        return [];
     }
 }
 
 // ============================================================
-// ✅ C12.1 : BADGE (avec compte séparé des review_request)
+// BADGE
 // ============================================================
 export function updateNotificationBadge() {
     const badge = document.getElementById('notificationBadge');
     const bell = document.getElementById('notificationBell');
 
-    // ✅ M12.5 : cloche cachée si non connecté
     if (bell) {
         const user = getCurrentUser();
         bell.style.display = user ? 'flex' : 'none';
@@ -165,21 +95,18 @@ export function updateNotificationBadge() {
 
     if (!badge) return;
 
-    // Review_request comptées à part (persistentes tant que non traitées)
-    const pendingReviews = notificationsCache.filter(n =>
-        n.type === REVIEW_REQUEST_TYPE
-    ).length;
+    // Les review_requests restent visibles jusqu'à ce qu'un avis soit déposé
+    const pendingReviews = notificationsCache.filter(n => isReviewRequest(n)).length;
 
-    // ✅ C12.1 : unreadCount n'inclut PLUS les review_request
+    // ✅ Calcul propre sans doublon
     const totalBadge = unreadCount + pendingReviews;
 
     if (totalBadge > 0) {
         badge.textContent = totalBadge > 9 ? '9+' : totalBadge;
         badge.style.display = 'flex';
-
-        // Couleur différente si uniquement des review_request
+        
         if (unreadCount === 0 && pendingReviews > 0) {
-            badge.style.background = 'var(--gold)';
+            badge.style.background = 'var(--gold)'; // Couleur spéciale si que des avis
         } else {
             badge.style.background = 'var(--danger)';
         }
@@ -200,17 +127,11 @@ function getNotificationIcon(type) {
         [NOTIFICATION_TYPES.ORDER_RETURNED]:  '↩️',
         [NOTIFICATION_TYPES.ORDER_CANCELLED]: '❌',
         [NOTIFICATION_TYPES.REVIEW_APPROVED]: '⭐',
-        [REVIEW_REQUEST_TYPE]:                '⭐',
-        // Legacy (anciens docs Firestore)
-        'order_validated': '✅',
-        'order_received': '📦'
+        [REVIEW_REQUEST_TYPE]:                '⭐'
     };
     return icons[type] || '🔔';
 }
 
-// ============================================================
-// HELPER : Est-ce une notif review_request ?
-// ============================================================
 function isReviewRequest(notif) {
     return notif && notif.type === REVIEW_REQUEST_TYPE;
 }
@@ -255,25 +176,23 @@ export async function openNotificationsPanel() {
     const modalEl = panel.querySelector('.modal');
     trapFocus(modalEl);
 
-    document.getElementById('closeNotificationsBtn').addEventListener('click', () => {
+    const closePanel = () => {
         releaseFocusTrap();
         panel.remove();
-    });
-    panel.addEventListener('click', (e) => {
-        if (e.target === panel) {
-            releaseFocusTrap();
-            panel.remove();
-        }
-    });
+        document.removeEventListener('keydown', escHandler);
+    };
+
+    const escHandler = (e) => { if (e.key === 'Escape') closePanel(); };
+    document.addEventListener('keydown', escHandler);
+
+    document.getElementById('closeNotificationsBtn').addEventListener('click', closePanel);
+    panel.addEventListener('click', (e) => { if (e.target === panel) closePanel(); });
 
     const markAllBtn = document.getElementById('markAllReadBtn');
     if (markAllBtn) {
         markAllBtn.addEventListener('click', async () => {
             await markAllAsRead();
-            // ✅ I12.4 : re-render complet (recharge + bouton disparaît)
-            releaseFocusTrap();
-            panel.remove();
-            await openNotificationsPanel();
+            openNotificationsPanel(); // Re-render complet pour faire disparaître le bouton
             showToast('✅ ' + t('markAllRead'));
         });
     }
@@ -281,19 +200,13 @@ export async function openNotificationsPanel() {
 
 // ============================================================
 // RENDU DU CONTENU
-// ✅ I12.5 : escapeHTML(notif.id)
 // ============================================================
 function renderNotificationsContent() {
     const container = document.getElementById('notificationsContent');
     if (!container) return;
 
     if (notificationsCache.length === 0) {
-        container.innerHTML = `
-            <div style="text-align:center;padding:2rem;color:var(--text-muted);">
-                <div style="font-size:3rem;margin-bottom:0.5rem;">🔕</div>
-                <p>${t('noNotifications')}</p>
-            </div>
-        `;
+        container.innerHTML = `<div style="text-align:center;padding:2rem;color:var(--text-muted);"><div style="font-size:3rem;margin-bottom:0.5rem;">🔕</div><p>${t('noNotifications')}</p></div>`;
         return;
     }
 
@@ -312,21 +225,13 @@ function renderNotificationsContent() {
         const isUnread = !notif.read;
         const reviewReq = isReviewRequest(notif);
         const date = formatDateTime(notif.createdAt);
-        const safeId = escapeHTML(notif.id); // ✅ I12.5
+        const safeId = escapeHTML(notif.id);
 
-        // Style spécial pour review_request
-        const borderStyle = reviewReq
-            ? 'border:2px solid var(--gold);background:linear-gradient(135deg,rgba(165,123,46,0.08),rgba(165,123,46,0.02));'
-            : '';
-
-        // Bouton de suppression (sauf review_request)
+        const borderStyle = reviewReq ? 'border:2px solid var(--gold);background:linear-gradient(135deg,rgba(165,123,46,0.08),rgba(165,123,46,0.02));' : '';
+        
         const deleteBtnHtml = reviewReq
-            ? `<span class="review-req-badge" title="${t('leaveReview') || 'Laisser un avis'}"
-                style="font-size:0.65rem;background:var(--gold);color:#fff;padding:0.15rem 0.5rem;border-radius:30px;font-weight:700;white-space:nowrap;">
-                ⭐ ${t('reviewStatusPending') || 'À faire'}
-               </span>`
-            : `<button class="notif-delete-btn" data-notif-id="${safeId}" title="${t('delete') || 'Supprimer'}"
-                style="background:transparent;border:none;color:var(--text-dim);cursor:pointer;font-size:1rem;">✕</button>`;
+            ? `<span style="font-size:0.65rem;background:var(--gold);color:#fff;padding:0.15rem 0.5rem;border-radius:30px;font-weight:700;white-space:nowrap;">⭐ À faire</span>`
+            : `<button class="notif-delete-btn" data-notif-id="${safeId}" title="Supprimer" style="background:transparent;border:none;color:var(--text-dim);cursor:pointer;font-size:1rem;">✕</button>`;
 
         html += `
             <div class="notification-item ${isUnread ? 'unread' : ''} ${reviewReq ? 'review-request' : ''}" data-notif-id="${safeId}" style="${borderStyle}">
@@ -354,14 +259,7 @@ function renderNotificationsContent() {
     container.querySelectorAll('.notif-delete-btn').forEach(btn => {
         btn.addEventListener('click', async (e) => {
             e.stopPropagation();
-            const notifId = btn.dataset.notifId;
-            const notif = notificationsCache.find(n => n.id === notifId);
-            // Sécurité : empêche la suppression d'une review_request
-            if (notif && isReviewRequest(notif)) {
-                showToast('⚠️ ' + (t('reviewOnlyAfterOrder') || 'Déposez d\'abord votre avis'));
-                return;
-            }
-            await deleteNotification(notifId);
+            await deleteNotification(btn.dataset.notifId);
             renderNotificationsContent();
         });
     });
@@ -381,30 +279,23 @@ async function handleNotificationClick(notif) {
     }
 
     const panel = document.getElementById('notificationsPanel');
-    if (panel) {
-        releaseFocusTrap();
-        panel.remove();
-    }
+    if (panel) { releaseFocusTrap(); panel.remove(); }
 
-    // review_request → ouvrir commandes filtrées "delivered"
     if (reviewReq && notif.orderId) {
-        document.dispatchEvent(new CustomEvent('open-account-orders', {
-            detail: { orderId: notif.orderId, filter: 'delivered' }
-        }));
+        document.dispatchEvent(new CustomEvent('open-account-orders', { detail: { orderId: notif.orderId, filter: 'delivered' } }));
         return;
     }
 
     if (notif.orderId) {
-        document.dispatchEvent(new CustomEvent('open-account-orders', {
-            detail: { orderId: notif.orderId }
-        }));
-    } else if (notif.type === NOTIFICATION_TYPES.REVIEW_APPROVED && notif.productSlug) {
-        window.location.href = `/produit?slug=${encodeURIComponent(notif.productSlug)}`;
+        document.dispatchEvent(new CustomEvent('open-account-orders', { detail: { orderId: notif.orderId } }));
+    } else if (notif.type === NOTIFICATION_TYPES.REVIEW_APPROVED) {
+        if (notif.productSlug) window.location.href = `/produit?slug=${encodeURIComponent(notif.productSlug)}`;
+        else showToast('ℹ️ ' + t('productNotFound'));
     }
 }
 
 // ============================================================
-// ✅ I12.6 : MARQUER COMME LUE (avec feedback permission-denied)
+// MARQUER COMME LUE / TOUT LIRE / SUPPRIMER
 // ============================================================
 export async function markAsRead(notifId) {
     try {
@@ -412,20 +303,13 @@ export async function markAsRead(notifId) {
         const notif = notificationsCache.find(n => n.id === notifId);
         if (notif) notif.read = true;
     } catch (e) {
-        console.error('❌ Erreur markAsRead :', e);
-        if (e?.code === 'permission-denied') {
-            showToast('⚠️ ' + (t('error') || 'Erreur') + ' — Permission refusée');
-        }
+        if (e.code === 'permission-denied') showToast('⚠️ ' + t('error'));
     }
 }
 
-// ============================================================
-// TOUT MARQUER COMME LU
-// ============================================================
 export async function markAllAsRead() {
     const user = getCurrentUser();
     if (!user) return;
-
     try {
         const batch = writeBatch(db);
         notificationsCache.forEach(notif => {
@@ -435,137 +319,80 @@ export async function markAllAsRead() {
             }
         });
         await batch.commit();
-
-        unreadCount = notificationsCache.filter(n =>
-            !n.read && n.type !== REVIEW_REQUEST_TYPE
-        ).length;
+        unreadCount = notificationsCache.filter(n => !n.read && !isReviewRequest(n)).length;
         updateNotificationBadge();
-    } catch (e) {
-        console.error('❌ Erreur markAllAsRead :', e);
-        if (e?.code === 'permission-denied') {
-            showToast('⚠️ ' + (t('error') || 'Erreur') + ' — Permission refusée');
-        }
-    }
+    } catch (e) { console.error(e); }
 }
 
-// ============================================================
-// SUPPRIMER UNE NOTIFICATION
-// ============================================================
 export async function deleteNotification(notifId) {
     try {
         const notif = notificationsCache.find(n => n.id === notifId);
-
-        // Bloquer la suppression des review_request
         if (notif && isReviewRequest(notif)) {
-            showToast('⚠️ ' + (t('reviewOnlyAfterOrder') || 'Déposez d\'abord votre avis'));
+            showToast('⚠️ Déposez d\'abord votre avis');
             return;
         }
-
         await deleteDoc(doc(db, "notifications", notifId));
-
         if (notif && !notif.read) {
             unreadCount = Math.max(0, unreadCount - 1);
             updateNotificationBadge();
         }
         notificationsCache = notificationsCache.filter(n => n.id !== notifId);
         showToast('🗑️ ' + t('delete'));
-    } catch (e) {
-        console.error('❌ Erreur deleteNotification :', e);
-    }
+    } catch (e) { console.error(e); }
 }
 
 // ============================================================
-// CRÉER UNE NOTIFICATION
+// CRÉER / SUPPRIMER (Admin & Système)
 // ============================================================
 export async function createNotification(userId, type, title, message, extra = {}) {
     try {
         await addDoc(collection(db, "notifications"), {
-            userId,
-            type,
-            title,
-            message,
-            read: false,
-            createdAt: Timestamp.now(),
-            ...extra
+            userId, type, title, message, read: false, createdAt: Timestamp.now(), ...extra
         });
         return true;
-    } catch (e) {
-        console.error('❌ Erreur createNotification :', e);
-        return false;
-    }
+    } catch (e) { return false; }
 }
 
-// ============================================================
-// ✅ I12.1 : SUPPRIMER LES review_request D'UNE COMMANDE
-// ------------------------------------------------------------
-// SOURCE UNIQUE — appelée par orders.js et ui.js (plus de duplication)
-// ============================================================
 export async function deleteReviewRequestForOrder(orderId) {
     const user = getCurrentUser();
     if (!user || !orderId) return;
-
     try {
-        const q = query(
-            collection(db, "notifications"),
-            where("userId", "==", user.uid),
-            where("orderId", "==", orderId),
-            where("type", "==", REVIEW_REQUEST_TYPE)
-        );
+        const q = query(collection(db, "notifications"), where("userId", "==", user.uid), where("orderId", "==", orderId), where("type", "==", REVIEW_REQUEST_TYPE));
         const snap = await getDocs(q);
         if (snap.empty) return;
-
         await Promise.allSettled(snap.docs.map(d => deleteDoc(d.ref)));
-        notificationsCache = notificationsCache.filter(n =>
-            !(n.type === REVIEW_REQUEST_TYPE && n.orderId === orderId)
-        );
+        notificationsCache = notificationsCache.filter(n => !(n.type === REVIEW_REQUEST_TYPE && n.orderId === orderId));
         updateNotificationBadge();
-        console.log(`🧹 Notif review_request supprimée pour commande ${orderId}`);
-    } catch (e) {
-        console.warn('⚠️ Erreur deleteReviewRequestForOrder :', e);
-    }
+    } catch (e) {}
 }
 
 // ============================================================
-// INJECTER LA CLOCHE DANS LA NAVBAR
+// CLOCHE DE NOTIFICATION
 // ============================================================
 export function injectNotificationBell() {
     const navRight = document.querySelector('.nav-right');
-    if (!navRight) return;
-    if (document.getElementById('notificationBell')) return;
+    if (!navRight || document.getElementById('notificationBell')) return;
 
     const bell = document.createElement('button');
     bell.id = 'notificationBell';
     bell.className = 'notification-bell';
     bell.setAttribute('aria-label', 'Notifications');
     bell.style.display = 'none';
-    bell.innerHTML = `
-        🔔
-        <span class="notification-badge" id="notificationBadge" style="display:none;">0</span>
-    `;
+    bell.innerHTML = `🔔<span class="notification-badge" id="notificationBadge" style="display:none;">0</span>`;
 
     const accountBtn = document.getElementById('accountBtn');
-    if (accountBtn && accountBtn.parentNode) {
-        accountBtn.parentNode.insertBefore(bell, accountBtn);
-    } else {
-        navRight.appendChild(bell);
-    }
+    if (accountBtn && accountBtn.parentNode) accountBtn.parentNode.insertBefore(bell, accountBtn);
+    else navRight.appendChild(bell);
 }
 
-// ============================================================
-// INITIALISATION DE LA CLOCHE
-// ============================================================
 export function initNotificationBell() {
     injectNotificationBell();
-
     const bell = document.getElementById('notificationBell');
     if (!bell) return;
 
     const user = getCurrentUser();
     bell.style.display = user ? 'flex' : 'none';
-
-    if (user) {
-        loadNotifications();
-    }
+    if (user) loadNotifications();
 
     if (!bell._initialized) {
         bell.addEventListener('click', openNotificationsPanel);
@@ -574,44 +401,6 @@ export function initNotificationBell() {
 }
 
 // ============================================================
-// ✅ C12.2 + I12.3 : LISTENERS GLOBAUX (avec guard + logout clear)
-// ============================================================
-if (typeof document !== 'undefined') {
-    // ✅ I12.3 : guard global
-    if (!_globalUIListenersAttached) {
-        _globalUIListenersAttached = true;
-
-        // ✅ C12.2 : vider le cache au logout + recharger au login
-        document.addEventListener('auth-updated', async (e) => {
-            const user = e.detail?.user;
-            if (!user) {
-                // Logout : vider le cache
-                notificationsCache = [];
-                unreadCount = 0;
-                updateNotificationBadge();
-                console.log('🧹 Cache notifications vidé (logout)');
-                return;
-            }
-            // Login : recharger
-            await loadNotifications();
-            updateNotificationBadge();
-        });
-
-        // review-submitted → refresh badge
-        document.addEventListener('review-submitted', async () => {
-            console.log('⭐ [notifications] Event review-submitted — refresh');
-            await loadNotifications();
-        });
-
-        // review-deleted → refresh badge (avis supprimé = notification à recompter)
-        document.addEventListener('review-deleted', async () => {
-            console.log('⭐ [notifications] Event review-deleted — refresh');
-            await loadNotifications();
-        });
-    }
-}
-
-// ============================================================
 // LOG
 // ============================================================
-console.log('✅ notifications.js chargé — v2.0.0 (badge, logout, index)');
+console.log('✅ notifications.js chargé — v2.0.0 (Fix Double Comptage, Cache)');
