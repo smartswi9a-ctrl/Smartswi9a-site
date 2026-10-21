@@ -1,32 +1,21 @@
 // js/product-detail.js
 // ============================================================
 // PAGE PRODUIT DYNAMIQUE - SMART SWI9A
-// Version 3.1.0 — Breadcrumb complet + produits similaires parent-aware
-// ============================================================
-// CHANGEMENTS v3.1.0 :
-// ✅ FIX #6 — renderRelatedProducts() : parent-aware (siblings inclus)
-// ✅ FIX #7 — renderBreadcrumbs() : hiérarchie complète
-//              Accueil › Électronique › Smartphones › Produit
-// ✅ FIX #20 — Breadcrumb : fallback legacy via getCategoryPath
-// ✅ (Repris v3.0.0) — C7.1→C7.3, I7.1→I7.5, M7.1→M7.6
+// Version 2.1.0 — Fix Étoiles, Limite 3 Avis, Design AliExpress
 // ============================================================
 
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "./firebase.js";
-import {
-    CONFIG, VIDEO_BASE_URL,
-    getCategoryPath, getCategoryById, getParentCategory, normalizeCategory
-} from "./config.js";
+import { CONFIG, VIDEO_BASE_URL } from "./config.js";
 import {
     t, escapeHTML, getProductName, getProductDesc, getProductFeatures,
     getProductImageUrl, getFallbackImage, renderStars,
-    getDiscountPercent
+    getDiscountPercent, formatDate
 } from "./utils.js";
 import { getProducts } from "./store.js";
 import { getCurrentUser } from "./auth.js";
 import { toggleFavorite } from "./products.js";
 import { createReview, canUserReviewProduct, toggleLike } from "./reviews.js";
-import { addToCart } from "./cart.js";
 import { showToast, openImageLightbox } from "./ui-core.js";
 
 // ============================================================
@@ -35,12 +24,15 @@ import { showToast, openImageLightbox } from "./ui-core.js";
 let currentProduct = null;
 let currentVideoElement = null;
 
+// État de sélection des variantes
 let selectedSize = null;
 let selectedColor = null;
 let currentVariant = null;
 
-let _relatedProductsCache = null;
-let _relatedForProductId = null;
+// État pour l'affichage des avis
+let allReviewsCache = [];
+let showAllReviews = false;
+const REVIEWS_LIMIT = 3;
 
 // ============================================================
 // LECTURE DU SLUG
@@ -88,9 +80,8 @@ export async function renderProductDetail() {
     selectedSize = null;
     selectedColor = null;
     currentVariant = null;
-    _relatedProductsCache = null;
-    _relatedForProductId = null;
-
+    showAllReviews = false; // Reset le filtre des avis
+    
     document.title = `${getProductName(product)} | Smart Swi9a`;
 
     updateMetaTags(product);
@@ -129,6 +120,8 @@ function updateMetaTags(product) {
     const img = getProductImageUrl(product);
     const url = window.location.href;
 
+    document.title = `${name} | Smart Swi9a`;
+
     setMeta('name', 'description', desc.substring(0, 160));
     setMeta('property', 'og:title', name);
     setMeta('property', 'og:description', desc.substring(0, 200));
@@ -157,38 +150,26 @@ function updateMetaTags(product) {
         schemaEl.type = 'application/ld+json';
         document.head.appendChild(schemaEl);
     }
-
-    const price = Number(product.price) || 0;
-    const schema = {
+    schemaEl.textContent = JSON.stringify({
         "@context": "https://schema.org",
         "@type": "Product",
         "name": name,
         "description": desc,
         "image": img.startsWith('http') ? img : `${CONFIG.SHOP.URL}${img}`,
-        "brand": { "@type": "Brand", "name": "Smart Swi9a" }
-    };
-
-    if (price > 0) {
-        schema.offers = {
+        "brand": { "@type": "Brand", "name": "Smart Swi9a" },
+        "offers": product.price > 0 ? {
             "@type": "Offer",
-            "price": price,
+            "price": product.price,
             "priceCurrency": "MAD",
-            "availability": (Number(product.stock) || 0) > 0
-                ? "https://schema.org/InStock"
-                : "https://schema.org/OutOfStock",
+            "availability": (product.stock || 0) > 0 ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
             "url": url
-        };
-    }
-
-    if (product.ratingAvg && Number(product.ratingAvg) > 0) {
-        schema.aggregateRating = {
+        } : undefined,
+        "aggregateRating": product.ratingAvg ? {
             "@type": "AggregateRating",
-            "ratingValue": Number(product.ratingAvg),
-            "reviewCount": Number(product.ratingCount) || 1
-        };
-    }
-
-    schemaEl.textContent = JSON.stringify(schema);
+            "ratingValue": product.ratingAvg,
+            "reviewCount": product.ratingCount || 1
+        } : undefined
+    });
 }
 
 function setMeta(attrName, attrValue, content) {
@@ -202,67 +183,20 @@ function setMeta(attrName, attrValue, content) {
 }
 
 // ============================================================
-// ✅ FIX #7 + #20 : BREADCRUMBS COMPLET (avec catégories)
-// ------------------------------------------------------------
-// AVANT : Accueil › Produits › Produit
-// APRÈS : Accueil › Électronique › Smartphones › Produit
-// Gère legacy : produit 'smartphone' → breadcrumb 'Électronique › Smartphones'
+// BREADCRUMBS
 // ============================================================
 function renderBreadcrumbs(product) {
     const el = document.getElementById('breadcrumbs');
     if (!el) return;
 
-    // Construire le chemin de catégories
-    const catPath = getCategoryPath(product.category);
-
-    // Construire les items du breadcrumb
-    const items = [
-        {
-            name: t('productBreadcrumbHome'),
-            url: CONFIG.SHOP.URL,
-            isLink: true
-        }
-    ];
-
-    // Ajouter les catégories (parents puis enfants)
-    catPath.forEach(cat => {
-        const label = t(cat.label);
-        const url = `${CONFIG.SHOP.URL}/#produits?cat=${cat.id}`;
-        items.push({
-            name: `${cat.emoji || ''} ${label}`.trim(),
-            url: url,
-            isLink: true,
-            isCategory: true,
-            categoryId: cat.id
-        });
-    });
-
-    // Si aucune catégorie n'est trouvée, fallback "Produits"
-    if (catPath.length === 0) {
-        items.push({
-            name: t('productBreadcrumbProducts'),
-            url: `${CONFIG.SHOP.URL}/#produits`,
-            isLink: true
-        });
-    }
-
-    // Ajouter le produit final (non cliquable)
-    items.push({
-        name: getProductName(product),
-        url: window.location.href,
-        isLink: false
-    });
-
-    // Schema.org BreadcrumbList
     const breadcrumbSchema = {
         "@context": "https://schema.org",
         "@type": "BreadcrumbList",
-        "itemListElement": items.map((item, idx) => ({
-            "@type": "ListItem",
-            "position": idx + 1,
-            "name": item.name,
-            ...(item.isLink ? { "item": item.url } : {})
-        }))
+        "itemListElement": [
+            { "@type": "ListItem", "position": 1, "name": t('productBreadcrumbHome'), "item": CONFIG.SHOP.URL },
+            { "@type": "ListItem", "position": 2, "name": t('productBreadcrumbProducts'), "item": `${CONFIG.SHOP.URL}/#produits` },
+            { "@type": "ListItem", "position": 3, "name": getProductName(product) }
+        ]
     };
 
     let schemaEl = document.getElementById('breadcrumb-schema');
@@ -274,19 +208,6 @@ function renderBreadcrumbs(product) {
     }
     schemaEl.textContent = JSON.stringify(breadcrumbSchema);
 
-    // Rendu HTML
-    const sep = ' <span style="color:var(--text-dim);margin:0 0.2rem;">›</span> ';
-    const htmlParts = items.map(item => {
-        if (item.isLink) {
-            return `<a href="${escapeHTML(item.url)}" style="color:var(--gold);text-decoration:none;">${escapeHTML(item.name)}</a>`;
-        } else {
-            return `<span style="color:var(--text-muted);">${escapeHTML(item.name)}</span>`;
-        }
-    });
-
-    el.innerHTML = htmlParts.join(sep);
-
-    // Met à jour le breadcrumbCurrent (ancien element, garde compatibilité)
     const currentSpan = document.getElementById('breadcrumbCurrent');
     if (currentSpan) {
         currentSpan.textContent = getProductName(product);
@@ -304,7 +225,7 @@ function renderMediaGallery(product) {
 
     const mainImageUrl = getProductImageUrl(product);
     galleryContainer.innerHTML = '';
-
+    
     if (currentVideoElement) {
         currentVideoElement.pause();
         currentVideoElement = null;
@@ -312,39 +233,28 @@ function renderMediaGallery(product) {
     wrapper.innerHTML = '';
 
     const showImage = (src, activeThumb) => {
-        if (currentVideoElement) {
-            currentVideoElement.pause();
-            currentVideoElement = null;
-        }
-        wrapper.innerHTML = `
-            <img id="mainImage" class="main-media-element" src="${escapeHTML(src)}" alt="${escapeHTML(getProductName(product))}" loading="eager">
-        `;
-        const newMainImg = document.getElementById('mainImage');
-        newMainImg.addEventListener('click', () => openImageLightbox(newMainImg.src));
+        if (currentVideoElement) { currentVideoElement.pause(); currentVideoElement = null; }
+        wrapper.innerHTML = `<img id="mainImage" class="main-media-element" src="${escapeHTML(src)}" alt="${escapeHTML(getProductName(product))}" loading="eager">`;
+        document.getElementById('mainImage').addEventListener('click', () => openImageLightbox(document.getElementById('mainImage').src));
         galleryContainer.querySelectorAll('.thumb-img, .thumb-video').forEach(el => el.classList.remove('active'));
         if (activeThumb) activeThumb.classList.add('active');
     };
 
     const showVideo = (videoUrl, activeThumb) => {
-        wrapper.innerHTML = `
-            <video id="mainVideo" class="main-media-element" src="${escapeHTML(videoUrl)}" controls preload="metadata" playsinline poster="${escapeHTML(mainImageUrl)}" style="background: #000;"></video>
-        `;
+        wrapper.innerHTML = `<video id="mainVideo" class="main-media-element" src="${escapeHTML(videoUrl)}" controls preload="metadata" playsinline poster="${escapeHTML(mainImageUrl)}" style="background: #000;"></video>`;
         currentVideoElement = document.getElementById('mainVideo');
         galleryContainer.querySelectorAll('.thumb-img, .thumb-video').forEach(el => el.classList.remove('active'));
         if (activeThumb) activeThumb.classList.add('active');
     };
 
-    const images = (product.gallery && product.gallery.length > 0)
-        ? [product.img, ...product.gallery]
-        : [product.img];
-
+    const images = (product.gallery && product.gallery.length > 0) ? [product.img, ...product.gallery] : [product.img];
     let firstImageThumb = null;
 
     images.forEach((imgUrl, index) => {
         if (!imgUrl) return;
         const thumb = document.createElement('img');
         thumb.className = 'thumb-img';
-        thumb.src = (imgUrl.startsWith('http') || imgUrl.startsWith('/')) ? imgUrl : '/' + imgUrl;
+        thumb.src = imgUrl.startsWith('http') || imgUrl.startsWith('/') ? imgUrl : '/' + imgUrl;
         thumb.alt = `${getProductName(product)} - ${index + 1}`;
         thumb.loading = 'lazy';
         thumb.addEventListener('click', () => showImage(thumb.src, thumb));
@@ -364,13 +274,10 @@ function renderMediaGallery(product) {
         videoThumb.innerHTML = `
             <img src="${escapeHTML(mainImageUrl)}" style="filter: brightness(0.5);">
             <div class="play-icon-overlay">
-                <div>
-                    <svg viewBox="0 0 24 24" fill="white" width="14" height="14" style="margin-left: 2px;"><path d="M8 5v14l11-7z"/></svg>
-                </div>
+                <div><svg viewBox="0 0 24 24" fill="white" width="14" height="14" style="margin-left: 2px;"><path d="M8 5v14l11-7z"/></svg></div>
             </div>
         `;
         videoThumb.addEventListener('click', () => showVideo(videoUrl, videoThumb));
-
         galleryContainer.insertBefore(videoThumb, galleryContainer.firstChild);
         showVideo(videoUrl, videoThumb);
         if (firstImageThumb) firstImageThumb.classList.remove('active');
@@ -391,31 +298,27 @@ function renderInfoSection(product) {
     const stock = Number(product.stock) || 0;
     const discountPercent = getDiscountPercent(product.oldPrice, product.price);
     const isPromo = discountPercent > 0;
-    const hasVariants = Array.isArray(product.variants) && product.variants.length > 0;
 
     if (titleEl) {
         titleEl.textContent = getProductName(product);
         titleEl.removeAttribute('data-key');
     }
-
     if (priceEl) priceEl.textContent = `${product.price} ${t('currency')}`;
-
     if (oldPriceEl) {
-        if (isPromo && !hasVariants) {
+        if (isPromo) {
             oldPriceEl.textContent = `${product.oldPrice} ${t('currency')}`;
-            oldPriceEl.style.display = 'inline-block';
+            oldPriceEl.style.display = 'inline-block'; 
         } else {
             oldPriceEl.style.display = 'none';
         }
     }
-
     if (descEl) descEl.textContent = getProductDesc(product);
 
-    const priceBlock = document.querySelector('.product-price-block');
-    if (priceBlock) {
-        const existing = priceBlock.querySelector('.discount-badge');
-        if (existing) existing.remove();
-        if (isPromo && !hasVariants) {
+    if (isPromo) {
+        const priceBlock = document.querySelector('.product-price-block');
+        if (priceBlock) {
+            const existing = priceBlock.querySelector('.discount-badge');
+            if (existing) existing.remove();
             const badge = document.createElement('span');
             badge.className = 'discount-badge';
             badge.style.cssText = 'background:var(--danger);color:white;padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;';
@@ -425,30 +328,25 @@ function renderInfoSection(product) {
     }
 
     if (stockEl) {
-        if (stock > 0) {
-            stockEl.innerHTML = `<span style="color:#22c55e;">${t('productInStock')}</span>`;
-        } else {
-            stockEl.innerHTML = `<span style="color:#b03a2e;">${t('productOutOfStock')}</span>`;
-        }
+        stockEl.innerHTML = stock > 0 
+            ? `<span style="color:#22c55e;">${t('productInStock')}</span>` 
+            : `<span style="color:#b03a2e;">${t('productOutOfStock')}</span>`;
     }
 
     const addBtn = document.getElementById('addToCartBtn');
     if (addBtn) {
         addBtn.dataset.id = product.id;
-        if (stock === 0 && !hasVariants) {
-            addBtn.disabled = true;
-            addBtn.style.opacity = '0.5';
-            addBtn.style.cursor = 'not-allowed';
-        } else {
-            addBtn.disabled = false;
-            addBtn.style.opacity = '1';
-            addBtn.style.cursor = 'pointer';
-        }
+        addBtn.disabled = stock === 0;
+        addBtn.style.opacity = stock === 0 ? '0.5' : '1';
+        addBtn.style.cursor = stock === 0 ? 'not-allowed' : 'pointer';
     }
+
+    const waBtn = document.getElementById('whatsappOrderBtn');
+    if (waBtn) waBtn.dataset.productId = product.id;
 }
 
 // ============================================================
-// SECTION DES VARIANTES
+// SECTION DES VARIANTES (Tailles / Couleurs)
 // ============================================================
 function renderVariantsSection(product) {
     const root = document.getElementById('productVariantsRoot');
@@ -463,17 +361,13 @@ function renderVariantsSection(product) {
     const colors = [...new Set(product.variants.map(v => v.color).filter(Boolean))];
 
     let html = '';
-
-    const hasRealSizeGuideData = !!(product.hasSizeGuide && product.sizeGuideData);
-    const guideBtnHtml = hasRealSizeGuideData
-        ? `<button class="size-guide-btn" id="openSizeGuideBtn">📏 Guide des tailles</button>`
-        : '';
+    const guideBtnHtml = product.hasSizeGuide ? `<button class="size-guide-btn" id="openSizeGuideBtn">📏 Guide des tailles (US/EU)</button>` : '';
 
     if (sizes.length > 0) {
         html += `
             <div class="variant-options-group">
                 <div class="variant-label">
-                    <span>${t('comboSize') || 'Taille'} : <span id="selectedSizeLabel" style="color:var(--gold);">Sélectionnez</span></span>
+                    <span>Taille : <span id="selectedSizeLabel" style="color:var(--gold);">Sélectionnez</span></span>
                     ${guideBtnHtml}
                 </div>
                 <div class="variant-buttons" id="sizeButtons">
@@ -487,7 +381,7 @@ function renderVariantsSection(product) {
         html += `
             <div class="variant-options-group">
                 <div class="variant-label">
-                    <span>${t('comboColor') || 'Couleur'} : <span id="selectedColorLabel" style="color:var(--gold);">Sélectionnez</span></span>
+                    <span>Couleur : <span id="selectedColorLabel" style="color:var(--gold);">Sélectionnez</span></span>
                 </div>
                 <div class="variant-buttons" id="colorButtons">
                     ${colors.map(c => `<button type="button" class="variant-btn" data-color="${escapeHTML(c)}">${escapeHTML(c)}</button>`).join('')}
@@ -498,17 +392,9 @@ function renderVariantsSection(product) {
 
     root.innerHTML = html;
 
-    if (guideBtnHtml) {
-        document.getElementById('openSizeGuideBtn')?.addEventListener('click', openSizeGuideModal);
-    }
-
-    document.querySelectorAll('#sizeButtons .variant-btn').forEach(btn => {
-        btn.addEventListener('click', () => selectVariantOption('size', btn.dataset.size));
-    });
-
-    document.querySelectorAll('#colorButtons .variant-btn').forEach(btn => {
-        btn.addEventListener('click', () => selectVariantOption('color', btn.dataset.color));
-    });
+    if (guideBtnHtml) document.getElementById('openSizeGuideBtn')?.addEventListener('click', openSizeGuideModal);
+    document.querySelectorAll('#sizeButtons .variant-btn').forEach(btn => btn.addEventListener('click', () => selectVariantOption('size', btn.dataset.size)));
+    document.querySelectorAll('#colorButtons .variant-btn').forEach(btn => btn.addEventListener('click', () => selectVariantOption('color', btn.dataset.color)));
 
     if (sizes.length === 1) selectVariantOption('size', sizes[0]);
     if (colors.length === 1) selectVariantOption('color', colors[0]);
@@ -518,15 +404,11 @@ function selectVariantOption(type, value) {
     if (type === 'size') {
         selectedSize = value;
         document.getElementById('selectedSizeLabel').textContent = value;
-        document.querySelectorAll('#sizeButtons .variant-btn').forEach(b => {
-            b.classList.toggle('active', b.dataset.size === value);
-        });
+        document.querySelectorAll('#sizeButtons .variant-btn').forEach(b => b.classList.toggle('active', b.dataset.size === value));
     } else if (type === 'color') {
         selectedColor = value;
         document.getElementById('selectedColorLabel').textContent = value;
-        document.querySelectorAll('#colorButtons .variant-btn').forEach(b => {
-            b.classList.toggle('active', b.dataset.color === value);
-        });
+        document.querySelectorAll('#colorButtons .variant-btn').forEach(b => b.classList.toggle('active', b.dataset.color === value));
     }
 
     const variant = currentProduct.variants.find(v => {
@@ -545,109 +427,65 @@ function updateVariantDisplay() {
     const stockEl = document.getElementById('productStockStatus');
     const addBtn = document.getElementById('addToCartBtn');
 
-    if (oldPriceEl) oldPriceEl.style.display = 'none';
-    const badge = document.querySelector('.discount-badge');
-    if (badge) badge.style.display = 'none';
-
     if (!currentVariant) {
-        const totalStock = currentProduct.variants.reduce((sum, v) => sum + (v.stock || 0), 0);
         if (selectedSize && selectedColor) {
-            stockEl.innerHTML = `<span style="color:var(--danger);font-weight:700;">❌ Combinaison indisponible</span>`;
-        } else if (totalStock > 0) {
-            stockEl.innerHTML = `<span style="color:var(--text-muted);">👆 Sélectionnez ${!selectedSize ? 'taille' : ''}${!selectedSize && !selectedColor ? ' et ' : ''}${!selectedColor ? 'couleur' : ''}</span>`;
+            stockEl.innerHTML = `<span style="color:var(--danger);font-weight:600;">❌ Combinaison indisponible</span>`;
         } else {
-            stockEl.innerHTML = `<span style="color:#b03a2e;">${t('productOutOfStock')}</span>`;
+            stockEl.innerHTML = `<span style="color:var(--text-muted);">👇 Sélectionnez les options</span>`;
         }
-        if (addBtn) {
-            addBtn.disabled = true;
-            addBtn.style.opacity = '0.5';
-        }
+        addBtn.disabled = true;
+        addBtn.style.opacity = '0.5';
+        if (oldPriceEl) oldPriceEl.style.display = 'none';
         return;
     }
 
     if (priceEl) priceEl.textContent = `${currentVariant.price} ${t('currency')}`;
+    
+    // Gestion du prix barré
+    if (oldPriceEl) {
+        if (currentProduct.oldPrice && currentProduct.oldPrice > currentVariant.price) {
+            oldPriceEl.textContent = `${currentProduct.oldPrice} ${t('currency')}`;
+            oldPriceEl.style.display = 'inline-block';
+        } else {
+            oldPriceEl.style.display = 'none';
+        }
+    }
 
     if (currentVariant.stock > 0) {
         stockEl.innerHTML = `<span style="color:#22c55e;">${t('productInStock')} (${currentVariant.stock})</span>`;
-        if (addBtn) {
-            addBtn.disabled = false;
-            addBtn.style.opacity = '1';
-            addBtn.style.cursor = 'pointer';
-        }
+        addBtn.disabled = false;
+        addBtn.style.opacity = '1';
+        addBtn.style.cursor = 'pointer';
     } else {
         stockEl.innerHTML = `<span style="color:#b03a2e;">${t('productOutOfStock')}</span>`;
-        if (addBtn) {
-            addBtn.disabled = true;
-            addBtn.style.opacity = '0.5';
-            addBtn.style.cursor = 'not-allowed';
-        }
+        addBtn.disabled = true;
+        addBtn.style.opacity = '0.5';
+        addBtn.style.cursor = 'not-allowed';
     }
 }
 
-function openSizeGuideModal() {
-    document.getElementById('sizeGuideModal')?.remove();
-
-    const modalHtml = `
-        <div class="modal-overlay open" id="sizeGuideModal" style="z-index:2000;">
-            <div class="modal" style="max-width:600px;">
-                <button class="modal-close" id="closeSizeGuideBtn">✕</button>
-                <h2 style="font-family:var(--font-secondary);color:var(--gold);text-align:center;margin-bottom:1rem;">📏 Guide des tailles</h2>
-                <div style="background:var(--bg-surface);padding:1rem;border-radius:var(--radius-sm);">
-                    <p style="font-size:0.85rem;color:var(--text-muted);text-align:center;">
-                        Guide en cours de préparation. Contactez-nous sur WhatsApp pour toute question.
-                    </p>
-                </div>
-            </div>
-        </div>
-    `;
-    document.body.insertAdjacentHTML('beforeend', modalHtml);
-    const modal = document.getElementById('sizeGuideModal');
-    const closeModal = () => {
-        modal?.remove();
-        document.removeEventListener('keydown', escHandler);
-    };
-    const escHandler = (e) => { if (e.key === 'Escape') closeModal(); };
-
-    document.getElementById('closeSizeGuideBtn').addEventListener('click', closeModal);
-    modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
-    document.addEventListener('keydown', escHandler);
-}
-
 // ============================================================
-// SECTION DES DIMENSIONS
+// DIMENSIONS
 // ============================================================
 function renderDimensions(product) {
     const root = document.getElementById('productDimensionsRoot');
     if (!root) return;
-
-    if (!product.dimensions) {
-        root.innerHTML = '';
-        return;
-    }
+    if (!product.dimensions) { root.innerHTML = ''; return; }
 
     const { weight, length, width, height } = product.dimensions;
+    if (!weight && !length && !width && !height) { root.innerHTML = ''; return; }
 
-    if (!weight && !length && !width && !height) {
-        root.innerHTML = '';
-        return;
-    }
-
-    let html = `
-        <h4 style="font-family:var(--font-secondary);color:var(--gold);margin-top:1.5rem;margin-bottom:0.5rem;font-size:1.1rem;">📏 Dimensions & Poids</h4>
-        <table class="dimensions-table">
-    `;
-
+    let html = `<h4 style="font-family:var(--font-secondary);color:var(--gold);margin-top:1.5rem;margin-bottom:0.5rem;font-size:1.1rem;">📏 Dimensions & Poids</h4><table class="dimensions-table">`;
     if (weight) html += `<tr><th>Poids</th><td>${weight} g</td></tr>`;
     if (length) html += `<tr><th>Longueur</th><td>${length} cm</td></tr>`;
     if (width) html += `<tr><th>Largeur</th><td>${width} cm</td></tr>`;
     if (height) html += `<tr><th>Hauteur</th><td>${height} cm</td></tr>`;
-
     html += `</table>`;
     root.innerHTML = html;
 }
 
 // ============================================================
-// SECTION CARACTÉRISTIQUES
+// CARACTÉRISTIQUES
 // ============================================================
 function renderFeaturesSection(product) {
     const el = document.getElementById('productFeaturesEl');
@@ -661,16 +499,12 @@ function renderFeaturesSection(product) {
         el.innerHTML = '';
         return;
     }
-
     if (parentDiv) parentDiv.style.display = '';
-
-    el.innerHTML = features
-        .map(f => `<li><span class="feature-check">✓</span><span class="feature-text">${escapeHTML(f)}</span></li>`)
-        .join('');
+    el.innerHTML = features.map(f => `<li><span class="feature-check">✓</span><span class="feature-text">${escapeHTML(f)}</span></li>`).join('');
 }
 
 // ============================================================
-// SECTION AVIS
+// ✅ NOUVEAU DESIGN DES AVIS (AliExpress) + LIMITE DE 3
 // ============================================================
 async function renderReviewsSection(product) {
     const container = document.getElementById('productReviewsRoot');
@@ -678,93 +512,38 @@ async function renderReviewsSection(product) {
 
     container.innerHTML = `<div style="text-align:center;padding:1rem;color:var(--text-muted);">⏳ ${t('loadingReviews')}</div>`;
 
-    const pid = Number(product.id);
-    if (!Number.isFinite(pid)) {
-        container.innerHTML = `<p style="text-align:center;color:var(--danger);">${t('productNotFound')}</p>`;
-        return;
-    }
-
     try {
-        const q = query(
-            collection(db, "reviews"),
-            where("productId", "==", pid),
-            where("status", "==", "approved")
-        );
-
-        const timeout = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('TIMEOUT')), 8000)
-        );
-        const snapshot = await Promise.race([getDocs(q), timeout]);
-
-        const reviews = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-        reviews.sort((a, b) => {
+        const q = query(collection(db, "reviews"), where("productId", "==", Number(product.id)), where("status", "==", "approved"));
+        const snapshot = await getDocs(q);
+        
+        // Trier par date décroissante
+        allReviewsCache = snapshot.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => {
             const da = a.createdAt?.toDate?.() || new Date(a.createdAt || 0);
             const dbb = b.createdAt?.toDate?.() || new Date(b.createdAt || 0);
             return dbb - da;
         });
 
         const user = getCurrentUser();
-        const reviewCheck = user
-            ? await canUserReviewProduct(pid).catch(() => ({ canReview: false, reason: 'error' }))
-            : { canReview: false, reason: 'not_logged' };
+        const reviewCheck = user ? await canUserReviewProduct(Number(product.id)) : { canReview: false, reason: 'not_logged' };
 
-        let html = `
-            <h3 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;font-size:1.3rem;">
-                ⭐ ${t('reviews')} (${reviews.length})
-            </h3>
-        `;
+        let html = `<h3 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;font-size:1.3rem;">⭐ ${t('reviews')} (${allReviewsCache.length})</h3>`;
 
-        if (reviews.length > 0) {
-            const avg = (reviews.reduce((s, r) => s + (r.rating || 0), 0) / reviews.length).toFixed(1);
+        if (allReviewsCache.length > 0) {
+            const avg = (allReviewsCache.reduce((s, r) => s + (r.rating || 0), 0) / allReviewsCache.length).toFixed(1);
             html += `
                 <div style="display:flex;align-items:center;gap:0.8rem;margin-bottom:1.5rem;padding:1rem;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-md);">
                     <div style="font-size:2rem;font-weight:800;color:var(--gold);">${avg}</div>
                     <div>
                         <div style="color:var(--gold);font-size:1.1rem;">${renderStars(Math.round(avg))}</div>
-                        <div style="font-size:0.8rem;color:var(--text-muted);">${reviews.length} ${t('reviews').toLowerCase()}</div>
+                        <div style="font-size:0.8rem;color:var(--text-muted);">${allReviewsCache.length} ${t('reviews').toLowerCase()}</div>
                     </div>
                 </div>
             `;
         }
 
-        if (reviews.length === 0) {
-            html += `<p style="color:var(--text-muted);font-size:0.9rem;text-align:center;padding:1rem;">${t('noReviewsYet')}</p>`;
-        } else {
-            reviews.forEach(r => {
-                const userName = escapeHTML(r.userName || 'Anonyme');
-                const title = escapeHTML(r.title || '');
-                const comment = escapeHTML(r.comment || '');
-                const photos = r.photos || [];
-                const likes = r.likes || [];
-                const likeCount = likes.length;
-                const isLiked = user ? likes.includes(user.uid) : false;
-                const dateStr = r.createdAt?.toDate
-                    ? r.createdAt.toDate().toLocaleDateString()
-                    : (r.createdAt ? new Date(r.createdAt).toLocaleDateString() : '');
+        html += `<div id="reviewsListContainer"></div>`;
 
-                html += `
-                    <div class="review-item">
-                        <div class="review-header">
-                            <div class="review-user-name">👤 ${userName}</div>
-                            ${r.verifiedPurchase ? `<span class="review-verified-badge">✅ ${t('reviewVerifiedPurchase')}</span>` : ''}
-                            <div class="review-date">${dateStr}</div>
-                        </div>
-                        <div class="review-stars">${renderStars(r.rating || 0)}</div>
-                        ${title ? `<div class="review-title">${title}</div>` : ''}
-                        <div class="review-comment">${comment}</div>
-                        ${photos.length > 0 ? `
-                            <div class="review-photos">
-                                ${photos.map(url => `<img src="${escapeHTML(url)}" alt="${t('reviewPhotos')}" loading="lazy" data-photo-url="${escapeHTML(url)}">`).join('')}
-                            </div>
-                        ` : ''}
-                        <button class="review-like-btn ${isLiked ? 'liked' : ''}" data-review-id="${r.id}" data-liked="${isLiked}">
-                            👍 ${t('reviewHelpful')} (${likeCount})
-                        </button>
-                    </div>
-                `;
-            });
-        }
-
+        // Formulaire d'avis
         if (reviewCheck.canReview) {
             html += renderReviewForm();
         } else if (!user) {
@@ -776,43 +555,164 @@ async function renderReviewsSection(product) {
         }
 
         container.innerHTML = html;
+
+        // Afficher la liste
+        renderReviewsList();
+        
         attachReviewEvents(product);
 
     } catch (e) {
         console.error('Erreur chargement avis :', e);
-        const message = e?.message === 'TIMEOUT'
-            ? 'Délai dépassé. Réessayez.'
-            : t('loadingError');
-        container.innerHTML = `<p style="text-align:center;color:var(--danger);">${message}</p>`;
+        container.innerHTML = `<p style="text-align:center;color:var(--danger);">${t('loadingError')}</p>`;
     }
 }
 
+// Rendu de la liste des avis (avec limite de 3)
+function renderReviewsList() {
+    const listEl = document.getElementById('reviewsListContainer');
+    if (!listEl) return;
+
+    if (allReviewsCache.length === 0) {
+        listEl.innerHTML = `<p style="color:var(--text-muted);font-size:0.9rem;text-align:center;padding:1rem;">${t('noReviewsYet')}</p>`;
+        return;
+    }
+
+    const user = getCurrentUser();
+    const reviewsToShow = showAllReviews ? allReviewsCache : allReviewsCache.slice(0, REVIEWS_LIMIT);
+
+    let html = '';
+    reviewsToShow.forEach(r => {
+        const userName = escapeHTML(r.userName || 'Anonyme');
+        const title = r.title ? `<div style="font-weight:700;font-size:0.95rem;margin-bottom:0.3rem;color:var(--text);">${escapeHTML(r.title)}</div>` : '';
+        const comment = escapeHTML(r.comment || '');
+        const photos = r.photos || [];
+        const likes = r.likes || [];
+        const likeCount = likes.length;
+        const isLiked = user ? likes.includes(user.uid) : false;
+        const dateStr = r.createdAt?.toDate
+            ? r.createdAt.toDate().toLocaleDateString()
+            : (r.createdAt ? new Date(r.createdAt).toLocaleDateString() : '');
+
+        // DESIGN ALIEXPRESS
+        html += `
+            <div class="review-item" style="padding: 1rem; border-bottom: 1px solid var(--border); margin-bottom: 1rem; background: var(--bg-card); border-radius: var(--radius-md);">
+                
+                <!-- En-tête : Étoiles + Nom + Date -->
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 0.5rem; flex-wrap:wrap; gap:0.5rem;">
+                    <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+                        <div class="review-stars" style="color:var(--gold); font-size:1rem;">${renderStars(r.rating || 0)}</div>
+                        <span style="font-size:0.85rem; color:var(--text); font-weight:600;">${userName}</span>
+                        ${r.verifiedPurchase ? `<span style="background:var(--success-bg);color:var(--success);font-size:0.65rem;padding:0.15rem 0.5rem;border-radius:30px;display:inline-flex;align-items:center;gap:0.2rem;">✅ ${t('reviewVerifiedPurchase')}</span>` : ''}
+                    </div>
+                    <div style="font-size:0.75rem; color:var(--text-dim);">${dateStr}</div>
+                </div>
+
+                <!-- Contenu : Titre + Commentaire -->
+                <div style="margin-bottom: 0.8rem;">
+                    ${title}
+                    <div style="font-size:0.9rem; color:var(--text-muted); line-height:1.6; white-space:pre-wrap;">${comment}</div>
+                </div>
+
+                <!-- Photos en BAS (style AliExpress) -->
+                ${photos.length > 0 ? `
+                    <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom: 0.8rem;">
+                        ${photos.map(url => `
+                            <img src="${escapeHTML(url)}" alt="Photo avis" loading="lazy" data-photo-url="${escapeHTML(url)}" 
+                                 style="width:80px; height:80px; object-fit:cover; border-radius:var(--radius-sm); border:1px solid var(--border); cursor:zoom-in;">
+                        `).join('')}
+                    </div>
+                ` : ''}
+
+                <!-- Bouton Utile -->
+                <div style="display:flex; justify-content:flex-end;">
+                    <button class="review-like-btn ${isLiked ? 'liked' : ''}" data-review-id="${escapeHTML(r.id)}" data-liked="${isLiked}"
+                        style="background:transparent; border:1px solid var(--border); color:var(--text-muted); border-radius:30px; padding:0.3rem 0.8rem; font-size:0.8rem; cursor:pointer; display:flex; align-items:center; gap:0.3rem;">
+                        👍 ${t('reviewHelpful')} (${likeCount})
+                    </button>
+                </div>
+            </div>
+        `;
+    });
+
+    // Bouton Voir Tout / Voir Moins
+    if (allReviewsCache.length > REVIEWS_LIMIT) {
+        html += `
+            <div style="text-align:center; margin-top:1rem;">
+                <button id="toggleReviewsBtn" class="btn-secondary" style="padding:0.8rem 1.5rem; font-weight:700; border-radius:30px;">
+                    ${showAllReviews 
+                        ? `▲ Voir moins d'avis` 
+                        : `▼ Afficher tous les commentaires (${allReviewsCache.length})`}
+                </button>
+            </div>
+        `;
+    }
+
+    listEl.innerHTML = html;
+
+    // Attacher l'événement du bouton Voir Tout
+    const toggleBtn = document.getElementById('toggleReviewsBtn');
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', () => {
+            showAllReviews = !showAllReviews;
+            renderReviewsList(); // Re-render
+        });
+    }
+
+    // Attacher événements photos et likes
+    listEl.querySelectorAll('img[data-photo-url]').forEach(img => {
+        img.addEventListener('click', () => openImageLightbox(img.dataset.photoUrl));
+    });
+
+    listEl.querySelectorAll('.review-like-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            if (!user) { showToast('🔒 ' + t('loginRequired')); document.dispatchEvent(new CustomEvent('open-account')); return; }
+            try {
+                const result = await toggleLike(btn.dataset.reviewId);
+                const countMatch = btn.textContent.match(/\((\d+)\)/);
+                const newCount = countMatch ? parseInt(countMatch[1]) + (result.liked ? 1 : -1) : (result.liked ? 1 : 0);
+                btn.innerHTML = `👍 ${t('reviewHelpful')} (${Math.max(0, newCount)})`;
+                btn.classList.toggle('liked', result.liked);
+            } catch (e) { console.error(e); }
+        });
+    });
+}
+
 // ============================================================
-// FORMULAIRE D'AVIS
+// ✅ NOUVEAU FORMULAIRE D'AVIS (Label + Feedback Étoiles)
 // ============================================================
 function renderReviewForm() {
     return `
-        <div class="review-form" style="margin-top:1.5rem;">
+        <div class="review-form" style="margin-top:1.5rem; padding:1.2rem; background:var(--bg-surface); border:1px solid var(--border-gold); border-radius:var(--radius-md);">
             <h4 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;">
                 ✍️ ${t('leaveReview')}
             </h4>
             <div id="reviewFormMessage" style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.5rem;"></div>
-            <label style="display:block;font-size:0.85rem;color:var(--text-muted);margin-bottom:0.3rem;">${t('reviews')} *</label>
-            <div class="review-star-input" id="reviewStarInput">
-                <span class="star" data-star="1">★</span>
-                <span class="star" data-star="2">★</span>
-                <span class="star" data-star="3">★</span>
-                <span class="star" data-star="4">★</span>
-                <span class="star" data-star="5">★</span>
+
+            <label style="display:block;font-size:0.85rem;color:var(--text-muted);margin-bottom:0.3rem;">Note (${t('reviews')}) *</label>
+            
+            <!-- ✅ ÉTOILES AVEC LABEL -->
+            <div style="display:flex; align-items:center; gap:0.8rem; margin-bottom:1rem;">
+                <div class="review-star-input" id="reviewStarInput" style="display:flex; gap:0.2rem; font-size:1.8rem; cursor:pointer; direction:ltr;">
+                    <span class="star" data-star="1">★</span>
+                    <span class="star" data-star="2">★</span>
+                    <span class="star" data-star="3">★</span>
+                    <span class="star" data-star="4">★</span>
+                    <span class="star" data-star="5">★</span>
+                </div>
+                <span id="reviewStarLabel" style="font-size:1.1rem; font-weight:800; color:var(--gold);">0/5</span>
             </div>
+
             <label style="display:block;font-size:0.85rem;color:var(--text-muted);margin:0.5rem 0 0.3rem;">${t('reviewTitle')}</label>
-            <input type="text" id="reviewTitleInput" placeholder="${t('reviewTitle')}" maxlength="80" style="width:100%;padding:0.6rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-surface);color:var(--text);margin-bottom:0.5rem;">
+            <input type="text" id="reviewTitleInput" placeholder="${t('reviewTitle')}" maxlength="80" style="width:100%;padding:0.6rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-card);color:var(--text);margin-bottom:0.5rem;">
+
             <label style="display:block;font-size:0.85rem;color:var(--text-muted);margin-bottom:0.3rem;">${t('reviewComment')} *</label>
-            <textarea id="reviewCommentInput" placeholder="${t('reviewComment')}" rows="3" maxlength="500" style="width:100%;padding:0.6rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-surface);color:var(--text);margin-bottom:0.5rem;font-family:inherit;"></textarea>
+            <textarea id="reviewCommentInput" placeholder="${t('reviewComment')}" rows="3" maxlength="500" style="width:100%;padding:0.6rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-card);color:var(--text);margin-bottom:0.5rem;font-family:inherit;"></textarea>
+
             <label style="display:block;font-size:0.85rem;color:var(--text-muted);margin-bottom:0.3rem;">${t('reviewPhotos')}</label>
             <input type="file" id="reviewPhotoInput" accept="image/*" multiple style="margin-bottom:0.5rem;color:var(--text);">
             <div id="reviewPhotoPreviews" class="review-photo-grid"></div>
-            <button class="btn-primary" id="submitReviewBtn" style="width:100%;justify-content:center;margin-top:1rem;">
+
+            <button class="btn-primary" id="submitReviewBtn" style="width:100%;justify-content:center;margin-top:1rem; padding:0.8rem;">
                 📤 ${t('reviewSubmit')}
             </button>
         </div>
@@ -820,20 +720,32 @@ function renderReviewForm() {
 }
 
 // ============================================================
-// ÉVÉNEMENTS DES AVIS
+// ÉVÉNEMENTS DES AVIS (Étoiles, Photos, Submit)
 // ============================================================
 function attachReviewEvents(product) {
     const starInput = document.getElementById('reviewStarInput');
     let selectedRating = 0;
     const stars = starInput ? starInput.querySelectorAll('.star') : [];
+    const starLabel = document.getElementById('reviewStarLabel');
 
+    // ✅ GESTION DES ÉTOILES (Hover + Clic)
     stars.forEach(star => {
+        // Survol (Hover)
+        star.addEventListener('mouseenter', () => {
+            const val = parseInt(star.dataset.star);
+            stars.forEach(s => s.classList.toggle('hover', parseInt(s.dataset.star) <= val));
+        });
+        
+        // Fin du survol
+        star.addEventListener('mouseleave', () => {
+            stars.forEach(s => s.classList.remove('hover'));
+        });
+
+        // Clic
         star.addEventListener('click', () => {
             selectedRating = parseInt(star.dataset.star);
-            stars.forEach(s => {
-                const val = parseInt(s.dataset.star);
-                s.classList.toggle('active', val <= selectedRating);
-            });
+            stars.forEach(s => s.classList.toggle('active', parseInt(s.dataset.star) <= selectedRating));
+            if (starLabel) starLabel.textContent = `${selectedRating}/5`;
         });
     });
 
@@ -867,7 +779,7 @@ function attachReviewEvents(product) {
             const msgEl = document.getElementById('reviewFormMessage');
 
             if (selectedRating < 1) {
-                if (msgEl) { msgEl.textContent = '⚠️ ' + t('reviews'); msgEl.style.color = 'var(--danger)'; }
+                if (msgEl) { msgEl.textContent = '⚠️ Veuillez sélectionner une note (étoiles)'; msgEl.style.color = 'var(--danger)'; }
                 return;
             }
             if (!comment) {
@@ -891,9 +803,11 @@ function attachReviewEvents(product) {
                     msgEl.style.color = 'var(--success)';
                 }
                 showToast('✅ ' + t('reviewThanks'));
+
                 document.getElementById('reviewCommentInput').value = '';
                 document.getElementById('reviewTitleInput').value = '';
                 selectedRating = 0;
+                if (starLabel) starLabel.textContent = '0/5';
                 stars.forEach(s => s.classList.remove('active'));
                 photoPreviews.innerHTML = '';
                 selectedPhotos = [];
@@ -909,82 +823,22 @@ function attachReviewEvents(product) {
             }
         });
     }
-
-    document.querySelectorAll('.review-like-btn').forEach(btn => {
-        btn.addEventListener('click', async () => {
-            const reviewId = btn.dataset.reviewId;
-            const user = getCurrentUser();
-            if (!user) {
-                showToast('🔒 ' + t('loginRequired'));
-                document.dispatchEvent(new CustomEvent('open-account'));
-                return;
-            }
-            try {
-                const result = await toggleLike(reviewId);
-                const countMatch = btn.textContent.match(/\((\d+)\)/);
-                const newCount = countMatch ? parseInt(countMatch[1]) + (result.liked ? 1 : -1) : (result.liked ? 1 : 0);
-                btn.innerHTML = `👍 ${t('reviewHelpful')} (${Math.max(0, newCount)})`;
-                btn.classList.toggle('liked', result.liked);
-            } catch (e) {
-                console.error('Erreur like :', e);
-            }
-        });
-    });
-
-    document.querySelectorAll('.review-photos img[data-photo-url]').forEach(img => {
-        img.addEventListener('click', () => openImageLightbox(img.dataset.photoUrl));
-    });
 }
 
 // ============================================================
-// ✅ FIX #6 : PRODUITS SIMILAIRES (parent-aware)
-// ------------------------------------------------------------
-// AVANT : match exact de catégorie uniquement
-//   produit 'Smartphones' → suggère que d'autres 'Smartphones'
-// APRÈS :
-//   1. Priorité 1 : même sous-catégorie (ex: Smartphones)
-//   2. Priorité 2 : même parent, autres sous-catégories (ex: Tablettes, Audio…)
-//   3. Priorité 3 : autres produits du catalogue
+// PRODUITS SIMILAIRES
 // ============================================================
+let _relatedProductsCache = null;
+let _relatedForProductId = null;
+
 function renderRelatedProducts(product) {
     const container = document.getElementById('relatedProductsRoot');
     if (!container) return;
 
-    if (_relatedForProductId !== product.id || !_relatedProductsCache) {
-        const all = getProducts().filter(p => p.id !== product.id);
-
-        // Résoudre la catégorie du produit courant (avec legacy)
-        const normalized = normalizeCategory(product.category);
-        const catInfo = getCategoryById(normalized);
-        const parentId = catInfo?.parentId || (catInfo?.isParent ? catInfo.id : null);
-
-        // Catégorie "locale" : la sous-catégorie du produit
-        const localCatId = catInfo?.isParent ? null : catInfo?.id;
-
-        // ✅ Priorité 1 : même sous-catégorie
-        const sameLocalCat = all.filter(p => {
-            const pNorm = normalizeCategory(p.category);
-            return localCatId && (p.category === localCatId || pNorm === localCatId);
-        });
-
-        // ✅ Priorité 2 : même parent, autres sous-catégories (siblings)
-        const sameParent = parentId
-            ? all.filter(p => {
-                if (sameLocalCat.some(s => s.id === p.id)) return false;
-                const pNorm = normalizeCategory(p.category);
-                const pCat = getCategoryById(pNorm);
-                return pCat && (
-                    pCat.id === parentId ||
-                    pCat.parentId === parentId
-                );
-            })
-            : [];
-
-        // ✅ Priorité 3 : le reste
-        const others = all.filter(p =>
-            !sameLocalCat.some(s => s.id === p.id) &&
-            !sameParent.some(s => s.id === p.id)
-        );
+    if (_relatedForProductId !== product.id) {
+        const all = getProducts();
+        const sameCategory = all.filter(p => p.category === product.category && p.id !== product.id);
+        const others = all.filter(p => p.id !== product.id && p.category !== product.category);
 
         const shuffle = (arr) => {
             const a = [...arr];
@@ -995,39 +849,29 @@ function renderRelatedProducts(product) {
             return a;
         };
 
-        // Construire avec priorité : local (3 max) + siblings (2 max) + autres (1 max)
-        const prioritized = [
-            ...shuffle(sameLocalCat).slice(0, 3),
-            ...shuffle(sameParent).slice(0, 2),
-            ...shuffle(others).slice(0, 1)
-        ];
-
-        _relatedProductsCache = prioritized.slice(0, 6);
+        _relatedProductsCache = [...shuffle(sameCategory), ...shuffle(others)].slice(0, 6);
         _relatedForProductId = product.id;
     }
 
-    const random = _relatedProductsCache;
-
-    if (random.length === 0) {
+    if (_relatedProductsCache.length === 0) {
         container.innerHTML = '';
         return;
     }
 
     const user = getCurrentUser();
-    const favs = Array.isArray(user?.favorites) ? user.favorites.map(Number) : [];
+    const favs = user?.favorites || [];
 
     let html = `<h4 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;font-size:1.2rem;">${t('productRelatedTitle')}</h4>`;
     html += `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:1rem;">`;
 
-    random.forEach(p => {
+    _relatedProductsCache.forEach(p => {
         const pid = Number(p.id);
-        if (!Number.isFinite(pid)) return;
-
         const isFav = favs.includes(pid);
         const name = escapeHTML(getProductName(p));
         const img = getProductImageUrl(p);
         const price = p.price;
         const oldPrice = p.oldPrice;
+
         const safeImg = escapeHTML(img);
         const safeFallback = getFallbackImage(name).replace(/'/g, "%27");
 
@@ -1068,7 +912,7 @@ function renderRelatedProducts(product) {
 }
 
 // ============================================================
-// ÉVÉNEMENTS PRINCIPAUX (guard + WhatsApp)
+// ÉVÉNEMENTS PRINCIPAUX (Ajout Panier avec Guard)
 // ============================================================
 function attachProductEvents(product) {
     const addBtn = document.getElementById('addToCartBtn');
@@ -1080,9 +924,7 @@ function attachProductEvents(product) {
 
             if (!currentProduct) return;
 
-            const hasVariants = Array.isArray(currentProduct.variants) && currentProduct.variants.length > 0;
-
-            if (hasVariants) {
+            if (currentProduct.variants && currentProduct.variants.length > 0) {
                 if (!selectedSize && currentProduct.variants.some(v => v.size)) {
                     showToast('⚠️ Veuillez choisir une taille');
                     return;
@@ -1099,78 +941,121 @@ function attachProductEvents(product) {
                     showToast('⚠️ ' + t('outOfStock'));
                     return;
                 }
-                addToCart(currentProduct.id, currentVariant);
+                import('./cart.js').then(m => m.addToCart(currentProduct.id, currentVariant));
             } else {
-                addToCart(currentProduct.id);
+                import('./cart.js').then(m => m.addToCart(currentProduct.id));
             }
         });
     }
-
+    
+    // Fix pour WhatsApp (data-product-id géré par events.js)
     const waBtn = document.getElementById('whatsappOrderBtn');
-    if (waBtn && !waBtn._listenerAttached) {
-        waBtn._listenerAttached = true;
-        waBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopImmediatePropagation();
-            handleWhatsAppOrder(currentProduct);
-        }, true);
+    if (waBtn) {
+        waBtn.dataset.productId = product.id;
+        // Le listener est géré par events.js (délégation) mais on s'assure que l'ID est là
     }
-
+    
     console.log('📦 Page produit prête :', product.slug);
 }
 
 // ============================================================
-// Handler WhatsApp (avec variants)
+// MODALE GUIDE DES TAILLES
 // ============================================================
-function handleWhatsAppOrder(product) {
-    if (!product) return;
+function openSizeGuideModal() {
+    document.getElementById('sizeGuideModal')?.remove();
 
-    const hasVariants = Array.isArray(product.variants) && product.variants.length > 0;
+    const modalHtml = `
+        <div class="modal-overlay open" id="sizeGuideModal" style="z-index:2000;">
+            <div class="modal" style="max-width:600px;">
+                <button class="modal-close" id="closeSizeGuideBtn">✕</button>
+                <h2 style="font-family:var(--font-secondary);color:var(--gold);text-align:center;margin-bottom:1rem;">📏 Guide des tailles</h2>
+                
+                <div style="background:var(--bg-surface);padding:1rem;border-radius:var(--radius-sm);margin-bottom:1rem;">
+                    <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.5rem;text-align:center;">
+                        Ce guide est basé sur des mesures standard. Si vous êtes entre deux tailles, nous vous conseillons de choisir la taille supérieure.
+                    </p>
+                    
+                    <div style="display:flex; justify-content:center; gap:1rem; margin-bottom:1rem;">
+                        <button class="variant-btn active" id="tabUS">🇺🇸 US</button>
+                        <button class="variant-btn" id="tabEU">🇪🇺 EU</button>
+                    </div>
 
-    if (hasVariants) {
-        if (!selectedSize && product.variants.some(v => v.size)) {
-            showToast('⚠️ Veuillez choisir une taille');
-            return;
-        }
-        if (!selectedColor && product.variants.some(v => v.color)) {
-            showToast('⚠️ Veuillez choisir une couleur');
-            return;
-        }
-        if (!currentVariant) {
-            showToast('⚠️ Combinaison indisponible');
-            return;
-        }
-        if (currentVariant.stock <= 0) {
-            showToast('⚠️ ' + t('outOfStock'));
-            return;
-        }
-    }
+                    <table class="acc-table" id="sizeGuideTable">
+                        <thead>
+                            <tr>
+                                <th>Taille</th>
+                                <th id="col1Header">US</th>
+                                <th>Buste (cm)</th>
+                                <th>Taille (cm)</th>
+                                <th>Longueur (cm)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sizeGuideBody"></tbody>
+                    </table>
+                </div>
 
-    const name = getProductName(product);
-    const price = currentVariant ? Number(currentVariant.price) : Number(product.price);
-    const variantText = currentVariant
-        ? ` (${[selectedSize, selectedColor].filter(Boolean).join(' / ')})`
-        : '';
-    const url = `${CONFIG.SHOP.URL}/produit?slug=${encodeURIComponent(product.slug || '')}`;
+                <div style="font-size:0.8rem;color:var(--text-muted);line-height:1.6;">
+                    <strong style="color:var(--text);">Comment prendre vos mesures ?</strong><br>
+                    • <strong>Buste :</strong> Mesurez horizontalement autour de la partie la plus forte de la poitrine.<br>
+                    • <strong>Taille :</strong> Mesurez autour de la partie la plus fine de votre taille.<br>
+                    • <strong>Longueur :</strong> Du point le plus haut de l'épaule jusqu'au bas du vêtement.
+                </div>
+            </div>
+        </div>
+    `;
 
-    let msg = `🛒 *${t('waNewOrder')}*\n\n`;
-    msg += `📦 *${t('waProduct')} :* ${name}${variantText}\n`;
-    msg += `💰 *${t('waPrice')} :* ${price} ${t('currency')}\n`;
-    msg += `🔗 ${url}\n\n`;
-    msg += `👤 ${t('waName')} : \n`;
-    msg += `📞 ${t('waPhone')} : \n`;
-    msg += `📍 ${t('waAddress')} : \n`;
-    msg += `🏙️ ${t('waCity')} : \n\n`;
-    msg += `${t('waThanks')}`;
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    const modal = document.getElementById('sizeGuideModal');
+    
+    const closeModal = () => {
+        modal?.remove();
+        document.removeEventListener('keydown', escHandler);
+    };
 
-    window.open(
-        `https://wa.me/${CONFIG.SHOP.WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`,
-        '_blank',
-        'noopener,noreferrer'
-    );
+    const escHandler = (e) => {
+        if (e.key === 'Escape') closeModal();
+    };
+    document.addEventListener('keydown', escHandler);
+
+    document.getElementById('closeSizeGuideBtn').addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
+    const tableBody = document.getElementById('sizeGuideBody');
+    const col1Header = document.getElementById('col1Header');
+    const tabUS = document.getElementById('tabUS');
+    const tabEU = document.getElementById('tabEU');
+
+    const sizeData = [
+        { size: 'S', us: '36', eu: '46', buste: '88-92', taille: '72-76', longueur: '68' },
+        { size: 'M', us: '38', eu: '48', buste: '92-96', taille: '76-80', longueur: '70' },
+        { size: 'L', us: '40', eu: '50', buste: '96-100', taille: '80-84', longueur: '72' },
+        { size: 'XL', us: '42', eu: '52', buste: '100-104', taille: '84-88', longueur: '74' },
+        { size: 'XXL', us: '44', eu: '54', buste: '104-108', taille: '88-92', longueur: '76' }
+    ];
+
+    const renderTable = (standard) => {
+        col1Header.textContent = standard === 'us' ? '🇺🇸 US' : '🇪🇺 EU';
+        let rows = '';
+        sizeData.forEach(row => {
+            rows += `<tr>
+                <td style="font-weight:700;">${row.size}</td>
+                <td>${row[standard]}</td>
+                <td>${row.buste}</td>
+                <td>${row.taille}</td>
+                <td>${row.longueur}</td>
+            </tr>`;
+        });
+        tableBody.innerHTML = rows;
+        tabUS.classList.toggle('active', standard === 'us');
+        tabEU.classList.toggle('active', standard === 'eu');
+    };
+
+    tabUS.addEventListener('click', () => renderTable('us'));
+    tabEU.addEventListener('click', () => renderTable('eu'));
+    renderTable('us');
 }
 
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ product-detail.js chargé — v3.1.0 (breadcrumb complet + parent-aware)');
+console.log('✅ product-detail.js chargé — v2.1.0 (Design Avis + Limite 3)');
