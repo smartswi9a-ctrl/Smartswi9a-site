@@ -1,21 +1,13 @@
 // js/reviews.js
 // ============================================================
 // AVIS CLIENTS - SMART SWI9A
-// Version 2.0.1 — Fix critique : setDoc import manquant
-// ============================================================
-// CHANGEMENTS v2.0.1 :
-// ✅ FIX CRITIQUE — Ajout de `setDoc` dans l'import firebase/firestore
-//    → createReview() plantait avec "ReferenceError: setDoc is not defined"
-// ✅ (Repris v2.0.0) — C13.1, C13.2, C13.3, I13.1, I13.2, I13.3, I13.4, I13.5
-// ✅ (Repris v2.0.0) — M13.1, M13.2, M13.3, M13.4, M13.5, M13.6
-// ============================================================
-// Dépend de : config, utils, firebase, auth, products, ui-core
+// Version 2.0.0 — Transactions, Anti-doublons, Optimisation Admin
 // ============================================================
 
 import {
-    collection, addDoc, doc, updateDoc, deleteDoc, getDoc, getDocs, setDoc,
-    query, where, Timestamp, arrayUnion, arrayRemove, increment,
-    runTransaction, limit, getCountFromServer
+    collection, addDoc, setDoc, doc, updateDoc, deleteDoc, getDoc, getDocs,
+    query, where, orderBy, limit, Timestamp, arrayUnion, arrayRemove, increment,
+    runTransaction, writeBatch, getCountFromServer
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { db, storage } from "./firebase.js";
@@ -29,17 +21,9 @@ import { getProductById } from "./products.js";
 import { showToast, confirmAction, openImageLightbox } from "./ui-core.js";
 
 // ============================================================
-// CONSTANTES
+// CONSTANTE : Nombre max de témoignages en vedette
 // ============================================================
-// ✅ M13.3 : via CONFIG
-const MAX_FEATURED_REVIEWS = CONFIG.REVIEWS.MAX_FEATURED || 3;
-
-// ✅ C13.2 : doc meta/featured_reviews pour compteur atomique
-const FEATURED_META_COLLECTION = 'meta';
-const FEATURED_META_DOC = 'featured_reviews';
-
-// ✅ M13.5 : guard double render admin
-let _adminRenderInProgress = false;
+const MAX_FEATURED_REVIEWS = 3;
 
 // ============================================================
 // CHARGER LES AVIS D'UN PRODUIT (public)
@@ -81,20 +65,25 @@ export async function loadReviews(productId, onlyApproved = true) {
 }
 
 // ============================================================
-// ✅ M13.2 : CHARGER TOUS LES AVIS (limit 100)
+// CHARGER TOUS LES AVIS (ADMIN) — Version optimisée
 // ============================================================
 export async function loadAllReviews(statusFilter = null) {
     try {
         let q;
-        const constraints = [];
         if (statusFilter && statusFilter !== 'all') {
-            constraints.push(where("status", "==", statusFilter));
+            q = query(
+                collection(db, "reviews"),
+                where("status", "==", statusFilter),
+                orderBy("createdAt", "desc"),
+                limit(100) // ✅ Limite pour éviter de télécharger des milliers d'avis
+            );
+        } else {
+            q = query(
+                collection(db, "reviews"), 
+                orderBy("createdAt", "desc"),
+                limit(100)
+            );
         }
-        // ✅ M13.2 : limit pour éviter les getDocs massifs
-        constraints.push(limit(100));
-
-        q = query(collection(db, "reviews"), ...constraints);
-
         const snapshot = await getDocs(q);
         const reviews = snapshot.docs.map(d => {
             const data = d.data();
@@ -104,12 +93,6 @@ export async function loadAllReviews(statusFilter = null) {
                 createdAt: toDate(data.createdAt)
             };
         });
-        // Tri côté client (évite l'index composite)
-        reviews.sort((a, b) => {
-            const da = a.createdAt?.getTime?.() || 0;
-            const dbb = b.createdAt?.getTime?.() || 0;
-            return dbb - da;
-        });
         return reviews;
     } catch (e) {
         console.error('❌ Erreur loadAllReviews :', e);
@@ -118,32 +101,25 @@ export async function loadAllReviews(statusFilter = null) {
 }
 
 // ============================================================
-// ✅ I13.3 : VÉRIFIER SI L'UTILISATEUR PEUT LAISSER UN AVIS
-// ------------------------------------------------------------
-// Query ciblée : on ne charge QUE les commandes livrées récentes
+// VÉRIFIER SI L'UTILISATEUR PEUT LAISSER UN AVIS
 // ============================================================
 export async function canUserReviewProduct(productId) {
     const user = getCurrentUser();
     if (!user) return { canReview: false, reason: 'not_logged' };
 
-    // 1. Avis déjà déposé ?
-    const checkQ = query(
-        collection(db, "reviews"),
-        where("userId", "==", user.uid),
-        where("productId", "==", Number(productId))
-    );
-    const checkSnap = await getDocs(checkQ);
-    if (!checkSnap.empty) {
+    // ✅ ID déterministe pour vérifier s'il a déjà reviewé
+    const reviewId = `review_${user.uid}_${Number(productId)}`;
+    const reviewSnap = await getDoc(doc(db, "reviews", reviewId));
+    if (reviewSnap.exists()) {
         return { canReview: false, reason: 'already_reviewed' };
     }
 
-    // 2. Commande livrée contenant ce produit ?
     try {
-        // ✅ I13.3 : query ciblée (livrées uniquement + limit)
+        // ✅ Requête optimisée : ne cherche que les commandes livrées
         const ordersQ = query(
             collection(db, "orders"),
             where("userId", "==", user.uid),
-            where("status", "in", ['delivered', 'received']),
+            where("status", "in", ["delivered", "received"]),
             limit(20)
         );
         const ordersSnap = await getDocs(ordersQ);
@@ -163,10 +139,7 @@ export async function canUserReviewProduct(productId) {
 }
 
 // ============================================================
-// ✅ I13.1 + I13.5 : CRÉER UN AVIS
-// ------------------------------------------------------------
-// I13.5 : ID déterministe review_{uid}_{pid} (anti-double review)
-// I13.1 : Promise.all strict + rollback si échec upload
+// CRÉER UN AVIS (Anti-doublons avec setDoc)
 // ============================================================
 export async function createReview(productId, { rating, title, comment, photoFiles = [] }) {
     const user = getCurrentUser();
@@ -176,8 +149,8 @@ export async function createReview(productId, { rating, title, comment, photoFil
     const product = getProductById(pid);
     if (!product) throw new Error(t('productNotFound'));
 
-    if (!rating || rating < 1 || rating > 5) throw new Error(t('reviews'));
-    if (!comment || !comment.trim()) throw new Error(t('reviewComment'));
+    if (!rating || rating < 1 || rating > 5) throw new Error('Veuillez sélectionner une note.');
+    if (!comment || !comment.trim()) throw new Error('Veuillez écrire un commentaire.');
 
     const check = await canUserReviewProduct(pid);
     if (!check.canReview) {
@@ -186,42 +159,25 @@ export async function createReview(productId, { rating, title, comment, photoFil
         throw new Error(t('loginRequired'));
     }
 
-    // ✅ I13.5 : ID déterministe (empêche double review)
-    const reviewId = `review_${user.uid}_${pid}`;
-    const reviewRef = doc(db, "reviews", reviewId);
-
-    // ✅ I13.5 : vérification existence (double sécurité)
-    const existing = await getDoc(reviewRef);
-    if (existing.exists()) {
-        throw new Error(t('reviewAlreadyExists'));
-    }
-
-    // ✅ I13.1 : upload photos avec Promise.all (échec = rollback)
     const photoUrls = [];
     const files = (photoFiles || []).slice(0, CONFIG.REVIEWS.MAX_PHOTOS);
 
-    if (files.length > 0) {
-        try {
-            const uploadPromises = files.map(async (file) => {
-                const fileName = `reviews/${pid}_${user.uid}_${Date.now()}_${file.name}`;
-                const storageRef = ref(storage, fileName);
-                await uploadBytes(storageRef, file);
-                return await getDownloadURL(storageRef);
-            });
-            const results = await Promise.all(uploadPromises);
-            photoUrls.push(...results);
-        } catch (e) {
-            // ✅ I13.1 : si un upload échoue → suppression des photos uploadées
-            console.error('❌ Erreur upload photo, rollback :', e);
-            await Promise.allSettled(photoUrls.map(url => {
-                const path = getStoragePathFromUrl(url);
-                if (path) return deleteObject(ref(storage, path)).catch(() => {});
-                return Promise.resolve();
-            }));
-            throw new Error('Impossible d\'uploader les photos. Réessayez sans photos ou avec moins de photos.');
-        }
+    const uploadPromises = files.map(async (file) => {
+        const fileName = `reviews/${pid}_${user.uid}_${Date.now()}_${file.name}`;
+        const storageRef = ref(storage, fileName);
+        await uploadBytes(storageRef, file);
+        return await getDownloadURL(storageRef);
+    });
+
+    try {
+        const results = await Promise.all(uploadPromises);
+        results.forEach(url => { if (url) photoUrls.push(url); });
+    } catch (e) {
+        console.warn('⚠️ Erreur upload photo avis :', e);
+        throw new Error("Erreur lors de l'upload des photos.");
     }
 
+    const reviewId = `review_${user.uid}_${pid}`;
     const reviewData = {
         productId: pid,
         productSlug: product.slug || '',
@@ -239,137 +195,64 @@ export async function createReview(productId, { rating, title, comment, photoFil
         createdAt: Timestamp.now()
     };
 
-    // ✅ I13.5 : setDoc avec ID déterministe
-    // ✅ FIX v2.0.1 : setDoc maintenant importé
-    try {
-        await setDoc(reviewRef, reviewData);
-    } catch (e) {
-        // Rollback photos si setDoc échoue
-        await Promise.allSettled(photoUrls.map(url => {
-            const path = getStoragePathFromUrl(url);
-            if (path) return deleteObject(ref(storage, path)).catch(() => {});
-            return Promise.resolve();
-        }));
-        throw e;
-    }
-
+    // ✅ setDoc avec ID déterministe (évite les doublons en cas de double-clic)
+    await setDoc(doc(db, "reviews", reviewId), reviewData);
     console.log('✅ Avis créé :', reviewId);
 
-    // Event
     try {
         document.dispatchEvent(new CustomEvent('review-submitted', {
             detail: { productId: pid, reviewId }
         }));
-        console.log('📣 Event "review-submitted" émis');
-    } catch (e) {
-        console.warn('⚠️ Erreur dispatch review-submitted :', e);
-    }
+    } catch (e) { }
 
     return reviewId;
 }
 
 // ============================================================
-// ✅ C13.2 : LIRE LE COMPTEUR FEATURED (avec fallback)
-// ------------------------------------------------------------
-// Note : on maintient un doc meta/featured_reviews { count: N }.
-// Si le doc n'existe pas (1ère utilisation), on le crée à 0.
-// ============================================================
-async function getFeaturedCounter() {
-    try {
-        const counterRef = doc(db, FEATURED_META_COLLECTION, FEATURED_META_DOC);
-        const snap = await getDoc(counterRef);
-        if (!snap.exists()) return 0;
-        return Number(snap.data().count) || 0;
-    } catch (e) {
-        console.warn('⚠️ Erreur lecture compteur featured :', e);
-        return 0;
-    }
-}
-
-// ============================================================
-// ✅ C13.2 : TOGGLE FEATURED (transaction + compteur atomique)
+// AJOUTER / RETIRER UN AVIS DES TÉMOIGNAGES (ADMIN)
 // ============================================================
 export async function toggleFeaturedReview(reviewId) {
     try {
-        const reviewRef = doc(db, "reviews", reviewId);
-        const counterRef = doc(db, FEATURED_META_COLLECTION, FEATURED_META_DOC);
-
-        const result = await runTransaction(db, async (transaction) => {
-            // READ
+        return await runTransaction(db, async (transaction) => {
+            const reviewRef = doc(db, "reviews", reviewId);
             const reviewSnap = await transaction.get(reviewRef);
             if (!reviewSnap.exists()) throw new Error(t('loadError'));
 
             const review = reviewSnap.data();
             if (review.status !== REVIEW_STATUS.APPROVED) {
-                throw new Error(t('reviewPendingApproval'));
+                return { success: false, error: t('reviewPendingApproval') };
             }
-
-            const counterSnap = await transaction.get(counterRef);
-            const currentCount = counterSnap.exists()
-                ? (Number(counterSnap.data().count) || 0)
-                : 0;
 
             const isCurrentlyFeatured = review.featured === true;
 
-            // WRITE
             if (isCurrentlyFeatured) {
-                // Retirer
                 transaction.update(reviewRef, { featured: false });
-                transaction.set(counterRef, {
-                    count: Math.max(0, currentCount - 1),
-                    updatedAt: Timestamp.now()
-                }, { merge: true });
                 return { success: true, featured: false };
-            } else {
-                // Vérifier limite
-                if (currentCount >= MAX_FEATURED_REVIEWS) {
-                    throw new Error(`Maximum ${MAX_FEATURED_REVIEWS} témoignages en vedette. Retirez-en un d'abord.`);
-                }
-                transaction.update(reviewRef, { featured: true });
-                transaction.set(counterRef, {
-                    count: currentCount + 1,
-                    updatedAt: Timestamp.now()
-                }, { merge: true });
-                return { success: true, featured: true };
             }
+
+            // Vérification stricte du max de 3 avis
+            const featuredQ = query(
+                collection(db, "reviews"),
+                where("status", "==", REVIEW_STATUS.APPROVED),
+                where("featured", "==", true)
+            );
+            const featuredSnap = await getDocs(featuredQ); // Requête hors transaction (suffisant pour un admin)
+
+            if (featuredSnap.size >= MAX_FEATURED_REVIEWS) {
+                return { success: false, error: `Maximum ${MAX_FEATURED_REVIEWS} avis. Désactivez-en un d'abord.`, maxReached: true };
+            }
+
+            transaction.update(reviewRef, { featured: true });
+            return { success: true, featured: true };
         });
-
-        return result;
-
     } catch (e) {
         console.error('❌ Erreur toggleFeaturedReview :', e);
-        return {
-            success: false,
-            error: e.message,
-            maxReached: /Maximum/i.test(e.message)
-        };
+        return { success: false, error: e.message };
     }
 }
 
 // ============================================================
-// ✅ C13.3 : RECALCUL RATING AVEC RETRY
-// ============================================================
-async function updateProductRatingWithRetry(productId, maxRetries = 3) {
-    let lastError = null;
-    for (let i = 0; i < maxRetries; i++) {
-        try {
-            const result = await updateProductRating(productId);
-            if (result) return result;
-            // result null = produit introuvable (pas de retry)
-            return null;
-        } catch (e) {
-            lastError = e;
-            if (i < maxRetries - 1) {
-                await new Promise(r => setTimeout(r, 1000 * (i + 1)));
-            }
-        }
-    }
-    console.error('❌ updateProductRating a échoué après retries :', lastError);
-    throw lastError;
-}
-
-// ============================================================
-// ✅ C13.3 : APPROUVER (avec retry rating)
+// APPROUVER UN AVIS (ADMIN)
 // ============================================================
 export async function approveReview(reviewId) {
     try {
@@ -384,15 +267,9 @@ export async function approveReview(reviewId) {
             approvedAt: Timestamp.now()
         });
 
-        // ✅ C13.3 : avec retry
-        try {
-            await updateProductRatingWithRetry(review.productId);
-        } catch (e) {
-            console.warn('⚠️ Rating non mis à jour (approuvé quand même) :', e);
-            // On NE throw PAS : l'avis est approuvé, seul le rating global est en retard
-        }
+        // Mise à jour avec retry
+        await updateProductRatingWithRetry(review.productId);
 
-        // Notification (best-effort)
         try {
             const { createNotification } = await import("./notifications.js");
             await createNotification(
@@ -414,40 +291,15 @@ export async function approveReview(reviewId) {
 }
 
 // ============================================================
-// REJETER (avec décrément featured si nécessaire)
+// REJETER UN AVIS (ADMIN)
 // ============================================================
 export async function rejectReview(reviewId) {
     try {
-        const reviewRef = doc(db, "reviews", reviewId);
-        const snap = await getDoc(reviewRef);
-        if (!snap.exists()) throw new Error(t('loadError'));
-
-        const review = snap.data();
-        const wasFeatured = review.featured === true;
-
-        await updateDoc(reviewRef, {
+        await updateDoc(doc(db, "reviews", reviewId), {
             status: REVIEW_STATUS.REJECTED,
             rejectedAt: Timestamp.now(),
             featured: false
         });
-
-        // ✅ C13.2 : décrémenter compteur si était featured
-        if (wasFeatured) {
-            const counterRef = doc(db, FEATURED_META_COLLECTION, FEATURED_META_DOC);
-            try {
-                const counterSnap = await getDoc(counterRef);
-                const currentCount = counterSnap.exists()
-                    ? (Number(counterSnap.data().count) || 0)
-                    : 0;
-                await updateDoc(counterRef, {
-                    count: Math.max(0, currentCount - 1),
-                    updatedAt: Timestamp.now()
-                });
-            } catch (e) {
-                console.warn('⚠️ Erreur décrément compteur featured :', e);
-            }
-        }
-
         return { success: true };
     } catch (e) {
         console.error('❌ Erreur rejectReview :', e);
@@ -456,7 +308,7 @@ export async function rejectReview(reviewId) {
 }
 
 // ============================================================
-// ✅ M13.6 : SUPPRIMER (storage → doc → rating → event)
+// SUPPRIMER UN AVIS (ADMIN)
 // ============================================================
 export async function deleteReview(reviewId) {
     try {
@@ -465,59 +317,25 @@ export async function deleteReview(reviewId) {
         if (!snap.exists()) throw new Error(t('loadError'));
 
         const review = snap.data();
-        const wasFeatured = review.featured === true;
 
-        // 1. Storage (photos)
         if (review.photos && review.photos.length > 0) {
             const deletePromises = review.photos.map(async (url) => {
                 if (!isStorageUrl(url)) return;
                 const path = getStoragePathFromUrl(url);
                 if (!path) return;
-                try {
-                    await deleteObject(ref(storage, path));
-                    console.log('✅ Photo supprimée :', path);
-                } catch (e) {
-                    console.warn('⚠️ Photo non supprimée :', path, e.message);
-                }
+                try { await deleteObject(ref(storage, path)); } catch (e) { }
             });
             await Promise.allSettled(deletePromises);
         }
 
-        // 2. Supprimer le doc
         await deleteDoc(reviewRef);
+        await updateProductRatingWithRetry(review.productId);
 
-        // 3. Décrémenter compteur featured si nécessaire
-        if (wasFeatured) {
-            const counterRef = doc(db, FEATURED_META_COLLECTION, FEATURED_META_DOC);
-            try {
-                const counterSnap = await getDoc(counterRef);
-                const currentCount = counterSnap.exists()
-                    ? (Number(counterSnap.data().count) || 0)
-                    : 0;
-                await updateDoc(counterRef, {
-                    count: Math.max(0, currentCount - 1),
-                    updatedAt: Timestamp.now()
-                });
-            } catch (e) {
-                console.warn('⚠️ Erreur décrément compteur featured :', e);
-            }
-        }
-
-        // 4. Recalcul rating (avec retry)
-        try {
-            await updateProductRatingWithRetry(review.productId);
-        } catch (e) {
-            console.warn('⚠️ Rating non recalculé :', e);
-        }
-
-        // 5. Event
         try {
             document.dispatchEvent(new CustomEvent('review-deleted', {
                 detail: { productId: review.productId, reviewId }
             }));
-        } catch (e) {
-            console.warn('⚠️ Erreur dispatch review-deleted :', e);
-        }
+        } catch (e) { }
 
         return { success: true };
     } catch (e) {
@@ -527,18 +345,10 @@ export async function deleteReview(reviewId) {
 }
 
 // ============================================================
-// ✅ I13.4 : RECALCULER LA MOYENNE (avec guard produit)
+// RECALCULER LA MOYENNE D'UN PRODUIT
 // ============================================================
 export async function updateProductRating(productId) {
     try {
-        // ✅ I13.4 : guard produit supprimé
-        const productRef = doc(db, "products", String(productId));
-        const productSnap = await getDoc(productRef);
-        if (!productSnap.exists()) {
-            console.warn('⚠️ updateProductRating : produit introuvable', productId);
-            return null;
-        }
-
         const q = query(
             collection(db, "reviews"),
             where("productId", "==", Number(productId)),
@@ -552,11 +362,15 @@ export async function updateProductRating(productId) {
             ? Number((reviews.reduce((s, r) => s + (r.rating || 0), 0) / ratingCount).toFixed(1))
             : 0;
 
-        await updateDoc(productRef, {
-            ratingAvg,
-            ratingCount
-        });
+        const productRef = doc(db, "products", String(productId));
+        const productSnap = await getDoc(productRef);
+        
+        if (!productSnap.exists()) {
+            console.warn(`⚠️ Produit ${productId} introuvable, rating non mis à jour`);
+            return null;
+        }
 
+        await updateDoc(productRef, { ratingAvg, ratingCount });
         return { ratingAvg, ratingCount };
     } catch (e) {
         console.error('❌ Erreur updateProductRating :', e);
@@ -564,8 +378,20 @@ export async function updateProductRating(productId) {
     }
 }
 
+// Helper avec retry pour éviter les désynchronisations
+async function updateProductRatingWithRetry(productId, maxRetries = 3) {
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            const result = await updateProductRating(productId);
+            if (result) return result;
+        } catch (e) {
+            if (i < maxRetries - 1) await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+        }
+    }
+}
+
 // ============================================================
-// ✅ C13.1 : TOGGLE LIKE (runTransaction)
+// TOGGLE LIKE (Correction Race Condition)
 // ============================================================
 export async function toggleLike(reviewId) {
     const user = getCurrentUser();
@@ -574,93 +400,75 @@ export async function toggleLike(reviewId) {
     const reviewRef = doc(db, "reviews", reviewId);
 
     return await runTransaction(db, async (transaction) => {
-        // READ
         const snap = await transaction.get(reviewRef);
         if (!snap.exists()) throw new Error(t('loadError'));
 
         const review = snap.data();
-        const likes = Array.isArray(review.likes) ? review.likes : [];
+        const likes = review.likes || [];
         const hasLiked = likes.includes(user.uid);
-        const currentCount = Number(review.likesCount) || 0;
 
-        // WRITE
         if (hasLiked) {
             transaction.update(reviewRef, {
                 likes: arrayRemove(user.uid),
-                likesCount: Math.max(0, currentCount - 1)
+                likesCount: increment(-1)
             });
-            return { liked: false, count: Math.max(0, currentCount - 1) };
+            return { liked: false, count: Math.max(0, (review.likesCount || 0) - 1) };
         } else {
             transaction.update(reviewRef, {
                 likes: arrayUnion(user.uid),
-                likesCount: currentCount + 1
+                likesCount: increment(1)
             });
-            return { liked: true, count: currentCount + 1 };
+            return { liked: true, count: (review.likesCount || 0) + 1 };
         }
     });
 }
 
 // ============================================================
-// ✅ I13.2 + M13.5 : RENDU ADMIN DES AVIS
-// ------------------------------------------------------------
-// Queries ciblées par status + getCountFromServer pour compteurs
+// RENDU ADMIN DES AVIS (Optimisé)
 // ============================================================
 export async function renderAdminReviews(containerId = 'reviewsList', statusFilter = 'all') {
-    // ✅ M13.5 : guard double render
-    if (_adminRenderInProgress) {
-        console.log('ℹ️ renderAdminReviews déjà en cours — skip');
-        return;
-    }
-    _adminRenderInProgress = true;
-
     const container = document.getElementById(containerId);
-    if (!container) {
-        _adminRenderInProgress = false;
-        return;
-    }
+    if (!container) return;
 
     container.innerHTML = `<div style="text-align:center;padding:1rem;color:var(--text-muted);">⏳ ${t('loadingReviews')}</div>`;
 
     try {
-        // ✅ I13.2 : queries ciblées + compteurs séparés
-        const [filteredReviews, pendingSnap, approvedSnap, rejectedSnap, featuredSnap] = await Promise.all([
-            loadAllReviews(statusFilter),
-            getCountFromServer(query(collection(db, "reviews"), where("status", "==", REVIEW_STATUS.PENDING))).catch(() => null),
-            getCountFromServer(query(collection(db, "reviews"), where("status", "==", REVIEW_STATUS.APPROVED))).catch(() => null),
-            getCountFromServer(query(collection(db, "reviews"), where("status", "==", REVIEW_STATUS.REJECTED))).catch(() => null),
-            getCountFromServer(query(collection(db, "reviews"), where("featured", "==", true))).catch(() => null)
+        // ✅ 1. Charger uniquement les avis du filtre sélectionné
+        const filteredReviews = await loadAllReviews(statusFilter);
+
+        // ✅ 2. Récupérer les compteurs globaux (très rapide, 1 lecture/1000 docs)
+        const [pendingCount, approvedCount, rejectedCount, featuredCount, totalCount] = await Promise.allSettled([
+            getCountFromServer(query(collection(db, "reviews"), where("status", "==", "pending"))),
+            getCountFromServer(query(collection(db, "reviews"), where("status", "==", "approved"))),
+            getCountFromServer(query(collection(db, "reviews"), where("status", "==", "rejected"))),
+            getCountFromServer(query(collection(db, "reviews"), where("status", "==", "approved"), where("featured", "==", true))),
+            getCountFromServer(collection(db, "reviews"))
         ]);
 
-        const pendingCount = pendingSnap?.data().count || 0;
-        const approvedCount = approvedSnap?.data().count || 0;
-        const rejectedCount = rejectedSnap?.data().count || 0;
-        const featuredCount = featuredSnap?.data().count || 0;
-        const totalCount = pendingCount + approvedCount + rejectedCount;
+        const counts = {
+            pending: pendingCount.value?.data().count || 0,
+            approved: approvedCount.value?.data().count || 0,
+            rejected: rejectedCount.value?.data().count || 0,
+            featured: featuredCount.value?.data().count || 0,
+            all: totalCount.value?.data().count || 0
+        };
 
-        if (totalCount === 0 && filteredReviews.length === 0) {
+        if (counts.all === 0) {
             container.innerHTML = `<p style="text-align:center;color:var(--text-muted);padding:2rem;">${t('noReviews')}</p>`;
             return;
         }
 
         let html = `
             <div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:1rem;">
-                <button class="filter-btn ${statusFilter === 'all' ? 'active' : ''}" data-review-filter="all">
-                    ${t('filterAll')} (${totalCount})
-                </button>
-                <button class="filter-btn ${statusFilter === 'pending' ? 'active' : ''}" data-review-filter="pending">
-                    🟡 ${t('reviewStatusPending')} (${pendingCount})
-                </button>
-                <button class="filter-btn ${statusFilter === 'approved' ? 'active' : ''}" data-review-filter="approved">
-                    🟢 ${t('reviewStatusApproved')} (${approvedCount})
-                </button>
-                <button class="filter-btn ${statusFilter === 'rejected' ? 'active' : ''}" data-review-filter="rejected">
-                    🔴 ${t('reviewStatusRejected')} (${rejectedCount})
-                </button>
+                <button class="filter-btn ${statusFilter === 'all' ? 'active' : ''}" data-review-filter="all">${t('filterAll')} (${counts.all})</button>
+                <button class="filter-btn ${statusFilter === 'pending' ? 'active' : ''}" data-review-filter="pending">🟡 ${t('reviewStatusPending')} (${counts.pending})</button>
+                <button class="filter-btn ${statusFilter === 'approved' ? 'active' : ''}" data-review-filter="approved">🟢 ${t('reviewStatusApproved')} (${counts.approved})</button>
+                <button class="filter-btn ${statusFilter === 'rejected' ? 'active' : ''}" data-review-filter="rejected">🔴 ${t('reviewStatusRejected')} (${counts.rejected})</button>
             </div>
 
             <div style="background:rgba(var(--gold-rgb), 0.08);border:1px solid var(--border-gold);border-radius:var(--radius-sm);padding:0.7rem 1rem;margin-bottom:1rem;font-size:0.82rem;color:var(--text-muted);display:flex;align-items:center;gap:0.5rem;">
-                ⭐ <strong style="color:var(--gold);">${t('avisVerifiedPurchase')} :</strong>
-                <span style="font-weight:700;color:var(--gold);">${featuredCount} / ${MAX_FEATURED_REVIEWS}</span>
+                ⭐ <strong style="color:var(--gold);">En vedette sur l'accueil :</strong>
+                <span style="font-weight:700;color:var(--gold);">${counts.featured} / ${MAX_FEATURED_REVIEWS}</span>
             </div>
 
             <div id="reviewsListContent"></div>
@@ -668,10 +476,7 @@ export async function renderAdminReviews(containerId = 'reviewsList', statusFilt
         container.innerHTML = html;
 
         container.querySelectorAll('[data-review-filter]').forEach(btn => {
-            btn.addEventListener('click', () => {
-                _adminRenderInProgress = false;
-                renderAdminReviews(containerId, btn.dataset.reviewFilter);
-            });
+            btn.addEventListener('click', () => renderAdminReviews(containerId, btn.dataset.reviewFilter));
         });
 
         const listEl = document.getElementById('reviewsListContent');
@@ -682,36 +487,24 @@ export async function renderAdminReviews(containerId = 'reviewsList', statusFilt
 
         let listHtml = '';
         filteredReviews.forEach(r => {
-            const statusClass = r.status === 'approved' ? 'admin-review-approved'
-                : (r.status === 'rejected' ? 'admin-review-rejected' : 'admin-review-pending');
+            const statusClass = r.status === 'approved' ? 'admin-review-approved' : (r.status === 'rejected' ? 'admin-review-rejected' : 'admin-review-pending');
             const statusEmoji = r.status === 'approved' ? '🟢' : (r.status === 'rejected' ? '🔴' : '🟡');
             const dateStr = r.createdAt ? new Date(r.createdAt).toLocaleDateString('fr-FR') : '';
             const stars = renderStars(r.rating || 0);
             const isFeatured = r.featured === true;
             const isApproved = r.status === REVIEW_STATUS.APPROVED;
-            // ✅ M13.1 : escapeHTML(r.id)
             const safeId = escapeHTML(r.id);
 
             const featureBtnHtml = isApproved
-                ? `<button class="btn-feature ${isFeatured ? 'active' : ''}"
-                           data-action="review:toggle-featured"
-                           data-id="${safeId}">
-                       ${isFeatured ? '⭐ ' + t('featuredRemove') : '⭐ ' + t('featuredAdd')}
+                ? `<button class="btn-feature ${isFeatured ? 'active' : ''}" data-action="review:toggle-featured" data-id="${safeId}">
+                       ${isFeatured ? '⭐ Retirer de l\'accueil' : '⭐ Afficher sur l\'accueil'}
                    </button>`
                 : '';
 
-            const featuredBadge = isFeatured
-                ? `<span class="featured-badge">⭐ ${t('success')}</span>`
-                : '';
-
-            // ✅ M13.4 : lien produit
-            const productLink = r.productSlug
-                ? `<a href="/produit?slug=${encodeURIComponent(r.productSlug)}" target="_blank" style="color:var(--gold);text-decoration:underline;font-size:0.75rem;">📦 ${escapeHTML(r.productSlug)}</a>`
-                : `<span style="font-size:0.75rem;color:var(--text-dim);">📦 ${r.productId || 'N/A'}</span>`;
+            const featuredBadge = isFeatured ? `<span class="featured-badge">⭐ Accueil</span>` : '';
 
             listHtml += `
-                <div class="admin-review-item ${statusClass} ${isFeatured ? 'is-featured' : ''}"
-                     style="flex-direction:column;align-items:stretch;background:var(--bg-surface);border-radius:var(--radius-sm);padding:1rem;margin-bottom:0.8rem;border:1px solid var(--border);">
+                <div class="admin-review-item ${statusClass} ${isFeatured ? 'is-featured' : ''}" style="flex-direction:column;align-items:stretch;background:var(--bg-surface);border-radius:var(--radius-sm);padding:1rem;margin-bottom:0.8rem;border:1px solid var(--border);">
                     <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:0.4rem;margin-bottom:0.5rem;">
                         <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
                             <strong style="color:var(--gold);">${statusEmoji} ${escapeHTML(r.userName || 'Anonyme')}</strong>
@@ -725,11 +518,11 @@ export async function renderAdminReviews(containerId = 'reviewsList', statusFilt
                     <div style="font-size:0.9rem;color:var(--text-muted);margin-bottom:0.5rem;">${escapeHTML(r.comment || '')}</div>
                     ${(r.photos && r.photos.length > 0) ? `
                         <div class="review-photos" style="margin-bottom:0.6rem;">
-                            ${r.photos.map(url => `<img src="${escapeHTML(url)}" alt="${t('reviewPhotos')}" data-photo-url="${escapeHTML(url)}" style="cursor:pointer;">`).join('')}
+                            ${r.photos.map(url => `<img src="${escapeHTML(url)}" alt="Photo avis" data-photo-url="${escapeHTML(url)}" style="cursor:pointer;">`).join('')}
                         </div>
                     ` : ''}
                     <div style="font-size:0.75rem;color:var(--text-dim);margin-bottom:0.5rem;">
-                        ${productLink} · 👍 ${r.likesCount || 0}
+                        📦 ${t('product')} : ${escapeHTML(r.productSlug || 'N/A')} · 👍 ${r.likesCount || 0}
                     </div>
                     <div class="admin-review-actions">
                         ${r.status === REVIEW_STATUS.PENDING ? `
@@ -744,34 +537,19 @@ export async function renderAdminReviews(containerId = 'reviewsList', statusFilt
         });
         listEl.innerHTML = listHtml;
 
-        // ===== LISTENERS =====
+        // Attacher les événements
         listEl.querySelectorAll('[data-action="review:approve"]').forEach(btn => {
             btn.addEventListener('click', async () => {
-                btn.disabled = true;
                 const result = await approveReview(btn.dataset.id);
-                if (result.success) {
-                    showToast('✅ ' + t('success'));
-                    _adminRenderInProgress = false;
-                    renderAdminReviews(containerId, statusFilter);
-                } else {
-                    showToast('❌ ' + result.error);
-                    btn.disabled = false;
-                }
+                if (result.success) { showToast('✅ ' + t('success')); renderAdminReviews(containerId, statusFilter); }
+                else { showToast('❌ ' + result.error); }
             });
         });
 
         listEl.querySelectorAll('[data-action="review:reject"]').forEach(btn => {
             btn.addEventListener('click', async () => {
-                btn.disabled = true;
                 const result = await rejectReview(btn.dataset.id);
-                if (result.success) {
-                    showToast('❌ ' + t('reviewStatusRejected'));
-                    _adminRenderInProgress = false;
-                    renderAdminReviews(containerId, statusFilter);
-                } else {
-                    showToast('❌ ' + result.error);
-                    btn.disabled = false;
-                }
+                if (result.success) { showToast('❌ ' + t('reviewStatusRejected')); renderAdminReviews(containerId, statusFilter); }
             });
         });
 
@@ -780,14 +558,9 @@ export async function renderAdminReviews(containerId = 'reviewsList', statusFilt
                 btn.disabled = true;
                 const originalText = btn.textContent;
                 btn.textContent = '⏳...';
-
                 const result = await toggleFeaturedReview(btn.dataset.id);
-
                 if (result.success) {
-                    showToast(result.featured
-                        ? '⭐ ' + t('featuredAdd')
-                        : '✅ ' + t('featuredRemove'));
-                    _adminRenderInProgress = false;
+                    showToast(result.featured ? '⭐ Ajouté à l\'accueil' : '✅ Retiré de l\'accueil');
                     renderAdminReviews(containerId, statusFilter);
                 } else {
                     showToast('⚠️ ' + result.error);
@@ -799,45 +572,27 @@ export async function renderAdminReviews(containerId = 'reviewsList', statusFilt
 
         listEl.querySelectorAll('[data-action="review:delete"]').forEach(btn => {
             btn.addEventListener('click', async () => {
-                const confirmed = await confirmAction(
-                    t('confirmDeleteReviewMsg'),
-                    {
-                        title: t('confirmDeleteReviewTitle'),
-                        confirmText: t('confirmDeleteYes'),
-                        cancelText: t('confirmDeleteNo'),
-                        variant: 'danger'
-                    }
-                );
+                const confirmed = await confirmAction(t('confirmDeleteReviewMsg'), {
+                    title: t('confirmDeleteReviewTitle'), confirmText: t('confirmDeleteYes'), cancelText: t('confirmDeleteNo'), variant: 'danger'
+                });
                 if (!confirmed) return;
-
-                btn.disabled = true;
                 const result = await deleteReview(btn.dataset.id);
-                if (result.success) {
-                    showToast('🗑️ ' + t('delete'));
-                    _adminRenderInProgress = false;
-                    renderAdminReviews(containerId, statusFilter);
-                } else {
-                    showToast('❌ ' + result.error);
-                    btn.disabled = false;
-                }
+                if (result.success) { showToast('🗑️ ' + t('delete')); renderAdminReviews(containerId, statusFilter); }
+                else { showToast('❌ ' + result.error); }
             });
         });
 
         listEl.querySelectorAll('img[data-photo-url]').forEach(img => {
-            img.addEventListener('click', () => {
-                openImageLightbox(img.dataset.photoUrl);
-            });
+            img.addEventListener('click', () => openImageLightbox(img.dataset.photoUrl));
         });
 
     } catch (e) {
         console.error('❌ Erreur renderAdminReviews :', e);
         container.innerHTML = `<p style="text-align:center;color:var(--danger);">${t('loadingError')}</p>`;
-    } finally {
-        _adminRenderInProgress = false;
     }
 }
 
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ reviews.js chargé — v2.0.1 (fix setDoc import + transactions atomiques)');
+console.log('✅ reviews.js chargé — v2.0.0 (Transactions, Anti-doublons)');
