@@ -1,7 +1,7 @@
 // js/admin.js
 // ============================================================
 // PANNEAU ADMINISTRATION - SMART SWI9A
-// Version 6.1.0 — Fix Traductions Catégories, Erreurs Firestore
+// Version 6.2.0 — Fix Migration Batch + Affichage Catégories
 // ============================================================
 
 import { auth, db, storage } from "./firebase.js";
@@ -16,7 +16,7 @@ import {
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { 
     ROLES, ORDER_STATUS, CATEGORIES, CATEGORY_GROUPS, CONFIG, normalizeOrderStatus,
-    normalizeCategory // ✅ Importé pour la migration
+    normalizeCategory, getCategoryById // ✅ AJOUTÉ POUR L'AFFICHAGE
 } from "./config.js";
 import {
     escapeHTML, slugify, getStoragePathFromUrl, isStorageUrl,
@@ -37,7 +37,7 @@ let cachedPurchases = [];
 let cachedExpenses = [];
 let cachedTransactions = [];
 let cachedCoupons = [];
-let lastProductsLoadTime = 0; // ✅ Cache TTL
+let lastProductsLoadTime = 0;
 
 let simulatorListenersAttached = false;
 let alertInterval = null;
@@ -110,21 +110,20 @@ async function deleteStorageImages(urls) {
 }
 
 // ============================================================
-// LOADERS ROBUSTES (FIX err2)
+// LOADERS ROBUSTES
 // ============================================================
 async function loadPurchases() {
     try {
         const snap = await getDocs(query(collection(db, "purchases"), orderBy("date", "desc"), limit(500)));
         cachedPurchases = snap.docs.map(d => ({ id: d.id, ...d.data(), date: toDate(d.data().date) }));
     } catch (err) {
-        // Fallback si l'index n'existe pas
         try {
             const snap = await getDocs(collection(db, "purchases"));
             cachedPurchases = snap.docs.map(d => ({ id: d.id, ...d.data(), date: toDate(d.data().date) }));
             cachedPurchases.sort((a, b) => safeDate(b.date) - safeDate(a.date));
         } catch (err2) {
             cachedPurchases = [];
-            throw err2; // ✅ Correction de err2
+            throw err2;
         }
     }
     return cachedPurchases;
@@ -140,7 +139,7 @@ async function loadExpenses() {
             cachedExpenses.sort((a, b) => safeDate(b.date) - safeDate(a.date));
         } catch (err2) {
             cachedExpenses = [];
-            throw err2; // ✅ Correction de err2
+            throw err2;
         }
     }
     return cachedExpenses;
@@ -156,7 +155,7 @@ async function loadTransactions() {
             cachedTransactions.sort((a, b) => safeDate(b.date) - safeDate(a.date));
         } catch (err2) {
             cachedTransactions = [];
-            throw err2; // ✅ Correction de err2
+            throw err2;
         }
     }
     return cachedTransactions;
@@ -364,7 +363,7 @@ function initAdmin() {
 
     // Boutons Outils
     document.getElementById('migrateCitiesBtn')?.addEventListener('click', handleMigrateCities);
-    document.getElementById('migrateLegacyCategoriesBtn')?.addEventListener('click', handleMigrateLegacyCategories); // ✅ NOUVEAU
+    document.getElementById('migrateLegacyCategoriesBtn')?.addEventListener('click', handleMigrateLegacyCategories);
     document.getElementById('refreshCollectionsBtn')?.addEventListener('click', loadCollectionsStatus);
 
     document.getElementById('accRefreshBtn')?.addEventListener('click', refreshAccOverview);
@@ -436,7 +435,6 @@ async function loadProducts(force = false) {
     }
 }
 
-// ✅ FIX I18N : Utilisation de t() au lieu de .fr
 function populateCategoriesFilter() {
     const selectFilter = document.getElementById('productCategoryFilter');
     if (selectFilter && !selectFilter._populated) {
@@ -524,7 +522,11 @@ function renderProductsList(products) {
         const price = Number(p.price) || 0;
         const oldPrice = Number(p.oldPrice) || 0;
         const stock = Number(p.stock) || 0;
-        const category = p.category || '—';
+        
+        // ✅ FIX : AFFICHAGE DU NOM DE LA CATÉGORIE TRADUIT
+        const catObj = getCategoryById(p.category);
+        const categoryLabel = catObj ? `${catObj.emoji} ${t(catObj.label)}` : (p.category || '—');
+
         const isPromo = oldPrice > price && oldPrice > 0;
         let stockColor = 'var(--text)', stockEmoji = '📦';
         if (stock === 0) { stockColor = 'var(--danger)'; stockEmoji = '❌'; }
@@ -541,7 +543,7 @@ function renderProductsList(products) {
                 <div class="admin-list-item-info">
                     <strong>${name}${videoBadge}${variantBadge}</strong>
                     <div style="font-size:0.8rem;color:var(--text-muted);margin-top:0.2rem;">
-                        📂 ${category} · 💰 ${price} MAD ${isPromo ? `<small style="text-decoration:line-through;color:var(--text-dim);">${oldPrice}</small>` : ''} · <span style="color:${stockColor};font-weight:700;">${stockEmoji} ${stock}</span>
+                        📂 ${categoryLabel} · 💰 ${price} MAD ${isPromo ? `<small style="text-decoration:line-through;color:var(--text-dim);">${oldPrice}</small>` : ''} · <span style="color:${stockColor};font-weight:700;">${stockEmoji} ${stock}</span>
                     </div>
                 </div>
                 <div class="admin-list-item-actions">
@@ -1821,7 +1823,7 @@ async function handleMigrateCities() {
     showToast('🎉 ' + t('success'));
 }
 
-// ✅ NOUVEAU : Migration des catégories Legacy
+// ✅ FIX CRITIQUE : Réinstanciation du batch
 async function handleMigrateLegacyCategories() {
     const btn = document.getElementById('migrateLegacyCategoriesBtn');
     const logEl = document.getElementById('legacyMigrationLog');
@@ -1847,7 +1849,9 @@ async function handleMigrateLegacyCategories() {
     try {
         const snap = await getDocs(collection(db, "products"));
         let updatedCount = 0;
-        const batch = writeBatch(db);
+        
+        // ✅ Le batch est déclaré ici, avant la boucle
+        let batch = writeBatch(db);
         let batchCount = 0;
 
         for (const docSnap of snap.docs) {
@@ -1855,7 +1859,7 @@ async function handleMigrateLegacyCategories() {
             const oldCat = p.category;
             if (!oldCat) continue;
 
-            const newCat = normalizeCategory(oldCat); // Utilise la fonction de config.js
+            const newCat = normalizeCategory(oldCat);
             
             if (newCat !== oldCat) {
                 batch.update(docSnap.ref, { category: newCat });
@@ -1863,13 +1867,17 @@ async function handleMigrateLegacyCategories() {
                 batchCount++;
                 log(`🔄 ${p.nameFr || docSnap.id} : ${oldCat} ➔ ${newCat}`);
 
+                // ✅ FIX : On commit et on recrée un nouveau batch si on atteint 400
                 if (batchCount === 400) {
                     await batch.commit();
+                    log(`💾 Lot de 400 produits sauvegardé...`);
                     batchCount = 0;
+                    batch = writeBatch(db); // ✅ OBLIGATOIRE
                 }
             }
         }
 
+        // ✅ Commit final pour les produits restants
         if (batchCount > 0) {
             await batch.commit();
         }
@@ -2036,4 +2044,4 @@ function calculateFinances() {}
 // DÉMARRAGE
 // ============================================================
 initAdmin();
-console.log('✅ admin.js chargé — v6.1.0 (Traductions catégories OK)');
+console.log('✅ admin.js chargé — v6.2.0 (Fix Migration Batch + Affichage Catégories)');
