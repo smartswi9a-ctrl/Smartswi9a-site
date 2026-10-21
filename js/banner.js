@@ -1,21 +1,15 @@
 // js/banner.js
 // ============================================================
 // CARROUSELS AUTOMATIQUES - SMART SWI9A
-// Version 1.2.0 — Fix traductions AR/EN (noNewProducts/noPromotions)
-// ============================================================
-// Dépend de : utils, products
-// Bannière "Nouveautés" : 10 produits les plus récents
-// Bannière "Promos"     : produits en promotion (oldPrice > price)
+// Version 1.3.0 — Fix rendu vide + Gestion d'erreurs
 // ============================================================
 
 import { t, escapeHTML, getProductName, getProductImageUrl, getFallbackImage } from "./utils.js";
 import { getNewProducts, getPromoProducts, openProductPage } from "./products.js";
 
-// ============================================================
-// DÉTECTION PREFERS-REDUCED-MOTION
-// ============================================================
-const prefersReducedMotion = typeof window !== 'undefined'
-    && window.matchMedia
+// Détection des préférences de mouvement réduit (Accessibilité)
+const prefersReducedMotion = typeof window !== 'undefined' 
+    && window.matchMedia 
     && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // ============================================================
@@ -29,13 +23,14 @@ class InfiniteBanner {
             return;
         }
 
-        this.products = products || [];
+        this.products = Array.isArray(products) ? products : [];
         this.options = {
             speed: options.speed || 0.4,
             showDiscount: options.showDiscount || false,
             showNewBadge: options.showNewBadge || false
         };
 
+        // Si pas de produits, on affiche un message
         if (this.products.length === 0) {
             this.renderEmpty();
             return;
@@ -65,20 +60,20 @@ class InfiniteBanner {
         } else {
             requestAnimationFrame(() => this.updateDimensions());
             this.setupResizeObserver();
-            console.log('⏸️ Animation bannière désactivée (prefers-reduced-motion)');
         }
     }
 
     renderEmpty() {
         this.track.innerHTML = `
-            <div style="text-align:center;width:100%;color:var(--text-muted);padding:2rem 1rem;font-size:0.85rem;">
-                ${t('noProductsFound')}
+            <div style="text-align:center;width:100%;color:var(--text-muted);padding:1.5rem 1rem;font-size:0.85rem;">
+                ${this.options.showDiscount ? t('noPromotions') : t('noNewProducts')}
             </div>
         `;
     }
 
     build() {
         this.track.innerHTML = '';
+        // On duplique les produits pour l'effet infini
         const items = [...this.products, ...this.products];
         items.forEach(p => this.track.appendChild(this.createItem(p)));
         requestAnimationFrame(() => this.updateDimensions());
@@ -88,7 +83,7 @@ class InfiniteBanner {
         const div = document.createElement('div');
         div.className = 'banner-item';
 
-        const name = escapeHTML(getProductName(p));
+        const name = escapeHTML(getProductName(p) || 'Produit');
         const img = getProductImageUrl(p);
         const fallback = getFallbackImage(name);
         const price = Number(p.price) || 0;
@@ -125,6 +120,7 @@ class InfiniteBanner {
     updateDimensions() {
         const first = this.track.querySelector('.banner-item');
         if (!first) return;
+        
         const style = window.getComputedStyle(first);
         const marginRight = parseFloat(style.marginRight) || 0;
         this.itemWidth = first.offsetWidth + marginRight;
@@ -221,42 +217,34 @@ let promoBanner = null;
 let newBanner = null;
 
 // ============================================================
-// INITIALISER LES BANNIÈRES
+// INITIALISER / RAFRAÎCHIR
 // ============================================================
 export function initBanners() {
     refreshBanners();
 }
 
-// ============================================================
-// RAFRAÎCHIR LES BANNIÈRES
-// ============================================================
 export function refreshBanners() {
+    // Nettoyage des anciennes instances
     if (promoBanner) { promoBanner.destroy(); promoBanner = null; }
     if (newBanner) { newBanner.destroy(); newBanner = null; }
 
-    // Bannière Nouveautés
+    // --- BANNIÈRE NOUVEAUTÉS ---
     const newTrack = document.getElementById('newBannerTrack');
     if (newTrack) {
         const newProducts = getNewProducts(10);
-        if (newProducts.length > 0) {
-            newBanner = new InfiniteBanner('newBannerTrack', newProducts, {
-                speed: 0.4,
-                showNewBadge: true
-            });
-        } else {
-            newTrack.innerHTML = `
-                <div style="text-align:center;width:100%;color:var(--text-muted);padding:1rem;font-size:0.85rem;">
-                    ${t('noNewProducts')}
-                </div>
-            `;
-        }
+        newBanner = new InfiniteBanner('newBannerTrack', newProducts, {
+            speed: 0.4,
+            showNewBadge: true
+        });
     }
 
-    // Bannière Promos
+    // --- BANNIÈRE PROMOS ---
     const promoWrapper = document.getElementById('promoBannerWrapper');
     const promoTrack = document.getElementById('promoBannerTrack');
+    
     if (promoTrack) {
         const promoProducts = getPromoProducts();
+        
         if (promoProducts.length > 0) {
             if (promoWrapper) promoWrapper.style.display = '';
             promoBanner = new InfiniteBanner('promoBannerTrack', promoProducts, {
@@ -264,15 +252,8 @@ export function refreshBanners() {
                 showDiscount: true
             });
         } else {
-            if (promoWrapper) {
-                promoWrapper.style.display = 'none';
-            } else {
-                promoTrack.innerHTML = `
-                    <div style="text-align:center;width:100%;color:var(--text-muted);padding:1rem;font-size:0.85rem;">
-                        ${t('noPromotions')}
-                    </div>
-                `;
-            }
+            // S'il n'y a pas de promo, on cache complètement le bloc
+            if (promoWrapper) promoWrapper.style.display = 'none';
         }
     }
 }
@@ -280,4 +261,4 @@ export function refreshBanners() {
 // ============================================================
 // LOG
 // ============================================================
-console.log(`✅ banner.js chargé${prefersReducedMotion ? ' (animations désactivées)' : ''}`);
+console.log(`✅ banner.js chargé — v1.3.0 (Anti-crash)${prefersReducedMotion ? ' (animations désactivées)' : ''}`);
