@@ -1,7 +1,7 @@
 // js/admin.js
 // ============================================================
 // PANNEAU ADMINISTRATION - SMART SWI9A
-// Version 8.0.0 — Ajout du panneau Speedaf + Synchro globale
+// Version 8.1.0 — SKU auto, Logistique +5DH, Ramassage Speedaf
 // ============================================================
 
 import { auth, db, storage } from "./firebase.js";
@@ -56,7 +56,6 @@ let productsCurrentPage = 1;
 const BLOG_PER_PAGE = 15;
 let blogCurrentPage = 1;
 
-// ✅ FIX : Message d'erreur login persistant entre signOut et onAuthStateChanged
 let pendingLoginError = null;
 
 // ============================================================
@@ -77,7 +76,7 @@ const COUPON_TYPES = {
 };
 
 // ============================================================
-// HELPERS COMPTABILITÉ
+// HELPERS COMPTABILITÉ & SKU
 // ============================================================
 function formatMAD(n) {
     const num = Number(n) || 0;
@@ -100,6 +99,15 @@ function getDateRangeFromPeriod(period, customStart, customEnd) {
         case 'custom': default: start = customStart ? new Date(customStart) : new Date(now.getFullYear(), now.getMonth(), 1); start.setHours(0, 0, 0, 0); end = customEnd ? new Date(customEnd) : new Date(); end.setHours(23, 59, 59, 999);
     }
     return { start, end };
+}
+
+// ✅ Générateur de SKU
+function generateUniqueSku(category) {
+    const catPrefix = category ? category.substring(0, 4).toUpperCase() : 'GEN';
+    const now = new Date();
+    const dateStr = `${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const randomStr = Math.random().toString(36).substring(2, 5).toUpperCase();
+    return `SW-${catPrefix}-${dateStr}-${randomStr}`;
 }
 
 // ============================================================
@@ -299,7 +307,6 @@ function initAdmin() {
 
     document.getElementById('adminLoginBtn')?.addEventListener('click', handleLogin);
 
-    // ✅ FIX : Reset le message d'erreur dès que l'utilisateur retape
     document.getElementById('adminEmail')?.addEventListener('input', () => {
         pendingLoginError = null;
         const msgEl = document.getElementById('adminLoginMsg');
@@ -311,7 +318,6 @@ function initAdmin() {
         if (msgEl && msgEl.textContent) msgEl.textContent = '';
     });
 
-    // ✅ FIX : Permet de valider avec Entrée
     document.getElementById('adminPassword')?.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') { e.preventDefault(); handleLogin(); }
     });
@@ -392,12 +398,22 @@ function initAdmin() {
     document.getElementById('speedafSearchAdmin')?.addEventListener('input', renderSpeedafList);
     document.getElementById('speedafStatusFilter')?.addEventListener('change', renderSpeedafList);
     document.getElementById('syncAllSpeedafBtn')?.addEventListener('click', handleSyncAllSpeedaf);
+    
+    // Modale Ramassage
+    document.getElementById('pickupSpeedafBtn')?.addEventListener('click', () => {
+        document.getElementById('pickupDate').valueAsDate = new Date();
+        document.getElementById('pickupModal').classList.add('open');
+    });
+    document.getElementById('closePickupModalBtn')?.addEventListener('click', () => document.getElementById('pickupModal').classList.remove('open'));
+    document.getElementById('confirmPickupBtn')?.addEventListener('click', handleConfirmPickup);
 
     // Boutons Outils
     document.getElementById('migrateCitiesBtn')?.addEventListener('click', handleMigrateCities);
     document.getElementById('migrateLegacyCategoriesBtn')?.addEventListener('click', handleMigrateLegacyCategories);
+    document.getElementById('migrateSkuBtn')?.addEventListener('click', handleMigrateSku);
     document.getElementById('refreshCollectionsBtn')?.addEventListener('click', loadCollectionsStatus);
 
+    // Comptabilité
     document.getElementById('accRefreshBtn')?.addEventListener('click', refreshAccOverview);
     document.getElementById('accPeriod')?.addEventListener('change', (e) => {
         const startEl = document.getElementById('accStart');
@@ -639,6 +655,7 @@ function renderProductsList(products) {
         const price = Number(p.price) || 0;
         const oldPrice = Number(p.oldPrice) || 0;
         const stock = Number(p.stock) || 0;
+        const sku = p.sku ? `<span style="background:#e0e0e0;color:#333;font-size:0.65rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;font-family:monospace;">${escapeHTML(p.sku)}</span>` : '';
         
         const catObj = getCategoryById(p.category);
         const categoryLabel = catObj ? `${catObj.emoji} ${t(catObj.label)}` : (p.category || '—');
@@ -657,7 +674,7 @@ function renderProductsList(products) {
         html += `
             <div class="admin-list-item" data-product-id="${p.id}">
                 <div class="admin-list-item-info">
-                    <strong>${name}${videoBadge}${variantBadge}</strong>
+                    <strong>${name}${videoBadge}${variantBadge}${sku}</strong>
                     <div style="font-size:0.8rem;color:var(--text-muted);margin-top:0.2rem;">
                         📂 ${categoryLabel} · 💰 ${price} MAD ${isPromo ? `<small style="text-decoration:line-through;color:var(--text-dim);">${oldPrice}</small>` : ''} · <span style="color:${stockColor};font-weight:700;">${stockEmoji} ${stock}</span>
                     </div>
@@ -828,6 +845,13 @@ function attachProductFormEvents() {
             if (!document.getElementById('productEditId').value) pSlug.value = slugify(pNameFr.value);
         });
     }
+    
+    // Bouton Générer SKU
+    document.getElementById('generateSkuBtn')?.addEventListener('click', () => {
+        const category = document.getElementById('pCategory').value;
+        document.getElementById('pSku').value = generateUniqueSku(category);
+    });
+
     const imgUrl = document.getElementById('pImg');
     const imgPreview = document.getElementById('pImgPreview');
     if (imgUrl && imgPreview) {
@@ -936,13 +960,14 @@ function resetProductForm() {
     document.getElementById('productFormTitle').textContent = '➕ ' + t('adminAddProduct');
     document.getElementById('productEditId').value = '';
     
-    ['pNameFr', 'pNameAr', 'pNameEn', 'pSlug', 'pPrice', 'pOldPrice', 'pPurchasePrice', 'pStock', 'pRating',
+    ['pNameFr', 'pNameAr', 'pNameEn', 'pSlug', 'pSku', 'pPrice', 'pOldPrice', 'pPurchasePrice', 'pStock', 'pRating',
      'pDescFr', 'pDescAr', 'pDescEn', 'pFeaturesFr', 'pFeaturesAr', 'pFeaturesEn', 'pImg', 'pGallery', 'pVideo',
      'pWeight', 'pLength', 'pWidth', 'pHeight', 'pSizes', 'pColors'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
         
     document.getElementById('pParentCategory').value = '';
     document.getElementById('pCategory').innerHTML = '<option value="">-- Choisir une sous-catégorie --</option>';
     document.getElementById('pIsNew').checked = false;
+    document.getElementById('pLogisticsFee').checked = true;
     document.getElementById('pSizeGuide').checked = false;
     
     document.getElementById('variantsContainer').style.display = 'none';
@@ -968,6 +993,7 @@ async function editProduct(id) {
         document.getElementById('pNameAr').value = p.nameAr || '';
         document.getElementById('pNameEn').value = p.nameEn || '';
         document.getElementById('pSlug').value = p.slug || '';
+        document.getElementById('pSku').value = p.sku || '';
         
         const parentSelect = document.getElementById('pParentCategory');
         const childSelect = document.getElementById('pCategory');
@@ -987,7 +1013,11 @@ async function editProduct(id) {
             childSelect.value = p.category || '';
         }
 
-        document.getElementById('pPrice').value = p.price || '';
+        // Gestion du prix de base et des +5 DH
+        const hasLogisticsFee = p.logisticsFee > 0;
+        document.getElementById('pLogisticsFee').checked = hasLogisticsFee;
+        document.getElementById('pPrice').value = hasLogisticsFee ? (Number(p.price) - Number(p.logisticsFee)) : (p.price || '');
+        
         document.getElementById('pOldPrice').value = p.oldPrice || '';
         document.getElementById('pPurchasePrice').value = p.purchasePrice || '';
         document.getElementById('pStock').value = p.stock || '';
@@ -1064,7 +1094,9 @@ async function saveProduct() {
     const btnText = document.getElementById('saveProductBtnText');
     const nameFr = document.getElementById('pNameFr').value.trim();
     const slug = document.getElementById('pSlug').value.trim();
-    const priceRaw = parseFloat(document.getElementById('pPrice').value);
+    const sku = document.getElementById('pSku').value.trim();
+    const priceBase = parseFloat(document.getElementById('pPrice').value);
+    const applyFee = document.getElementById('pLogisticsFee').checked;
     const purchasePriceRaw = parseFloat(document.getElementById('pPurchasePrice').value);
     const stockRaw = parseInt(document.getElementById('pStock').value);
     const category = document.getElementById('pCategory').value;
@@ -1072,7 +1104,7 @@ async function saveProduct() {
     if (!nameFr) { showToast('⚠️ ' + t('adminProductNameRequired')); return; }
     if (!slug) { showToast('⚠️ ' + t('adminProductSlugRequired')); return; }
     if (!category) { showToast('⚠️ Sélectionnez une sous-catégorie'); return; }
-    if (isNaN(priceRaw) || priceRaw < 0) { showToast('⚠️ ' + t('adminProductPriceInvalid')); return; }
+    if (isNaN(priceBase) || priceBase < 0) { showToast('⚠️ ' + t('adminProductPriceInvalid')); return; }
     if (isNaN(stockRaw) || stockRaw < 0) { showToast('⚠️ ' + t('adminProductStockInvalid')); return; }
 
     saveBtn.disabled = true;
@@ -1109,7 +1141,7 @@ async function saveProduct() {
                 if (!Number.isFinite(vPrice) || vPrice < 0 || vPrice > 100000) throw new Error(`Prix invalide pour la variante ${safeSize}/${safeColor}`);
                 if (!Number.isFinite(vStock) || vStock < 0 || vStock > 99999) throw new Error(`Stock invalide pour la variante ${safeSize}/${safeColor}`);
 
-                variants.push({ size: safeSize, color: safeColor, price: vPrice, stock: vStock });
+                variants.push({ size: safeSize, color: safeColor, price: vPrice + (applyFee ? 5 : 0), stock: vStock });
             });
         }
 
@@ -1125,13 +1157,23 @@ async function saveProduct() {
             height: parseFloat(document.getElementById('pHeight').value) || 0
         };
 
+        // ✅ GESTION DU SKU
+        let finalSku = sku;
+        if (!finalSku) finalSku = generateUniqueSku(category);
+
+        // ✅ GESTION DES +5 DH
+        const finalPrice = priceBase + (applyFee ? 5 : 0);
+
         const productData = {
             nameFr,
             nameAr: document.getElementById('pNameAr').value.trim(),
             nameEn: document.getElementById('pNameEn').value.trim(),
             slug,
+            sku: finalSku,
             category,
-            price: priceRaw,
+            basePrice: priceBase,
+            logisticsFee: applyFee ? 5 : 0,
+            price: finalPrice,
             oldPrice: Math.max(0, parseFloat(document.getElementById('pOldPrice').value) || 0),
             purchasePrice: isNaN(purchasePriceRaw) ? 0 : purchasePriceRaw,
             stock: finalStock,
@@ -1166,6 +1208,7 @@ async function saveProduct() {
             productData.createdAt = Timestamp.now();
             productData.salesCount = 0;
             productData.ratingCount = 0;
+            productData.isSpeedafStored = false; // Prêt pour l'envoi Speedaf
             if (!videoValue) delete productData.video; 
             await setDoc(doc(db, "products", newId), productData);
             showToast('✅ ' + t('success'));
@@ -1251,7 +1294,7 @@ async function loadOrders() { await renderAdminOrders('adminOrdersList'); }
 async function loadReviews() { await renderAdminReviews('reviewsList', 'all'); }
 
 // ============================================================
-// 🚀 SPEEDAF TAB
+// 🚀 SPEEDAF TAB & RAMASSAGE
 // ============================================================
 async function loadSpeedafTab() {
     const container = document.getElementById('adminSpeedafList');
@@ -1260,7 +1303,6 @@ async function loadSpeedafTab() {
     container.innerHTML = `<div class="admin-loading">⏳ Chargement des commandes Speedaf...</div>`;
 
     try {
-        // On récupère les 100 dernières commandes pour l'affichage Speedaf
         const q = query(collection(db, "orders"), orderBy("createdAt", "desc"), limit(100));
         const snap = await getDocs(q);
         
@@ -1288,13 +1330,21 @@ function updateSpeedafStats() {
         else if (status === 'delivered') delivered++;
     });
 
+    // Comptage des produits stockés chez Speedaf
+    const storedCount = cachedProducts.filter(p => p.isSpeedafStored === true).length;
+
     const elPending = document.getElementById('speedafStatPending');
     const elShipping = document.getElementById('speedafStatShipping');
     const elDelivered = document.getElementById('speedafStatDelivered');
+    const elStorage = document.getElementById('speedafStatStorage');
     
     if (elPending) elPending.textContent = pending;
     if (elShipping) elShipping.textContent = shipping;
     if (elDelivered) elDelivered.textContent = delivered;
+    if (elStorage) {
+        elStorage.textContent = `${storedCount} / 10`;
+        elStorage.style.color = storedCount >= 10 ? 'var(--danger)' : 'var(--text)';
+    }
 }
 
 function renderSpeedafList() {
@@ -1306,24 +1356,21 @@ function renderSpeedafList() {
 
     let filtered = speedafOrdersCache;
 
-    // Filtre par statut
     if (filterStatus !== 'all') {
         filtered = filtered.filter(o => normalizeOrderStatus(o.status) === filterStatus);
     }
 
-    // Filtre par recherche
     if (search) {
         filtered = filtered.filter(o => {
             const idStr = o.id.slice(0, 8).toLowerCase();
             const trackingStr = (o.speedafTracking || '').toLowerCase();
             const clientName = (o.deliveryAddress?.name || '').toLowerCase();
-            const clientPhone = (o.deliveryAddress?.phone || '').toLowerCase();
-            return idStr.includes(search) || trackingStr.includes(search) || clientName.includes(search) || clientPhone.includes(search);
+            return idStr.includes(search) || trackingStr.includes(search) || clientName.includes(search);
         });
     }
 
     if (filtered.length === 0) {
-        container.innerHTML = `<div class="admin-empty">Aucune commande trouvée pour ces critères.</div>`;
+        container.innerHTML = `<div class="admin-empty">Aucune commande trouvée.</div>`;
         return;
     }
 
@@ -1351,7 +1398,7 @@ function renderSpeedafList() {
             : '';
 
         const printBtn = order.speedafLabelUrl 
-            ? `<a href="${escapeHTML(order.speedafLabelUrl)}" target="_blank" class="admin-btn-primary" style="padding:0.4rem 0.8rem; font-size:0.75rem; text-decoration:none; margin-left:0.3rem;">🖨️ Imprimer</a>` 
+            ? `<a href="${escapeHTML(order.speedafLabelUrl)}" target="_blank" class="admin-btn-primary" style="padding:0.4rem 0.8rem; font-size:0.75rem; text-decoration:none; margin-left:0.3rem;">🖨️ Étiquette</a>` 
             : '';
 
         const syncBtn = order.speedafTracking && ['shipping', 'confirmed'].includes(status)
@@ -1382,7 +1429,6 @@ function renderSpeedafList() {
 
     container.innerHTML = html;
 
-    // Attacher les événements de synchronisation individuelle
     container.querySelectorAll('[data-sync-id]').forEach(btn => {
         btn.addEventListener('click', async () => {
             const orderId = btn.dataset.syncId;
@@ -1394,7 +1440,7 @@ function renderSpeedafList() {
             if (res.success) {
                 if (res.updated) {
                     showToast(`✅ Statut mis à jour : ${res.newStatus}`);
-                    await loadSpeedafTab(); // Recharge tout
+                    await loadSpeedafTab();
                 } else {
                     showToast(`ℹ️ Statut Speedaf : ${res.currentStatus}`);
                 }
@@ -1412,15 +1458,13 @@ async function handleSyncAllSpeedaf() {
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Synchronisation...'; }
     isSyncingAllSpeedaf = true;
 
-    // On synchronise uniquement les commandes qui ont un numéro de suivi et qui ne sont pas encore livrées/retournées
     const ordersToSync = speedafOrdersCache.filter(o => 
-        o.speedafTracking && 
-        ['shipping', 'confirmed'].includes(normalizeOrderStatus(o.status))
+        o.speedafTracking && ['shipping', 'confirmed'].includes(normalizeOrderStatus(o.status))
     );
 
     if (ordersToSync.length === 0) {
         showToast('ℹ️ Aucune commande en cours à synchroniser.');
-        if (btn) { btn.disabled = false; btn.textContent = '🔄 Synchroniser tous les statuts'; }
+        if (btn) { btn.disabled = false; btn.textContent = '🔄 Synchroniser les statuts'; }
         isSyncingAllSpeedaf = false;
         return;
     }
@@ -1440,16 +1484,55 @@ async function handleSyncAllSpeedaf() {
     }
 
     showToast(`✅ ${updatedCount} commande(s) mise(s) à jour. ${errorCount > 0 ? errorCount + ' erreur(s).' : ''}`);
-    
-    // Recharger les données
     await loadSpeedafTab();
     
-    if (btn) { btn.disabled = false; btn.textContent = '🔄 Synchroniser tous les statuts'; }
+    if (btn) { btn.disabled = false; btn.textContent = '🔄 Synchroniser les statuts'; }
     isSyncingAllSpeedaf = false;
 }
 
+// ✅ NOUVEAU : Traitement de la demande de ramassage
+async function handleConfirmPickup() {
+    const dateVal = document.getElementById('pickupDate').value;
+    const packages = parseInt(document.getElementById('pickupPackages').value) || 1;
+    const weight = parseFloat(document.getElementById('pickupWeight').value) || 1;
+    const note = document.getElementById('pickupNote').value.trim();
+
+    if (!dateVal) { showToast('⚠️ Sélectionnez une date'); return; }
+
+    const btn = document.getElementById('confirmPickupBtn');
+    btn.disabled = true; btn.textContent = '⏳ Envoi...';
+
+    try {
+        // ⚠️ ICI : Appel API Speedaf réel quand on aura l'endpoint
+        // const response = await fetch(`${SPEEDAF_API_CONFIG.BASE_URL}/create-pickup`, { ... });
+        
+        // Simulation d'envoi réussi
+        await new Promise(r => setTimeout(r, 1500));
+        
+        // On enregistre la demande dans une collection pour l'historique
+        await addDoc(collection(db, "speedaf_pickups"), {
+            date: Timestamp.fromDate(new Date(dateVal)),
+            packages,
+            weight,
+            note,
+            status: 'pending',
+            createdAt: Timestamp.now()
+        });
+
+        showToast('✅ Demande de ramassage envoyée à Speedaf !');
+        document.getElementById('pickupModal').classList.remove('open');
+        
+        // Si Meriem te dit que le ramassage est payant, on pourra même l'ajouter automatiquement dans les dépenses ici.
+
+    } catch (e) {
+        showToast('❌ Erreur lors de la demande de ramassage : ' + e.message);
+    } finally {
+        btn.disabled = false; btn.textContent = '🚀 Envoyer la demande';
+    }
+}
+
 // ============================================================
-// CLIENTS (Suite et fin des fonctions Admin)
+// CLIENTS
 // ============================================================
 async function loadUsers() {
     const container = document.getElementById('adminUsersList');
@@ -1802,7 +1885,7 @@ async function deleteBlogPost(id) {
 }
 
 // ============================================================
-// CODES PROMO (Coupons)
+// CODES PROMO
 // ============================================================
 async function loadCoupons() {
     const container = document.getElementById('couponsList');
@@ -2072,7 +2155,7 @@ function filterCouponsList() {
 }
 
 // ============================================================
-// MIGRATION VILLES & CATEGORIES (OUTILS)
+// OUTILS : MIGRATION VILLES, CATEGORIES & SKU
 // ============================================================
 async function handleMigrateCities() {
     const btn = document.getElementById('migrateCitiesBtn');
@@ -2196,6 +2279,63 @@ async function handleMigrateLegacyCategories() {
         } else {
             log(`\n🎉 Migration terminée ! ${updatedCount} produit(s) mis à jour.`);
             showToast(`✅ ${updatedCount} produits migrés`);
+        }
+    } catch (e) {
+        log(`❌ Erreur : ${e.message}`, true);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+// ✅ NOUVEAU : Migration des SKU
+async function handleMigrateSku() {
+    const btn = document.getElementById('migrateSkuBtn');
+    const logEl = document.getElementById('skuMigrationLog');
+    const log = (msg, isErr = false) => { 
+        if (!logEl) return; 
+        logEl.classList.add('active'); 
+        const span = document.createElement('div'); 
+        if (isErr) span.className = 'error'; 
+        span.textContent = msg; 
+        logEl.appendChild(span); 
+        logEl.scrollTop = logEl.scrollHeight; 
+    };
+    
+    if (logEl) logEl.innerHTML = '';
+    btn.disabled = true;
+    log('⏳ Recherche des produits sans SKU...');
+
+    try {
+        const snap = await getDocs(collection(db, "products"));
+        let updatedCount = 0;
+        let batch = writeBatch(db);
+        let batchCount = 0;
+
+        for (const docSnap of snap.docs) {
+            const p = docSnap.data();
+            if (!p.sku) {
+                const newSku = `SW-LEGACY-${String(docSnap.id).slice(-4)}`;
+                batch.update(docSnap.ref, { sku: newSku });
+                updatedCount++;
+                batchCount++;
+                log(`🔄 ${p.nameFr || docSnap.id} ➔ ${newSku}`);
+
+                if (batchCount === 400) {
+                    await batch.commit();
+                    batchCount = 0;
+                    batch = writeBatch(db);
+                }
+            }
+        }
+
+        if (batchCount > 0) await batch.commit();
+
+        if (updatedCount === 0) {
+            log(`\n✅ Tous les produits ont déjà un SKU.`);
+        } else {
+            log(`\n🎉 ${updatedCount} produit(s) mis à jour avec un SKU.`);
+            showToast(`✅ ${updatedCount} SKU générés`);
+            await loadProducts(true); // Recharger la liste
         }
     } catch (e) {
         log(`❌ Erreur : ${e.message}`, true);
@@ -2340,11 +2480,13 @@ async function refreshAccOverview() {
             if (status === 'delivered') {
                 ordersCount++;
                 revenue += Number(o.total) || 0;
-                // Estimation COGS
+                // Estimation COGS (utilise le prix d'achat + 5 DH logistique)
                 (o.items || []).forEach(item => {
                     const p = cachedProducts.find(pp => String(pp.id) === String(item.productId));
                     const buyPrice = p ? Number(p.purchasePrice) || 0 : 0;
-                    cogs += buyPrice * (Number(item.quantity) || 1);
+                    // On ajoute le coût logistique de 5DH s'il est présent
+                    const logistics = p && p.logisticsFee ? Number(p.logisticsFee) : 0;
+                    cogs += (buyPrice + logistics) * (Number(item.quantity) || 1);
                 });
                 shippingCost += Number(o.deliveryFee) || 0;
             }
@@ -2399,7 +2541,6 @@ async function refreshAccOverview() {
             </table>
         `;
 
-        // Render Chart
         await renderRevenueChart(currentChartPeriod, ordersSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
     } catch (e) {
@@ -2455,7 +2596,6 @@ async function saveNewPurchase() {
             createdAt: Timestamp.now()
         });
 
-        // Update product stock
         if (product) {
             await updateDoc(doc(db, "products", productId), {
                 stock: increment(qty),
@@ -2736,10 +2876,10 @@ async function exportProductsCSV() {
     try {
         showToast('⏳ Chargement...');
         const snap = await getDocs(collection(db, "products"));
-        let csv = "Nom,Slug,Categorie,Prix,Cout_Achat,Stock\n";
+        let csv = "Nom,SKU,Slug,Categorie,Prix,Base_Price,Cout_Achat,Stock\n";
         snap.forEach(d => {
             const p = d.data();
-            csv += `"${p.nameFr||''}","${p.slug||''}","${p.category||''}","${p.price||0}","${p.purchasePrice||0}","${p.stock||0}"\n`;
+            csv += `"${p.nameFr||''}","${p.sku||''}","${p.slug||''}","${p.category||''}","${p.price||0}","${p.basePrice||p.price||0}","${p.purchasePrice||0}","${p.stock||0}"\n`;
         });
         downloadCSV(csv, `inventaire_${new Date().toISOString().split('T')[0]}.csv`);
         showToast('✅ Export CSV généré');
@@ -2762,7 +2902,7 @@ function renderFinanceProductSelection() {
     cachedProducts.forEach(p => {
         const name = p.nameFr || p.nameEn || 'Sans nom';
         const buyPrice = Number(p.purchasePrice) || 0;
-        const salePrice = Number(p.price) || 0;
+        const salePrice = Number(p.basePrice || p.price) || 0; // On utilise le prix de base pour la marge
         const stock = Number(p.stock) || 0;
 
         html += `
@@ -2770,7 +2910,7 @@ function renderFinanceProductSelection() {
                 <input type="checkbox" class="fin-product-checkbox" value="${p.id}" data-buy="${buyPrice}" data-sale="${salePrice}" data-stock="${stock}" style="width:auto;margin:0;">
                 <div style="flex:1;">
                     <strong style="font-size:0.85rem;color:var(--text);">${escapeHTML(name)}</strong>
-                    <div style="font-size:0.75rem;color:var(--text-muted);">Achat: ${buyPrice} MAD · Vente: ${salePrice} MAD · Stock: ${stock}</div>
+                    <div style="font-size:0.75rem;color:var(--text-muted);">Achat: ${buyPrice} MAD · Vente Base: ${salePrice} MAD · Stock: ${stock}</div>
                 </div>
             </label>
         `;
@@ -2826,20 +2966,26 @@ function calculateFinances() {
 
     if (selected.length === 0) { showToast('⚠️ Sélectionnez au moins un produit'); return; }
 
+    // Le coût logistique inclut les 5DH de Speedaf (ou frais réels)
     const logisticsCost = packaging + (returnRate / 100) * (returnShipping + packaging);
     
     let totalRevenue = 0, totalInvestment = 0, totalLogistics = 0, totalGrossProfit = 0, totalUnits = 0;
     const results = [];
 
     selected.forEach(p => {
-        const marginNetUnit = p.sale - p.buy - logisticsCost;
+        // p.sale contient déjà le prix de base (ex: 50)
+        // On ajoute 5 DH pour le prix final vu par le client, mais la marge se calcule sur le prix final - coût Speedaf réel
+        const finalSalePrice = p.sale + 5; // +5DH pour le client
+        const spdDeliveryCost = 35; // Coût Speedaf
+        const marginNetUnit = finalSalePrice - p.buy - spdDeliveryCost - logisticsCost;
+        
         const cpaMax = Math.max(0, marginNetUnit * (1 - safetyMargin / 100));
         const profitTotal = marginNetUnit * p.stock;
         const roi = p.buy > 0 ? (marginNetUnit / p.buy) * 100 : 0;
 
-        totalRevenue += p.sale * p.stock;
+        totalRevenue += finalSalePrice * p.stock;
         totalInvestment += p.buy * p.stock;
-        totalLogistics += logisticsCost * p.stock;
+        totalLogistics += (spdDeliveryCost + logisticsCost) * p.stock;
         totalGrossProfit += profitTotal;
         totalUnits += p.stock;
 
@@ -2894,7 +3040,7 @@ function calculateFinances() {
         rows += `<tr>
             <td>${escapeHTML(name)}</td>
             <td style="text-align:center;">${r.buy} MAD</td>
-            <td style="text-align:center;">${r.sale} MAD</td>
+            <td style="text-align:center;">${r.sale + 5} MAD</td>
             <td style="text-align:center;font-weight:700;color:${r.marginNetUnit>0?'var(--success)':'var(--danger)'};">${r.marginNetUnit.toFixed(2)} MAD</td>
             <td style="text-align:center;">${r.cpaMax.toFixed(2)} MAD</td>
             <td style="text-align:center;">${r.stock}</td>
@@ -2910,4 +3056,4 @@ function calculateFinances() {
 // DÉMARRAGE
 // ============================================================
 initAdmin();
-console.log('✅ admin.js chargé — v8.0.0 (Panneau Speedaf + Synchro)');
+console.log('✅ admin.js chargé — v8.1.0 (SKU + Logistique + Ramassage)');
