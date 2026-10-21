@@ -1,7 +1,7 @@
 // js/orders.js
 // ============================================================
 // GESTION DES COMMANDES - SMART SWI9A
-// Version 4.0.0 — Transactions Atomiques, Restauration Coupon
+// Version 4.1.0 — Fichier complet (Fix Truncation & Boutons)
 // ============================================================
 
 import {
@@ -30,7 +30,7 @@ import { cancelOrder, loadUserOrders } from "./cart.js";
 // ============================================================
 let userReviewedProductIds = new Set();
 const orderReviewStatusCache = new Map();
-const _userLangCache = new Map(); // ✅ Cache pour éviter les requêtes N+1
+const _userLangCache = new Map();
 
 // ============================================================
 // CONFIGURATION EMAILJS
@@ -40,8 +40,6 @@ const EMAILJS = {
     TEMPLATE_ID: 'template_6tp1n35',
     PUBLIC_KEY: '47Wn3We2YOdAoSN2g'
 };
-// ⚠️ SÉCURITÉ : La clé EmailJS est publique (visible via DevTools).
-// Protection recommandée : rate limiting via Cloud Functions.
 
 // ============================================================
 // HELPER : Chargement dynamique du SDK EmailJS
@@ -224,7 +222,7 @@ function buildOrderEmailHtml(order, status, recipient, lang = 'fr') {
 }
 
 // ============================================================
-// FACTURE HTML (Reste inchangé)
+// FACTURE HTML
 // ============================================================
 function getInvoiceNumber(order) { return 'INV-' + String(order.id || '').slice(0, 8).toUpperCase(); }
 
@@ -554,7 +552,6 @@ async function deleteOrderCompletely(orderId) {
     if (!orderSnap.exists()) return { success: false };
     const order = { id: orderId, ...orderSnap.data() };
     
-    // 1. Restaurer le stock via transaction
     if (order.stockDeducted === true && ![ORDER_STATUS.CANCELLED, ORDER_STATUS.RETURNED].includes(normalizeOrderStatus(order.status))) {
         await runTransaction(db, async (transaction) => {
             const productRefs = order.items.map(i => doc(db, "products", String(i.productId)));
@@ -563,7 +560,6 @@ async function deleteOrderCompletely(orderId) {
         });
     }
     
-    // 2. Nettoyer le reste via batch
     const batch = writeBatch(db);
     
     if (order.couponId && !order.couponRestored) {
@@ -582,13 +578,12 @@ async function deleteOrderCompletely(orderId) {
 }
 
 // ============================================================
-// ADMIN : RENDRE LES COMMANDES (Optimisé)
+// ADMIN : RENDRE LES COMMANDES
 // ============================================================
 export async function renderAdminOrders(containerId = 'ordersList') {
     const container = document.getElementById(containerId);
     if (!container) return;
 
-    // ✅ On ne fetch QUE si le cache est vide
     if (adminOrdersCache.length === 0) {
         container.innerHTML = `<div style="text-align:center;padding:1rem;color:var(--text-muted);">⏳ ${t('loadingOrders')}</div>`;
         const { orders, hasMore } = await loadAllOrders(true);
@@ -621,7 +616,6 @@ export async function renderAdminOrders(containerId = 'ordersList') {
         const invoiceBtnHtml = status === 'delivered' ? `<button class="btn-invoice" data-action="admin:resend-invoice" data-id="${order.id}" style="padding:0.3rem 0.8rem;border-radius:30px;background:linear-gradient(135deg,var(--gold),#7d5a1d);color:white;border:none;cursor:pointer;font-weight:600;font-size:0.8rem;" title="Renvoyer la facture">🧾 Facture</button>` : '';
         const couponBadge = (Number(order.couponDiscount) > 0 && order.couponCode) ? `<br><span style="font-size:0.7rem;color:var(--success);font-weight:700;">🎟️ ${escapeHTML(order.couponCode)} (−${order.couponDiscount} MAD)</span>` : '';
 
-        // ✅ Correction du double-escape
         const itemsSummary = (order.items || []).map(i => {
             const name = escapeHTML(i.name || '');
             const v = i.variant ? ` (${escapeHTML([i.variant.size, i.variant.color].filter(Boolean).join('-'))})` : '';
@@ -667,11 +661,10 @@ export async function renderAdminOrders(containerId = 'ordersList') {
     
     container.innerHTML = html;
 
-    // Attacher les événements
     document.getElementById('refreshAdminOrdersBtn')?.addEventListener('click', async (e) => {
         const btn = e.target;
         btn.textContent = '⏳...';
-        adminOrdersCache = []; // Reset
+        adminOrdersCache = [];
         await renderAdminOrders(containerId);
     });
 
@@ -821,6 +814,298 @@ export function resetAdminOrdersCache() {
 }
 
 // ============================================================
-// AUTRES FONCTIONS (Rendus, Modales, Retours, etc. - inchangées)
+// RETOURS (Admin)
 // ============================================================
-// ... (Je garde tout le reste du fichier tel quel pour ne pas le casser) ...
+export async function openReturnModal(orderId) {
+    try {
+        const snap = await getDoc(doc(db, "orders", orderId));
+        if (!snap.exists()) return showToast('❌ Commande introuvable');
+        
+        const order = { id: snap.id, ...snap.data() };
+        const items = order.items || [];
+        
+        const modalHtml = `
+            <div class="modal-overlay open" id="returnModal" style="z-index:2500;">
+                <div class="modal" style="max-width:600px;">
+                    <button class="modal-close" id="closeReturnModalBtn">✕</button>
+                    <h2 style="color:var(--gold);text-align:center;margin-bottom:0.5rem;">↩️ Gérer le retour</h2>
+                    <p style="font-size:0.85rem;color:var(--text-muted);text-align:center;margin-bottom:1rem;">
+                        Commande #${orderId.slice(0,8).toUpperCase()}
+                    </p>
+                    <div style="display:flex;flex-direction:column;gap:0.8rem;margin-bottom:1.5rem;">
+                        ${items.map((item, index) => `
+                            <div class="return-item-row">
+                                <div style="flex:1;">
+                                    <strong>${escapeHTML(item.name)}</strong>
+                                    <div style="font-size:0.75rem;color:var(--text-muted);">Commandé : ${item.quantity}</div>
+                                </div>
+                                <div>
+                                    <label style="font-size:0.75rem;color:var(--text-muted);">Qté retournée</label>
+                                    <input type="number" class="return-qty-input" data-index="${index}" min="0" max="${item.quantity}" value="0">
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                    <div style="display:flex;gap:0.5rem;justify-content:center;">
+                        <button id="cancelReturnBtn" class="btn-secondary">Annuler</button>
+                        <button id="confirmReturnBtn" class="btn-primary" style="background:var(--return-color);border-color:var(--return-color);">Valider le retour</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        const modal = document.getElementById('returnModal');
+        
+        const closeModal = () => modal.remove();
+        document.getElementById('closeReturnModalBtn').addEventListener('click', closeModal);
+        document.getElementById('cancelReturnBtn').addEventListener('click', closeModal);
+        modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+        
+        document.getElementById('confirmReturnBtn').addEventListener('click', async () => {
+            const inputs = modal.querySelectorAll('.return-qty-input');
+            const returns = [];
+            let hasChanges = false;
+            
+            inputs.forEach((input, index) => {
+                const qty = parseInt(input.value) || 0;
+                if (qty > 0) {
+                    returns.push({
+                        productId: items[index].productId,
+                        variant: items[index].variant || null,
+                        quantity: qty
+                    });
+                    hasChanges = true;
+                }
+            });
+            
+            if (!hasChanges) {
+                showToast('⚠️ Aucune quantité à retourner');
+                return;
+            }
+            
+            const btn = document.getElementById('confirmReturnBtn');
+            btn.disabled = true; btn.textContent = '⏳...';
+            
+            try {
+                await processReturnTransaction(order, returns);
+                showToast('✅ Retour enregistré, stock mis à jour');
+                closeModal();
+                if (typeof resetAdminOrdersCache === 'function') resetAdminOrdersCache();
+                if (typeof renderAdminOrders === 'function') renderAdminOrders('adminOrdersList');
+            } catch (err) {
+                showToast('❌ ' + err.message);
+                btn.disabled = false; btn.textContent = 'Valider le retour';
+            }
+        });
+        
+    } catch (e) {
+        console.error(e);
+        showToast('❌ Erreur lors de l\'ouverture du retour');
+    }
+}
+
+async function processReturnTransaction(order, returnsToProcess) {
+    await runTransaction(db, async (transaction) => {
+        const orderRef = doc(db, "orders", order.id);
+        const orderSnap = await transaction.get(orderRef);
+        if (!orderSnap.exists()) throw new Error("Commande introuvable");
+        
+        const currentOrder = orderSnap.data();
+        const currentReturns = currentOrder.returns || [];
+        
+        const productRefs = returnsToProcess.map(r => doc(db, "products", String(r.productId)));
+        const productSnaps = await Promise.all(productRefs.map(ref => transaction.get(ref)));
+        
+        productSnaps.forEach((snap, i) => {
+            if (!snap.exists()) return;
+            const pData = snap.data();
+            const r = returnsToProcess[i];
+            let updateData = { salesCount: Math.max(0, (Number(pData.salesCount) || 0) - r.quantity) };
+            
+            if (r.variant) {
+                const variants = [...(pData.variants || [])];
+                const vIdx = variants.findIndex(v => (v.size||'') === (r.variant.size||'') && (v.color||'') === (r.variant.color||''));
+                if (vIdx > -1) {
+                    variants[vIdx].stock = (Number(variants[vIdx].stock) || 0) + r.quantity;
+                    updateData.variants = variants;
+                    updateData.stock = variants.reduce((sum, v) => sum + (Number(v.stock)||0), 0);
+                }
+            } else {
+                updateData.stock = (Number(pData.stock) || 0) + r.quantity;
+            }
+            transaction.update(productRefs[i], updateData);
+        });
+        
+        const newReturnEntry = {
+            date: Timestamp.now(),
+            items: returnsToProcess.map(r => ({
+                productId: r.productId,
+                variant: r.variant,
+                delta: r.quantity
+            }))
+        };
+        
+        transaction.update(orderRef, {
+            returns: [...currentReturns, newReturnEntry],
+            status: ORDER_STATUS.RETURNED,
+            updatedAt: Timestamp.now()
+        });
+    });
+}
+
+// ============================================================
+// CLIENT : AFFICHER LES COMMANDES
+// ============================================================
+export async function renderUserOrders(containerId = 'tabContent') {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    container.innerHTML = `<div style="text-align:center;padding:1rem;color:var(--text-muted);">⏳ ${t('loadingOrders')}</div>`;
+
+    try {
+        const orders = await loadUserOrders();
+        if (!orders || orders.length === 0) {
+            container.innerHTML = `<div style="text-align:center;padding:2rem;color:var(--text-muted);">${t('noOrders')}</div>`;
+            return;
+        }
+
+        let html = '';
+        orders.forEach(order => {
+            const status = normalizeOrderStatus(order.status);
+            const emoji = getOrderStatusEmoji(status);
+            const date = formatDateTime(order.createdAt);
+            const idShort = order.id.slice(0, 8).toUpperCase();
+            const cancellable = isOrderCancellable(order);
+            const timeRemaining = cancellable ? formatTimeRemaining(getTimeRemainingForCancellation(order)) : null;
+
+            const cancelBtnHtml = cancellable 
+                ? `<div style="margin-top:0.5rem;display:flex;justify-content:space-between;align-items:center;">
+                    <span style="font-size:0.75rem;color:var(--gold);font-weight:600;">⏱️ ${t('orderCancellableIn').replace('{time}', timeRemaining)}</span>
+                    <button class="order-cancel-btn" data-order-id="${order.id}">${t('orderCancel')}</button>
+                   </div>` 
+                : '';
+
+            html += `
+                <div class="order-card">
+                    <div class="order-card-header">
+                        <span class="order-card-id">#${idShort} ${emoji}</span>
+                        <span class="order-card-date">${date}</span>
+                    </div>
+                    <div class="order-card-body">
+                        <div>🛒 <strong>${order.items?.length || 0}</strong> ${t('items')} - <strong>${order.total || 0} ${t('currency')}</strong></div>
+                        <div style="font-size:0.8rem;color:var(--text-muted);">📍 ${escapeHTML(order.deliveryAddress?.city || '')}</div>
+                    </div>
+                    <div class="order-card-actions">
+                        <button class="order-details-btn" data-order-id="${order.id}">${t('orderDetails')}</button>
+                    </div>
+                    ${cancelBtnHtml}
+                </div>
+            `;
+        });
+        container.innerHTML = html;
+
+        container.querySelectorAll('.order-details-btn').forEach(btn => {
+            btn.addEventListener('click', () => openOrderDetails(btn.dataset.orderId, false));
+        });
+
+        container.querySelectorAll('.order-cancel-btn').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const orderId = btn.dataset.orderId;
+                const confirmed = await confirmAction(t('confirmCancelOrderMsg'), {
+                    title: t('confirmCancelOrderTitle'), confirmText: t('confirmCancelOrderYes'), cancelText: t('confirmCancelOrderNo'), variant: 'danger'
+                });
+                if (!confirmed) return;
+                btn.disabled = true; btn.textContent = '⏳...';
+                const res = await cancelOrder(orderId);
+                if (res.success) {
+                    showToast('✅ ' + t('orderCancelled'));
+                    await renderUserOrders(containerId);
+                } else {
+                    showToast('❌ ' + res.error);
+                    btn.disabled = false; btn.textContent = t('orderCancel');
+                }
+            });
+        });
+    } catch (e) {
+        console.error(e);
+        container.innerHTML = `<div style="color:var(--danger);text-align:center;">${t('loadingError')}</div>`;
+    }
+}
+
+// ============================================================
+// MODALE DÉTAILS DE LA COMMANDE (CLIENT)
+// ============================================================
+export async function openOrderDetails(orderId, isAdmin = false) {
+    try {
+        const snap = await getDoc(doc(db, "orders", orderId));
+        if (!snap.exists()) return showToast('❌ Commande introuvable');
+        const order = { id: snap.id, ...snap.data() };
+        
+        const status = normalizeOrderStatus(order.status);
+        const timelineSteps = getOrderTimelineSteps(status);
+        
+        const timelineHtml = timelineSteps.map(step => `
+            <div class="order-timeline-step ${step.active ? 'done' : ''} ${step.current ? 'current' : ''} ${status === 'returned' ? 'returned' : ''}">
+                <div class="order-timeline-dot">${step.emoji}</div>
+                <span class="order-timeline-label">${t(step.label)}</span>
+            </div>
+        `).join('');
+
+        const itemsHtml = (order.items || []).map(item => {
+            const v = item.variant ? ` (${[item.variant.size, item.variant.color].filter(Boolean).join('-')})` : '';
+            return `
+                <div style="display:flex;justify-content:space-between;padding:0.5rem 0;border-bottom:1px dashed var(--border);font-size:0.85rem;">
+                    <span>${escapeHTML(item.name)}${escapeHTML(v)} × ${item.quantity}</span>
+                    <strong style="color:var(--gold);">${item.price * item.quantity} MAD</strong>
+                </div>
+            `;
+        }).join('');
+
+        let html = `
+            <div class="modal-overlay open" id="orderDetailsModal" style="z-index:2500;">
+                <div class="modal" style="max-width:600px;padding:1.5rem;">
+                    <button class="modal-close" id="closeOrderDetailsBtn">✕</button>
+                    <h2 style="font-family:var(--font-secondary);color:var(--gold);text-align:center;margin-bottom:1rem;">
+                        #${orderId.slice(0,8).toUpperCase()}
+                    </h2>
+
+                    <div class="order-timeline" style="margin:1rem 0;">${timelineHtml}</div>
+
+                    <div style="background:var(--bg-surface);padding:1rem;border-radius:var(--radius-sm);margin-bottom:1rem;">
+                        <h4 style="margin-bottom:0.5rem;color:var(--text);font-size:0.95rem;">📦 ${t('orderArticles')}</h4>
+                        ${itemsHtml}
+                        <div style="display:flex;justify-content:space-between;margin-top:0.8rem;font-weight:800;color:var(--text);">
+                            <span>${t('orderTotal')}</span>
+                            <span style="color:var(--gold);">${order.total || 0} MAD</span>
+                        </div>
+                    </div>
+
+                    <div style="background:var(--bg-surface);padding:1rem;border-radius:var(--radius-sm);margin-bottom:1rem;font-size:0.85rem;">
+                        <h4 style="margin-bottom:0.5rem;color:var(--text);font-size:0.95rem;">📍 ${t('orderDeliveryAddress')}</h4>
+                        <div><strong>${escapeHTML(order.deliveryAddress?.name || '')}</strong></div>
+                        <div>${escapeHTML(order.deliveryAddress?.phone || '')}</div>
+                        <div>${escapeHTML(order.deliveryAddress?.address || '')}</div>
+                        <div>${escapeHTML(order.deliveryAddress?.city || '')}</div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.insertAdjacentHTML('beforeend', html);
+        const modal = document.getElementById('orderDetailsModal');
+        const closeModal = () => modal.remove();
+        
+        document.getElementById('closeOrderDetailsBtn').addEventListener('click', closeModal);
+        modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
+    } catch (e) {
+        console.error(e);
+        showToast('❌ ' + t('error'));
+    }
+}
+
+// ============================================================
+// LOG
+// ============================================================
+console.log('✅ orders.js chargé — v4.1.0 (Fichier complet)');
