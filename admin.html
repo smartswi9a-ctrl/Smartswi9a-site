@@ -429,13 +429,21 @@
                     <div><label>🇬🇧 Nom (Anglais)</label><input type="text" id="pNameEn" placeholder="Product name"></div>
                     <div><label>🔗 Slug (URL) *</label><input type="text" id="pSlug" placeholder="prise-connectee-wifi"></div>
                 </div>
-
-                <!-- CATÉGORIES (Parent / Enfant) -->
                 <div class="admin-form-row">
+                    <div>
+                        <label>🏷️ SKU (Référence interne) *</label>
+                        <div style="display:flex; gap:0.4rem;">
+                            <input type="text" id="pSku" placeholder="Ex: SW-WEAR-2410-A1B" style="font-family:'Courier New', monospace; font-weight:700;">
+                            <button type="button" id="generateSkuBtn" class="admin-btn-secondary" style="padding:0 0.8rem; white-space:nowrap;" title="Générer un SKU">🎲</button>
+                        </div>
+                        <small style="color:var(--text-muted); font-size:0.7rem; display:block; margin-top:0.2rem;">Sera utilisé par Speedaf pour identifier le colis.</small>
+                    </div>
                     <div>
                         <label>📂 Catégorie Principale *</label>
                         <select id="pParentCategory"></select>
                     </div>
+                </div>
+                <div class="admin-form-row">
                     <div>
                         <label>📂 Sous-Catégorie *</label>
                         <select id="pCategory"></select>
@@ -444,12 +452,22 @@
 
                 <!-- PRIX ET STOCK -->
                 <div class="admin-form-row cols-4">
-                    <div><label>💰 Prix de vente (MAD) *</label><input type="number" id="pPrice" placeholder="149" min="0"></div>
+                    <div>
+                        <label>💰 Prix de base (MAD) *</label>
+                        <input type="number" id="pPrice" placeholder="50" min="0">
+                    </div>
+                    <div>
+                        <label>➕ Frais Logistique (+5 DH)</label>
+                        <div style="display:flex; align-items:center; gap:0.4rem; height: 38px;">
+                            <input type="checkbox" id="pLogisticsFee" checked style="width:auto; margin:0;">
+                            <span style="font-size:0.75rem; color:var(--success); font-weight:700;">Ajouter 5 DH</span>
+                        </div>
+                    </div>
                     <div><label>💰 Ancien prix (MAD)</label><input type="number" id="pOldPrice" placeholder="199" min="0"></div>
-                    <div><label>💸 Prix d'achat (MAD)</label><input type="number" id="pPurchasePrice" placeholder="75" min="0" title="Prix payé au grossiste"></div>
-                    <div><label>📦 Stock *</label><input type="number" id="pStock" placeholder="10" min="0"></div>
+                    <div><label>💸 Prix d'achat (MAD)</label><input type="number" id="pPurchasePrice" placeholder="25" min="0" title="Prix payé au grossiste"></div>
                 </div>
                 <div class="admin-form-row cols-4" style="margin-top:0.5rem;">
+                    <div><label>📦 Stock *</label><input type="number" id="pStock" placeholder="10" min="0"></div>
                     <div><label>⭐ Note moyenne</label><input type="number" id="pRating" placeholder="4.8" min="0" max="5" step="0.1"></div>
                     <div style="display:flex;align-items:center;gap:0.4rem;cursor:pointer;color:var(--text);font-size:0.9rem; margin-top:1.5rem;">
                         <input type="checkbox" id="pIsNew" style="width:auto;margin:0;">
@@ -488,7 +506,6 @@
                         <input type="checkbox" id="pSizeGuide" style="width:auto;margin:0;">
                         <label for="pSizeGuide" style="margin:0;cursor:pointer;font-weight:600;">📏 Activer le Guide des Tailles Automatique (US / EU)</label>
                     </div>
-                    <small style="color:var(--text-muted);font-size:0.75rem;display:block;margin-top:0.2rem;">Affichera un bouton "Guide des tailles" sur la page du produit avec les schémas de mesure.</small>
                 </div>
 
                 <!-- DESCRIPTIONS & CARACTÉRISTIQUES -->
@@ -521,7 +538,6 @@
                     <input type="text" id="pVideo" placeholder="Ex: demo-montre.mp4" title="Entrez uniquement le nom du fichier tel qu'il est dans votre bucket R2" style="flex:1;">
                     <button type="button" id="clearVideoBtn" class="admin-btn-secondary" style="white-space:nowrap; padding: 0.6rem 1rem;" title="Effacer la vidéo">❌ Effacer</button>
                 </div>
-                <small style="color:var(--text-muted);font-size:0.75rem;display:block;margin-top:0.2rem;">Le fichier doit déjà être uploadé sur votre bucket Cloudflare R2.</small>
 
                 <div style="display:flex;gap:0.5rem;margin-top:1rem;flex-wrap:wrap;">
                     <button class="admin-btn-primary" id="saveProductBtn">💾 <span id="saveProductBtnText">Enregistrer le produit</span></button>
@@ -552,9 +568,12 @@
 
         <!-- 🚀 NOUVEAU : SPEEDAF -->
         <div class="admin-content" id="tab-speedaf">
-            <div class="admin-header" style="margin-bottom:1rem; padding:1rem;">
+            <div class="admin-header" style="margin-bottom:1rem; padding:1rem; display:flex; justify-content:space-between; flex-wrap:wrap; gap:1rem;">
                 <h2 style="font-family:var(--font-secondary);color:var(--gold);margin:0;">🚀 Gestion des livraisons Speedaf</h2>
-                <button class="admin-btn-primary" id="syncAllSpeedafBtn" style="margin:0; padding:0.6rem 1.2rem;">🔄 Synchroniser tous les statuts</button>
+                <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+                    <button class="admin-btn-secondary" id="pickupSpeedafBtn" style="margin:0; padding:0.6rem 1.2rem; border-color:var(--info); color:var(--info);">📦 Demander un ramassage</button>
+                    <button class="admin-btn-primary" id="syncAllSpeedafBtn" style="margin:0; padding:0.6rem 1.2rem;">🔄 Synchroniser les statuts</button>
+                </div>
             </div>
             
             <div class="admin-stats" style="margin-bottom:1.5rem;">
@@ -569,6 +588,10 @@
                 <div class="admin-stat-card">
                     <span class="stat-value" id="speedafStatDelivered">—</span>
                     <span class="stat-label">📦 Livrés</span>
+                </div>
+                <div class="admin-stat-card">
+                    <span class="stat-value" id="speedafStatStorage">—</span>
+                    <span class="stat-label">🏬 Stockés (Max 10)</span>
                 </div>
             </div>
 
@@ -812,7 +835,7 @@
                                 <option value="marketing">📢 Publicité / Marketing</option>
                                 <option value="software">💻 Logiciels / Abonnements</option>
                                 <option value="utilities">💡 Électricité / Internet</option>
-                                <option value="logistics">🚚 Logistique / Livraison</option>
+                                <option value="speedaf">🚀 Speedaf (Livraison/Stockage)</option>
                                 <option value="tax">🏛️ Taxes / Impôts</option>
                                 <option value="other">📝 Autre</option>
                             </select>
@@ -822,7 +845,7 @@
                     </div>
                     <div style="margin-top:0.5rem;">
                         <label>Description *</label>
-                        <input type="text" id="expDescription" placeholder="Ex: Abonnement Shopify, Campagne Facebook...">
+                        <input type="text" id="expDescription" placeholder="Ex: Facture Speedaf Octobre, Ramassage...">
                     </div>
                     <button class="admin-btn-primary" id="addExpenseBtn">💾 Enregistrer la dépense</button>
                 </div>
@@ -835,9 +858,6 @@
             <div class="acc-content" id="acc-transactions">
                 <div class="admin-form">
                     <h3>💸 Nouvelle transaction</h3>
-                    <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1rem;">
-                        Utilisez ce formulaire pour les transactions diverses (remboursements, dons, ventes hors-ligne...).
-                    </p>
                     <div class="admin-form-row cols-3">
                         <div>
                             <label>Type *</label>
@@ -912,7 +932,7 @@
                         </div>
                         <div>
                             <label>🔄 Frais retour Speedaf (MAD)</label>
-                            <input type="number" id="finReturnShipping" value="15" min="0">
+                            <input type="number" id="finReturnShipping" value="35" min="0">
                         </div>
                     </div>
 
@@ -1042,31 +1062,23 @@
 
             <div class="admin-tool-card">
                 <h4>🏙️ Migration des villes vers Firestore</h4>
-                <p>Migre les <strong>240 villes</strong> du fichier <code>villes.json</code> vers la collection Firestore <code>cities</code>. Cela permet :</p>
-                <ul style="font-size:0.85rem;color:var(--text-muted);margin-left:1.5rem;margin-bottom:1rem;line-height:1.8;">
-                    <li>⚡ Chargement plus rapide</li>
-                    <li>🔒 Frais de livraison non falsifiables</li>
-                    <li>✏️ Modification sans redéployer le site</li>
-                </ul>
+                <p>Migre les <strong>240 villes</strong> du fichier <code>villes.json</code> vers la collection Firestore <code>cities</code>.</p>
                 <button class="admin-btn-primary" id="migrateCitiesBtn">🚀 Lancer la migration des villes</button>
                 <div class="admin-tool-log" id="migrationLog"></div>
             </div>
 
-            <!-- ✅ Migration catégories legacy -->
             <div class="admin-tool-card">
                 <h4>🔧 Migration des catégories legacy</h4>
-                <p>
-                    Migre automatiquement les anciennes catégories (<code>smartphone</code>, <code>tablet</code>, <code>watch</code>…) vers la nouvelle arborescence
-                    (<code>smartphones</code>, <code>tablets</code>, <code>wearables</code>…).
-                </p>
-                <ul style="font-size:0.85rem;color:var(--text-muted);margin-left:1.5rem;margin-bottom:1rem;line-height:1.8;">
-                    <li>✅ Aucune perte de données</li>
-                    <li>✅ Chaque produit est mis à jour individuellement</li>
-                    <li>✅ Les produits <code>category: 'smartphone'</code> deviennent <code>'smartphones'</code></li>
-                    <li>✅ Cohérence client ↔ admin rétablie</li>
-                </ul>
+                <p>Migre automatiquement les anciennes catégories (<code>smartphone</code>, <code>tablet</code>, <code>watch</code>…) vers la nouvelle arborescence.</p>
                 <button class="admin-btn-primary" id="migrateLegacyCategoriesBtn">🔧 Lancer la migration des catégories</button>
                 <div class="admin-tool-log" id="legacyMigrationLog"></div>
+            </div>
+
+            <div class="admin-tool-card">
+                <h4>🏷️ Générer les SKU manquants</h4>
+                <p>Attribue automatiquement un SKU unique (format <code>SW-...</code>) à tous les anciens produits qui n'en ont pas encore. Indispensable pour l'intégration Speedaf.</p>
+                <button class="admin-btn-primary" id="migrateSkuBtn">🏷️ Lancer la génération des SKU</button>
+                <div class="admin-tool-log" id="skuMigrationLog"></div>
             </div>
 
             <div class="admin-tool-card">
@@ -1089,28 +1101,49 @@
     <div id="adminAlertBanner" class="admin-alert-banner" style="display: none;">
         <div class="admin-alert-content">
             <span class="admin-alert-title">⚠️ Action requise :</span>
-
             <div class="admin-alert-items">
-                <button class="alert-badge alert-danger" id="alertOrdersBtn" style="display: none;">
-                    🔴 <span id="alertOrdersCount">0</span> Commande(s)
-                </button>
-
-                <button class="alert-badge alert-warning" id="alertReviewsBtn" style="display: none;">
-                    🟡 <span id="alertReviewsCount">0</span> Avis
-                </button>
-
-                <button class="alert-badge alert-danger" id="alertStockOutBtn" style="display: none;">
-                    ❌ <span id="alertStockOutCount">0</span> Rupture(s)
-                    <span class="alert-tooltip" id="alertStockOutTooltip">—</span>
-                </button>
-
-                <button class="alert-badge alert-info" id="alertStockLowBtn" style="display: none;">
-                    🟠 <span id="alertStockLowCount">0</span> Stock(s) bas
-                    <span class="alert-tooltip" id="alertStockLowTooltip">—</span>
-                </button>
+                <button class="alert-badge alert-danger" id="alertOrdersBtn" style="display: none;">🔴 <span id="alertOrdersCount">0</span> Commande(s)</button>
+                <button class="alert-badge alert-warning" id="alertReviewsBtn" style="display: none;">🟡 <span id="alertReviewsCount">0</span> Avis</button>
+                <button class="alert-badge alert-danger" id="alertStockOutBtn" style="display: none;">❌ <span id="alertStockOutCount">0</span> Rupture(s)<span class="alert-tooltip" id="alertStockOutTooltip">—</span></button>
+                <button class="alert-badge alert-info" id="alertStockLowBtn" style="display: none;">🟠 <span id="alertStockLowCount">0</span> Stock(s) bas<span class="alert-tooltip" id="alertStockLowTooltip">—</span></button>
             </div>
+            <button class="admin-alert-close" id="closeAlertBannerBtn" title="Masquer les alertes">✕</button>
+        </div>
+    </div>
 
-            <button class="admin-alert-close" id="closeAlertBannerBtn" title="Masquer les alertes (elles reviendront au prochain rechargement)">✕</button>
+    <!-- MODALE DE RAMASSAGE SPEEDAF -->
+    <div class="modal-overlay" id="pickupModal" style="z-index:2500;">
+        <div class="modal" style="max-width:450px;">
+            <button class="modal-close" id="closePickupModalBtn">✕</button>
+            <h2 style="font-family:var(--font-secondary);color:var(--gold);text-align:center;margin-bottom:1rem;">📦 Demander un ramassage</h2>
+            <p style="font-size:0.85rem;color:var(--text-muted);text-align:center;margin-bottom:1.5rem;">
+                Planifiez le passage du livreur Speedaf pour récupérer vos colis.
+            </p>
+            
+            <div class="admin-form-row">
+                <div>
+                    <label>Date de ramassage *</label>
+                    <input type="date" id="pickupDate">
+                </div>
+                <div>
+                    <label>Nombre de colis (cartons) *</label>
+                    <input type="number" id="pickupPackages" min="1" value="1">
+                </div>
+            </div>
+            <div class="admin-form-row" style="margin-top:0.5rem;">
+                <div>
+                    <label>Poids total estimé (kg) *</label>
+                    <input type="number" id="pickupWeight" min="1" value="1" step="0.5">
+                </div>
+                <div>
+                    <label>Note (Optionnel)</label>
+                    <input type="text" id="pickupNote" placeholder="Ex: Colis fragiles">
+                </div>
+            </div>
+            
+            <button class="admin-btn-primary" id="confirmPickupBtn" style="width:100%; justify-content:center; margin-top:1.5rem;">
+                🚀 Envoyer la demande
+            </button>
         </div>
     </div>
 
