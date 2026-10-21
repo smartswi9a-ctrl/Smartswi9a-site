@@ -1,7 +1,7 @@
 // js/config.js
 // ============================================================
 // CONFIGURATION CENTRALISÉE - SMART SWI9A
-// Version 4.0.0 — 23 Catégories Principales + Sous-catégories
+// Version 4.1.0 — Fix : Mapping legacy complet + suppression dépendance utils.js
 // ============================================================
 
 export const VIDEO_BASE_URL = "https://videos.smartswi9a.top/";
@@ -64,15 +64,28 @@ export function normalizeOrderStatus(status) {
     return STATUS_MIGRATION_MAP[status] || status;
 }
 
-// Anciennes catégories pour éviter les bugs si un vieux produit traîne
+// ✅ FIX : Mapping complet des anciennes catégories vers les nouvelles (pour la migration admin)
 export const LEGACY_CATEGORY_MAP = {
     'electronics': 'smartphones',
-    'home': 'furniture',
+    'smartphone': 'smartphones',
+    'tablet': 'computers',
+    'watch': 'wearables',
+    'accessory': 'tech-accessories',
+    'home': 'smart-home',
     'fashion': 'fashion',
     'baby-kids': 'toys',
     'auto-moto': 'auto',
     'office': 'office',
-    'misc': 'tools'
+    'misc': 'tools',
+    'audio': 'audio',
+    'beauty': 'beauty',
+    'sport': 'sports',
+    'game': 'games',
+    'toy': 'toys',
+    'pet': 'pets',
+    'camera': 'cameras',
+    'security': 'security',
+    'tool': 'tools'
 };
 
 export function normalizeCategory(catId) {
@@ -347,20 +360,6 @@ export function getCategoryPath(catId) {
     const parent = cat.parentId ? getCategoryById(cat.parentId) : null;
     return parent ? [parent, cat] : [cat];
 }
-export function getCategoryDisplayName(catId) {
-    const cat = getCategoryById(catId);
-    if (!cat) return String(catId || '');
-    return tCat(cat);
-}
-
-import { t } from './utils.js';
-export function tCat(category) {
-    if (!category) return '';
-    const label = typeof category === 'string' ? category : category.label;
-    if (!label) return '';
-    const translated = t(label);
-    return translated === label ? (category.label || label) : translated;
-}
 
 export const CATEGORIES = [{ id: 'all', label: 'filterAll', emoji: '🛍️' }, { id: 'favorites', label: 'filterFavorites', emoji: '❤️' }];
 CATEGORY_GROUPS.forEach(group => {
@@ -379,4 +378,4 @@ export const SORT_OPTIONS = [
     { value: 'rating', label: 'sortRating' }
 ];
 
-console.log('✅ config.js chargé — v4.0.0 (23 catégories principales)');
+console.log('✅ config.js chargé — v4.1.0 (mapping legacy complet)');
