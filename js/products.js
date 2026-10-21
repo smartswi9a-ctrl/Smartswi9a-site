@@ -1,7 +1,7 @@
 // js/products.js
 // ============================================================
 // GESTION DES PRODUITS - SMART SWI9A
-// Version 3.4.2 — Fix : préservation du scroll horizontal des catégories
+// Version 3.4.3 — Fix : scroll catégories préservé en RTL (arabe)
 // ============================================================
 
 import {
@@ -49,6 +49,36 @@ if (typeof document !== 'undefined') {
         if (pid) {
             _statsCache.delete(Number(pid));
             _statsCache.delete(pid);
+        }
+    });
+}
+
+// ============================================================
+// ✅ NOUVEAU HELPER : Restauration de scroll compatible LTR + RTL
+// ------------------------------------------------------------
+// - En LTR : scrollLeft va de 0 → +maxScroll
+// - En RTL : scrollLeft va de -maxScroll → 0 (valeurs négatives)
+// Une condition `> 0` rate donc TOUTES les valeurs RTL.
+// On utilise `!== 0` pour accepter les deux cas.
+// Le double-RAF fiabilise la restauration sur Safari ancien,
+// qui clampe parfois scrollLeft après innerHTML.
+// ============================================================
+function restoreScrollPosition(row, savedValue, shouldReset) {
+    if (!row) return;
+
+    if (shouldReset || savedValue === 0) {
+        row.scrollLeft = 0;
+        return;
+    }
+
+    // Tentative immédiate
+    row.scrollLeft = savedValue;
+
+    // 2ᵉ tentative après layout (fix Safari/iOS RTL)
+    requestAnimationFrame(() => {
+        if (!row.isConnected) return;
+        if (Math.abs(row.scrollLeft - savedValue) > 1) {
+            row.scrollLeft = savedValue;
         }
     });
 }
@@ -507,10 +537,12 @@ export async function renderProducts() {
 // ============================================================
 // ✅ RENDU DES CATÉGORIES (BANDE DÉFILANTE)
 // ------------------------------------------------------------
-// FIX v3.4.2 : préservation du scroll horizontal
-//   - Parents : toujours restauré (sauf changement de langue)
-//   - Enfants : restauré si le parent n'a pas changé
+// FIX v3.4.3 : compatible LTR (fr/en) ET RTL (ar)
+//   - Parents : scroll restauré (sauf changement de langue)
+//   - Enfants : scroll restauré si le parent n'a pas changé
 //              sinon reset à 0 (nouvelle liste)
+//   - Utilise restoreScrollPosition() qui gère les valeurs
+//     négatives de scrollLeft en RTL
 // ============================================================
 export function renderCategoryFilters() {
     const mainContainer = document.getElementById('filtersCategories');
@@ -575,14 +607,14 @@ export function renderCategoryFilters() {
     });
     mainHtml += `</div>`;
 
-    // ✅ FIX : Reconstruction du DOM (le scroll va être perdu, on le restaure juste après)
+    // ✅ Reconstruction du DOM (le scroll va être perdu, on le restaure juste après)
     mainContainer.innerHTML = mainHtml;
 
-    // ✅ FIX : Restaurer le scroll de la row parents (sauf changement de langue)
-    if (!langChanged && savedParentScroll > 0) {
-        const newParentRow = mainContainer.querySelector('.categories-scroll-row');
-        if (newParentRow) newParentRow.scrollLeft = savedParentScroll;
-    }
+    // ✅ FIX : Restaurer le scroll parents (LTR + RTL)
+    //   - Si langue changée → reset à 0
+    //   - Sinon → restaurer la valeur (positive LTR / négative RTL)
+    const newParentRow = mainContainer.querySelector('.categories-scroll-row');
+    restoreScrollPosition(newParentRow, savedParentScroll, langChanged);
 
     // ============================================
     // BANDE 2 : ENFANTS (Affiché seulement si un parent est sélectionné)
@@ -628,17 +660,9 @@ export function renderCategoryFilters() {
             childContainer.innerHTML = childHtml;
             childContainer.style.display = 'block';
 
-            // ✅ FIX : Restaurer ou reset le scroll enfants
+            // ✅ FIX : Restaurer ou reset le scroll enfants (LTR + RTL)
             const newChildRow = childContainer.querySelector('.categories-scroll-row');
-            if (newChildRow) {
-                if (shouldResetChildScroll) {
-                    // Nouveau parent ou nouvelle langue → début de liste
-                    newChildRow.scrollLeft = 0;
-                } else if (savedChildScroll > 0) {
-                    // Même parent, même langue → position conservée
-                    newChildRow.scrollLeft = savedChildScroll;
-                }
-            }
+            restoreScrollPosition(newChildRow, savedChildScroll, shouldResetChildScroll);
         } else {
             childContainer.style.display = 'none';
             childContainer.innerHTML = '';
@@ -729,4 +753,4 @@ export function openProductPage(slug) {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ products.js chargé — v3.4.2 (scroll catégories préservé)');
+console.log('✅ products.js chargé — v3.4.3 (RTL scroll fix)');
