@@ -1,10 +1,11 @@
 // js/panier.js
 // ============================================================
 // PAGE PANIER DÉDIÉE - SMART SWI9A
-// Version 2.0.0 — Fix Popup, Stock Variante, Coupon Deterministic
+// Version 2.0.1 — Fix Popup, Stock Variante, Coupon Deterministic
+// + Traduction dynamique des catégories dans le panier
 // ============================================================
 
-import { CONFIG } from "./config.js";
+import { CONFIG, getCategoryById } from "./config.js"; // ✅ Ajout de getCategoryById
 import {
     t, escapeHTML, getProductName, getProductImageUrl, getFallbackImage,
     getDiscountPercent, renderStars, getCityName, toDate
@@ -247,6 +248,10 @@ function renderCartItem(product, quantity, item) {
 
     const variantText = item.variant ? `<div style="font-size:0.75rem;color:var(--gold);font-weight:600;margin-bottom:0.2rem;">Taille: ${escapeHTML(item.variant.size || '—')} | Couleur: ${escapeHTML(item.variant.color || '—')}</div>` : '';
 
+    // ✅ FIX : Traduction dynamique de la catégorie
+    const catObj = getCategoryById(product.category);
+    const categoryLabel = catObj ? `${catObj.emoji} ${t(catObj.label)}` : escapeHTML(product.category || '');
+
     return `
         <div class="cart-page-item" data-product-id="${pid}">
             <a href="${productUrl}" class="cart-page-item-img-link"><img src="${img}" alt="${name}" class="cart-page-item-img" onerror="this.src='${fallback}'"></a>
@@ -254,7 +259,7 @@ function renderCartItem(product, quantity, item) {
                 <a href="${productUrl}" class="cart-page-item-name">${name}</a>
                 ${variantText}
                 <div class="cart-page-item-meta">
-                    <span class="cart-item-category">📂 ${escapeHTML(product.category || '')}</span>
+                    <span class="cart-item-category">📂 ${categoryLabel}</span>
                     ${stockHtml}
                 </div>
                 <div class="cart-page-item-bottom">
@@ -678,4 +683,4 @@ async function handleCheckoutFromPage() {
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initCartPage);
 else initCartPage();
 
-console.log('✅ panier.js chargé — v2.0.0 (Popup Fix, Stock Variante, Coupon)');
+console.log('✅ panier.js chargé — v2.0.1 (Traduction dynamique des catégories)');
