@@ -1,7 +1,7 @@
 // js/orders.js
 // ============================================================
 // GESTION DES COMMANDES - SMART SWI9A
-// Version 4.3.0 — Intégration Speedaf (Envoi, Suivi, Annulation)
+// Version 4.4.0 — Sécurisation API Speedaf via Cloudflare Worker
 // ============================================================
 
 import {
@@ -26,14 +26,14 @@ import { showToast, confirmAction } from "./ui-core.js";
 import { cancelOrder, loadUserOrders } from "./cart.js";
 
 // ============================================================
-// 🚀 CONFIGURATION SPEEDAF (À REMPLIR DÈS QUE MERIEM TE DONNE LES ACCÈS)
+// 🚀 CONFIGURATION SPEEDAF (Via Cloudflare Worker Proxy)
 // ============================================================
 const SPEEDAF_API_CONFIG = {
-    // L'URL exacte sera fournie par Speedaf (souvent https://api.speedaf.com/...)
-    BASE_URL: "https://api.speedaf.com/v1", 
-    // La clé API ou le Token fourni par Speedaf
-    API_KEY: "TA_CLE_API_ICI", 
-    // L'en-tête d'authentification (souvent 'Authorization' ou 'api-key')
+    // ✅ On utilise l'URL de ton proxy Cloudflare
+    BASE_URL: "https://speedaf-proxy.smartswi9a.workers.dev", 
+    // ✅ La vraie clé est cachée dans les paramètres de Cloudflare
+    API_KEY: "CACHEE_SUR_CLOUDFLARE", 
+    // L'en-tête d'authentification
     AUTH_HEADER: "Authorization" 
 };
 
@@ -1334,4 +1334,4 @@ export async function openOrderDetails(orderId, isAdmin = false) {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ orders.js chargé — v4.3.0 (Intégration Speedaf)');
+console.log('✅ orders.js chargé — v4.4.0 (Sécurisation API Speedaf)');
