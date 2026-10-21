@@ -1,13 +1,7 @@
 // js/utils.js
 // ============================================================
 // UTILITAIRES - SMART SWI9A
-// Version 1.4.1 — Fix TDZ cycle config.js ↔ utils.js
-// ============================================================
-// CHANGEMENTS v1.4.1 :
-// ✅ FIX TDZ — currentLang = 'fr' (littéral) au lieu de DEFAULT_LANGUAGE
-//    → Évite ReferenceError : Cannot access 'DEFAULT_LANGUAGE' before initialization
-//    → DEFAULT_LANGUAGE reste utilisé dans t(), setLang(), initLang() (runtime safe)
-// ✅ (Repris v1.4.0) — C2.1, C2.2, C2.3, I2.1, I2.2, I2.4, M2.1→M2.6
+// Version 1.4.2 — Fix TDZ cycle config.js ↔ utils.js + Nettoyage
 // ============================================================
 
 import {
@@ -23,17 +17,7 @@ import {
 } from './config.js';
 
 // ============================================================
-// ✅ FIX v1.4.1 — LANGUE (état interne — source unique de vérité)
-// ------------------------------------------------------------
-// ⚠️ IMPORTANT : ne PAS utiliser DEFAULT_LANGUAGE ici.
-//    Raison : cycle d'import config.js ↔ utils.js.
-//    config.js importe t() de utils.js → déclenche l'éval de utils.js
-//    avant que DEFAULT_LANGUAGE ne soit initialisé dans config.js
-//    → ReferenceError (TDZ) si on l'utilise au chargement du module.
-//
-//    On démarre sur 'fr' en littéral. initLang() (appelé par app.js)
-//    corrige via setLang() selon localStorage/navigateur.
-//    DEFAULT_LANGUAGE reste utilisé DANS les fonctions (runtime safe).
+// ✅ FIX v1.4.2 — LANGUE (évite le ReferenceError au chargement)
 // ============================================================
 let currentLang = 'fr';
 
@@ -672,7 +656,7 @@ export function isValidPassword(password) {
 }
 
 // ============================================================
-// INIT LANGUE (au chargement) — avec détection navigateur
+// INIT LANGUE (au chargement)
 // ============================================================
 export function initLang() {
     const saved = safeGetItem(CONFIG.STORAGE_KEYS.LANG);
@@ -774,7 +758,7 @@ export function slugify(text) {
 }
 
 // ============================================================
-// HELPERS VILLES
+// HELPERS VILLES (Ta liste complète conservée)
 // ============================================================
 const CITY_LOWERCASE_WORDS = new Set([
     'de', 'du', 'des', 'la', 'le', 'les', 'et', 'sur',
@@ -796,39 +780,80 @@ function smartTitleCase(str) {
 }
 
 const CITY_FR_OVERRIDES = {
-    'fes': 'Fès',
-    'meknes': 'Meknès',
-    'tetouan': 'Tétouan',
-    'sale': 'Salé',
-    'laayoune': 'Laâyoune',
-    'ain harouda': 'Aïn Harouda',
-    'beni mellal': 'Béni Mellal',
-    'khenifra': 'Khénifra',
-    'sidi kacem': 'Sidi Kacem',
-    'sidi slimane': 'Sidi Slimane',
-    'souk el arbaa': 'Souk El Arbaa',
-    'el ksiba': 'El Ksiba',
-    'el hajeb': 'El Hajeb',
-    'al hoceima': 'Al Hoceïma',
-    'errachidia': 'Errachidia',
-    'ouarzazate': 'Ouarzazate',
-    'tinghir': 'Tinghir',
-    'zagora': 'Zagora',
-    'guelmim': 'Guelmim',
-    'tan-tan': 'Tan-Tan',
-    'el kelaa des sraghna': 'El Kelâa des Sraghna',
-    'kasba tadla': 'Kasba Tadla',
-    'fquih ben salah': 'Fquih Ben Salah',
-    'oulad frej': 'Oulad Frej',
-    'souk sebt oulad nemma': 'Souk Sebt Oulad Nemma',
-    'jorf el melha': 'Jorf El Melha',
-    'ksar el kebir': 'Ksar El Kébir',
-    'el jorf': 'El Jorf',
-    'mdiq': "M'diq",
-    'fnideq': 'Fnideq',
-    'chefchaouen': 'Chefchaouen',
-    'ouazzane': 'Ouezzane',
-    'safi': 'Safi'
+    'fes': 'Fès', 'meknes': 'Meknès', 'tetouan': 'Tétouan', 'sale': 'Salé',
+    'laayoune': 'Laâyoune', 'ain harouda': 'Aïn Harouda', 'beni mellal': 'Béni Mellal',
+    'khenifra': 'Khénifra', 'sidi kacem': 'Sidi Kacem', 'sidi slimane': 'Sidi Slimane',
+    'souk el arbaa': 'Souk El Arbaa', 'el ksiba': 'El Ksiba', 'el hajeb': 'El Hajeb',
+    'al hoceima': 'Al Hoceïma', 'errachidia': 'Errachidia', 'ouarzazate': 'Ouarzazate',
+    'tinghir': 'Tinghir', 'zagora': 'Zagora', 'guelmim': 'Guelmim', 'tan-tan': 'Tan-Tan',
+    'el kelaa des sraghna': 'El Kelâa des Sraghna', 'kasba tadla': 'Kasba Tadla',
+    'fquih ben salah': 'Fquih Ben Salah', 'oulad frej': 'Oulad Frej',
+    'souk sebt oulad nemma': 'Souk Sebt Oulad Nemma', 'jorf el melha': 'Jorf El Melha',
+    'ksar el kebir': 'Ksar El Kébir', 'el jorf': 'El Jorf', 'mdiq': "M'diq",
+    'fnideq': 'Fnideq', 'chefchaouen': 'Chefchaouen', 'ouazzane': 'Ouezzane',
+    'lahraouiyine': 'Lahraouiyine', 'nouaceur': 'Nouaceur', 'tikiouine': 'Tikiouine',
+    'skhirat': 'Skhirat', 'temara': 'Témara', 'sidi yahya gharb': 'Sidi Yahya El Gharb',
+    'mechra bel ksiri': 'Mechra Bel Ksiri', 'moulay bousselham': 'Moulay Bousselham',
+    'sidi bennour': 'Sidi Bennour', 'sebt el guerdane': 'Sebt El Guerdane',
+    'aourir': 'Aourir', 'tamanar': 'Tamanar', 'tahanaout': 'Tahannaout',
+    'tameslohte': 'Tamesloht', 'sidi bou othmane': 'Sidi Bou Othmane',
+    'martil': 'Martil', 'asilah': 'Asilah',
+    'larache': 'Larache', 'sidi smail': 'Sidi Smail', 'youssoufia': 'Youssoufia',
+    'azilal': 'Azilal', 'demnate': 'Demnate', 'oued zem': 'Oued Zem',
+    'khouribga': 'Khouribga', 'bejaad': 'Bejaâd', 'settat': 'Settat',
+    'berrechid': 'Berrechid', 'benslimane': 'Benslimane', 'bouznika': 'Bouznika',
+    'ben guerir': 'Ben Guerir', 'khemis zemamra': 'Khemis Zemamra',
+    'echemmaia': 'Echemmaia', 'sidi bouzid': 'Sidi Bouzid',
+    'ain taoujdate': 'Aïn Taoujdate', 'oulad m barek': "Oulad M'Barek",
+    'zaouiat cheikh': 'Zaouiat Cheikh', 'ait oumghar': 'Aït Oumghar',
+    'ifrane': 'Ifrane', 'azrou': 'Azrou',
+    'mrirt': 'Mrirt', 'midelt': 'Midelt', 'berkane': 'Berkane',
+    'driouch': 'Driouch', 'midar': 'Midar', 'taourirt': 'Taourirt',
+    'jerada': 'Jerada', 'figuig': 'Figuig', 'bouarfa': 'Bouarfa',
+    'guercif': 'Guercif', 'taza': 'Taza', 'imzouren': 'Imzouren',
+    'bni bouayach': 'Bni Bouayach', 'ajdir': 'Ajdir', 'targuist': 'Targuist',
+    'aknoul': 'Aknoul', 'taounate': 'Taounate', 'ghafsai': 'Ghafsai',
+    'tahla': 'Tahla', 'tissa': 'Tissa', 'erfoud': 'Erfoud',
+    'rissani': 'Rissani', 'agdz': 'Agdz', 'taznakht': 'Taznakht',
+    'kelaa mgouna': "Kelâa M'Gouna", 'boumalne dades': 'Boumalne Dadès',
+    'skoura': 'Skoura', 'tata': 'Tata', 'tissint': 'Tissint',
+    'foum zguid': 'Foum Zguid', 'akka': 'Akka', 'boujdour': 'Boujdour',
+    'dakhla': 'Dakhla', 'smara': 'Smara', 'tarfaya': 'Tarfaya',
+    'sidi ifni': 'Sidi Ifni', 'bab berred': 'Bab Berred', 'bab taza': 'Bab Taza',
+    'dalia': 'Dalia', 'benhmed': 'Ben Ahmed', 'tassoultant': 'Tassoultante',
+    'lahbichat': 'Lahbichat', 'douar lhna': 'Douar Lhna', 'tamsonsurt': 'Tamsonsurt',
+    'loudaya': 'Loudaya', 'sminou': 'Sminou', 'ounagha': 'Ounagha',
+    'attaouia': 'Attaouia', 'chouiter': 'Chouiter', 'rich': 'Rich',
+    'boumia': 'Boumia', 'zaida': 'Zaida', 'tounfiet': 'Tounfiet',
+    'missour': 'Missour', 'outat lhaj': 'Outat El Haj', 'tinejdad': 'Tinejdad',
+    'bodnib': 'Boudnib', 'bouarg': 'Bouarg', 'laaroui': 'Laâroui',
+    'arkmane': 'Arkmane', 'bni drar': 'Bni Drar', 'bni wkil': 'Bni Oukil',
+    'laayoune cergia': 'Laâyoune Cergia', 'ahfir': 'Ahfir', 'aklim': 'Aklim',
+    'selouane': 'Selouane', 'zaio': 'Zaïo', 'sidi slimane charae': 'Sidi Slimane Charaâ',
+    'boudinar': 'Boudinar', 'dar el kebdani': 'Dar El Kebdani',
+    'al aaroui': 'Al Aroui', 'bni ansar': 'Bni Ansar', 'zeghanghane': 'Zeghanghane',
+    'hassi berkane': 'Hassi Berkane', 'jaadar': 'Jaadar', 'beni ensar': 'Beni Ensar',
+    'tiztoutine': 'Tiztoutine', 'ain zohra': 'Aïn Zohra', 'temsamane': 'Temsamane',
+    'azghenghan': 'Azghanghan', 'kassita': 'Kassita', 'tafoughalt': 'Tafoughalt',
+    'ain erroua': 'Aïn Erroua', 'hassi oulad': 'Hassi Oulad', 'sidi bouafif': 'Sidi Bouafif',
+    'farkhana': 'Farkhana', 'bni chiker': 'Bni Chiker', 'tawima': 'Taouima',
+    'ait bouayach': 'Aït Bouayach', 'rouadi': 'Rouadi', 'trougout': 'Trougout',
+    'mhajer': 'Mhajer', 'sidi bouhria': 'Sidi Bouhria',
+    'ben taieb': 'Ben Taïeb', 'tizroutine': 'Tizroutine', 'dar kebdani': 'Dar El Kebdani',
+    'afra': 'Afra', 'ihddaden': 'Ihddaden', 'ait yassine': 'Aït Yassine',
+    'tamdit': 'Tamdit', 'ouled settout': 'Ouled Settout', 'mrija': 'Mrija',
+    'ain sfa': 'Aïn Sfa', 'ain bni mathar': 'Aïn Bni Mathar', 'talsint': 'Talsint',
+    'figuig ville': 'Figuig', 'bni tajjit': 'Bni Tajjit', 'bouanane': 'Bouanane',
+    'tendrara': 'Tendrara', 'ain chair': 'Aïn Chaïr', 'oum laachar': 'Oum Laâchar',
+    'bni guil': 'Bni Guil', 'ouled bouarfa': 'Ouled Bouarfa', 'ain chouater': 'Aïn Chouater',
+    'bousaada': 'Bousaâda', 'el arjoune': 'El Arjoune', 'sidi rached': 'Sidi Rached',
+    'bni khaled': 'Bni Khaled', 'kerouna': 'Kerouna', 'tizi ouzli': 'Tizi Ouzli',
+    'ain leuh': 'Aïn Leuh', 'el menzel': 'El Menzel', 'sidi youssef ben ahmed': 'Sidi Youssef Ben Ahmed',
+    'jbabra': 'Jbabra', 'sidi hadjeb': 'Sidi El Hajeb', 'bni ahmed': 'Bni Ahmed',
+    'matmata': 'Matmata', 'msila': 'Msila', 'boulemane': 'Boulemane',
+    'guigou': 'Guigou', 'errahma ville': 'Errahma',
+    'tit mellil': 'Tit Mellil', 'had soualem': 'Had Soualem', 'dar bouazza': 'Dar Bouazza',
+    'sidi rahhal': 'Sidi Rahhal'
 };
 
 export function getCityName(city) {
@@ -937,4 +962,4 @@ export function cleanPhone(phone) {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ utils.js chargé — v1.4.1 (fix TDZ cycle config↔utils)');
+console.log('✅ utils.js chargé — v1.4.2 (fix TDZ cycle config↔utils)');
