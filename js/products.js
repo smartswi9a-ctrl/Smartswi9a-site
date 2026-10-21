@@ -1,7 +1,7 @@
 // js/products.js
 // ============================================================
 // GESTION DES PRODUITS - SMART SWI9A
-// Version 3.3.1 — Bande défilante visuelle (images à la racine de assets)
+// Version 3.4.0 — Alignement avec le design CSS (Bande défilante)
 // ============================================================
 
 import {
@@ -538,7 +538,7 @@ export function renderCategoryFilters() {
     // 23 Catégories Parents
     CATEGORY_GROUPS.forEach(group => {
         const isActive = activeCat === group.id || activeParentId === group.id;
-        // ✅ CHEMIN CORRIGÉ : on pointe directement vers /assets/
+        // ✅ CHEMIN : /assets/ID.webp (Fallback sur l'émoji si erreur)
         const imgPath = `/assets/${group.id}.webp`;
         mainHtml += `
             <button class="category-scroll-item ${isActive ? 'active' : ''}" data-action="products:filter" data-category="${group.id}">
@@ -581,7 +581,7 @@ export function renderCategoryFilters() {
 
             parentGroup.children.forEach(child => {
                 const isActive = activeCat === child.id;
-                // ✅ CHEMIN CORRIGÉ : on pointe directement vers /assets/
+                // ✅ CHEMIN : /assets/ID.webp
                 const imgPath = `/assets/${child.id}.webp`;
                 childHtml += `
                     <button class="category-scroll-item child-item ${isActive ? 'active' : ''}" data-action="products:filter" data-category="${child.id}">
@@ -687,4 +687,4 @@ export function openProductPage(slug) {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ products.js chargé — v3.3.1 (images à la racine de assets)');
+console.log('✅ products.js chargé — v3.4.0 (aligné avec le CSS bande défilante)');
