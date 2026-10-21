@@ -1,6 +1,6 @@
 /* ============================================================
    STYLE-PATCHES.CSS - SMART SWI9A
-   Version 2.0.0 — Fix Étoiles Avis, Design AliExpress, Vidéo
+   Version 2.1.0 — Fix Étoiles Avis, Design AliExpress, Témoignages
    ============================================================ */
 
 /* ============================================================
@@ -986,7 +986,7 @@ p, h1, h2, h3, h4, h5, h6 {
 }
 
 /* ============================================================
-   22. ✅ NOUVEAU : SYSTÈME D'ÉTOILES POUR LES AVIS
+   22. SYSTÈME D'ÉTOILES POUR LES AVIS (Formulaire)
    ============================================================ */
 .review-star-input {
     display: inline-flex;
@@ -1028,7 +1028,7 @@ p, h1, h2, h3, h4, h5, h6 {
 }
 
 /* ============================================================
-   23. ✅ NOUVEAU : REVIEW MODAL (Quick Review - Mes Commandes)
+   23. REVIEW MODAL (Quick Review - Mes Commandes)
    ============================================================ */
 .review-modal-stars {
     display: flex;
@@ -1057,7 +1057,7 @@ p, h1, h2, h3, h4, h5, h6 {
 }
 
 /* ============================================================
-   24. ✅ NOUVEAU : AFFICHAGE DES AVIS (Style AliExpress)
+   24. AFFICHAGE DES AVIS (Style AliExpress)
    ============================================================ */
 .review-item {
     transition: background 0.2s ease;
@@ -1085,6 +1085,197 @@ p, h1, h2, h3, h4, h5, h6 {
 }
 
 /* ============================================================
+   25. DESIGN DES TÉMOIGNAGES (2 Colonnes + RTL)
+   ============================================================ */
+
+/* Grille responsive de la page d'accueil */
+.testimonials-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+    margin-top: 1.5rem;
+}
+
+@media (min-width: 768px) {
+    .testimonials-grid {
+        grid-template-columns: repeat(2, 1fr); /* 2 par ligne sur tablette */
+    }
+}
+
+@media (min-width: 1024px) {
+    .testimonials-grid {
+        grid-template-columns: repeat(3, 1fr); /* 3 par ligne sur desktop */
+    }
+}
+
+/* Carte Témoignage */
+.testimonial-card {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+    transition: transform var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.testimonial-card:hover {
+    transform: translateY(-4px);
+    border-color: var(--border-gold);
+    box-shadow: var(--shadow-md);
+}
+
+/* Colonne Image (Gauche en FR/EN, Droite en AR) */
+.testimonial-img-col {
+    width: 140px;
+    flex-shrink: 0;
+    background: var(--bg-surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    gap: 0.5rem;
+}
+
+.testimonial-img {
+    width: 100px;
+    height: 100px;
+    object-fit: contain;
+    border-radius: var(--radius-sm);
+}
+
+.testimonial-img-placeholder {
+    width: 100px;
+    height: 100px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2.5rem;
+    background: var(--bg);
+    border-radius: var(--radius-sm);
+    color: var(--text-dim);
+}
+
+.testimonial-product-name {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-align: center;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    line-height: 1.3;
+}
+
+/* Colonne Contenu (Étoiles, Nom, Avis) */
+.testimonial-content-col {
+    flex: 1;
+    padding: 1.2rem;
+    display: flex;
+    flex-direction: column;
+    text-align: left;
+}
+
+.testimonial-stars {
+    color: var(--gold);
+    font-size: 1.1rem;
+    margin-bottom: 0.5rem;
+    letter-spacing: 0.1em;
+    direction: ltr;
+    unicode-bidi: isolate;
+    display: inline-block;
+}
+
+.testimonial-author {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.3rem;
+}
+
+.t-author-name {
+    font-weight: 700;
+    color: var(--text);
+    font-size: 0.95rem;
+}
+
+.testimonial-verified {
+    background: var(--success-bg);
+    color: var(--success);
+    border: 1px solid var(--success);
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 0.1rem 0.5rem;
+    border-radius: 30px;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+}
+
+.testimonial-city {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    margin-bottom: 0.5rem;
+    display: block;
+}
+
+.testimonial-comment {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    line-height: 1.6;
+    font-style: italic;
+    margin-top: 0.5rem;
+    flex: 1;
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* ✅ RTL - Arabe (Inverser les colonnes) */
+[dir="rtl"] .testimonial-card {
+    flex-direction: row-reverse;
+}
+
+[dir="rtl"] .testimonial-img-col {
+    border-right: none;
+    border-left: 1px solid var(--border);
+}
+
+[dir="rtl"] .testimonial-content-col {
+    text-align: right;
+}
+
+[dir="rtl"] .testimonial-author {
+    flex-direction: row-reverse;
+    justify-content: flex-end;
+}
+
+/* ✅ Responsive (Mobile) */
+@media (max-width: 600px) {
+    .testimonial-img-col {
+        width: 110px;
+        padding: 0.8rem;
+    }
+    .testimonial-img, .testimonial-img-placeholder {
+        width: 80px;
+        height: 80px;
+    }
+    .testimonial-content-col {
+        padding: 1rem;
+    }
+    .testimonial-comment {
+        font-size: 0.85rem;
+        -webkit-line-clamp: 3;
+    }
+}
+
+/* ============================================================
    LOG
    ============================================================ */
-/* style-patches.css v2.0.0 — Fix Étoiles Avis, Design AliExpress, Vidéo */
+/* style-patches.css v2.1.0 — Fix Étoiles Avis, Design AliExpress, Témoignages */
