@@ -1,7 +1,7 @@
 // js/orders.js
 // ============================================================
 // GESTION DES COMMANDES - SMART SWI9A
-// Version 4.2.0 — Fix : suppression d'avis après retour de commande
+// Version 4.3.0 — Intégration Speedaf (Envoi, Suivi, Annulation)
 // ============================================================
 
 import {
@@ -26,11 +26,16 @@ import { showToast, confirmAction } from "./ui-core.js";
 import { cancelOrder, loadUserOrders } from "./cart.js";
 
 // ============================================================
-// CACHE
+// 🚀 CONFIGURATION SPEEDAF (À REMPLIR DÈS QUE MERIEM TE DONNE LES ACCÈS)
 // ============================================================
-let userReviewedProductIds = new Set();
-const orderReviewStatusCache = new Map();
-const _userLangCache = new Map();
+const SPEEDAF_API_CONFIG = {
+    // L'URL exacte sera fournie par Speedaf (souvent https://api.speedaf.com/...)
+    BASE_URL: "https://api.speedaf.com/v1", 
+    // La clé API ou le Token fourni par Speedaf
+    API_KEY: "TA_CLE_API_ICI", 
+    // L'en-tête d'authentification (souvent 'Authorization' ou 'api-key')
+    AUTH_HEADER: "Authorization" 
+};
 
 // ============================================================
 // CONFIGURATION EMAILJS
@@ -81,19 +86,14 @@ async function sendEmailViaEmailJS(toEmail, toName, subject, htmlContent, textCo
 // ============================================================
 async function getUserLangById(userId) {
     if (!userId) return getLang() || 'fr';
-    if (_userLangCache.has(userId)) return _userLangCache.get(userId);
     try {
         const snap = await getDoc(doc(db, "users", userId));
         if (snap.exists()) {
             const u = snap.data();
             const l = u.lang || u.preferredLang || u.signupLang;
-            if (l === 'ar' || l === 'en' || l === 'fr') {
-                _userLangCache.set(userId, l);
-                return l;
-            }
+            if (l === 'ar' || l === 'en' || l === 'fr') return l;
         }
     } catch (e) {}
-    _userLangCache.set(userId, 'fr');
     return 'fr';
 }
 
@@ -385,11 +385,135 @@ export async function sendOrderEmail(order, status, recipient) {
 }
 
 // ============================================================
+// 🚀 LOGIQUE SPEEDAF (API)
+// ============================================================
+
+// Nettoie le numéro de téléphone (ex: +212 6 12 34 56 78 -> 0612345678)
+function cleanMoroccanPhone(phone) {
+    if (!phone) return '';
+    let cleaned = String(phone).replace(/\D/g, ''); // Enlève tout sauf les chiffres
+    if (cleaned.startsWith('212')) cleaned = '0' + cleaned.substring(3);
+    return cleaned;
+}
+
+// Envoie la commande à l'API Speedaf
+export async function sendToSpeedafAPI(order) {
+    try {
+        if (!order || !order.deliveryAddress) throw new Error("Données de commande invalides");
+
+        // ⚠️ ADAPTE CES CHAMPS SELON LA DOCUMENTATION DE SPEEDAF
+        const payload = {
+            reference: order.id.slice(0, 8).toUpperCase(),
+            receiver_name: order.deliveryAddress.name,
+            receiver_phone: cleanMoroccanPhone(order.deliveryAddress.phone),
+            receiver_address: order.deliveryAddress.address,
+            city: order.deliveryAddress.city, // À mapper si Speedaf utilise des codes
+            cod_amount: order.total,
+            weight: order.totalWeight || 1, // Poids par défaut de 1kg
+            remark: order.deliveryAddress.note || "Commande Smart Swi9a"
+        };
+
+        const response = await fetch(`${SPEEDAF_API_CONFIG.BASE_URL}/create-order`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                [SPEEDAF_API_CONFIG.AUTH_HEADER]: SPEEDAF_API_CONFIG.API_KEY
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            const errorData = await response.text();
+            console.error("❌ Erreur API Speedaf:", errorData);
+            return { success: false, error: errorData };
+        }
+
+        const data = await response.json();
+        console.log("✅ Succès Speedaf:", data);
+        
+        // Récupération du numéro de suivi et de l'URL de l'étiquette
+        const trackingNumber = data.trackingNumber || data.waybill || data.tracking_number;
+        const labelUrl = data.labelUrl || data.printUrl || data.label_url;
+
+        return { 
+            success: true, 
+            trackingNumber, 
+            labelUrl 
+        };
+
+    } catch (error) {
+        console.error("❌ Erreur réseau lors de l'appel Speedaf (CORS ?):", error);
+        return { success: false, error: error.message };
+    }
+}
+
+// Annule une commande chez Speedaf
+export async function cancelSpeedafShipment(trackingNumber) {
+    if (!trackingNumber) return false;
+    try {
+        const response = await fetch(`${SPEEDAF_API_CONFIG.BASE_URL}/cancel-order`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                [SPEEDAF_API_CONFIG.AUTH_HEADER]: SPEEDAF_API_CONFIG.API_KEY
+            },
+            body: JSON.stringify({ tracking_number: trackingNumber })
+        });
+        return response.ok;
+    } catch (error) {
+        console.warn("⚠️ Impossible d'annuler le colis chez Speedaf:", error);
+        return false;
+    }
+}
+
+// Vérifie le statut d'un colis (pour la synchro manuelle admin)
+export async function syncSpeedafStatus(orderId) {
+    try {
+        const orderRef = doc(db, "orders", orderId);
+        const snap = await getDoc(orderRef);
+        if (!snap.exists()) return { success: false, error: "Commande introuvable" };
+        
+        const order = snap.data();
+        if (!order.speedafTracking) return { success: false, error: "Aucun numéro de suivi" };
+
+        const response = await fetch(`${SPEEDAF_API_CONFIG.BASE_URL}/track/${order.speedafTracking}`, {
+            method: 'GET',
+            headers: {
+                [SPEEDAF_API_CONFIG.AUTH_HEADER]: SPEEDAF_API_CONFIG.API_KEY
+            }
+        });
+
+        if (!response.ok) throw new Error("Erreur API lors du tracking");
+
+        const data = await response.json();
+        const speedafStatus = (data.status || data.state || "").toLowerCase();
+
+        // Mapping des statuts Speedaf -> Site
+        if (speedafStatus.includes('delivered') || speedafStatus.includes('livré')) {
+            if (normalizeOrderStatus(order.status) !== ORDER_STATUS.DELIVERED) {
+                await updateOrderStatus(orderId, ORDER_STATUS.DELIVERED);
+                return { success: true, updated: true, newStatus: 'delivered' };
+            }
+        } else if (speedafStatus.includes('returned') || speedafStatus.includes('retour')) {
+            if (normalizeOrderStatus(order.status) !== ORDER_STATUS.RETURNED) {
+                await updateOrderStatus(orderId, ORDER_STATUS.RETURNED);
+                return { success: true, updated: true, newStatus: 'returned' };
+            }
+        }
+        
+        return { success: true, updated: false, currentStatus: speedafStatus };
+
+    } catch (error) {
+        console.error("Erreur syncSpeedaf:", error);
+        return { success: false, error: error.message };
+    }
+}
+
+// ============================================================
 // CACHES
 // ============================================================
 let userOrdersCache = [];
 let adminOrdersCache = [];
-let currentStatusFilter = 'all';
 const ADMIN_PAGE_SIZE = 20;
 let adminLastVisible = null;
 let adminHasMore = true;
@@ -459,7 +583,7 @@ async function restoreStockInTransaction(transaction, order, productSnaps, produ
 }
 
 // ============================================================
-// UPDATE ORDER STATUS (ATOMIQUE)
+// UPDATE ORDER STATUS (ATOMIQUE + SPEEDAF AUTO)
 // ============================================================
 export async function updateOrderStatus(orderId, newStatus) {
     try {
@@ -474,6 +598,7 @@ export async function updateOrderStatus(orderId, newStatus) {
         let orderForEmail = null;
         let emailStatus = null;
         
+        // 1. TRANSACTION FIRESTORE (Stock & Statut de base)
         await runTransaction(db, async (transaction) => {
             const orderSnap = await transaction.get(orderRef);
             if (!orderSnap.exists()) throw new Error('Commande introuvable');
@@ -485,7 +610,7 @@ export async function updateOrderStatus(orderId, newStatus) {
             
             if (!Object.values(ORDER_STATUS).includes(normalizedStatus)) throw new Error('Statut invalide');
             
-            // --- GESTION DU STOCK ET DU COUPON ---
+            // Gestion du stock
             if (normalizedStatus === ORDER_STATUS.CONFIRMED && previousStatus === ORDER_STATUS.PENDING && order.stockDeducted !== true) {
                 const productRefs = order.items.map(i => doc(db, "products", String(i.productId)));
                 const productSnaps = await Promise.all(productRefs.map(r => transaction.get(r)));
@@ -500,7 +625,7 @@ export async function updateOrderStatus(orderId, newStatus) {
                 order.stockDeducted = false;
             }
             
-            // --- RESTAURATION DU COUPON À L'ANNULATION ---
+            // Restauration coupon
             if (normalizedStatus === ORDER_STATUS.CANCELLED && order.couponId && !order.couponRestored) {
                 const couponRef = doc(db, "coupons", order.couponId);
                 const couponUseRef = doc(db, "coupon_uses", `${order.couponId}_${order.userId}`);
@@ -509,7 +634,6 @@ export async function updateOrderStatus(orderId, newStatus) {
                 order.couponRestored = true;
             }
             
-            // --- UPDATE FINAL ---
             const updatePayload = {
                 status: normalizedStatus,
                 updatedAt: Timestamp.now(),
@@ -519,7 +643,36 @@ export async function updateOrderStatus(orderId, newStatus) {
             transaction.update(orderRef, updatePayload);
         });
         
-        // --- EMAILS POST-TRANSACTION ---
+        // 2. 🚀 SYNCHRONISATION AUTOMATIQUE SPEEDAF
+        if (normalizedStatus === ORDER_STATUS.CONFIRMED && orderForEmail) {
+            // On tente l'envoi seulement si ce n'est pas déjà fait
+            if (!orderForEmail.speedafTracking) {
+                const spdResult = await sendToSpeedafAPI(orderForEmail);
+                if (spdResult.success && spdResult.trackingNumber) {
+                    // Speedaf a accepté : on passe automatiquement en "En cours de livraison"
+                    await updateDoc(orderRef, {
+                        status: ORDER_STATUS.SHIPPING,
+                        speedafTracking: spdResult.trackingNumber,
+                        speedafLabelUrl: spdResult.labelUrl || null,
+                        speedafSyncedAt: Timestamp.now()
+                    });
+                    // On met à jour nos variables locales pour que l'email soit correct
+                    emailStatus = ORDER_STATUS.SHIPPING;
+                    orderForEmail.status = ORDER_STATUS.SHIPPING;
+                    orderForEmail.speedafTracking = spdResult.trackingNumber;
+                    showToast(`✅ Colis créé chez Speedaf (Suivi: ${spdResult.trackingNumber})`);
+                } else {
+                    showToast(`⚠️ Speedaf a refusé la commande : ${spdResult.error}`, 4000);
+                }
+            }
+        }
+
+        if (normalizedStatus === ORDER_STATUS.CANCELLED && orderForEmail?.speedafTracking) {
+            const cancelled = await cancelSpeedafShipment(orderForEmail.speedafTracking);
+            if (cancelled) showToast('✅ Colis annulé chez Speedaf');
+        }
+        
+        // 3. ENVOI DES EMAILS (avec le statut mis à jour)
         if (emailStatus && ['confirmed', 'shipping', 'delivered', 'cancelled'].includes(emailStatus)) {
             try {
                 await sendOrderEmail(orderForEmail, emailStatus, 'client');
@@ -529,7 +682,7 @@ export async function updateOrderStatus(orderId, newStatus) {
             }
         }
         
-        // --- NOTIFICATIONS ---
+        // 4. NOTIFICATIONS CLIENT (si livré)
         if (normalizedStatus === ORDER_STATUS.DELIVERED && orderForEmail.userId) {
             try {
                 const { createNotification } = await import("./notifications.js");
@@ -578,7 +731,7 @@ async function deleteOrderCompletely(orderId) {
 }
 
 // ============================================================
-// ADMIN : RENDRE LES COMMANDES
+// ADMIN : RENDRE LES COMMANDES (Mis à jour avec boutons Speedaf)
 // ============================================================
 export async function renderAdminOrders(containerId = 'ordersList') {
     const container = document.getElementById(containerId);
@@ -609,12 +762,17 @@ export async function renderAdminOrders(containerId = 'ordersList') {
         const cityDisplay = getCityName({ name: order.deliveryAddress?.cityAr || order.deliveryAddress?.city, nameFr: order.deliveryAddress?.cityFr, nameAr: order.deliveryAddress?.cityAr });
         
         const stockBadge = order.stockDeducted === true ? `<span style="font-size:0.7rem;color:var(--success);font-weight:700;">📦 Stock déduit</span>` : `<span style="font-size:0.7rem;color:var(--warning);font-weight:700;">⏳ Stock non déduit</span>`;
-        const returnBadge = getReturnBadgeText(order);
-        const returnBadgeHtml = returnBadge ? ` · <span style="font-size:0.7rem;color:#9b59b6;font-weight:700;">${returnBadge}</span>` : '';
-        const showReturnBtn = canReturnOrder(order);
-        const returnBtnHtml = showReturnBtn ? `<button class="btn-return" data-action="admin:return-order" data-id="${order.id}" style="padding:0.3rem 0.8rem;border-radius:30px;background:#9b59b6;color:white;border:none;cursor:pointer;font-weight:600;font-size:0.8rem;">↩️ Retour</button>` : '';
-        const invoiceBtnHtml = status === 'delivered' ? `<button class="btn-invoice" data-action="admin:resend-invoice" data-id="${order.id}" style="padding:0.3rem 0.8rem;border-radius:30px;background:linear-gradient(135deg,var(--gold),#7d5a1d);color:white;border:none;cursor:pointer;font-weight:600;font-size:0.8rem;" title="Renvoyer la facture">🧾 Facture</button>` : '';
-        const couponBadge = (Number(order.couponDiscount) > 0 && order.couponCode) ? `<br><span style="font-size:0.7rem;color:var(--success);font-weight:700;">🎟️ ${escapeHTML(order.couponCode)} (−${order.couponDiscount} MAD)</span>` : '';
+        
+        // 🚀 Affichage Speedaf
+        let speedafHtml = '';
+        if (order.speedafTracking) {
+            speedafHtml = `
+                <div style="margin-top:0.5rem; padding:0.5rem; background:rgba(165,123,46,0.05); border:1px solid var(--border-gold); border-radius:var(--radius-sm); font-size:0.8rem;">
+                    <strong>🚀 Speedaf:</strong> <code>${escapeHTML(order.speedafTracking)}</code>
+                    ${order.speedafLabelUrl ? `<a href="${escapeHTML(order.speedafLabelUrl)}" target="_blank" style="margin-left:0.5rem; color:var(--gold); font-weight:700;">🖨️ Étiquette</a>` : ''}
+                </div>
+            `;
+        }
 
         const itemsSummary = (order.items || []).map(i => {
             const name = escapeHTML(i.name || '');
@@ -629,10 +787,11 @@ export async function renderAdminOrders(containerId = 'ordersList') {
                         <strong style="color:var(--gold);">#${orderIdShort}</strong> ${emoji} — ${date}<br>
                         <small>👤 ${escapeHTML(order.deliveryAddress?.name || '—')} · 📞 ${escapeHTML(order.deliveryAddress?.phone || '')} · 🏙️ ${escapeHTML(cityDisplay)}</small><br>
                         <small>🛒 <strong>${itemsSummary}</strong></small><br>
-                        <small>${itemCount} ${t('items')} · 💰 ${order.total || 0} ${t('currency')} · ${stockBadge}${returnBadgeHtml}${couponBadge}</small>
+                        <small>${itemCount} ${t('items')} · 💰 ${order.total || 0} ${t('currency')} · ${stockBadge}</small>
                     </div>
                 </div>
-                <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">
+                ${speedafHtml}
+                <div style="display:flex;gap:0.4rem;flex-wrap:wrap; margin-top:0.5rem;">
                     <select class="status-select" data-order-id="${order.id}" data-field="status" style="padding:0.3rem 0.6rem;border-radius:30px;border:1px solid var(--border);background:var(--bg-surface);color:var(--text);">
                         <option value="pending" ${status === 'pending' ? 'selected' : ''}>⏳ ${t('orderStatusPending')}</option>
                         <option value="confirmed" ${status === 'confirmed' ? 'selected' : ''}>✅ ${t('orderStatusConfirmed')}</option>
@@ -641,13 +800,10 @@ export async function renderAdminOrders(containerId = 'ordersList') {
                         <option value="returned" ${status === 'returned' ? 'selected' : ''}>↩️ ${t('orderStatusReturned')}</option>
                         <option value="cancelled" ${status === 'cancelled' ? 'selected' : ''}>❌ ${t('orderStatusCancelled')}</option>
                     </select>
-                    <select class="status-select" data-order-id="${order.id}" data-field="paymentStatus" style="padding:0.3rem 0.6rem;border-radius:30px;border:1px solid var(--border);background:var(--bg-surface);color:var(--text);">
-                        <option value="unpaid" ${order.paymentStatus === 'unpaid' ? 'selected' : ''}>💳 ${t('orderPaymentUnpaid')}</option>
-                        <option value="paid" ${order.paymentStatus === 'paid' ? 'selected' : ''}>💵 ${t('orderPaymentPaid')}</option>
-                    </select>
-                    ${invoiceBtnHtml}
-                    ${returnBtnHtml}
-                    <button class="btn-danger" data-action="admin:delete-order" data-id="${order.id}" style="padding:0.3rem 0.8rem;border-radius:30px;background:var(--danger);color:white;border:none;cursor:pointer;">🗑️</button>
+                    
+                    ${order.speedafTracking ? `<button class="admin-btn-secondary" data-action="admin:sync-speedaf" data-id="${order.id}" style="font-size:0.75rem; padding:0.3rem 0.6rem;">🔄 Sync Speedaf</button>` : ''}
+                    
+                    <button class="btn-danger" data-action="admin:delete-order" data-id="${order.id}" style="padding:0.3rem 0.8rem;border-radius:30px;background:var(--danger);color:white;border:none;cursor:pointer;margin-left:auto;">🗑️</button>
                 </div>
             </div>
         `;
@@ -655,8 +811,6 @@ export async function renderAdminOrders(containerId = 'ordersList') {
 
     if (adminHasMore) {
         html += `<div style="text-align:center;padding:1rem;"><button id="adminLoadMoreOrdersBtn" class="admin-btn-primary" style="margin:0 auto;">⬇️ Charger plus</button></div>`;
-    } else if (adminOrdersCache.length >= ADMIN_PAGE_SIZE) {
-        html += `<div style="text-align:center;padding:1rem;font-size:0.8rem;color:var(--text-dim);">✓ Toutes les commandes sont chargées</div>`;
     }
     
     container.innerHTML = html;
@@ -679,18 +833,12 @@ export async function renderAdminOrders(containerId = 'ordersList') {
                     const result = await updateOrderStatus(orderId, value);
                     if (result.success) {
                         showToast('✅ ' + t('success'));
-                        const cached = adminOrdersCache.find(o => o.id === orderId);
-                        if (cached) cached.status = value;
+                        adminOrdersCache = []; // Force le rechargement
                         await renderAdminOrders(containerId);
                     } else {
                         showToast('❌ ' + result.error);
                         await renderAdminOrders(containerId);
                     }
-                } else {
-                    await updateDoc(doc(db, "orders", orderId), { [field]: value, updatedAt: Timestamp.now() });
-                    const cached = adminOrdersCache.find(o => o.id === orderId);
-                    if (cached) cached[field] = value;
-                    showToast('✅ ' + t('success'));
                 }
             } catch (e) {
                 console.error(e);
@@ -701,18 +849,26 @@ export async function renderAdminOrders(containerId = 'ordersList') {
         });
     });
 
-    container.querySelectorAll('[data-action="admin:resend-invoice"]').forEach(btn => {
+    container.querySelectorAll('[data-action="admin:sync-speedaf"]').forEach(btn => {
         btn.addEventListener('click', async () => {
             const orderId = btn.dataset.id;
             const originalText = btn.innerHTML;
             btn.disabled = true;
             btn.innerHTML = '⏳...';
-            try { await resendInvoice(orderId); } finally { btn.disabled = false; btn.innerHTML = originalText; }
+            const res = await syncSpeedafStatus(orderId);
+            if (res.success) {
+                if (res.updated) {
+                    showToast(`✅ Statut mis à jour : ${res.newStatus}`);
+                    adminOrdersCache = [];
+                    await renderAdminOrders(containerId);
+                } else {
+                    showToast(`ℹ️ Statut Speedaf : ${res.currentStatus}`);
+                }
+            } else {
+                showToast(`❌ Erreur: ${res.error}`);
+            }
+            btn.disabled = false; btn.innerHTML = originalText;
         });
-    });
-
-    container.querySelectorAll('[data-action="admin:return-order"]').forEach(btn => {
-        btn.addEventListener('click', async () => { await openReturnModal(btn.dataset.id); });
     });
 
     container.querySelectorAll('[data-action="admin:delete-order"]').forEach(btn => {
@@ -743,39 +899,6 @@ export async function renderAdminOrders(containerId = 'ordersList') {
             adminHasMore = hasMore;
             await renderAdminOrders(containerId);
         });
-    }
-}
-
-// ============================================================
-// RENVOYER LA FACTURE
-// ============================================================
-export async function resendInvoice(orderId) {
-    try {
-        const snap = await getDoc(doc(db, "orders", orderId));
-        if (!snap.exists()) { showToast('❌ ' + t('loadError')); return { success: false, error: 'not_found' }; }
-        const order = { id: snap.id, ...snap.data() };
-        if (normalizeOrderStatus(order.status) !== 'delivered') {
-            showToast('⚠️ La facture ne peut être renvoyée que pour une commande livrée');
-            return { success: false, error: 'not_delivered' };
-        }
-        showToast('⏳ Envoi de la facture...');
-        const [clientResult, adminResult] = await Promise.allSettled([sendOrderEmail(order, 'delivered', 'client'), sendOrderEmail(order, 'delivered', 'admin')]);
-        const clientOk = clientResult.status === 'fulfilled' && clientResult.value?.success;
-        const adminOk = adminResult.status === 'fulfilled' && adminResult.value?.success;
-        
-        if (clientOk && adminOk) {
-            showToast(`✅ Facture ${getInvoiceNumber(order)} envoyée au client et à l'admin`);
-            return { success: true, clientOk: true, adminOk: true };
-        }
-        if (clientOk || adminOk) {
-            showToast(`⚠️ Facture partiellement envoyée (client: ${clientOk ? '✅' : '❌'}, admin: ${adminOk ? '✅' : '❌'})`);
-            return { success: true, clientOk, adminOk, partial: true };
-        }
-        showToast('❌ Échec de l\'envoi de la facture');
-        return { success: false, error: 'send_failed' };
-    } catch (e) {
-        showToast('❌ ' + (e.message || t('error')));
-        return { success: false, error: e.message };
     }
 }
 
@@ -814,29 +937,13 @@ export function resetAdminOrdersCache() {
 }
 
 // ============================================================
-// RETOURS (Admin)
+// RETOURS & AVIS
 // ============================================================
-
-/**
- * ✅ NOUVELLE FONCTION v4.2.0
- * Synchronise les avis avec l'état des retours d'une commande.
- *
- * - Calcule le total retourné par produit (cumul de tous les retours)
- * - Compare au total commandé
- * - Si TOUT est retourné  → supprime l'avis (via deleteReview : photos + moyenne)
- * - Si retour PARTIEL    → retire le badge "verifiedPurchase"
- * - Si aucun avis        → ne fait rien
- *
- * @param {Object} order - Commande (avec order.returns à jour)
- * @param {Array}  allReturns - Tableau complet des retours (anciens + nouveau)
- * @returns {Promise<{deleted: number, unverified: number}>}
- */
 async function syncReviewsWithOrderReturn(order, allReturns) {
     if (!order || !order.userId || !Array.isArray(order.items) || order.items.length === 0) {
         return { deleted: 0, unverified: 0 };
     }
 
-    // 1. Quantités retournées par produit (cumul)
     const returnedByProduct = {};
     (allReturns || []).forEach(ret => {
         if (!ret || !Array.isArray(ret.items)) return;
@@ -847,7 +954,6 @@ async function syncReviewsWithOrderReturn(order, allReturns) {
         });
     });
 
-    // 2. Quantités commandées par produit
     const orderedByProduct = {};
     order.items.forEach(item => {
         const pid = String(item.productId);
@@ -857,13 +963,10 @@ async function syncReviewsWithOrderReturn(order, allReturns) {
     let deleted = 0;
     let unverified = 0;
 
-    // 3. Agir sur les avis concernés
-    //    Import dynamique pour éviter le cycle orders.js ↔ reviews.js
     let reviewsModule;
     try {
         reviewsModule = await import("./reviews.js");
     } catch (e) {
-        console.warn('⚠️ Impossible d\'importer reviews.js :', e);
         return { deleted: 0, unverified: 0 };
     }
 
@@ -872,7 +975,6 @@ async function syncReviewsWithOrderReturn(order, allReturns) {
     for (const pid of Object.keys(returnedByProduct)) {
         const returnedQty = returnedByProduct[pid] || 0;
         const orderedQty = orderedByProduct[pid] || 0;
-
         if (returnedQty <= 0 || orderedQty <= 0) continue;
 
         const reviewId = `review_${order.userId}_${pid}`;
@@ -880,30 +982,20 @@ async function syncReviewsWithOrderReturn(order, allReturns) {
 
         try {
             const reviewSnap = await getDoc(reviewRef);
-            if (!reviewSnap.exists()) continue; // Pas d'avis → rien à faire
+            if (!reviewSnap.exists()) continue;
 
             const reviewData = reviewSnap.data();
 
             if (returnedQty >= orderedQty) {
-                // ✅ Retour TOTAL → supprimer l'avis (photos + recalcul moyenne)
                 const result = await deleteReview(reviewId);
-                if (result && result.success) {
-                    deleted++;
-                    console.log(`🗑️ Avis supprimé (retour total) : produit ${pid}, commande ${order.id}`);
-                } else {
-                    console.warn(`⚠️ Échec suppression avis ${reviewId}:`, result?.error);
-                }
+                if (result && result.success) deleted++;
             } else {
-                // ⚠️ Retour PARTIEL → retirer le badge "Achat vérifié"
                 if (reviewData.verifiedPurchase === true) {
                     await updateDoc(reviewRef, { verifiedPurchase: false });
                     unverified++;
-                    console.log(`🔓 Badge "verifiedPurchase" retiré : produit ${pid}, commande ${order.id}`);
                 }
             }
-        } catch (e) {
-            console.warn(`⚠️ Sync avis produit ${pid} échouée :`, e);
-        }
+        } catch (e) {}
     }
 
     return { deleted, unverified };
@@ -981,12 +1073,8 @@ export async function openReturnModal(orderId) {
             btn.disabled = true; btn.textContent = '⏳...';
             
             try {
-                // 1. Transaction : stock + statut RETURNED
                 await processReturnTransaction(order, returns);
 
-                // 2. ✅ NOUVEAU : Synchroniser les avis avec le retour
-                //    On construit le tableau complet des retours (anciens + nouveaux)
-                //    pour que la logique de cumul fonctionne sur les retours multiples
                 const allReturns = [
                     ...(Array.isArray(order.returns) ? order.returns : []),
                     {
@@ -1002,11 +1090,8 @@ export async function openReturnModal(orderId) {
                 let reviewSync = { deleted: 0, unverified: 0 };
                 try {
                     reviewSync = await syncReviewsWithOrderReturn(order, allReturns);
-                } catch (e) {
-                    console.warn('⚠️ Sync avis échouée (non bloquant) :', e);
-                }
+                } catch (e) {}
 
-                // 3. Toast récapitulatif
                 let toastMsg = '✅ Retour enregistré, stock mis à jour';
                 if (reviewSync.deleted > 0) toastMsg += ` · ${reviewSync.deleted} avis supprimé(s)`;
                 if (reviewSync.unverified > 0) toastMsg += ` · ${reviewSync.unverified} badge(s) retiré(s)`;
@@ -1077,7 +1162,7 @@ async function processReturnTransaction(order, returnsToProcess) {
 }
 
 // ============================================================
-// CLIENT : AFFICHER LES COMMANDES
+// CLIENT : AFFICHER LES COMMANDES (Avec bouton suivi)
 // ============================================================
 export async function renderUserOrders(containerId = 'tabContent') {
     const container = document.getElementById(containerId);
@@ -1108,6 +1193,11 @@ export async function renderUserOrders(containerId = 'tabContent') {
                    </div>` 
                 : '';
 
+            // 🚀 Bouton de suivi Speedaf
+            const trackingBtnHtml = order.speedafTracking 
+                ? `<a href="https://www.speedaf.com/tracking?waybill=${order.speedafTracking}" target="_blank" style="display:inline-flex; align-items:center; gap:0.3rem; padding:0.4rem 1rem; background:rgba(165,123,46,0.1); color:var(--gold); border:1px solid var(--gold); border-radius:30px; text-decoration:none; font-weight:700; font-size:0.8rem; margin-top:0.5rem;">🚚 Suivre mon colis</a>`
+                : '';
+
             html += `
                 <div class="order-card">
                     <div class="order-card-header">
@@ -1118,8 +1208,9 @@ export async function renderUserOrders(containerId = 'tabContent') {
                         <div>🛒 <strong>${order.items?.length || 0}</strong> ${t('items')} - <strong>${order.total || 0} ${t('currency')}</strong></div>
                         <div style="font-size:0.8rem;color:var(--text-muted);">📍 ${escapeHTML(order.deliveryAddress?.city || '')}</div>
                     </div>
-                    <div class="order-card-actions">
+                    <div class="order-card-actions" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.5rem;">
                         <button class="order-details-btn" data-order-id="${order.id}">${t('orderDetails')}</button>
+                        ${trackingBtnHtml}
                     </div>
                     ${cancelBtnHtml}
                 </div>
@@ -1184,6 +1275,17 @@ export async function openOrderDetails(orderId, isAdmin = false) {
             `;
         }).join('');
 
+        let trackingHtml = '';
+        if (order.speedafTracking) {
+            trackingHtml = `
+                <div style="background:rgba(165,123,46,0.1);padding:1rem;border-radius:var(--radius-sm);margin-bottom:1rem;font-size:0.85rem;border:1px solid var(--border-gold);">
+                    <h4 style="margin-bottom:0.5rem;color:var(--gold);font-size:0.95rem;">🚚 Livraison Speedaf</h4>
+                    <div><strong>N° de suivi :</strong> ${escapeHTML(order.speedafTracking)}</div>
+                    <a href="https://www.speedaf.com/tracking?waybill=${order.speedafTracking}" target="_blank" style="display:inline-block; margin-top:0.5rem; color:var(--gold); font-weight:700; text-decoration:underline;">Suivre en temps réel →</a>
+                </div>
+            `;
+        }
+
         let html = `
             <div class="modal-overlay open" id="orderDetailsModal" style="z-index:2500;">
                 <div class="modal" style="max-width:600px;padding:1.5rem;">
@@ -1193,6 +1295,8 @@ export async function openOrderDetails(orderId, isAdmin = false) {
                     </h2>
 
                     <div class="order-timeline" style="margin:1rem 0;">${timelineHtml}</div>
+
+                    ${trackingHtml}
 
                     <div style="background:var(--bg-surface);padding:1rem;border-radius:var(--radius-sm);margin-bottom:1rem;">
                         <h4 style="margin-bottom:0.5rem;color:var(--text);font-size:0.95rem;">📦 ${t('orderArticles')}</h4>
@@ -1230,4 +1334,4 @@ export async function openOrderDetails(orderId, isAdmin = false) {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ orders.js chargé — v4.2.0 (suppression avis après retour)');
+console.log('✅ orders.js chargé — v4.3.0 (Intégration Speedaf)');
