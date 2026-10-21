@@ -1,7 +1,7 @@
 // js/products.js
 // ============================================================
 // GESTION DES PRODUITS - SMART SWI9A
-// Version 3.4.1 — Alignement avec le design CSS (Bande défilante)
+// Version 3.4.2 — Fix : préservation du scroll horizontal des catégories
 // ============================================================
 
 import {
@@ -38,6 +38,10 @@ const STATS_CACHE_TTL = 60 * 1000;
 const STATS_CACHE_MAX = 100;
 
 let _renderRequestId = 0;
+
+// ✅ FIX : Mémorisation de l'état précédent pour détecter les changements
+let _lastRenderedParentId = null;
+let _lastRenderedLang = null;
 
 if (typeof document !== 'undefined') {
     document.addEventListener('review-submitted', (e) => {
@@ -502,6 +506,11 @@ export async function renderProducts() {
 
 // ============================================================
 // ✅ RENDU DES CATÉGORIES (BANDE DÉFILANTE)
+// ------------------------------------------------------------
+// FIX v3.4.2 : préservation du scroll horizontal
+//   - Parents : toujours restauré (sauf changement de langue)
+//   - Enfants : restauré si le parent n'a pas changé
+//              sinon reset à 0 (nouvelle liste)
 // ============================================================
 export function renderCategoryFilters() {
     const mainContainer = document.getElementById('filtersCategories');
@@ -513,6 +522,20 @@ export function renderCategoryFilters() {
     
     // Déterminer si on est sur un parent ou un enfant
     const activeParentId = activeCatObj?.parentId || (activeCatObj?.isParent ? activeCatObj.id : null);
+
+    // ✅ FIX : Sauvegarder les scrolls AVANT toute mutation DOM
+    const oldParentRow = mainContainer.querySelector('.categories-scroll-row');
+    const savedParentScroll = oldParentRow ? oldParentRow.scrollLeft : 0;
+
+    const oldChildContainer = document.getElementById('subFiltersCategories');
+    const oldChildRow = oldChildContainer?.querySelector('.categories-scroll-row');
+    const savedChildScroll = oldChildRow ? oldChildRow.scrollLeft : 0;
+
+    // ✅ FIX : Détecter les changements qui doivent reset le scroll
+    const currentLang = getLang();
+    const langChanged = _lastRenderedLang !== null && _lastRenderedLang !== currentLang;
+    const parentChanged = _lastRenderedParentId !== activeParentId;
+    const shouldResetChildScroll = parentChanged || langChanged;
 
     // ============================================
     // BANDE 1 : PARENTS (Toujours visible)
@@ -551,7 +574,15 @@ export function renderCategoryFilters() {
         `;
     });
     mainHtml += `</div>`;
+
+    // ✅ FIX : Reconstruction du DOM (le scroll va être perdu, on le restaure juste après)
     mainContainer.innerHTML = mainHtml;
+
+    // ✅ FIX : Restaurer le scroll de la row parents (sauf changement de langue)
+    if (!langChanged && savedParentScroll > 0) {
+        const newParentRow = mainContainer.querySelector('.categories-scroll-row');
+        if (newParentRow) newParentRow.scrollLeft = savedParentScroll;
+    }
 
     // ============================================
     // BANDE 2 : ENFANTS (Affiché seulement si un parent est sélectionné)
@@ -596,19 +627,30 @@ export function renderCategoryFilters() {
             childHtml += `</div>`;
             childContainer.innerHTML = childHtml;
             childContainer.style.display = 'block';
-            
-            // Scroll auto au début
-            setTimeout(() => {
-                const row = childContainer.querySelector('.categories-scroll-row');
-                if (row) row.scrollLeft = 0;
-            }, 50);
+
+            // ✅ FIX : Restaurer ou reset le scroll enfants
+            const newChildRow = childContainer.querySelector('.categories-scroll-row');
+            if (newChildRow) {
+                if (shouldResetChildScroll) {
+                    // Nouveau parent ou nouvelle langue → début de liste
+                    newChildRow.scrollLeft = 0;
+                } else if (savedChildScroll > 0) {
+                    // Même parent, même langue → position conservée
+                    newChildRow.scrollLeft = savedChildScroll;
+                }
+            }
         } else {
             childContainer.style.display = 'none';
+            childContainer.innerHTML = '';
         }
     } else {
         childContainer.style.display = 'none';
         childContainer.innerHTML = '';
     }
+
+    // ✅ FIX : Mémoriser l'état pour la prochaine comparaison
+    _lastRenderedParentId = activeParentId;
+    _lastRenderedLang = currentLang;
 }
 
 // ============================================================
@@ -687,4 +729,4 @@ export function openProductPage(slug) {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ products.js chargé — v3.4.1 (aligné avec le CSS bande défilante)');
+console.log('✅ products.js chargé — v3.4.2 (scroll catégories préservé)');
