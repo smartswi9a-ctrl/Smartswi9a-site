@@ -1,7 +1,7 @@
 // js/admin.js
 // ============================================================
 // PANNEAU ADMINISTRATION - SMART SWI9A
-// Version 6.2.0 — Fix Migration Batch + Affichage Catégories
+// Version 7.0.0 — Fix Import + Comptabilité complète
 // ============================================================
 
 import { auth, db, storage } from "./firebase.js";
@@ -16,13 +16,13 @@ import {
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { 
     ROLES, ORDER_STATUS, CATEGORIES, CATEGORY_GROUPS, CONFIG, normalizeOrderStatus,
-    normalizeCategory, getCategoryById // ✅ AJOUTÉ POUR L'AFFICHAGE
+    normalizeCategory, getCategoryById
 } from "./config.js";
 import {
     escapeHTML, slugify, getStoragePathFromUrl, isStorageUrl,
     getSignupMethodLabel, getSignupMethodEmoji, toDate, t
 } from "./utils.js";
-import { renderAdminOrders, resetAdminOrdersCache } from "./orders.js";
+import { renderAdminOrders, resetAdminOrdersCache, openReturnModal } from "./orders.js";
 import { renderAdminReviews } from "./reviews.js";
 import { showToast, confirmAction } from "./ui-core.js";
 
@@ -121,13 +121,11 @@ async function loadPurchases() {
             const snap = await getDocs(collection(db, "purchases"));
             cachedPurchases = snap.docs.map(d => ({ id: d.id, ...d.data(), date: toDate(d.data().date) }));
             cachedPurchases.sort((a, b) => safeDate(b.date) - safeDate(a.date));
-        } catch (err2) {
-            cachedPurchases = [];
-            throw err2;
-        }
+        } catch (err2) { cachedPurchases = []; }
     }
     return cachedPurchases;
 }
+
 async function loadExpenses() {
     try {
         const snap = await getDocs(query(collection(db, "expenses"), orderBy("date", "desc"), limit(500)));
@@ -137,13 +135,11 @@ async function loadExpenses() {
             const snap = await getDocs(collection(db, "expenses"));
             cachedExpenses = snap.docs.map(d => ({ id: d.id, ...d.data(), date: toDate(d.data().date) }));
             cachedExpenses.sort((a, b) => safeDate(b.date) - safeDate(a.date));
-        } catch (err2) {
-            cachedExpenses = [];
-            throw err2;
-        }
+        } catch (err2) { cachedExpenses = []; }
     }
     return cachedExpenses;
 }
+
 async function loadTransactions() {
     try {
         const snap = await getDocs(query(collection(db, "transactions"), orderBy("date", "desc"), limit(500)));
@@ -153,10 +149,7 @@ async function loadTransactions() {
             const snap = await getDocs(collection(db, "transactions"));
             cachedTransactions = snap.docs.map(d => ({ id: d.id, ...d.data(), date: toDate(d.data().date) }));
             cachedTransactions.sort((a, b) => safeDate(b.date) - safeDate(a.date));
-        } catch (err2) {
-            cachedTransactions = [];
-            throw err2;
-        }
+        } catch (err2) { cachedTransactions = []; }
     }
     return cachedTransactions;
 }
@@ -315,6 +308,8 @@ function initAdmin() {
             else if (tab === 'orders') await loadOrders();
             else if (tab === 'coupons') await loadCoupons();
             else if (tab === 'finances') await loadFinancesTab();
+            else if (tab === 'users') await loadUsers();
+            else if (tab === 'reviews') await loadReviews();
         });
     });
 
@@ -409,12 +404,50 @@ function initAdmin() {
     document.getElementById('generateVariantsBtn')?.addEventListener('click', generateVariants);
 }
 
+function showLoginBox(msg = '') {
+    document.getElementById('adminLoginBox').style.display = 'block';
+    document.getElementById('adminPanel').style.display = 'none';
+    const msgEl = document.getElementById('adminLoginMsg');
+    if (msgEl) msgEl.textContent = msg;
+}
+
+function showAdminPanel(user) {
+    document.getElementById('adminLoginBox').style.display = 'none';
+    document.getElementById('adminPanel').style.display = 'block';
+    document.getElementById('adminUserEmail').textContent = user.email;
+    loadStats();
+}
+
+async function handleLogin() {
+    const email = document.getElementById('adminEmail').value.trim();
+    const password = document.getElementById('adminPassword').value;
+    const msgEl = document.getElementById('adminLoginMsg');
+    if (!email || !password) { if (msgEl) msgEl.textContent = '⚠️ Email et mot de passe requis'; return; }
+    try {
+        if (msgEl) msgEl.textContent = '⏳ Connexion...';
+        await signInWithEmailAndPassword(auth, email, password);
+    } catch (e) {
+        if (msgEl) msgEl.textContent = '❌ ' + (e.message || 'Erreur');
+    }
+}
+
+async function loadAllData() {
+    await loadProducts();
+    await loadStats();
+    await loadUsers();
+    await loadCoupons();
+    await loadBlogPosts();
+    await loadReviews();
+    try {
+        await Promise.all([loadPurchases(), loadExpenses(), loadTransactions()]);
+    } catch (e) {}
+}
+
 // ============================================================
 // PRODUITS
 // ============================================================
 async function loadProducts(force = false) {
     const container = document.getElementById('adminProductsList');
-    
     const now = Date.now();
     if (!force && cachedProducts.length > 0 && (now - lastProductsLoadTime) < 300000) {
         if (container) filterProductsList(false);
@@ -523,7 +556,6 @@ function renderProductsList(products) {
         const oldPrice = Number(p.oldPrice) || 0;
         const stock = Number(p.stock) || 0;
         
-        // ✅ FIX : AFFICHAGE DU NOM DE LA CATÉGORIE TRADUIT
         const catObj = getCategoryById(p.category);
         const categoryLabel = catObj ? `${catObj.emoji} ${t(catObj.label)}` : (p.category || '—');
 
@@ -624,7 +656,7 @@ function filterProductsList(resetPage = true) {
 }
 
 // ============================================================
-// RESTOCK (➕)
+// RESTOCK
 // ============================================================
 async function openRestockModal(productId) {
     let product = cachedProducts.find(p => p.id === productId);
@@ -990,12 +1022,8 @@ async function saveProduct() {
                 const safeSize = String(tr.dataset.size).replace(/[<>"'&]/g, '').trim().slice(0, 50);
                 const safeColor = String(tr.dataset.color).replace(/[<>"'&]/g, '').trim().slice(0, 50);
 
-                if (!Number.isFinite(vPrice) || vPrice < 0 || vPrice > 100000) {
-                    throw new Error(`Prix invalide pour la variante ${safeSize}/${safeColor}`);
-                }
-                if (!Number.isFinite(vStock) || vStock < 0 || vStock > 99999) {
-                    throw new Error(`Stock invalide pour la variante ${safeSize}/${safeColor}`);
-                }
+                if (!Number.isFinite(vPrice) || vPrice < 0 || vPrice > 100000) throw new Error(`Prix invalide pour la variante ${safeSize}/${safeColor}`);
+                if (!Number.isFinite(vStock) || vStock < 0 || vStock > 99999) throw new Error(`Stock invalide pour la variante ${safeSize}/${safeColor}`);
 
                 variants.push({ size: safeSize, color: safeColor, price: vPrice, stock: vStock });
             });
@@ -1823,7 +1851,6 @@ async function handleMigrateCities() {
     showToast('🎉 ' + t('success'));
 }
 
-// ✅ FIX CRITIQUE : Réinstanciation du batch
 async function handleMigrateLegacyCategories() {
     const btn = document.getElementById('migrateLegacyCategoriesBtn');
     const logEl = document.getElementById('legacyMigrationLog');
@@ -1850,7 +1877,6 @@ async function handleMigrateLegacyCategories() {
         const snap = await getDocs(collection(db, "products"));
         let updatedCount = 0;
         
-        // ✅ Le batch est déclaré ici, avant la boucle
         let batch = writeBatch(db);
         let batchCount = 0;
 
@@ -1867,17 +1893,15 @@ async function handleMigrateLegacyCategories() {
                 batchCount++;
                 log(`🔄 ${p.nameFr || docSnap.id} : ${oldCat} ➔ ${newCat}`);
 
-                // ✅ FIX : On commit et on recrée un nouveau batch si on atteint 400
                 if (batchCount === 400) {
                     await batch.commit();
                     log(`💾 Lot de 400 produits sauvegardé...`);
                     batchCount = 0;
-                    batch = writeBatch(db); // ✅ OBLIGATOIRE
+                    batch = writeBatch(db);
                 }
             }
         }
 
-        // ✅ Commit final pour les produits restants
         if (batchCount > 0) {
             await batch.commit();
         }
@@ -2003,11 +2027,101 @@ async function refreshAccOverview() {
     const kpis = document.getElementById('accKPIs');
     const waterfall = document.getElementById('accWaterfall');
     if (!kpis || !waterfall) return;
+    
     kpis.innerHTML = '<div class="admin-loading">⏳ Calcul...</div>';
+    waterfall.innerHTML = '<div class="admin-loading">⏳ Calcul...</div>';
+
     try {
-        kpis.innerHTML = `<div class="admin-stat-card"><span class="stat-value" style="color:var(--success);">0 MAD</span><span class="stat-label">💰 Revenus</span></div>`;
-        waterfall.innerHTML = `<p style="padding:1rem;text-align:center;">Vue d'ensemble prête.</p>`;
-    } catch (e) {}
+        const period = document.getElementById('accPeriod')?.value || 'month';
+        const startVal = document.getElementById('accStart')?.value;
+        const endVal = document.getElementById('accEnd')?.value;
+        const { start, end } = getDateRangeFromPeriod(period, startVal, endVal);
+
+        const [ordersSnap, purchasesSnap, expensesSnap, transactionsSnap] = await Promise.all([
+            getDocs(query(collection(db, "orders"), orderBy("createdAt", "desc"), limit(1000))),
+            getDocs(query(collection(db, "purchases"), orderBy("date", "desc"), limit(500))),
+            getDocs(query(collection(db, "expenses"), orderBy("date", "desc"), limit(500))),
+            getDocs(query(collection(db, "transactions"), orderBy("date", "desc"), limit(500)))
+        ]);
+
+        let revenue = 0, cogs = 0, shippingCost = 0, adSpend = 0, otherExpenses = 0, extraIncome = 0;
+        let ordersCount = 0;
+
+        ordersSnap.forEach(d => {
+            const o = d.data();
+            const orderDate = toDate(o.createdAt);
+            if (!isInRange(orderDate, start, end)) return;
+            const status = normalizeOrderStatus(o.status);
+            if (status === 'delivered') {
+                ordersCount++;
+                revenue += Number(o.total) || 0;
+                // Estimation COGS
+                (o.items || []).forEach(item => {
+                    const p = cachedProducts.find(pp => String(pp.id) === String(item.productId));
+                    const buyPrice = p ? Number(p.purchasePrice) || 0 : 0;
+                    cogs += buyPrice * (Number(item.quantity) || 1);
+                });
+                shippingCost += Number(o.deliveryFee) || 0;
+            }
+        });
+
+        purchasesSnap.forEach(d => {
+            const p = d.data();
+            if (!isInRange(toDate(p.date), start, end)) return;
+            cogs += Number(p.totalCost) || 0;
+        });
+
+        expensesSnap.forEach(d => {
+            const e = d.data();
+            if (!isInRange(toDate(e.date), start, end)) return;
+            const amount = Number(e.amount) || 0;
+            if (e.category === 'marketing') adSpend += amount;
+            else otherExpenses += amount;
+        });
+
+        transactionsSnap.forEach(d => {
+            const t = d.data();
+            if (!isInRange(toDate(t.date), start, end)) return;
+            if (t.type === 'income') extraIncome += Number(t.amount) || 0;
+            else otherExpenses += Number(t.amount) || 0;
+        });
+
+        const grossProfit = revenue - cogs;
+        const netProfit = grossProfit - shippingCost - adSpend - otherExpenses + extraIncome;
+        const margin = revenue > 0 ? (netProfit / revenue) * 100 : 0;
+
+        kpis.innerHTML = `
+            <div class="admin-stat-card"><span class="stat-value" style="color:var(--success);">${formatMAD(revenue)}</span><span class="stat-label">💰 Chiffre d'affaires</span></div>
+            <div class="admin-stat-card"><span class="stat-value" style="color:var(--danger);">${formatMAD(cogs)}</span><span class="stat-label">📦 Coût des marchandises (COGS)</span></div>
+            <div class="admin-stat-card"><span class="stat-value" style="color:var(--danger);">${formatMAD(shippingCost)}</span><span class="stat-label">🚚 Frais de livraison</span></div>
+            <div class="admin-stat-card"><span class="stat-value" style="color:var(--danger);">${formatMAD(adSpend)}</span><span class="stat-label">📢 Publicité / Marketing</span></div>
+            <div class="admin-stat-card"><span class="stat-value" style="color:var(--danger);">${formatMAD(otherExpenses)}</span><span class="stat-label">📉 Autres dépenses</span></div>
+            <div class="admin-stat-card"><span class="stat-value" style="color:var(--info);">${formatMAD(extraIncome)}</span><span class="stat-label">💸 Autres revenus</span></div>
+            <div class="admin-stat-card" style="border-color:var(--gold);"><span class="stat-value" style="color:var(--gold);">${formatMAD(netProfit)}</span><span class="stat-label">🏆 Bénéfice NET</span></div>
+            <div class="admin-stat-card"><span class="stat-value">${margin.toFixed(1)}%</span><span class="stat-label">📊 Marge nette</span></div>
+        `;
+
+        waterfall.innerHTML = `
+            <table class="acc-table" style="width:100%;">
+                <tr><td>💰 Chiffre d'affaires</td><td style="text-align:right;color:var(--success);font-weight:700;">${formatMAD(revenue)}</td></tr>
+                <tr><td>📦 Coût des marchandises (COGS)</td><td style="text-align:right;color:var(--danger);">-${formatMAD(cogs)}</td></tr>
+                <tr style="font-weight:700;background:rgba(0,0,0,0.02);"><td>💵 Marge Brute</td><td style="text-align:right;">${formatMAD(grossProfit)}</td></tr>
+                <tr><td>🚚 Frais de livraison</td><td style="text-align:right;color:var(--danger);">-${formatMAD(shippingCost)}</td></tr>
+                <tr><td>📢 Publicité</td><td style="text-align:right;color:var(--danger);">-${formatMAD(adSpend)}</td></tr>
+                <tr><td>📉 Autres dépenses</td><td style="text-align:right;color:var(--danger);">-${formatMAD(otherExpenses)}</td></tr>
+                <tr><td>💸 Autres revenus</td><td style="text-align:right;color:var(--info);">+${formatMAD(extraIncome)}</td></tr>
+                <tr style="font-weight:800;background:var(--bg-surface);border-top:2px solid var(--gold);"><td>🏆 Bénéfice NET</td><td style="text-align:right;color:var(--gold);">${formatMAD(netProfit)}</td></tr>
+            </table>
+        `;
+
+        // Render Chart
+        await renderRevenueChart(currentChartPeriod, ordersSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+
+    } catch (e) {
+        console.error('❌ refreshAccOverview:', e);
+        kpis.innerHTML = `<div class="admin-empty" style="color:var(--danger);">${t('error')}</div>`;
+        waterfall.innerHTML = '';
+    }
 }
 
 function updateReportDates() {
@@ -2025,23 +2139,490 @@ function updateReportDates() {
     }
 }
 
-// Fonctions comptables vides (déjà gérées par le HTML)
-async function saveNewPurchase() {}
-async function saveNewExpense() {}
-async function saveNewTransaction() {}
-async function renderPurchasesList() {}
-async function renderExpensesList() {}
-async function renderTransactionsList() {}
-async function generateReport() {}
-function exportReportCSV() {}
-async function exportOrdersCSV() {}
-async function exportProductsCSV() {}
-function renderFinanceProductSelection() {}
-function attachSimulatorListeners() {}
-function calculateFinances() {}
+// ============================================================
+// COMPTABILITÉ - ACHATS
+// ============================================================
+async function saveNewPurchase() {
+    const productId = document.getElementById('purProductId').value;
+    const qty = parseInt(document.getElementById('purQty').value);
+    const unitPrice = parseFloat(document.getElementById('purUnitPrice').value);
+    const shippingCost = parseFloat(document.getElementById('purShippingCost').value) || 0;
+    const supplier = document.getElementById('purSupplier').value.trim();
+    const dateVal = document.getElementById('purDate').value;
+    const note = document.getElementById('purNote').value.trim();
+
+    if (!productId) { showToast('⚠️ Sélectionnez un produit'); return; }
+    if (!qty || qty < 1) { showToast('⚠️ Quantité invalide'); return; }
+    if (isNaN(unitPrice) || unitPrice < 0) { showToast('⚠️ Prix invalide'); return; }
+    if (!dateVal) { showToast('⚠️ Date invalide'); return; }
+
+    const btn = document.getElementById('addPurchaseBtn');
+    btn.disabled = true; btn.textContent = '⏳...';
+
+    try {
+        const totalCost = (qty * unitPrice) + shippingCost;
+        const product = cachedProducts.find(p => p.id === productId);
+        
+        await addDoc(collection(db, "purchases"), {
+            productId, productName: product?.nameFr || 'Inconnu',
+            quantity: qty, unitPrice, shippingCost, totalCost,
+            supplier, date: Timestamp.fromDate(new Date(dateVal)), note,
+            createdAt: Timestamp.now()
+        });
+
+        // Update product stock
+        if (product) {
+            await updateDoc(doc(db, "products", productId), {
+                stock: increment(qty),
+                purchasePrice: unitPrice,
+                updatedAt: Timestamp.now()
+            });
+        }
+
+        showToast('✅ Achat enregistré et stock mis à jour');
+        document.getElementById('purQty').value = '';
+        document.getElementById('purUnitPrice').value = '';
+        document.getElementById('purShippingCost').value = '0';
+        document.getElementById('purNote').value = '';
+        
+        await loadPurchases();
+        await loadProducts(true);
+        await renderPurchasesList();
+    } catch (e) {
+        showToast('❌ ' + e.message);
+    } finally {
+        btn.disabled = false; btn.textContent = '💾 Enregistrer l\'achat';
+    }
+}
+
+async function renderPurchasesList() {
+    const container = document.getElementById('purchasesList');
+    if (!container) return;
+    container.innerHTML = `<div class="admin-loading">⏳ ${t('loading')}</div>`;
+    await loadPurchases();
+    
+    if (cachedPurchases.length === 0) {
+        container.innerHTML = `<div class="admin-empty">Aucun achat enregistré.</div>`;
+        return;
+    }
+
+    let html = `<table class="acc-table"><thead><tr><th>Date</th><th>Produit</th><th>Qté</th><th>Prix Unit.</th><th>Livraison</th><th>Total</th><th>Fournisseur</th></tr></thead><tbody>`;
+    cachedPurchases.forEach(p => {
+        html += `<tr>
+            <td>${p.date ? p.date.toLocaleDateString('fr-FR') : '—'}</td>
+            <td><strong>${escapeHTML(p.productName)}</strong></td>
+            <td>${p.quantity}</td>
+            <td>${formatMAD(p.unitPrice)}</td>
+            <td>${formatMAD(p.shippingCost)}</td>
+            <td style="font-weight:700;color:var(--danger);">${formatMAD(p.totalCost)}</td>
+            <td>${escapeHTML(p.supplier || '—')}</td>
+        </tr>`;
+    });
+    html += `</tbody></table>`;
+    container.innerHTML = html;
+}
+
+// ============================================================
+// COMPTABILITÉ - DÉPENSES
+// ============================================================
+async function saveNewExpense() {
+    const category = document.getElementById('expCategory').value;
+    const amount = parseFloat(document.getElementById('expAmount').value);
+    const dateVal = document.getElementById('expDate').value;
+    const description = document.getElementById('expDescription').value.trim();
+
+    if (isNaN(amount) || amount <= 0) { showToast('⚠️ Montant invalide'); return; }
+    if (!dateVal) { showToast('⚠️ Date invalide'); return; }
+    if (!description) { showToast('⚠️ Description requise'); return; }
+
+    const btn = document.getElementById('addExpenseBtn');
+    btn.disabled = true; btn.textContent = '⏳...';
+
+    try {
+        await addDoc(collection(db, "expenses"), {
+            category, amount, description,
+            date: Timestamp.fromDate(new Date(dateVal)),
+            createdAt: Timestamp.now()
+        });
+
+        showToast('✅ Dépense enregistrée');
+        document.getElementById('expAmount').value = '';
+        document.getElementById('expDescription').value = '';
+        
+        await loadExpenses();
+        await renderExpensesList();
+    } catch (e) {
+        showToast('❌ ' + e.message);
+    } finally {
+        btn.disabled = false; btn.textContent = '💾 Enregistrer la dépense';
+    }
+}
+
+async function renderExpensesList() {
+    const container = document.getElementById('expensesList');
+    if (!container) return;
+    container.innerHTML = `<div class="admin-loading">⏳ ${t('loading')}</div>`;
+    await loadExpenses();
+    
+    if (cachedExpenses.length === 0) {
+        container.innerHTML = `<div class="admin-empty">Aucune dépense enregistrée.</div>`;
+        return;
+    }
+
+    let html = `<table class="acc-table"><thead><tr><th>Date</th><th>Catégorie</th><th>Description</th><th>Montant</th></tr></thead><tbody>`;
+    cachedExpenses.forEach(e => {
+        html += `<tr>
+            <td>${e.date ? e.date.toLocaleDateString('fr-FR') : '—'}</td>
+            <td>${escapeHTML(e.category)}</td>
+            <td>${escapeHTML(e.description)}</td>
+            <td style="font-weight:700;color:var(--danger);">${formatMAD(e.amount)}</td>
+        </tr>`;
+    });
+    html += `</tbody></table>`;
+    container.innerHTML = html;
+}
+
+// ============================================================
+// COMPTABILITÉ - TRANSACTIONS
+// ============================================================
+async function saveNewTransaction() {
+    const type = document.getElementById('transType').value;
+    const amount = parseFloat(document.getElementById('transAmount').value);
+    const dateVal = document.getElementById('transDate').value;
+    const description = document.getElementById('transDescription').value.trim();
+
+    if (isNaN(amount) || amount <= 0) { showToast('⚠️ Montant invalide'); return; }
+    if (!dateVal) { showToast('⚠️ Date invalide'); return; }
+    if (!description) { showToast('⚠️ Description requise'); return; }
+
+    const btn = document.getElementById('addTransactionBtn');
+    btn.disabled = true; btn.textContent = '⏳...';
+
+    try {
+        await addDoc(collection(db, "transactions"), {
+            type, amount, description,
+            date: Timestamp.fromDate(new Date(dateVal)),
+            createdAt: Timestamp.now()
+        });
+
+        showToast('✅ Transaction enregistrée');
+        document.getElementById('transAmount').value = '';
+        document.getElementById('transDescription').value = '';
+        
+        await loadTransactions();
+        await renderTransactionsList();
+    } catch (e) {
+        showToast('❌ ' + e.message);
+    } finally {
+        btn.disabled = false; btn.textContent = '💾 Enregistrer';
+    }
+}
+
+async function renderTransactionsList() {
+    const container = document.getElementById('transactionsList');
+    if (!container) return;
+    container.innerHTML = `<div class="admin-loading">⏳ ${t('loading')}</div>`;
+    await loadTransactions();
+    
+    const search = document.getElementById('transSearch')?.value.toLowerCase() || '';
+    const filterType = document.getElementById('transFilterType')?.value || 'all';
+
+    let filtered = cachedTransactions;
+    if (filterType !== 'all') filtered = filtered.filter(t => t.type === filterType);
+    if (search) filtered = filtered.filter(t => (t.description || '').toLowerCase().includes(search));
+
+    if (filtered.length === 0) {
+        container.innerHTML = `<div class="admin-empty">Aucune transaction trouvée.</div>`;
+        return;
+    }
+
+    let html = `<table class="acc-table"><thead><tr><th>Date</th><th>Type</th><th>Description</th><th>Montant</th></tr></thead><tbody>`;
+    filtered.forEach(t => {
+        const isIncome = t.type === 'income';
+        html += `<tr>
+            <td>${t.date ? t.date.toLocaleDateString('fr-FR') : '—'}</td>
+            <td><span style="color:${isIncome ? 'var(--success)' : 'var(--danger)'};font-weight:700;">${isIncome ? '💰 Revenu' : '📉 Dépense'}</span></td>
+            <td>${escapeHTML(t.description)}</td>
+            <td style="font-weight:700;color:${isIncome ? 'var(--success)' : 'var(--danger)'};">${isIncome ? '+' : '-'} ${formatMAD(t.amount)}</td>
+        </tr>`;
+    });
+    html += `</tbody></table>`;
+    container.innerHTML = html;
+}
+
+// ============================================================
+// RAPPORTS & EXPORTS CSV
+// ============================================================
+async function generateReport() {
+    const startVal = document.getElementById('reportStart').value;
+    const endVal = document.getElementById('reportEnd').value;
+    const container = document.getElementById('reportContent');
+    if (!startVal || !endVal) { showToast('⚠️ Sélectionnez une période'); return; }
+    if (!container) return;
+
+    container.innerHTML = `<div class="admin-loading">⏳ Génération du rapport...</div>`;
+
+    try {
+        const start = new Date(startVal); start.setHours(0,0,0,0);
+        const end = new Date(endVal); end.setHours(23,59,59,999);
+
+        const [ordersSnap, expensesSnap, purchasesSnap] = await Promise.all([
+            getDocs(query(collection(db, "orders"), where("createdAt", ">=", Timestamp.fromDate(start)), where("createdAt", "<=", Timestamp.fromDate(end)))),
+            getDocs(query(collection(db, "expenses"), where("date", ">=", Timestamp.fromDate(start)), where("date", "<=", Timestamp.fromDate(end)))),
+            getDocs(query(collection(db, "purchases"), where("date", ">=", Timestamp.fromDate(start)), where("date", "<=", Timestamp.fromDate(end))))
+        ]);
+
+        let revenue = 0, ordersCount = 0;
+        ordersSnap.forEach(d => {
+            const o = d.data();
+            if (normalizeOrderStatus(o.status) === 'delivered') { revenue += Number(o.total) || 0; ordersCount++; }
+        });
+
+        let expenses = 0;
+        expensesSnap.forEach(d => expenses += Number(d.data().amount) || 0);
+        let purchases = 0;
+        purchasesSnap.forEach(d => purchases += Number(d.data().totalCost) || 0);
+
+        const net = revenue - expenses - purchases;
+        const margin = revenue > 0 ? (net / revenue) * 100 : 0;
+
+        container.innerHTML = `
+            <div class="admin-form" style="margin-top:1rem;">
+                <h3>📈 Rapport du ${start.toLocaleDateString('fr-FR')} au ${end.toLocaleDateString('fr-FR')}</h3>
+                <table class="acc-table" style="margin-top:1rem;">
+                    <tr><td>📦 Commandes livrées</td><td style="text-align:right;font-weight:700;">${ordersCount}</td></tr>
+                    <tr><td>💰 Chiffre d'affaires</td><td style="text-align:right;color:var(--success);font-weight:700;">${formatMAD(revenue)}</td></tr>
+                    <tr><td>📉 Dépenses (Fixes)</td><td style="text-align:right;color:var(--danger);">-${formatMAD(expenses)}</td></tr>
+                    <tr><td>📦 Achats de stock</td><td style="text-align:right;color:var(--danger);">-${formatMAD(purchases)}</td></tr>
+                    <tr style="font-weight:800;background:var(--bg-surface);border-top:2px solid var(--gold);">
+                        <td>🏆 Résultat NET</td>
+                        <td style="text-align:right;color:${net >= 0 ? 'var(--success)' : 'var(--danger)'};">${formatMAD(net)}</td>
+                    </tr>
+                    <tr><td>📊 Marge nette</td><td style="text-align:right;">${margin.toFixed(1)}%</td></tr>
+                </table>
+            </div>
+        `;
+    } catch (e) {
+        container.innerHTML = `<div class="admin-empty" style="color:var(--danger);">${e.message}</div>`;
+    }
+}
+
+function downloadCSV(csvContent, fileName) {
+    const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", fileName);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+
+function exportReportCSV() {
+    const table = document.querySelector('#reportContent table');
+    if (!table) { showToast('⚠️ Générez d\'abord un rapport'); return; }
+    let csv = "";
+    table.querySelectorAll('tr').forEach(row => {
+        const cols = Array.from(row.querySelectorAll('td, th')).map(c => `"${c.innerText.replace(/"/g, '""')}"`).join(',');
+        csv += cols + "\n";
+    });
+    downloadCSV(csv, `rapport_${new Date().toISOString().split('T')[0]}.csv`);
+    showToast('✅ Export CSV généré');
+}
+
+async function exportOrdersCSV() {
+    try {
+        showToast('⏳ Chargement des commandes...');
+        const snap = await getDocs(query(collection(db, "orders"), orderBy("createdAt", "desc")));
+        let csv = "ID,Date,Nom,Telephone,Ville,Adresse,Statut,Total\n";
+        snap.forEach(d => {
+            const o = d.data();
+            const date = toDate(o.createdAt)?.toLocaleDateString('fr-FR') || '';
+            const addr = o.deliveryAddress || {};
+            csv += `"${d.id.slice(0,8).toUpperCase()}","${date}","${addr.name||''}","${addr.phone||''}","${addr.city||''}","${addr.address||''}","${o.status}","${o.total}"\n`;
+        });
+        downloadCSV(csv, `commandes_${new Date().toISOString().split('T')[0]}.csv`);
+        showToast('✅ Export CSV généré');
+    } catch (e) { showToast('❌ ' + e.message); }
+}
+
+async function exportProductsCSV() {
+    try {
+        showToast('⏳ Chargement...');
+        const snap = await getDocs(collection(db, "products"));
+        let csv = "Nom,Slug,Categorie,Prix,Cout_Achat,Stock\n";
+        snap.forEach(d => {
+            const p = d.data();
+            csv += `"${p.nameFr||''}","${p.slug||''}","${p.category||''}","${p.price||0}","${p.purchasePrice||0}","${p.stock||0}"\n`;
+        });
+        downloadCSV(csv, `inventaire_${new Date().toISOString().split('T')[0]}.csv`);
+        showToast('✅ Export CSV généré');
+    } catch (e) { showToast('❌ ' + e.message); }
+}
+
+// ============================================================
+// SIMULATEUR AVANCÉ
+// ============================================================
+function renderFinanceProductSelection() {
+    const container = document.getElementById('financeProductSelector');
+    if (!container) return;
+
+    if (!cachedProducts || cachedProducts.length === 0) {
+        container.innerHTML = `<p style="text-align:center;color:var(--text-muted);font-size:0.85rem;padding:1rem;">Chargement des produits...</p>`;
+        return;
+    }
+
+    let html = '';
+    cachedProducts.forEach(p => {
+        const name = p.nameFr || p.nameEn || 'Sans nom';
+        const buyPrice = Number(p.purchasePrice) || 0;
+        const salePrice = Number(p.price) || 0;
+        const stock = Number(p.stock) || 0;
+
+        html += `
+            <label style="display:flex;align-items:center;gap:0.6rem;padding:0.5rem;border-bottom:1px solid var(--border);cursor:pointer;">
+                <input type="checkbox" class="fin-product-checkbox" value="${p.id}" data-buy="${buyPrice}" data-sale="${salePrice}" data-stock="${stock}" style="width:auto;margin:0;">
+                <div style="flex:1;">
+                    <strong style="font-size:0.85rem;color:var(--text);">${escapeHTML(name)}</strong>
+                    <div style="font-size:0.75rem;color:var(--text-muted);">Achat: ${buyPrice} MAD · Vente: ${salePrice} MAD · Stock: ${stock}</div>
+                </div>
+            </label>
+        `;
+    });
+    container.innerHTML = html;
+}
+
+function attachSimulatorListeners() {
+    if (simulatorListenersAttached) return;
+    simulatorListenersAttached = true;
+
+    document.getElementById('finSelectAll')?.addEventListener('click', () => {
+        document.querySelectorAll('.fin-product-checkbox').forEach(cb => cb.checked = true);
+    });
+    document.getElementById('finSelectNone')?.addEventListener('click', () => {
+        document.querySelectorAll('.fin-product-checkbox').forEach(cb => cb.checked = false);
+    });
+    document.getElementById('finSelectProfitable')?.addEventListener('click', () => {
+        document.querySelectorAll('.fin-product-checkbox').forEach(cb => {
+            const buy = parseFloat(cb.dataset.buy) || 0;
+            const sale = parseFloat(cb.dataset.sale) || 0;
+            cb.checked = sale > buy;
+        });
+    });
+    document.getElementById('finSelectTop5')?.addEventListener('click', () => {
+        const checkboxes = Array.from(document.querySelectorAll('.fin-product-checkbox'));
+        checkboxes.forEach(cb => cb.checked = false);
+        const sorted = checkboxes.sort((a, b) => {
+            const marginA = (parseFloat(a.dataset.sale) || 0) - (parseFloat(a.dataset.buy) || 0);
+            const marginB = (parseFloat(b.dataset.sale) || 0) - (parseFloat(b.dataset.buy) || 0);
+            return marginB - marginA;
+        });
+        sorted.slice(0, 5).forEach(cb => cb.checked = true);
+    });
+}
+
+function calculateFinances() {
+    const adSpend = parseFloat(document.getElementById('finAdSpend').value) || 0;
+    const packaging = parseFloat(document.getElementById('finPackaging').value) || 0;
+    const returnShipping = parseFloat(document.getElementById('finReturnShipping').value) || 0;
+    const safetyMargin = parseFloat(document.getElementById('finSafetyMargin').value) || 0;
+    const returnRate = parseFloat(document.getElementById('finReturnRate').value) || 0;
+
+    const selected = [];
+    document.querySelectorAll('.fin-product-checkbox:checked').forEach(cb => {
+        selected.push({
+            id: cb.value,
+            buy: parseFloat(cb.dataset.buy) || 0,
+            sale: parseFloat(cb.dataset.sale) || 0,
+            stock: parseFloat(cb.dataset.stock) || 0
+        });
+    });
+
+    if (selected.length === 0) { showToast('⚠️ Sélectionnez au moins un produit'); return; }
+
+    const logisticsCost = packaging + (returnRate / 100) * (returnShipping + packaging);
+    
+    let totalRevenue = 0, totalInvestment = 0, totalLogistics = 0, totalGrossProfit = 0, totalUnits = 0;
+    const results = [];
+
+    selected.forEach(p => {
+        const marginNetUnit = p.sale - p.buy - logisticsCost;
+        const cpaMax = Math.max(0, marginNetUnit * (1 - safetyMargin / 100));
+        const profitTotal = marginNetUnit * p.stock;
+        const roi = p.buy > 0 ? (marginNetUnit / p.buy) * 100 : 0;
+
+        totalRevenue += p.sale * p.stock;
+        totalInvestment += p.buy * p.stock;
+        totalLogistics += logisticsCost * p.stock;
+        totalGrossProfit += profitTotal;
+        totalUnits += p.stock;
+
+        results.push({ ...p, marginNetUnit, cpaMax, profitTotal, roi });
+    });
+
+    const netProfit = totalGrossProfit - adSpend;
+    const globalRoi = totalInvestment > 0 ? (totalGrossProfit / totalInvestment) * 100 : 0;
+    const breakEven = adSpend > 0 && totalGrossProfit > 0 && totalUnits > 0 
+        ? Math.ceil(adSpend / (totalGrossProfit / totalUnits)) 
+        : 0;
+
+    // Update UI
+    document.getElementById('financesResults').style.display = 'block';
+    document.getElementById('finTotalRevenue').textContent = formatMAD(totalRevenue);
+    document.getElementById('finTotalInvestment').textContent = formatMAD(totalInvestment);
+    document.getElementById('finTotalLogistics').textContent = formatMAD(totalLogistics);
+    document.getElementById('finTotalGrossProfit').textContent = formatMAD(totalGrossProfit);
+    document.getElementById('finTotalProfit').textContent = formatMAD(netProfit);
+    document.getElementById('finTotalProfit').style.color = netProfit >= 0 ? 'var(--success)' : 'var(--danger)';
+    
+    document.getElementById('finTotalROI').textContent = `${globalRoi.toFixed(1)}%`;
+    document.getElementById('finTotalROI').style.color = globalRoi > 0 ? 'var(--success)' : 'var(--danger)';
+    
+    document.getElementById('finBreakEven').textContent = `${breakEven} colis`;
+    document.getElementById('finTotalProducts').textContent = selected.length;
+    document.getElementById('finTotalUnits').textContent = totalUnits;
+    document.getElementById('finStockSaleValue').textContent = formatMAD(totalRevenue);
+
+    let recHtml = '';
+    if (netProfit < 0) {
+        recHtml = `<div style="background:var(--danger-bg);border:1px solid var(--danger);padding:1rem;border-radius:var(--radius-sm);color:var(--danger);margin-bottom:1rem;">
+            <strong>⚠️ Attention :</strong> Votre budget publicitaire (${formatMAD(adSpend)}) dépasse votre profit brut. Vous êtes en perte. Réduisez la pub ou augmentez vos prix.
+        </div>`;
+    } else if (globalRoi < 50) {
+        recHtml = `<div style="background:var(--warning-bg);border:1px solid var(--warning);padding:1rem;border-radius:var(--radius-sm);color:var(--warning);margin-bottom:1rem;">
+            <strong>💡 Conseil :</strong> Votre ROI global est de ${globalRoi.toFixed(1)}%. Il est recommandé d'avoir au moins 100% pour couvrir les imprévus et scaler.
+        </div>`;
+    } else {
+        recHtml = `<div style="background:var(--success-bg);border:1px solid var(--success);padding:1rem;border-radius:var(--radius-sm);color:var(--success);margin-bottom:1rem;">
+            <strong>✅ Excellente rentabilité :</strong> ROI de ${globalRoi.toFixed(1)}%. Vos marges sont saines pour ce budget pub.
+        </div>`;
+    }
+    document.getElementById('finRecommendations').innerHTML = recHtml;
+
+    const tbody = document.getElementById('financesTableBody');
+    let rows = '';
+    results.forEach(r => {
+        const p = cachedProducts.find(pp => pp.id === r.id);
+        const name = p ? (p.nameFr || p.nameEn) : 'Inconnu';
+        const verdict = r.marginNetUnit > 0 ? '✅ Rentable' : '❌ Non rentable';
+        rows += `<tr>
+            <td>${escapeHTML(name)}</td>
+            <td style="text-align:center;">${r.buy} MAD</td>
+            <td style="text-align:center;">${r.sale} MAD</td>
+            <td style="text-align:center;font-weight:700;color:${r.marginNetUnit>0?'var(--success)':'var(--danger)'};">${r.marginNetUnit.toFixed(2)} MAD</td>
+            <td style="text-align:center;">${r.cpaMax.toFixed(2)} MAD</td>
+            <td style="text-align:center;">${r.stock}</td>
+            <td style="text-align:center;font-weight:700;">${r.profitTotal.toFixed(2)} MAD</td>
+            <td style="text-align:center;">${r.roi.toFixed(1)}%</td>
+            <td style="text-align:center;">${verdict}</td>
+        </tr>`;
+    });
+    tbody.innerHTML = rows;
+}
 
 // ============================================================
 // DÉMARRAGE
 // ============================================================
 initAdmin();
-console.log('✅ admin.js chargé — v6.2.0 (Fix Migration Batch + Affichage Catégories)');
+console.log('✅ admin.js chargé — v7.0.0 (Comptabilité complète + Fix Import)');
