@@ -1,7 +1,7 @@
 // js/products.js
 // ============================================================
 // GESTION DES PRODUITS - SMART SWI9A
-// Version 3.4.0 — Alignement avec le design CSS (Bande défilante)
+// Version 3.4.1 — Alignement avec le design CSS (Bande défilante)
 // ============================================================
 
 import {
@@ -687,4 +687,4 @@ export function openProductPage(slug) {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ products.js chargé — v3.4.0 (aligné avec le CSS bande défilante)');
+console.log('✅ products.js chargé — v3.4.1 (aligné avec le CSS bande défilante)');
