@@ -268,7 +268,7 @@
                 <p class="section-sub" data-key="productsSub">Sélection des meilleurs appareils tech et Smart Home disponibles au Maroc.</p>
             </div>
 
-            <!-- Barre de recherche seule et centrée (bouton catégories supprimé) -->
+            <!-- Barre de recherche -->
             <div class="search-bar-products" style="display: flex; justify-content: center; margin: 0 auto 1.5rem; max-width: 400px;">
                 <div class="search-input-wrapper" style="width: 100%;">
                     <span class="search-icon" aria-hidden="true">
@@ -279,7 +279,7 @@
             </div>
 
             <div class="products-toolbar" id="productsToolbar">
-                <!-- Bande défilante injectée par products.js -->
+                <!-- ✅ CONTENEUR PRINCIPAL INJECTÉ PAR JS (Bande défilante) -->
                 <div class="filters-categories" id="filtersCategories"></div>
                 
                 <select class="sort-btn" id="sortSelect" data-action="products:sort" data-aria-key="ariaSortProducts" aria-label="Trier les produits"></select>
@@ -445,6 +445,7 @@
                 </details>
                 <details style="margin-top:0.8rem;">
                     <summary style="font-weight:700;cursor:pointer;font-size:1rem;color:var(--gold);" data-key="termsSummary">📄 Conditions générales de vente</summary>
+                    <!-- ✅ MODIFICATION ICI : <p> devient <div> et termsText devient termsTextHtml -->
                     <div style="margin-top:0.6rem;line-height:1.8;color:var(--text-muted);font-size:0.9rem;" data-key="termsTextHtml">Délai de réclamation : 3 jours après réception...</div>
                 </details>
             </div>
