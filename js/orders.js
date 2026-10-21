@@ -1,7 +1,7 @@
 // js/orders.js
 // ============================================================
 // GESTION DES COMMANDES - SMART SWI9A
-// Version 4.1.0 — Fichier complet (Fix Truncation & Boutons)
+// Version 4.2.0 — Fix : suppression d'avis après retour de commande
 // ============================================================
 
 import {
@@ -816,6 +816,99 @@ export function resetAdminOrdersCache() {
 // ============================================================
 // RETOURS (Admin)
 // ============================================================
+
+/**
+ * ✅ NOUVELLE FONCTION v4.2.0
+ * Synchronise les avis avec l'état des retours d'une commande.
+ *
+ * - Calcule le total retourné par produit (cumul de tous les retours)
+ * - Compare au total commandé
+ * - Si TOUT est retourné  → supprime l'avis (via deleteReview : photos + moyenne)
+ * - Si retour PARTIEL    → retire le badge "verifiedPurchase"
+ * - Si aucun avis        → ne fait rien
+ *
+ * @param {Object} order - Commande (avec order.returns à jour)
+ * @param {Array}  allReturns - Tableau complet des retours (anciens + nouveau)
+ * @returns {Promise<{deleted: number, unverified: number}>}
+ */
+async function syncReviewsWithOrderReturn(order, allReturns) {
+    if (!order || !order.userId || !Array.isArray(order.items) || order.items.length === 0) {
+        return { deleted: 0, unverified: 0 };
+    }
+
+    // 1. Quantités retournées par produit (cumul)
+    const returnedByProduct = {};
+    (allReturns || []).forEach(ret => {
+        if (!ret || !Array.isArray(ret.items)) return;
+        ret.items.forEach(item => {
+            if (!item || item.productId === undefined) return;
+            const pid = String(item.productId);
+            returnedByProduct[pid] = (returnedByProduct[pid] || 0) + (Number(item.delta) || 0);
+        });
+    });
+
+    // 2. Quantités commandées par produit
+    const orderedByProduct = {};
+    order.items.forEach(item => {
+        const pid = String(item.productId);
+        orderedByProduct[pid] = (orderedByProduct[pid] || 0) + (Number(item.quantity) || 0);
+    });
+
+    let deleted = 0;
+    let unverified = 0;
+
+    // 3. Agir sur les avis concernés
+    //    Import dynamique pour éviter le cycle orders.js ↔ reviews.js
+    let reviewsModule;
+    try {
+        reviewsModule = await import("./reviews.js");
+    } catch (e) {
+        console.warn('⚠️ Impossible d\'importer reviews.js :', e);
+        return { deleted: 0, unverified: 0 };
+    }
+
+    const { deleteReview } = reviewsModule;
+
+    for (const pid of Object.keys(returnedByProduct)) {
+        const returnedQty = returnedByProduct[pid] || 0;
+        const orderedQty = orderedByProduct[pid] || 0;
+
+        if (returnedQty <= 0 || orderedQty <= 0) continue;
+
+        const reviewId = `review_${order.userId}_${pid}`;
+        const reviewRef = doc(db, "reviews", reviewId);
+
+        try {
+            const reviewSnap = await getDoc(reviewRef);
+            if (!reviewSnap.exists()) continue; // Pas d'avis → rien à faire
+
+            const reviewData = reviewSnap.data();
+
+            if (returnedQty >= orderedQty) {
+                // ✅ Retour TOTAL → supprimer l'avis (photos + recalcul moyenne)
+                const result = await deleteReview(reviewId);
+                if (result && result.success) {
+                    deleted++;
+                    console.log(`🗑️ Avis supprimé (retour total) : produit ${pid}, commande ${order.id}`);
+                } else {
+                    console.warn(`⚠️ Échec suppression avis ${reviewId}:`, result?.error);
+                }
+            } else {
+                // ⚠️ Retour PARTIEL → retirer le badge "Achat vérifié"
+                if (reviewData.verifiedPurchase === true) {
+                    await updateDoc(reviewRef, { verifiedPurchase: false });
+                    unverified++;
+                    console.log(`🔓 Badge "verifiedPurchase" retiré : produit ${pid}, commande ${order.id}`);
+                }
+            }
+        } catch (e) {
+            console.warn(`⚠️ Sync avis produit ${pid} échouée :`, e);
+        }
+    }
+
+    return { deleted, unverified };
+}
+
 export async function openReturnModal(orderId) {
     try {
         const snap = await getDoc(doc(db, "orders", orderId));
@@ -888,8 +981,37 @@ export async function openReturnModal(orderId) {
             btn.disabled = true; btn.textContent = '⏳...';
             
             try {
+                // 1. Transaction : stock + statut RETURNED
                 await processReturnTransaction(order, returns);
-                showToast('✅ Retour enregistré, stock mis à jour');
+
+                // 2. ✅ NOUVEAU : Synchroniser les avis avec le retour
+                //    On construit le tableau complet des retours (anciens + nouveaux)
+                //    pour que la logique de cumul fonctionne sur les retours multiples
+                const allReturns = [
+                    ...(Array.isArray(order.returns) ? order.returns : []),
+                    {
+                        date: new Date(),
+                        items: returns.map(r => ({
+                            productId: r.productId,
+                            variant: r.variant,
+                            delta: r.quantity
+                        }))
+                    }
+                ];
+
+                let reviewSync = { deleted: 0, unverified: 0 };
+                try {
+                    reviewSync = await syncReviewsWithOrderReturn(order, allReturns);
+                } catch (e) {
+                    console.warn('⚠️ Sync avis échouée (non bloquant) :', e);
+                }
+
+                // 3. Toast récapitulatif
+                let toastMsg = '✅ Retour enregistré, stock mis à jour';
+                if (reviewSync.deleted > 0) toastMsg += ` · ${reviewSync.deleted} avis supprimé(s)`;
+                if (reviewSync.unverified > 0) toastMsg += ` · ${reviewSync.unverified} badge(s) retiré(s)`;
+                showToast(toastMsg, 4000);
+
                 closeModal();
                 if (typeof resetAdminOrdersCache === 'function') resetAdminOrdersCache();
                 if (typeof renderAdminOrders === 'function') renderAdminOrders('adminOrdersList');
@@ -1108,4 +1230,4 @@ export async function openOrderDetails(orderId, isAdmin = false) {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ orders.js chargé — v4.1.0 (Fichier complet)');
+console.log('✅ orders.js chargé — v4.2.0 (suppression avis après retour)');
