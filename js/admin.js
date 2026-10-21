@@ -1,7 +1,7 @@
 // js/admin.js
 // ============================================================
 // PANNEAU ADMINISTRATION - SMART SWI9A
-// Version 7.0.0 — Fix Import + Comptabilité complète
+// Version 7.1.0 — Fix UX login admin (messages persistants + erreurs claires)
 // ============================================================
 
 import { auth, db, storage } from "./firebase.js";
@@ -51,6 +51,9 @@ const PRODUCTS_PER_PAGE = 20;
 let productsCurrentPage = 1;
 const BLOG_PER_PAGE = 15;
 let blogCurrentPage = 1;
+
+// ✅ FIX : Message d'erreur login persistant entre signOut et onAuthStateChanged
+let pendingLoginError = null;
 
 // ============================================================
 // HELPERS i18n
@@ -253,7 +256,8 @@ function initAdmin() {
         if (user) {
             if (!user.emailVerified && user.providerData?.[0]?.providerId === 'password') {
                 currentAdmin = null;
-                showLoginBox('📧 Vérifiez votre email avant de vous connecter.');
+                pendingLoginError = '📧 Vérifiez votre email avant de vous connecter. Consultez votre boîte mail (et les spams).';
+                showLoginBox();
                 await signOut(auth);
                 return;
             }
@@ -262,18 +266,23 @@ function initAdmin() {
                 const userDoc = await getDoc(doc(db, "users", user.uid));
                 if (userDoc.exists() && userDoc.data().role === ROLES.ADMIN) {
                     currentAdmin = user;
+                    pendingLoginError = null;
                     resetAdminOrdersCache();
                     showAdminPanel(user);
                     loadAllData();
                     initAdminAlerts();
                     attachChartListeners();
                 } else {
-                    showLoginBox('⚠️ ' + t('loginRequired'));
+                    pendingLoginError = '⚠️ Ce compte n\'a pas les droits administrateur. Vérifiez le champ "role" dans Firestore (collection users).';
+                    currentAdmin = null;
+                    showLoginBox();
                     await signOut(auth);
                 }
             } catch (e) {
                 console.error('❌ Erreur vérif admin :', e);
-                showLoginBox('⚠️ ' + t('error'));
+                pendingLoginError = '❌ Erreur de vérification du compte : ' + (e.message || 'inconnue');
+                currentAdmin = null;
+                showLoginBox();
                 await signOut(auth);
             }
         } else {
@@ -285,6 +294,24 @@ function initAdmin() {
     });
 
     document.getElementById('adminLoginBtn')?.addEventListener('click', handleLogin);
+
+    // ✅ FIX : Reset le message d'erreur dès que l'utilisateur retape
+    document.getElementById('adminEmail')?.addEventListener('input', () => {
+        pendingLoginError = null;
+        const msgEl = document.getElementById('adminLoginMsg');
+        if (msgEl && msgEl.textContent) msgEl.textContent = '';
+    });
+    document.getElementById('adminPassword')?.addEventListener('input', () => {
+        pendingLoginError = null;
+        const msgEl = document.getElementById('adminLoginMsg');
+        if (msgEl && msgEl.textContent) msgEl.textContent = '';
+    });
+
+    // ✅ FIX : Permet de valider avec Entrée
+    document.getElementById('adminPassword')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); handleLogin(); }
+    });
+
     document.getElementById('adminLogoutBtn')?.addEventListener('click', async () => {
         resetAdminOrdersCache();
         if (alertInterval) clearInterval(alertInterval);
@@ -404,11 +431,17 @@ function initAdmin() {
     document.getElementById('generateVariantsBtn')?.addEventListener('click', generateVariants);
 }
 
-function showLoginBox(msg = '') {
+// ✅ FIX : showLoginBox ne vide plus pendingLoginError — le message persiste
+function showLoginBox() {
     document.getElementById('adminLoginBox').style.display = 'block';
     document.getElementById('adminPanel').style.display = 'none';
     const msgEl = document.getElementById('adminLoginMsg');
-    if (msgEl) msgEl.textContent = msg;
+    if (msgEl) {
+        // Utilise pendingLoginError s'il existe, sinon efface
+        const displayMsg = pendingLoginError || '';
+        msgEl.textContent = displayMsg;
+        msgEl.style.color = displayMsg ? 'var(--danger)' : '';
+    }
 }
 
 function showAdminPanel(user) {
@@ -418,16 +451,64 @@ function showAdminPanel(user) {
     loadStats();
 }
 
+// ✅ FIX : handleLogin robuste avec try/catch/finally + messages FR + bouton protégé
 async function handleLogin() {
     const email = document.getElementById('adminEmail').value.trim();
     const password = document.getElementById('adminPassword').value;
     const msgEl = document.getElementById('adminLoginMsg');
-    if (!email || !password) { if (msgEl) msgEl.textContent = '⚠️ Email et mot de passe requis'; return; }
+    const btn = document.getElementById('adminLoginBtn');
+
+    // Reset message à chaque tentative
+    pendingLoginError = null;
+
+    if (!email || !password) {
+        if (msgEl) {
+            msgEl.textContent = '⚠️ Email et mot de passe requis';
+            msgEl.style.color = 'var(--danger)';
+        }
+        return;
+    }
+
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '⏳ Connexion...';
+    }
+    if (msgEl) {
+        msgEl.textContent = '⏳ Connexion en cours...';
+        msgEl.style.color = 'var(--text-muted)';
+    }
+
     try {
-        if (msgEl) msgEl.textContent = '⏳ Connexion...';
         await signInWithEmailAndPassword(auth, email, password);
+        // ✅ Succès : onAuthStateChanged prend le relais (vérif admin/email).
+        // On ne fait rien ici — le message sera nettoyé ou remplacé automatiquement.
     } catch (e) {
-        if (msgEl) msgEl.textContent = '❌ ' + (e.message || 'Erreur');
+        console.error('❌ Erreur login admin :', e);
+
+        const errorMap = {
+            'auth/invalid-email': '📧 Format d\'email invalide.',
+            'auth/user-not-found': '❌ Aucun compte trouvé avec cet email.',
+            'auth/wrong-password': '🔒 Mot de passe incorrect.',
+            'auth/invalid-credential': '🔒 Email ou mot de passe incorrect.',
+            'auth/too-many-requests': '⏳ Trop de tentatives échouées. Patientez 15 minutes.',
+            'auth/network-request-failed': '📡 Pas de connexion internet. Vérifiez votre réseau.',
+            'auth/unauthorized-domain': '🌐 Domaine non autorisé. Ajoutez-le dans Firebase Console → Authentication → Settings → Authorized Domains.',
+            'auth/user-disabled': '🚫 Ce compte a été désactivé par un administrateur.',
+            'auth/operation-not-allowed': '🚫 La connexion email/mot de passe est désactivée dans Firebase Console.',
+        };
+
+        const message = errorMap[e.code] || ('❌ Erreur : ' + (e.message || e.code || 'inconnue'));
+
+        if (msgEl) {
+            msgEl.textContent = message;
+            msgEl.style.color = 'var(--danger)';
+        }
+    } finally {
+        // ✅ Réactive TOUJOURS le bouton (empêche le double-clic)
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = '🔓 Se connecter';
+        }
     }
 }
 
@@ -2625,4 +2706,4 @@ function calculateFinances() {
 // DÉMARRAGE
 // ============================================================
 initAdmin();
-console.log('✅ admin.js chargé — v7.0.0 (Comptabilité complète + Fix Import)');
+console.log('✅ admin.js chargé — v7.1.0 (Fix UX login admin)');
