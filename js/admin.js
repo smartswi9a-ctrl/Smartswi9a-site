@@ -1,7 +1,7 @@
 // js/admin.js
 // ============================================================
 // PANNEAU ADMINISTRATION - SMART SWI9A
-// Version 7.1.0 — Fix UX login admin (messages persistants + erreurs claires)
+// Version 8.0.0 — Ajout du panneau Speedaf + Synchro globale
 // ============================================================
 
 import { auth, db, storage } from "./firebase.js";
@@ -20,9 +20,11 @@ import {
 } from "./config.js";
 import {
     escapeHTML, slugify, getStoragePathFromUrl, isStorageUrl,
-    getSignupMethodLabel, getSignupMethodEmoji, toDate, t
+    getSignupMethodLabel, getSignupMethodEmoji, toDate, t, getCityName
 } from "./utils.js";
-import { renderAdminOrders, resetAdminOrdersCache, openReturnModal } from "./orders.js";
+import { 
+    renderAdminOrders, resetAdminOrdersCache, openReturnModal, syncSpeedafStatus 
+} from "./orders.js";
 import { renderAdminReviews } from "./reviews.js";
 import { showToast, confirmAction } from "./ui-core.js";
 
@@ -37,11 +39,13 @@ let cachedPurchases = [];
 let cachedExpenses = [];
 let cachedTransactions = [];
 let cachedCoupons = [];
+let speedafOrdersCache = [];
 let lastProductsLoadTime = 0;
 
 let simulatorListenersAttached = false;
 let alertInterval = null;
 let tempStockFilter = null;
+let isSyncingAllSpeedaf = false;
 
 let revenueChartInstance = null;
 let currentChartPeriod = 7;
@@ -333,6 +337,7 @@ function initAdmin() {
             else if (tab === 'blog') loadBlogPosts();
             else if (tab === 'products') { await loadProducts(); await loadStats(); }
             else if (tab === 'orders') await loadOrders();
+            else if (tab === 'speedaf') await loadSpeedafTab();
             else if (tab === 'coupons') await loadCoupons();
             else if (tab === 'finances') await loadFinancesTab();
             else if (tab === 'users') await loadUsers();
@@ -383,6 +388,11 @@ function initAdmin() {
     document.getElementById('blogSearchAdmin')?.addEventListener('input', () => { blogCurrentPage = 1; filterBlogList(); });
     document.getElementById('couponSearchAdmin')?.addEventListener('input', filterCouponsList);
 
+    // Boutons Speedaf
+    document.getElementById('speedafSearchAdmin')?.addEventListener('input', renderSpeedafList);
+    document.getElementById('speedafStatusFilter')?.addEventListener('change', renderSpeedafList);
+    document.getElementById('syncAllSpeedafBtn')?.addEventListener('click', handleSyncAllSpeedaf);
+
     // Boutons Outils
     document.getElementById('migrateCitiesBtn')?.addEventListener('click', handleMigrateCities);
     document.getElementById('migrateLegacyCategoriesBtn')?.addEventListener('click', handleMigrateLegacyCategories);
@@ -431,13 +441,11 @@ function initAdmin() {
     document.getElementById('generateVariantsBtn')?.addEventListener('click', generateVariants);
 }
 
-// ✅ FIX : showLoginBox ne vide plus pendingLoginError — le message persiste
 function showLoginBox() {
     document.getElementById('adminLoginBox').style.display = 'block';
     document.getElementById('adminPanel').style.display = 'none';
     const msgEl = document.getElementById('adminLoginMsg');
     if (msgEl) {
-        // Utilise pendingLoginError s'il existe, sinon efface
         const displayMsg = pendingLoginError || '';
         msgEl.textContent = displayMsg;
         msgEl.style.color = displayMsg ? 'var(--danger)' : '';
@@ -451,14 +459,12 @@ function showAdminPanel(user) {
     loadStats();
 }
 
-// ✅ FIX : handleLogin robuste avec try/catch/finally + messages FR + bouton protégé
 async function handleLogin() {
     const email = document.getElementById('adminEmail').value.trim();
     const password = document.getElementById('adminPassword').value;
     const msgEl = document.getElementById('adminLoginMsg');
     const btn = document.getElementById('adminLoginBtn');
 
-    // Reset message à chaque tentative
     pendingLoginError = null;
 
     if (!email || !password) {
@@ -480,8 +486,6 @@ async function handleLogin() {
 
     try {
         await signInWithEmailAndPassword(auth, email, password);
-        // ✅ Succès : onAuthStateChanged prend le relais (vérif admin/email).
-        // On ne fait rien ici — le message sera nettoyé ou remplacé automatiquement.
     } catch (e) {
         console.error('❌ Erreur login admin :', e);
 
@@ -492,9 +496,9 @@ async function handleLogin() {
             'auth/invalid-credential': '🔒 Email ou mot de passe incorrect.',
             'auth/too-many-requests': '⏳ Trop de tentatives échouées. Patientez 15 minutes.',
             'auth/network-request-failed': '📡 Pas de connexion internet. Vérifiez votre réseau.',
-            'auth/unauthorized-domain': '🌐 Domaine non autorisé. Ajoutez-le dans Firebase Console → Authentication → Settings → Authorized Domains.',
+            'auth/unauthorized-domain': '🌐 Domaine non autorisé. Ajoutez-le dans Firebase Console.',
             'auth/user-disabled': '🚫 Ce compte a été désactivé par un administrateur.',
-            'auth/operation-not-allowed': '🚫 La connexion email/mot de passe est désactivée dans Firebase Console.',
+            'auth/operation-not-allowed': '🚫 La connexion email/mot de passe est désactivée.',
         };
 
         const message = errorMap[e.code] || ('❌ Erreur : ' + (e.message || e.code || 'inconnue'));
@@ -504,7 +508,6 @@ async function handleLogin() {
             msgEl.style.color = 'var(--danger)';
         }
     } finally {
-        // ✅ Réactive TOUJOURS le bouton (empêche le double-clic)
         if (btn) {
             btn.disabled = false;
             btn.textContent = '🔓 Se connecter';
@@ -1247,6 +1250,207 @@ async function loadStats() {
 async function loadOrders() { await renderAdminOrders('adminOrdersList'); }
 async function loadReviews() { await renderAdminReviews('reviewsList', 'all'); }
 
+// ============================================================
+// 🚀 SPEEDAF TAB
+// ============================================================
+async function loadSpeedafTab() {
+    const container = document.getElementById('adminSpeedafList');
+    if (!container) return;
+
+    container.innerHTML = `<div class="admin-loading">⏳ Chargement des commandes Speedaf...</div>`;
+
+    try {
+        // On récupère les 100 dernières commandes pour l'affichage Speedaf
+        const q = query(collection(db, "orders"), orderBy("createdAt", "desc"), limit(100));
+        const snap = await getDocs(q);
+        
+        speedafOrdersCache = snap.docs.map(d => {
+            const data = d.data();
+            return { id: d.id, ...data, createdAt: toDate(data.createdAt) };
+        });
+
+        updateSpeedafStats();
+        renderSpeedafList();
+
+    } catch (e) {
+        console.error('❌ Erreur chargement Speedaf :', e);
+        container.innerHTML = `<div class="admin-empty" style="color:var(--danger);">${t('loadingError')}</div>`;
+    }
+}
+
+function updateSpeedafStats() {
+    let pending = 0, shipping = 0, delivered = 0;
+    
+    speedafOrdersCache.forEach(o => {
+        const status = normalizeOrderStatus(o.status);
+        if (status === 'pending') pending++;
+        else if (status === 'shipping') shipping++;
+        else if (status === 'delivered') delivered++;
+    });
+
+    const elPending = document.getElementById('speedafStatPending');
+    const elShipping = document.getElementById('speedafStatShipping');
+    const elDelivered = document.getElementById('speedafStatDelivered');
+    
+    if (elPending) elPending.textContent = pending;
+    if (elShipping) elShipping.textContent = shipping;
+    if (elDelivered) elDelivered.textContent = delivered;
+}
+
+function renderSpeedafList() {
+    const container = document.getElementById('adminSpeedafList');
+    if (!container) return;
+
+    const search = document.getElementById('speedafSearchAdmin')?.value.toLowerCase().trim() || '';
+    const filterStatus = document.getElementById('speedafStatusFilter')?.value || 'all';
+
+    let filtered = speedafOrdersCache;
+
+    // Filtre par statut
+    if (filterStatus !== 'all') {
+        filtered = filtered.filter(o => normalizeOrderStatus(o.status) === filterStatus);
+    }
+
+    // Filtre par recherche
+    if (search) {
+        filtered = filtered.filter(o => {
+            const idStr = o.id.slice(0, 8).toLowerCase();
+            const trackingStr = (o.speedafTracking || '').toLowerCase();
+            const clientName = (o.deliveryAddress?.name || '').toLowerCase();
+            const clientPhone = (o.deliveryAddress?.phone || '').toLowerCase();
+            return idStr.includes(search) || trackingStr.includes(search) || clientName.includes(search) || clientPhone.includes(search);
+        });
+    }
+
+    if (filtered.length === 0) {
+        container.innerHTML = `<div class="admin-empty">Aucune commande trouvée pour ces critères.</div>`;
+        return;
+    }
+
+    let html = '';
+    filtered.forEach(order => {
+        const status = normalizeOrderStatus(order.status);
+        const dateStr = order.createdAt ? order.createdAt.toLocaleDateString('fr-FR') : '—';
+        const idShort = order.id.slice(0, 8).toUpperCase();
+        const cityStr = getCityName({ 
+            name: order.deliveryAddress?.cityAr || order.deliveryAddress?.city, 
+            nameFr: order.deliveryAddress?.cityFr, 
+            nameAr: order.deliveryAddress?.cityAr 
+        });
+
+        let statusBadge = '';
+        if (status === 'pending') statusBadge = '⏳ À expédier';
+        else if (status === 'confirmed') statusBadge = '✅ Confirmée';
+        else if (status === 'shipping') statusBadge = '🚚 En cours';
+        else if (status === 'delivered') statusBadge = '📦 Livré';
+        else if (status === 'returned') statusBadge = '↩️ Retourné';
+        else if (status === 'cancelled') statusBadge = '❌ Annulé';
+
+        const trackingHtml = order.speedafTracking 
+            ? `<div style="font-size:0.8rem; color:var(--gold); margin-top:0.2rem;">🔗 <strong>Suivi:</strong> ${escapeHTML(order.speedafTracking)}</div>` 
+            : '';
+
+        const printBtn = order.speedafLabelUrl 
+            ? `<a href="${escapeHTML(order.speedafLabelUrl)}" target="_blank" class="admin-btn-primary" style="padding:0.4rem 0.8rem; font-size:0.75rem; text-decoration:none; margin-left:0.3rem;">🖨️ Imprimer</a>` 
+            : '';
+
+        const syncBtn = order.speedafTracking && ['shipping', 'confirmed'].includes(status)
+            ? `<button class="admin-btn-secondary" data-sync-id="${order.id}" style="padding:0.4rem 0.8rem; font-size:0.75rem; margin-left:0.3rem;">🔄 Sync</button>`
+            : '';
+
+        html += `
+            <div class="admin-list-item" style="flex-direction:column; align-items:stretch; padding:1rem;">
+                <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.5rem;">
+                    <div>
+                        <strong style="color:var(--gold); font-size:1rem;">#${idShort}</strong> 
+                        <span style="margin-left:0.5rem; font-size:0.85rem; color:var(--text-muted);">${dateStr}</span>
+                        <span style="margin-left:0.5rem; font-size:0.8rem; font-weight:700;">${statusBadge}</span>
+                    </div>
+                    <div style="font-weight:700; color:var(--text);">${order.total || 0} MAD</div>
+                </div>
+                <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:0.5rem;">
+                    👤 ${escapeHTML(order.deliveryAddress?.name || '—')} · 📞 ${escapeHTML(order.deliveryAddress?.phone || '')} · 🏙️ ${escapeHTML(cityStr)}
+                </div>
+                ${trackingHtml}
+                <div style="display:flex; justify-content:flex-end; margin-top:0.5rem;">
+                    ${syncBtn}
+                    ${printBtn}
+                </div>
+            </div>
+        `;
+    });
+
+    container.innerHTML = html;
+
+    // Attacher les événements de synchronisation individuelle
+    container.querySelectorAll('[data-sync-id]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const orderId = btn.dataset.syncId;
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '⏳...';
+            
+            const res = await syncSpeedafStatus(orderId);
+            if (res.success) {
+                if (res.updated) {
+                    showToast(`✅ Statut mis à jour : ${res.newStatus}`);
+                    await loadSpeedafTab(); // Recharge tout
+                } else {
+                    showToast(`ℹ️ Statut Speedaf : ${res.currentStatus}`);
+                }
+            } else {
+                showToast(`❌ Erreur: ${res.error}`);
+            }
+            btn.disabled = false; btn.innerHTML = originalText;
+        });
+    });
+}
+
+async function handleSyncAllSpeedaf() {
+    if (isSyncingAllSpeedaf) return;
+    const btn = document.getElementById('syncAllSpeedafBtn');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Synchronisation...'; }
+    isSyncingAllSpeedaf = true;
+
+    // On synchronise uniquement les commandes qui ont un numéro de suivi et qui ne sont pas encore livrées/retournées
+    const ordersToSync = speedafOrdersCache.filter(o => 
+        o.speedafTracking && 
+        ['shipping', 'confirmed'].includes(normalizeOrderStatus(o.status))
+    );
+
+    if (ordersToSync.length === 0) {
+        showToast('ℹ️ Aucune commande en cours à synchroniser.');
+        if (btn) { btn.disabled = false; btn.textContent = '🔄 Synchroniser tous les statuts'; }
+        isSyncingAllSpeedaf = false;
+        return;
+    }
+
+    let updatedCount = 0;
+    let errorCount = 0;
+
+    for (const order of ordersToSync) {
+        try {
+            const res = await syncSpeedafStatus(order.id);
+            if (res.success && res.updated) {
+                updatedCount++;
+            }
+        } catch (e) {
+            errorCount++;
+        }
+    }
+
+    showToast(`✅ ${updatedCount} commande(s) mise(s) à jour. ${errorCount > 0 ? errorCount + ' erreur(s).' : ''}`);
+    
+    // Recharger les données
+    await loadSpeedafTab();
+    
+    if (btn) { btn.disabled = false; btn.textContent = '🔄 Synchroniser tous les statuts'; }
+    isSyncingAllSpeedaf = false;
+}
+
+// ============================================================
+// CLIENTS (Suite et fin des fonctions Admin)
+// ============================================================
 async function loadUsers() {
     const container = document.getElementById('adminUsersList');
     if (!container) return;
@@ -2706,4 +2910,4 @@ function calculateFinances() {
 // DÉMARRAGE
 // ============================================================
 initAdmin();
-console.log('✅ admin.js chargé — v7.1.0 (Fix UX login admin)');
+console.log('✅ admin.js chargé — v8.0.0 (Panneau Speedaf + Synchro)');
