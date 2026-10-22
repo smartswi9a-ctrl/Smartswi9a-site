@@ -1,7 +1,18 @@
 // js/products.js
 // ============================================================
 // GESTION DES PRODUITS - SMART SWI9A
-// Version 3.4.3 — Fix : scroll catégories préservé en RTL (arabe)
+// Version 3.5.0 — Scroll buttons catégories (desktop)
+//                 + Compatible RTL + Auto-hide sur mobile
+// ============================================================
+// CHANGEMENTS v3.5.0 :
+// ✨ NOUVEAU — Boutons < / > transparents sur les 2 bandes catégories
+//             (parents + sous-catégories) style .banner-nav
+// ✨ NOUVEAU — Scroll smooth de 300px par clic
+// ✨ NOUVEAU — Boutons auto-masqués sur mobile et si pas de débordement
+// ✨ NOUVEAU — Boutons grisés aux extrémités (disabled)
+// 🔒 INCHANGÉ — Toute la logique existante (filtres, tri, produits,
+//              favoris, stats, navigation)
+// 🔒 INCHANGÉ — restoreScrollPosition() pour compatibilité RTL
 // ============================================================
 
 import {
@@ -39,7 +50,7 @@ const STATS_CACHE_MAX = 100;
 
 let _renderRequestId = 0;
 
-// ✅ FIX : Mémorisation de l'état précédent pour détecter les changements
+// Mémorisation de l'état précédent pour détecter les changements
 let _lastRenderedParentId = null;
 let _lastRenderedLang = null;
 
@@ -54,14 +65,198 @@ if (typeof document !== 'undefined') {
 }
 
 // ============================================================
-// ✅ NOUVEAU HELPER : Restauration de scroll compatible LTR + RTL
+// ✅ CSS INJECTION (une seule fois)
 // ------------------------------------------------------------
-// - En LTR : scrollLeft va de 0 → +maxScroll
-// - En RTL : scrollLeft va de -maxScroll → 0 (valeurs négatives)
-// Une condition `> 0` rate donc TOUTES les valeurs RTL.
-// On utilise `!== 0` pour accepter les deux cas.
-// Le double-RAF fiabilise la restauration sur Safari ancien,
-// qui clampe parfois scrollLeft après innerHTML.
+// Style des boutons scroll catégories — identique aux .banner-nav
+// des carrousels promo/nouveautés pour cohérence visuelle.
+// ============================================================
+const CATEGORIES_SCROLL_CSS_ID = 'categories-scroll-css';
+
+function injectCategoriesScrollCSS() {
+    if (typeof document === 'undefined') return;
+    if (document.getElementById(CATEGORIES_SCROLL_CSS_ID)) return;
+
+    const style = document.createElement('style');
+    style.id = CATEGORIES_SCROLL_CSS_ID;
+    style.textContent = `
+        /* Wrapper relatif autour de chaque bande */
+        .categories-scroll-wrapper {
+            position: relative;
+            width: 100%;
+        }
+
+        /* Boutons scroll gauche / droite (style banner-nav) */
+        .categories-scroll-btn {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            background: rgba(var(--gold-rgb, 212, 163, 75), 0.15);
+            border: 1px solid var(--border-gold, rgba(180, 130, 40, 0.4));
+            color: var(--gold, #a57b2e);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 10;
+            transition: all 0.2s ease;
+            font-size: 1.2rem;
+            font-weight: 700;
+            line-height: 1;
+            padding: 0;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+        }
+        .categories-scroll-btn:hover:not(:disabled) {
+            background: var(--gold, #a57b2e);
+            color: #ffffff;
+            transform: translateY(-50%) scale(1.08);
+            box-shadow: 0 4px 12px rgba(165, 123, 46, 0.35);
+        }
+        .categories-scroll-btn:disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+        .categories-scroll-btn.prev {
+            left: 4px;
+        }
+        .categories-scroll-btn.next {
+            right: 4px;
+        }
+
+        /* RTL : inverser les positions */
+        [dir="rtl"] .categories-scroll-btn.prev {
+            left: auto;
+            right: 4px;
+        }
+        [dir="rtl"] .categories-scroll-btn.next {
+            right: auto;
+            left: 4px;
+        }
+
+        /* Légère marge pour éviter que les items collent aux boutons */
+        .categories-scroll-wrapper .categories-scroll-row {
+            padding-left: 0;
+            padding-right: 0;
+        }
+
+        /* Masquer sur mobile/tablette tactile (swipe natif) */
+        @media (max-width: 900px), (hover: none) {
+            .categories-scroll-btn {
+                display: none !important;
+            }
+        }
+
+        /* Sous-catégories : boutons un peu plus petits */
+        #subFiltersCategories .categories-scroll-btn {
+            width: 28px;
+            height: 28px;
+            font-size: 1rem;
+        }
+    `;
+    document.head.appendChild(style);
+}
+
+// ============================================================
+// ✅ SCROLL BUTTONS — LOGIC
+// ============================================================
+const SCROLL_STEP = 300;
+let _globalScrollListenersAttached = false;
+
+/**
+ * Attache les listeners de click sur les boutons d'un wrapper.
+ * Guard : ne pas attacher 2× au même wrapper.
+ */
+function attachScrollButtons(wrapper) {
+    if (!wrapper || wrapper._scrollBtnsAttached) return;
+    wrapper._scrollBtnsAttached = true;
+
+    const row = wrapper.querySelector('.categories-scroll-row');
+    const prevBtn = wrapper.querySelector('.categories-scroll-btn.prev');
+    const nextBtn = wrapper.querySelector('.categories-scroll-btn.next');
+    if (!row || !prevBtn || !nextBtn) return;
+
+    prevBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        row.scrollBy({ left: -SCROLL_STEP, behavior: 'smooth' });
+    });
+
+    nextBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        row.scrollBy({ left: SCROLL_STEP, behavior: 'smooth' });
+    });
+
+    // Première mise à jour de visibilité (après layout)
+    requestAnimationFrame(() => updateScrollBtnVisibility(wrapper));
+}
+
+/**
+ * Met à jour l'état disabled / display des boutons d'un wrapper.
+ * - Cache si le contenu ne déborde pas
+ * - Grise ‹ au début / › à la fin (adapté RTL)
+ */
+function updateScrollBtnVisibility(wrapper) {
+    if (!wrapper) return;
+    const row = wrapper.querySelector('.categories-scroll-row');
+    const prevBtn = wrapper.querySelector('.categories-scroll-btn.prev');
+    const nextBtn = wrapper.querySelector('.categories-scroll-btn.next');
+    if (!row || !prevBtn || !nextBtn) return;
+
+    const maxScroll = row.scrollWidth - row.clientWidth;
+
+    // Aucun débordement → cacher les 2 boutons
+    if (maxScroll <= 5) {
+        prevBtn.style.display = 'none';
+        nextBtn.style.display = 'none';
+        return;
+    }
+    prevBtn.style.display = '';
+    nextBtn.style.display = '';
+
+    const isRtl = document.documentElement.dir === 'rtl';
+    const sl = row.scrollLeft;
+
+    // En LTR : scrollLeft va de 0 → +maxScroll
+    // En RTL : scrollLeft va de 0 → -maxScroll
+    if (isRtl) {
+        prevBtn.disabled = sl <= -maxScroll + 5;  // ‹ désactivé quand au bout à gauche
+        nextBtn.disabled = sl >= -5;               // › désactivé quand au début
+    } else {
+        prevBtn.disabled = sl <= 5;                // ‹ désactivé quand au début
+        nextBtn.disabled = sl >= maxScroll - 5;    // › désactivé quand au bout à droite
+    }
+}
+
+/**
+ * Attache UNE SEULE FOIS les listeners globaux (resize + scroll délégué)
+ * pour mettre à jour tous les boutons de toutes les bandes.
+ */
+function ensureGlobalScrollListeners() {
+    if (_globalScrollListenersAttached) return;
+    _globalScrollListenersAttached = true;
+
+    window.addEventListener('resize', () => {
+        document.querySelectorAll('.categories-scroll-wrapper').forEach(updateScrollBtnVisibility);
+    }, { passive: true });
+
+    // Scroll délégué (capture pour catch les scroll events des éléments scrollables)
+    document.addEventListener('scroll', (e) => {
+        const row = e.target;
+        if (row && row.classList && row.classList.contains('categories-scroll-row')) {
+            const wrapper = row.closest('.categories-scroll-wrapper');
+            if (wrapper) updateScrollBtnVisibility(wrapper);
+        }
+    }, { passive: true, capture: true });
+}
+
+// ============================================================
+// HELPERS SCROLL — Fix RTL existant (préservé tel quel)
 // ============================================================
 function restoreScrollPosition(row, savedValue, shouldReset) {
     if (!row) return;
@@ -535,27 +730,26 @@ export async function renderProducts() {
 }
 
 // ============================================================
-// ✅ RENDU DES CATÉGORIES (BANDE DÉFILANTE)
+// ✅ RENDU DES CATÉGORIES (avec scroll buttons)
 // ------------------------------------------------------------
-// FIX v3.4.3 : compatible LTR (fr/en) ET RTL (ar)
-//   - Parents : scroll restauré (sauf changement de langue)
-//   - Enfants : scroll restauré si le parent n'a pas changé
-//              sinon reset à 0 (nouvelle liste)
-//   - Utilise restoreScrollPosition() qui gère les valeurs
-//     négatives de scrollLeft en RTL
+// FIX RTL : scroll restauré (parents) / reset si parent change
+// FIX v3.5.0 : wrappers + boutons < / > sur les 2 bandes
 // ============================================================
 export function renderCategoryFilters() {
     const mainContainer = document.getElementById('filtersCategories');
     if (!mainContainer) return;
 
+    // ✅ Injecter le CSS une seule fois
+    injectCategoriesScrollCSS();
+    ensureGlobalScrollListeners();
+
     const filters = getFilters();
     const activeCat = filters.category || 'all';
     const activeCatObj = getCategoryById(activeCat);
-    
-    // Déterminer si on est sur un parent ou un enfant
+
     const activeParentId = activeCatObj?.parentId || (activeCatObj?.isParent ? activeCatObj.id : null);
 
-    // ✅ FIX : Sauvegarder les scrolls AVANT toute mutation DOM
+    // ✅ Sauvegarder les scrolls AVANT mutation DOM
     const oldParentRow = mainContainer.querySelector('.categories-scroll-row');
     const savedParentScroll = oldParentRow ? oldParentRow.scrollLeft : 0;
 
@@ -563,19 +757,18 @@ export function renderCategoryFilters() {
     const oldChildRow = oldChildContainer?.querySelector('.categories-scroll-row');
     const savedChildScroll = oldChildRow ? oldChildRow.scrollLeft : 0;
 
-    // ✅ FIX : Détecter les changements qui doivent reset le scroll
     const currentLang = getLang();
     const langChanged = _lastRenderedLang !== null && _lastRenderedLang !== currentLang;
     const parentChanged = _lastRenderedParentId !== activeParentId;
     const shouldResetChildScroll = parentChanged || langChanged;
 
     // ============================================
-    // BANDE 1 : PARENTS (Toujours visible)
+    // BANDE 1 : PARENTS (avec wrapper + boutons)
     // ============================================
-    let mainHtml = `<div class="categories-scroll-row">`;
-    
+    let parentItemsHtml = '';
+
     // Bouton "Tout"
-    mainHtml += `
+    parentItemsHtml += `
         <button class="category-scroll-item ${activeCat === 'all' ? 'active' : ''}" data-action="products:filter" data-category="all">
             <div class="category-scroll-img" style="background:var(--bg-surface);font-size:1.8rem;">🛍️</div>
             <span class="category-scroll-label">${t('filterAll')}</span>
@@ -583,19 +776,18 @@ export function renderCategoryFilters() {
     `;
 
     // Bouton "Favoris"
-    mainHtml += `
+    parentItemsHtml += `
         <button class="category-scroll-item ${activeCat === 'favorites' ? 'active' : ''}" data-action="products:filter" data-category="favorites">
             <div class="category-scroll-img" style="background:var(--bg-surface);font-size:1.8rem;">❤️</div>
             <span class="category-scroll-label">${t('filterFavorites')}</span>
         </button>
     `;
 
-    // 23 Catégories Parents
+    // 23 catégories parents
     CATEGORY_GROUPS.forEach(group => {
         const isActive = activeCat === group.id || activeParentId === group.id;
-        // ✅ CHEMIN : /assets/ID.webp (Fallback sur l'émoji si erreur)
         const imgPath = `/assets/${group.id}.webp`;
-        mainHtml += `
+        parentItemsHtml += `
             <button class="category-scroll-item ${isActive ? 'active' : ''}" data-action="products:filter" data-category="${group.id}">
                 <div class="category-scroll-img">
                     <img src="${imgPath}" alt="${t(group.label)}" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
@@ -605,19 +797,27 @@ export function renderCategoryFilters() {
             </button>
         `;
     });
-    mainHtml += `</div>`;
 
-    // ✅ Reconstruction du DOM (le scroll va être perdu, on le restaure juste après)
-    mainContainer.innerHTML = mainHtml;
+    mainContainer.innerHTML = `
+        <div class="categories-scroll-wrapper" id="parentScrollWrapper">
+            <button class="categories-scroll-btn prev" data-scroll-btn="parent" aria-label="Précédent">‹</button>
+            <div class="categories-scroll-row" id="parentScrollRow">
+                ${parentItemsHtml}
+            </div>
+            <button class="categories-scroll-btn next" data-scroll-btn="parent" aria-label="Suivant">›</button>
+        </div>
+    `;
 
-    // ✅ FIX : Restaurer le scroll parents (LTR + RTL)
-    //   - Si langue changée → reset à 0
-    //   - Sinon → restaurer la valeur (positive LTR / négative RTL)
-    const newParentRow = mainContainer.querySelector('.categories-scroll-row');
+    // ✅ Restauration du scroll parents (LTR + RTL)
+    const newParentRow = document.getElementById('parentScrollRow');
     restoreScrollPosition(newParentRow, savedParentScroll, langChanged);
 
+    // ✅ Attach scroll buttons sur la bande parents
+    const parentWrapper = document.getElementById('parentScrollWrapper');
+    if (parentWrapper) attachScrollButtons(parentWrapper);
+
     // ============================================
-    // BANDE 2 : ENFANTS (Affiché seulement si un parent est sélectionné)
+    // BANDE 2 : ENFANTS (avec wrapper + boutons)
     // ============================================
     let childContainer = document.getElementById('subFiltersCategories');
     if (!childContainer) {
@@ -630,10 +830,10 @@ export function renderCategoryFilters() {
     if (activeParentId) {
         const parentGroup = CATEGORY_GROUPS.find(g => g.id === activeParentId);
         if (parentGroup && parentGroup.children.length > 0) {
-            let childHtml = `<div class="categories-scroll-row sub-row">`;
-            
+            let childItemsHtml = '';
+
             // Bouton "Tout [Parent]"
-            childHtml += `
+            childItemsHtml += `
                 <button class="category-scroll-item child-item ${activeCat === parentGroup.id ? 'active' : ''}" data-action="products:filter" data-category="${parentGroup.id}">
                     <div class="category-scroll-img" style="border-style:dashed; border-color:var(--gold);">
                         <span style="font-size:1.5rem;color:var(--gold);">↳</span>
@@ -644,9 +844,8 @@ export function renderCategoryFilters() {
 
             parentGroup.children.forEach(child => {
                 const isActive = activeCat === child.id;
-                // ✅ CHEMIN : /assets/ID.webp
                 const imgPath = `/assets/${child.id}.webp`;
-                childHtml += `
+                childItemsHtml += `
                     <button class="category-scroll-item child-item ${isActive ? 'active' : ''}" data-action="products:filter" data-category="${child.id}">
                         <div class="category-scroll-img">
                             <img src="${imgPath}" alt="${t(child.label)}" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
@@ -656,13 +855,25 @@ export function renderCategoryFilters() {
                     </button>
                 `;
             });
-            childHtml += `</div>`;
-            childContainer.innerHTML = childHtml;
+
+            childContainer.innerHTML = `
+                <div class="categories-scroll-wrapper" id="childScrollWrapper">
+                    <button class="categories-scroll-btn prev" data-scroll-btn="child" aria-label="Précédent">‹</button>
+                    <div class="categories-scroll-row sub-row" id="childScrollRow">
+                        ${childItemsHtml}
+                    </div>
+                    <button class="categories-scroll-btn next" data-scroll-btn="child" aria-label="Suivant">›</button>
+                </div>
+            `;
             childContainer.style.display = 'block';
 
-            // ✅ FIX : Restaurer ou reset le scroll enfants (LTR + RTL)
-            const newChildRow = childContainer.querySelector('.categories-scroll-row');
+            // ✅ Restauration du scroll enfants (LTR + RTL)
+            const newChildRow = document.getElementById('childScrollRow');
             restoreScrollPosition(newChildRow, savedChildScroll, shouldResetChildScroll);
+
+            // ✅ Attach scroll buttons sur la bande enfants
+            const childWrapper = document.getElementById('childScrollWrapper');
+            if (childWrapper) attachScrollButtons(childWrapper);
         } else {
             childContainer.style.display = 'none';
             childContainer.innerHTML = '';
@@ -672,7 +883,7 @@ export function renderCategoryFilters() {
         childContainer.innerHTML = '';
     }
 
-    // ✅ FIX : Mémoriser l'état pour la prochaine comparaison
+    // ✅ Mémoriser l'état pour la prochaine comparaison
     _lastRenderedParentId = activeParentId;
     _lastRenderedLang = currentLang;
 }
@@ -753,4 +964,4 @@ export function openProductPage(slug) {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ products.js chargé — v3.4.3 (RTL scroll fix)');
+console.log('✅ products.js chargé — v3.5.0 (scroll buttons catégories)');
