@@ -1,7 +1,7 @@
 // js/cart.js
 // ============================================================
 // PANIER ET COMMANDES - SMART SWI9A
-// Version 3.0.0 — Transactions, Anti-surstock, Multi-user
+// Version 3.1.0 — Fix : Transaction Firestore (Reads before Writes)
 // ============================================================
 
 import {
@@ -548,22 +548,53 @@ export async function checkout(cartItems, deliveryInfo, appliedCoupon = null, wa
 
 // ============================================================
 // CRÉATION DE COMMANDE (Déduction Stock Immédiate)
+// ✅ FIX : Restructuration de la transaction (Reads -> Logic -> Writes)
 // ============================================================
 export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
     const user = getCurrentUser();
     if (!user) return { success: false, error: 'NO_USER' };
 
-    // Vérification oneUsePerUser DANS la transaction
     try {
         const result = await runTransaction(db, async (transaction) => {
-            // 1. Vérifier les produits et déduire le stock
+            // ==========================================
+            // PHASE 1 : TOUTES LES LECTURES (READS)
+            // ==========================================
+            
+            // 1. Lire les produits
             const productRefs = items.map(item => doc(db, "products", String(item.productId)));
             const productSnaps = await Promise.all(productRefs.map(ref => transaction.get(ref)));
 
+            // 2. Lire la ville
+            let citySnap = null;
+            if (deliveryInfo.cityId) {
+                const cityRef = doc(db, "cities", String(deliveryInfo.cityId));
+                citySnap = await transaction.get(cityRef);
+            }
+
+            // 3. Lire le coupon (si applicable)
+            let couponSnap = null;
+            let couponUseSnap = null;
+            
+            if (appliedCoupon && appliedCoupon.id) {
+                const couponRef = doc(db, "coupons", appliedCoupon.id);
+                couponSnap = await transaction.get(couponRef);
+
+                if (couponSnap.exists() && couponSnap.data().oneUsePerUser === true) {
+                    const couponUseId = `${appliedCoupon.id}_${user.uid}`;
+                    const couponUseRef = doc(db, "coupon_uses", couponUseId);
+                    couponUseSnap = await transaction.get(couponUseRef);
+                }
+            }
+
+            // ==========================================
+            // PHASE 2 : LOGIQUE & VALIDATIONS
+            // ==========================================
             let subtotal = 0;
             let discountableItems = 0;
             const validatedItems = [];
+            const productUpdates = []; // On stocke les modifs pour les faire à la fin
 
+            // 2.1 Traitement des produits
             productSnaps.forEach((snap, i) => {
                 if (!snap.exists()) throw new Error(`Produit ${items[i].productId} introuvable`);
                 const data = snap.data();
@@ -593,35 +624,32 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                     updateData.stock = Math.max(0, availableStock - qty);
                 }
 
-                transaction.update(productRefs[i], updateData);
+                productUpdates.push({ ref: productRefs[i], data: updateData });
 
                 subtotal += unitPrice * qty;
                 discountableItems += qty;
                 validatedItems.push({ id: items[i].id, productId: items[i].productId, variant: itemVariant || null, quantity: qty, price: unitPrice, name: data.nameFr || data.nameEn || 'Produit' });
             });
 
-            // 2. Vérifier la ville
+            // 2.2 Traitement de la ville
             let cityData = null;
-            if (deliveryInfo.cityId) {
-                const cityRef = doc(db, "cities", String(deliveryInfo.cityId));
-                const citySnap = await transaction.get(cityRef);
-                if (citySnap.exists()) cityData = citySnap.data();
+            if (citySnap && citySnap.exists()) {
+                cityData = citySnap.data();
             }
 
-            // 3. Remise volume
+            // 2.3 Remise volume
             const discountRate = discountableItems >= CONFIG.SHOP.DISCOUNT_THRESHOLD ? CONFIG.SHOP.DISCOUNT_PERCENT / 100 : 0;
             const discount = Math.round(subtotal * discountRate);
 
-            // 4. Coupon (avec ID déterministe anti-spam)
+            // 2.4 Traitement du coupon
             const deliveryFee = cityData ? (Number(cityData.price) || 0) : 0;
-            let couponData = null, couponDiscount = 0;
+            let couponData = null;
+            let couponDiscount = 0;
 
             if (appliedCoupon && appliedCoupon.id) {
-                const couponRef = doc(db, "coupons", appliedCoupon.id);
-                const couponSnap = await transaction.get(couponRef);
-
                 if (!couponSnap.exists()) throw new Error('Code promo introuvable');
                 const c = couponSnap.data();
+                
                 if (c.isActive !== true) throw new Error('Code promo inactif');
                 if (c.expiresAt) {
                     const expDate = c.expiresAt.toDate ? c.expiresAt.toDate() : new Date(c.expiresAt);
@@ -632,9 +660,9 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                 if ((Number(c.minPurchase) || 0) > 0 && subtotal < Number(c.minPurchase)) throw new Error(`Minimum ${c.minPurchase} MAD requis`);
 
                 if (c.oneUsePerUser === true) {
-                    const couponUseId = `${appliedCoupon.id}_${user.uid}`;
-                    const couponUseSnap = await transaction.get(doc(db, "coupon_uses", couponUseId));
-                    if (couponUseSnap.exists()) throw new Error('Vous avez déjà utilisé ce code promo');
+                    if (couponUseSnap && couponUseSnap.exists()) {
+                        throw new Error('Vous avez déjà utilisé ce code promo');
+                    }
                 }
 
                 couponDiscount = calculateCouponDiscount(c, subtotal, deliveryFee);
@@ -642,7 +670,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                 couponData = c;
             }
 
-            // 5. Créer la commande (avec stockDeducted: true)
+            // 2.5 Préparation des documents finaux
             const totalDiscount = Math.min(discount + couponDiscount, subtotal);
             const total = Math.max(0, subtotal - totalDiscount + deliveryFee);
             const orderRef = doc(collection(db, "orders"));
@@ -662,9 +690,27 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                 createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
                 cancellableUntil: Timestamp.fromDate(cancellableUntil), cancelledAt: null
             };
+
+            const notifRef = doc(collection(db, "notifications"));
+            const notifData = {
+                userId: user.uid, type: 'order_created', title: t('notificationOrderCreated') || '📦 Commande reçue',
+                message: (t('notificationOrderCreatedMsg') || 'Merci pour votre commande #{id} !').replace('{id}', orderRef.id.slice(0, 8).toUpperCase()),
+                orderId: orderRef.id, read: false, createdAt: Timestamp.now()
+            };
+
+            // ==========================================
+            // PHASE 3 : TOUTES LES ÉCRITURES (WRITES)
+            // ==========================================
+
+            // 3.1 Mettre à jour les stocks
+            productUpdates.forEach(update => {
+                transaction.update(update.ref, update.data);
+            });
+
+            // 3.2 Créer la commande
             transaction.set(orderRef, orderData);
 
-            // 6. Incrémenter coupon
+            // 3.3 Mettre à jour le coupon (si utilisé)
             if (couponData) {
                 transaction.update(doc(db, "coupons", appliedCoupon.id), { usedCount: increment(1) });
                 transaction.set(doc(db, "coupon_uses", `${appliedCoupon.id}_${user.uid}`), {
@@ -673,13 +719,10 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                 });
             }
 
-            // 7. Notification
-            transaction.set(doc(collection(db, "notifications")), {
-                userId: user.uid, type: 'order_created', title: t('notificationOrderCreated') || '📦 Commande reçue',
-                message: (t('notificationOrderCreatedMsg') || 'Merci pour votre commande #{id} !').replace('{id}', orderRef.id.slice(0, 8).toUpperCase()),
-                orderId: orderRef.id, read: false, createdAt: Timestamp.now()
-            });
+            // 3.4 Créer la notification
+            transaction.set(notifRef, notifData);
 
+            // Retourner les données
             return { orderId: orderRef.id, totals: { subtotal, discount, couponCode: appliedCoupon?.code || null, couponDiscount, deliveryFee, total }, validatedItems };
         });
 
@@ -826,4 +869,4 @@ export function checkAbandonedCart() {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ cart.js chargé — v3.0.0 (Transactions, Anti-surstock, Multi-user)');
+console.log('✅ cart.js chargé — v3.1.0 (Fix Transaction Firestore: Reads before Writes)');
