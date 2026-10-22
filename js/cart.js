@@ -1,7 +1,7 @@
 // js/cart.js
 // ============================================================
 // PANIER ET COMMANDES - SMART SWI9A
-// Version 3.5.1 — Fix popup mobile (waWindow) + note livraison
+// Version 3.5.2 — Fix popup mobile (Suppression modale)
 // ============================================================
 
 import {
@@ -466,7 +466,7 @@ export function calculateCouponDiscount(coupon, subtotal, deliveryFee) {
 }
 
 // ============================================================
-// ✅ CHECKOUT — Accepte un waWindow pour éviter le blocage mobile
+// ✅ CHECKOUT — Modale supprimée + waWindow supporté
 // ============================================================
 export async function checkout(cartItems, deliveryInfo, appliedCoupon = null, waWindow = null) {
     if (!cartItems || cartItems.length === 0) {
@@ -494,17 +494,7 @@ export async function checkout(cartItems, deliveryInfo, appliedCoupon = null, wa
         return { success: false, error: 'missing_fields' };
     }
 
-    const userConfirmed = await confirmAction(t('confirmOrderMsg'), {
-        title: t('confirmOrderTitle'),
-        confirmText: t('confirmOrderYes'),
-        cancelText: t('confirmOrderNo'),
-        variant: 'primary'
-    });
-    if (!userConfirmed) {
-        showToast('⏸️ ' + t('orderCancelled'));
-        if (waWindow) waWindow.close();
-        return { success: false, error: 'cancelled' };
-    }
+    // ❌ SUPPRESSION DE LA MODALE ICI (On passe direct à la création)
 
     const result = await createOrder(cartItems, deliveryInfo, appliedCoupon);
     if (!result.success) {
@@ -556,7 +546,7 @@ export async function checkout(cartItems, deliveryInfo, appliedCoupon = null, wa
     clearCart();
     showToast('✅ ' + t('orderSent'));
 
-    // ✅ Redirection WhatsApp (vers la fenêtre si elle existe, sinon même onglet)
+    // ✅ Redirection WhatsApp
     if (waWindow && !waWindow.closed) {
         waWindow.location.href = url;
     } else {
@@ -910,4 +900,4 @@ export function checkAbandonedCart() {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ cart.js chargé — v3.5.1 (fix popup mobile)');
+console.log('✅ cart.js chargé — v3.5.2 (Fix popup mobile + modale supprimée)');
