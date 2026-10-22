@@ -1,7 +1,7 @@
 // js/cart.js
 // ============================================================
 // PANIER ET COMMANDES - SMART SWI9A
-// Version 3.1.0 — Fix : Transaction Firestore (Reads before Writes)
+// Version 3.2.0 — Fix : Logs de débogage transaction + Nettoyage data
 // ============================================================
 
 import {
@@ -548,7 +548,7 @@ export async function checkout(cartItems, deliveryInfo, appliedCoupon = null, wa
 
 // ============================================================
 // CRÉATION DE COMMANDE (Déduction Stock Immédiate)
-// ✅ FIX : Restructuration de la transaction (Reads -> Logic -> Writes)
+// ✅ AJOUT DE LOGS ET SÉCURISATION DES DONNÉES POUR FIRESTORE
 // ============================================================
 export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
     const user = getCurrentUser();
@@ -592,7 +592,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
             let subtotal = 0;
             let discountableItems = 0;
             const validatedItems = [];
-            const productUpdates = []; // On stocke les modifs pour les faire à la fin
+            const productUpdates = []; 
 
             // 2.1 Traitement des produits
             productSnaps.forEach((snap, i) => {
@@ -670,25 +670,41 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                 couponData = c;
             }
 
-            // 2.5 Préparation des documents finaux
+            // 2.5 Préparation des documents finaux (Sécurisation des types)
             const totalDiscount = Math.min(discount + couponDiscount, subtotal);
             const total = Math.max(0, subtotal - totalDiscount + deliveryFee);
             const orderRef = doc(collection(db, "orders"));
             const cancellableUntil = new Date(Date.now() + CONFIG.ORDERS.CANCELLABLE_HOURS * 3600 * 1000);
 
             const orderData = {
-                userId: user.uid, userName: user.name || '', userEmail: user.email || '',
-                items: validatedItems, status: ORDER_STATUS.PENDING, paymentStatus: 'unpaid',
-                subtotal, discount, couponId: appliedCoupon?.id || null, couponCode: appliedCoupon?.code || null,
-                couponDiscount, deliveryFee, total, stockDeducted: true, // ✅ Déduit immédiatement
+                userId: user.uid, 
+                userName: user.name || '', 
+                userEmail: user.email || '',
+                items: validatedItems, 
+                status: ORDER_STATUS.PENDING, 
+                paymentStatus: 'unpaid',
+                subtotal: Number(subtotal) || 0, 
+                discount: Number(discount) || 0, 
+                couponId: appliedCoupon?.id || null, 
+                couponCode: appliedCoupon?.code || null,
+                couponDiscount: Number(couponDiscount) || 0, 
+                deliveryFee: Number(deliveryFee) || 0, 
+                total: Number(total) || 0, 
+                stockDeducted: true,
                 deliveryAddress: {
-                    name: deliveryInfo.name.trim().slice(0, 100), phone: deliveryInfo.phone.trim().slice(0, 20),
-                    address: deliveryInfo.address.trim().slice(0, 300), city: deliveryInfo.city.trim().slice(0, 100),
-                    cityId: deliveryInfo.cityId || null, cityAr: deliveryInfo.cityAr || null, cityFr: deliveryInfo.cityFr || null,
+                    name: String(deliveryInfo.name || '').trim().slice(0, 100), 
+                    phone: String(deliveryInfo.phone || '').trim().slice(0, 20),
+                    address: String(deliveryInfo.address || '').trim().slice(0, 300), 
+                    city: String(deliveryInfo.city || '').trim().slice(0, 100),
+                    cityId: deliveryInfo.cityId || null, 
+                    cityAr: deliveryInfo.cityAr || null, 
+                    cityFr: deliveryInfo.cityFr || null,
                     email: deliveryInfo.email || user.email || ''
                 },
-                createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
-                cancellableUntil: Timestamp.fromDate(cancellableUntil), cancelledAt: null
+                createdAt: Timestamp.now(), 
+                updatedAt: Timestamp.now(),
+                cancellableUntil: Timestamp.fromDate(cancellableUntil), 
+                cancelledAt: null
             };
 
             const notifRef = doc(collection(db, "notifications"));
@@ -704,22 +720,26 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
 
             // 3.1 Mettre à jour les stocks
             productUpdates.forEach(update => {
+                console.log("🔥 LOG DB : Update Product", update.ref.path, update.data);
                 transaction.update(update.ref, update.data);
             });
 
             // 3.2 Créer la commande
+            console.log("🔥 LOG DB : Create Order", orderData);
             transaction.set(orderRef, orderData);
 
             // 3.3 Mettre à jour le coupon (si utilisé)
             if (couponData) {
+                console.log("🔥 LOG DB : Update Coupon", appliedCoupon.id);
                 transaction.update(doc(db, "coupons", appliedCoupon.id), { usedCount: increment(1) });
                 transaction.set(doc(db, "coupon_uses", `${appliedCoupon.id}_${user.uid}`), {
                     couponId: appliedCoupon.id, code: couponData.code, userId: user.uid,
-                    orderId: orderRef.id, discountApplied: couponDiscount, usedAt: Timestamp.now()
+                    orderId: orderRef.id, discountApplied: Number(couponDiscount) || 0, usedAt: Timestamp.now()
                 });
             }
 
             // 3.4 Créer la notification
+            console.log("🔥 LOG DB : Create Notification", notifData);
             transaction.set(notifRef, notifData);
 
             // Retourner les données
@@ -728,7 +748,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
 
         return { success: true, ...result };
     } catch (error) {
-        console.error('❌ Erreur création commande :', error);
+        console.error('❌ Erreur création commande détaillée :', error);
         return { success: false, error: error.message };
     }
 }
@@ -869,4 +889,4 @@ export function checkAbandonedCart() {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ cart.js chargé — v3.1.0 (Fix Transaction Firestore: Reads before Writes)');
+console.log('✅ cart.js chargé — v3.2.0 (Logs de débogage)');
