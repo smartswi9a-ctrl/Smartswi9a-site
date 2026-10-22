@@ -1,7 +1,7 @@
 // js/reviews.js
 // ============================================================
 // AVIS CLIENTS - SMART SWI9A
-// Version 2.0.0 — Transactions, Anti-doublons, Optimisation Admin
+// Version 2.0.1 — Fix : Transaction Firestore (Reads before Writes)
 // ============================================================
 
 import {
@@ -210,9 +210,19 @@ export async function createReview(productId, { rating, title, comment, photoFil
 
 // ============================================================
 // AJOUTER / RETIRER UN AVIS DES TÉMOIGNAGES (ADMIN)
+// ✅ FIX : Lecture du comptage AVANT la transaction
 // ============================================================
 export async function toggleFeaturedReview(reviewId) {
     try {
+        // 1. Vérifier d'abord le nombre d'avis en vedette (HORS TRANSACTION)
+        const featuredQ = query(
+            collection(db, "reviews"),
+            where("status", "==", REVIEW_STATUS.APPROVED),
+            where("featured", "==", true)
+        );
+        const featuredSnap = await getDocs(featuredQ);
+        
+        // 2. Lancer la transaction
         return await runTransaction(db, async (transaction) => {
             const reviewRef = doc(db, "reviews", reviewId);
             const reviewSnap = await transaction.get(reviewRef);
@@ -226,24 +236,17 @@ export async function toggleFeaturedReview(reviewId) {
             const isCurrentlyFeatured = review.featured === true;
 
             if (isCurrentlyFeatured) {
+                // Retirer des vedettes
                 transaction.update(reviewRef, { featured: false });
                 return { success: true, featured: false };
+            } else {
+                // Ajouter aux vedettes (on vérifie la limite calculée plus haut)
+                if (featuredSnap.size >= MAX_FEATURED_REVIEWS) {
+                    return { success: false, error: `Maximum ${MAX_FEATURED_REVIEWS} avis. Désactivez-en un d'abord.`, maxReached: true };
+                }
+                transaction.update(reviewRef, { featured: true });
+                return { success: true, featured: true };
             }
-
-            // Vérification stricte du max de 3 avis
-            const featuredQ = query(
-                collection(db, "reviews"),
-                where("status", "==", REVIEW_STATUS.APPROVED),
-                where("featured", "==", true)
-            );
-            const featuredSnap = await getDocs(featuredQ); // Requête hors transaction (suffisant pour un admin)
-
-            if (featuredSnap.size >= MAX_FEATURED_REVIEWS) {
-                return { success: false, error: `Maximum ${MAX_FEATURED_REVIEWS} avis. Désactivez-en un d'abord.`, maxReached: true };
-            }
-
-            transaction.update(reviewRef, { featured: true });
-            return { success: true, featured: true };
         });
     } catch (e) {
         console.error('❌ Erreur toggleFeaturedReview :', e);
@@ -400,6 +403,7 @@ export async function toggleLike(reviewId) {
     const reviewRef = doc(db, "reviews", reviewId);
 
     return await runTransaction(db, async (transaction) => {
+        // --- LECTURE ---
         const snap = await transaction.get(reviewRef);
         if (!snap.exists()) throw new Error(t('loadError'));
 
@@ -407,6 +411,7 @@ export async function toggleLike(reviewId) {
         const likes = review.likes || [];
         const hasLiked = likes.includes(user.uid);
 
+        // --- ÉCRITURES ---
         if (hasLiked) {
             transaction.update(reviewRef, {
                 likes: arrayRemove(user.uid),
@@ -595,4 +600,4 @@ export async function renderAdminReviews(containerId = 'reviewsList', statusFilt
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ reviews.js chargé — v2.0.0 (Transactions, Anti-doublons)');
+console.log('✅ reviews.js chargé — v2.0.1 (Fix Transaction Firestore)');
