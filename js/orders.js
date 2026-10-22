@@ -1,7 +1,8 @@
 // js/orders.js
 // ============================================================
 // GESTION DES COMMANDES - SMART SWI9A
-// Version 5.2.0 — Fix types de données Speedaf (blInsure, battery)
+// Version 6.0.0 — Timeline 4 étapes + Auto-Sync Speedaf
+//                 + Auto-Pay COD + Bouton Payé/Non Payé
 // ============================================================
 
 import {
@@ -334,6 +335,7 @@ function cleanMoroccanPhone(phone) {
 
 // ============================================================
 // 🚀 SPEEDAF — CREATE ORDER (Guard mode test)
+// ⚠️ NE PAS MODIFIER : blInsure: "0", poids en KG, goodsType IT02
 // ============================================================
 export async function sendToSpeedafAPI(order) {
     // 🧪 MODE TEST : ZÉRO appel réseau
@@ -355,20 +357,20 @@ export async function sendToSpeedafAPI(order) {
         // ✅ Calcul du poids total en KG
         let totalWeightGrams = 0;
         const itemList = (order.items || []).map(item => {
-            const itemWeightGrams = Number(item.weight) || 500; 
+            const itemWeightGrams = Number(item.weight) || 500;
             totalWeightGrams += (itemWeightGrams * (Number(item.quantity) || 1));
-            
+
             return {
                 sku: String(item.productId || 'SKU'),
                 goodsName: String(item.name || 'Produit').slice(0, 100),
                 goodsQTY: Number(item.quantity) || 1,
                 goodsValue: String(item.price || 0),
                 currencyType: "MAD",
-                goodsType: "IT02", // IT02 selon l'exemple du PDF
+                goodsType: "IT02",
                 goodsWeight: String((itemWeightGrams / 1000).toFixed(3)),
                 goodsUrl: "",
-                blInsure: "0",    // ✅ String "0"
-                battery: "0"      // ✅ String "0"
+                blInsure: "0",
+                battery: "0"
             };
         });
 
@@ -386,9 +388,9 @@ export async function sendToSpeedafAPI(order) {
                 deliveryType: "DE01",
                 transportType: "TT01",
                 shipType: "ST01",
-                payMethod: "PA02",    // PA02 selon l'exemple du PDF
-                isAllowOpen: "0",     // ✅ String "0"
-                
+                payMethod: "PA02",
+                isAllowOpen: "0",
+
                 acceptName: String(addr.name || 'Client').slice(0, 100),
                 acceptMobile: cleanMoroccanPhone(addr.phone),
                 acceptEmail: addr.email || "client@smartswi9a.top",
@@ -398,7 +400,7 @@ export async function sendToSpeedafAPI(order) {
                 acceptProvinceName: cityName,
                 acceptCityName: cityName,
                 acceptDistrictName: cityName,
-                
+
                 sendName: "Smart Swi9a",
                 sendAddress: "Casablanca Smart Swi9a Warehouse",
                 sendMobile: "0656613303",
@@ -407,8 +409,8 @@ export async function sendToSpeedafAPI(order) {
                 sendProvinceName: "Casablanca",
                 sendCityName: "Casablanca",
                 sendDistrictName: "Casablanca",
-                
-                parcelWeight: String(parcelWeightKg), // ✅ String selon l'exemple du PDF
+
+                parcelWeight: String(parcelWeightKg),
                 piece: 1,
                 goodsQTY: order.items?.reduce((s, i) => s + Number(i.quantity || 0), 0) || 1,
                 codFee: String(order.total),
@@ -421,7 +423,7 @@ export async function sendToSpeedafAPI(order) {
 
         const response = await fetch(`${SPEEDAF_API_CONFIG.BASE_URL}/create-order`, {
             method: 'POST',
-            headers: { 'Content-Type': 'text/plain' }, 
+            headers: { 'Content-Type': 'text/plain' },
             body: JSON.stringify(payload)
         });
 
@@ -493,6 +495,7 @@ export async function cancelSpeedafShipment(trackingNumber) {
 
 // ============================================================
 // 🚀 SPEEDAF — SYNC STATUS
+// ✅ NOUVEAU : délègue à updateOrderStatus (Auto-Pay activé)
 // ============================================================
 export async function syncSpeedafStatus(orderId) {
     if (isTestMode()) {
@@ -527,14 +530,25 @@ export async function syncSpeedafStatus(orderId) {
         else if (action === "-7" || action === "10" || action === "730") newStatus = ORDER_STATUS.RETURNED;
         else if (["1", "2", "3", "4"].includes(action)) newStatus = ORDER_STATUS.SHIPPING;
 
-        if (newStatus && normalizeOrderStatus(order.status) !== newStatus) {
-            await updateOrderStatus(orderId, newStatus);
-            return { success: true, updated: true, newStatus };
+        if (!newStatus) {
+            return { success: true, updated: false, currentStatus: latest.actionName || action };
         }
 
-        return { success: true, updated: false, currentStatus: latest.actionName || action };
+        const currentStatus = normalizeOrderStatus(order.status);
+        if (currentStatus === newStatus) {
+            return { success: true, updated: false, currentStatus: latest.actionName || action };
+        }
+
+        // ✅ Délègue à updateOrderStatus (qui gère auto-pay + email + notif)
+        const updResult = await updateOrderStatus(orderId, newStatus);
+        if (!updResult.success) {
+            return { success: false, error: updResult.error || 'Erreur updateOrderStatus' };
+        }
+
+        return { success: true, updated: true, newStatus };
 
     } catch (error) {
+        console.error('❌ syncSpeedafStatus:', error);
         return { success: false, error: error.message };
     }
 }
@@ -605,54 +619,55 @@ async function restoreStockInTransaction(transaction, order, productSnaps, produ
 
 // ============================================================
 // UPDATE ORDER STATUS
+// ✅ NOUVEAU : Auto-Pay COD sur delivered + double notification
 // ============================================================
 export async function updateOrderStatus(orderId, newStatus) {
     try {
         const orderRef = doc(db, "orders", orderId);
         const normalizedStatus = normalizeOrderStatus(newStatus);
-        
+
         if (normalizedStatus === ORDER_STATUS.RETURNED) {
             await openReturnModal(orderId);
             return { success: true, openedModal: true };
         }
-        
+
         let orderForEmail = null;
         let emailStatus = null;
-        
+
         await runTransaction(db, async (transaction) => {
             const orderSnap = await transaction.get(orderRef);
             if (!orderSnap.exists()) throw new Error('Commande introuvable');
-            
+
             const order = { id: orderId, ...orderSnap.data() };
             const previousStatus = normalizeOrderStatus(order.status);
             orderForEmail = order;
             emailStatus = normalizedStatus;
-            
+
             if (!Object.values(ORDER_STATUS).includes(normalizedStatus)) throw new Error('Statut invalide');
-            
+
             let productSnaps = [];
             let productRefs = [];
-            
+
             if (normalizedStatus === ORDER_STATUS.CONFIRMED && previousStatus === ORDER_STATUS.PENDING && order.stockDeducted !== true) {
                 productRefs = order.items.map(i => doc(db, "products", String(i.productId)));
                 productSnaps = await Promise.all(productRefs.map(r => transaction.get(r)));
             }
-            
+
             if (normalizedStatus === ORDER_STATUS.CANCELLED && [ORDER_STATUS.CONFIRMED, ORDER_STATUS.SHIPPING].includes(previousStatus) && order.stockDeducted === true) {
                 productRefs = order.items.map(i => doc(db, "products", String(i.productId)));
                 productSnaps = await Promise.all(productRefs.map(r => transaction.get(r)));
             }
-            
+
             if (normalizedStatus === ORDER_STATUS.CONFIRMED && previousStatus === ORDER_STATUS.PENDING && order.stockDeducted !== true) {
                 await deductStockInTransaction(transaction, order, productSnaps, productRefs);
                 order.stockDeducted = true;
             }
-            
+
             if (normalizedStatus === ORDER_STATUS.CANCELLED && [ORDER_STATUS.CONFIRMED, ORDER_STATUS.SHIPPING].includes(previousStatus) && order.stockDeducted === true) {
                 await restoreStockInTransaction(transaction, order, productSnaps, productRefs);
                 order.stockDeducted = false;
             }
-            
+
             if (normalizedStatus === ORDER_STATUS.CANCELLED && order.couponId && !order.couponRestored) {
                 const couponRef = doc(db, "coupons", order.couponId);
                 const couponUseRef = doc(db, "coupon_uses", `${order.couponId}_${order.userId}`);
@@ -660,16 +675,23 @@ export async function updateOrderStatus(orderId, newStatus) {
                 transaction.delete(couponUseRef);
                 order.couponRestored = true;
             }
-            
+
             const updatePayload = {
                 status: normalizedStatus,
                 updatedAt: Timestamp.now(),
                 stockDeducted: order.stockDeducted,
                 couponRestored: order.couponRestored || false
             };
+
+            // ✅ Auto-Pay COD quand livré
+            if (normalizedStatus === ORDER_STATUS.DELIVERED) {
+                updatePayload.paymentStatus = 'paid';
+                updatePayload.paidAt = Timestamp.now();
+            }
+
             transaction.update(orderRef, updatePayload);
         });
-        
+
         if (normalizedStatus === ORDER_STATUS.CONFIRMED && orderForEmail) {
             if (!orderForEmail.speedafTracking) {
                 const spdResult = await sendToSpeedafAPI(orderForEmail);
@@ -694,7 +716,7 @@ export async function updateOrderStatus(orderId, newStatus) {
             const cancelled = await cancelSpeedafShipment(orderForEmail.speedafTracking);
             if (cancelled) showToast('✅ Colis annulé chez Speedaf');
         }
-        
+
         if (emailStatus && ['confirmed', 'shipping', 'delivered', 'cancelled'].includes(emailStatus)) {
             try {
                 await sendOrderEmail(orderForEmail, emailStatus, 'client');
@@ -703,14 +725,33 @@ export async function updateOrderStatus(orderId, newStatus) {
                 console.warn('⚠️ Email échoué (non bloquant):', e);
             }
         }
-        
+
+        // ✅ Notifications livraison (delivered + review_request)
         if (normalizedStatus === ORDER_STATUS.DELIVERED && orderForEmail.userId) {
             try {
                 const { createNotification } = await import("./notifications.js");
-                await createNotification(orderForEmail.userId, NOTIFICATION_TYPES.REVIEW_REQUEST || 'review_request', '⭐ Laissez un avis', `Votre commande #${orderId.slice(0, 8).toUpperCase()} est livrée !`, { orderId, persistent: true });
-            } catch (e) {}
+                const shortId = orderId.slice(0, 8).toUpperCase();
+
+                await createNotification(
+                    orderForEmail.userId,
+                    NOTIFICATION_TYPES.ORDER_DELIVERED || 'order_delivered',
+                    (t('notificationOrderDelivered') || '📦 Commande livrée'),
+                    (t('notificationOrderDeliveredMsg') || 'Votre commande #{id} est livrée !').replace('{id}', shortId),
+                    { orderId }
+                );
+
+                await createNotification(
+                    orderForEmail.userId,
+                    'review_request',
+                    '⭐ Laissez un avis',
+                    `Votre commande #${shortId} est livrée ! Partagez votre expérience.`,
+                    { orderId, persistent: true }
+                );
+            } catch (e) {
+                console.warn('⚠️ Notification delivered échouée :', e);
+            }
         }
-        
+
         return { success: true };
     } catch (e) {
         console.error('❌ Erreur update statut :', e);
@@ -725,7 +766,7 @@ async function deleteOrderCompletely(orderId) {
     const orderSnap = await getDoc(doc(db, "orders", orderId));
     if (!orderSnap.exists()) return { success: false };
     const order = { id: orderId, ...orderSnap.data() };
-    
+
     if (order.stockDeducted === true && ![ORDER_STATUS.CANCELLED, ORDER_STATUS.RETURNED].includes(normalizeOrderStatus(order.status))) {
         await runTransaction(db, async (transaction) => {
             const productRefs = order.items.map(i => doc(db, "products", String(i.productId)));
@@ -733,7 +774,7 @@ async function deleteOrderCompletely(orderId) {
             await restoreStockInTransaction(transaction, order, productSnaps, productRefs);
         });
     }
-    
+
     const batch = writeBatch(db);
     if (order.couponId && !order.couponRestored) {
         batch.update(doc(db, "coupons", order.couponId), { usedCount: increment(-1) });
@@ -748,7 +789,29 @@ async function deleteOrderCompletely(orderId) {
 }
 
 // ============================================================
+// ✅ NOUVEAU : BASCULER LE STATUT DE PAIEMENT (admin)
+// ============================================================
+export async function updatePaymentStatus(orderId, newStatus) {
+    try {
+        const allowed = ['paid', 'unpaid'];
+        const normalized = allowed.includes(newStatus) ? newStatus : 'unpaid';
+
+        await updateDoc(doc(db, "orders", orderId), {
+            paymentStatus: normalized,
+            paidAt: normalized === 'paid' ? Timestamp.now() : null,
+            updatedAt: Timestamp.now()
+        });
+
+        return { success: true, paymentStatus: normalized };
+    } catch (e) {
+        console.error('❌ updatePaymentStatus:', e);
+        return { success: false, error: e.message };
+    }
+}
+
+// ============================================================
 // ADMIN : RENDRE LES COMMANDES
+// ✅ NOUVEAU : Bouton Payé / Non Payé
 // ============================================================
 export async function renderAdminOrders(containerId = 'ordersList') {
     const container = document.getElementById(containerId);
@@ -765,8 +828,10 @@ export async function renderAdminOrders(containerId = 'ordersList') {
         container.innerHTML = `<p style="text-align:center;color:var(--text-muted);padding:2rem;">${t('noOrders')}</p>`;
         return;
     }
-    
-    let html = `<div style="display:flex; justify-content:flex-end; margin-bottom:1rem;"><button id="refreshAdminOrdersBtn" class="admin-btn-secondary" style="font-size:0.8rem;">🔄 Rafraîchir</button></div>`;
+
+    let html = `<div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
+        <button id="refreshAdminOrdersBtn" class="admin-btn-secondary" style="font-size:0.8rem;">🔄 Rafraîchir</button>
+    </div>`;
 
     adminOrdersCache.forEach(order => {
         const status = normalizeOrderStatus(order.status);
@@ -774,14 +839,38 @@ export async function renderAdminOrders(containerId = 'ordersList') {
         const date = formatDateTime(order.createdAt);
         const orderIdShort = order.id.slice(0, 8).toUpperCase();
         const itemCount = order.items?.length || 0;
-        const cityDisplay = getCityName({ name: order.deliveryAddress?.cityAr || order.deliveryAddress?.city, nameFr: order.deliveryAddress?.cityFr, nameAr: order.deliveryAddress?.cityAr });
+        const cityDisplay = getCityName({
+            name: order.deliveryAddress?.cityAr || order.deliveryAddress?.city,
+            nameFr: order.deliveryAddress?.cityFr,
+            nameAr: order.deliveryAddress?.cityAr
+        });
         const isTest = order._test === true;
-        const testBadge = isTest ? `<span style="background:#dc3545;color:#fff;font-size:0.65rem;padding:0.15rem 0.4rem;border-radius:30px;margin-left:0.3rem;font-weight:700;">TEST</span>` : '';
-        const stockBadge = order.stockDeducted === true ? `<span style="font-size:0.7rem;color:var(--success);font-weight:700;">📦 Stock déduit</span>` : `<span style="font-size:0.7rem;color:var(--warning);font-weight:700;">⏳ Stock non déduit</span>`;
-        
+        const testBadge = isTest
+            ? `<span style="background:#dc3545;color:#fff;font-size:0.65rem;padding:0.15rem 0.4rem;border-radius:30px;margin-left:0.3rem;font-weight:700;">TEST</span>`
+            : '';
+        const stockBadge = order.stockDeducted === true
+            ? `<span style="font-size:0.7rem;color:var(--success);font-weight:700;">📦 Stock déduit</span>`
+            : `<span style="font-size:0.7rem;color:var(--warning);font-weight:700;">⏳ Stock non déduit</span>`;
+
+        // ✅ Bouton paiement
+        const isPaid = order.paymentStatus === 'paid';
+        const paymentBtnStyle = isPaid
+            ? 'background:rgba(46,204,113,0.15);color:var(--success);border:1px solid var(--success);'
+            : 'background:rgba(230,126,34,0.15);color:var(--warning);border:1px solid var(--warning);';
+        const paymentBtnLabel = isPaid ? '💳 Payé' : '💳 Non payé';
+        const paymentBtnHtml = `
+            <button class="admin-btn-payment" data-action="toggle-payment" data-id="${order.id}"
+                style="padding:0.35rem 0.8rem;border-radius:30px;font-size:0.75rem;font-weight:700;cursor:pointer;${paymentBtnStyle}">
+                ${paymentBtnLabel}
+            </button>
+        `;
+
         let speedafHtml = '';
         if (order.speedafTracking) {
-            speedafHtml = `<div style="margin-top:0.5rem; padding:0.5rem; background:rgba(165,123,46,0.05); border:1px solid var(--border-gold); border-radius:var(--radius-sm); font-size:0.8rem;"><strong>🚀 Speedaf:</strong> <code>${escapeHTML(order.speedafTracking)}</code>${order.speedafLabelUrl ? `<a href="${escapeHTML(order.speedafLabelUrl)}" target="_blank" style="margin-left:0.5rem; color:var(--gold); font-weight:700;">🖨️ Étiquette</a>` : ''}</div>`;
+            speedafHtml = `<div style="margin-top:0.5rem; padding:0.5rem; background:rgba(165,123,46,0.05); border:1px solid var(--border-gold); border-radius:var(--radius-sm); font-size:0.8rem;">
+                <strong>🚀 Speedaf:</strong> <code>${escapeHTML(order.speedafTracking)}</code>
+                ${order.speedafLabelUrl ? `<a href="${escapeHTML(order.speedafLabelUrl)}" target="_blank" style="margin-left:0.5rem; color:var(--gold); font-weight:700;">🖨️ Étiquette</a>` : ''}
+            </div>`;
         }
 
         const itemsSummary = (order.items || []).map(i => {
@@ -801,7 +890,7 @@ export async function renderAdminOrders(containerId = 'ordersList') {
                     </div>
                 </div>
                 ${speedafHtml}
-                <div style="display:flex;gap:0.4rem;flex-wrap:wrap; margin-top:0.5rem;">
+                <div style="display:flex;gap:0.4rem;flex-wrap:wrap;align-items:center; margin-top:0.5rem;">
                     <select class="status-select" data-order-id="${order.id}" data-field="status" style="padding:0.3rem 0.6rem;border-radius:30px;border:1px solid var(--border);background:var(--bg-surface);color:var(--text);">
                         <option value="pending" ${status === 'pending' ? 'selected' : ''}>⏳ ${t('orderStatusPending')}</option>
                         <option value="confirmed" ${status === 'confirmed' ? 'selected' : ''}>✅ ${t('orderStatusConfirmed')}</option>
@@ -810,6 +899,7 @@ export async function renderAdminOrders(containerId = 'ordersList') {
                         <option value="returned" ${status === 'returned' ? 'selected' : ''}>↩️ ${t('orderStatusReturned')}</option>
                         <option value="cancelled" ${status === 'cancelled' ? 'selected' : ''}>❌ ${t('orderStatusCancelled')}</option>
                     </select>
+                    ${paymentBtnHtml}
                     ${order.speedafTracking ? `<button class="admin-btn-secondary" data-action="admin:sync-speedaf" data-id="${order.id}" style="font-size:0.75rem; padding:0.3rem 0.6rem;">🔄 Sync Speedaf</button>` : ''}
                     <button class="btn-danger" data-action="admin:delete-order" data-id="${order.id}" style="padding:0.3rem 0.8rem;border-radius:30px;background:var(--danger);color:white;border:none;cursor:pointer;margin-left:auto;">🗑️</button>
                 </div>
@@ -820,7 +910,7 @@ export async function renderAdminOrders(containerId = 'ordersList') {
     if (adminHasMore) {
         html += `<div style="text-align:center;padding:1rem;"><button id="adminLoadMoreOrdersBtn" class="admin-btn-primary" style="margin:0 auto;">⬇️ Charger plus</button></div>`;
     }
-    
+
     container.innerHTML = html;
 
     document.getElementById('refreshAdminOrdersBtn')?.addEventListener('click', async (e) => {
@@ -855,6 +945,34 @@ export async function renderAdminOrders(containerId = 'ordersList') {
         });
     });
 
+    // ✅ Bouton Payé/Non Payé
+    container.querySelectorAll('[data-action="toggle-payment"]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const orderId = btn.dataset.id;
+            const order = adminOrdersCache.find(o => o.id === orderId);
+            if (!order) return;
+
+            const currentPaid = order.paymentStatus === 'paid';
+            const newStatus = currentPaid ? 'unpaid' : 'paid';
+
+            btn.disabled = true;
+            const originalLabel = btn.innerHTML;
+            btn.innerHTML = '⏳...';
+
+            const res = await updatePaymentStatus(orderId, newStatus);
+            if (res.success) {
+                showToast(`✅ Paiement : ${newStatus === 'paid' ? 'Payé' : 'Non payé'}`);
+                const idx = adminOrdersCache.findIndex(o => o.id === orderId);
+                if (idx > -1) adminOrdersCache[idx].paymentStatus = newStatus;
+                await renderAdminOrders(containerId);
+            } else {
+                showToast('❌ ' + res.error);
+                btn.disabled = false;
+                btn.innerHTML = originalLabel;
+            }
+        });
+    });
+
     container.querySelectorAll('[data-action="admin:sync-speedaf"]').forEach(btn => {
         btn.addEventListener('click', async () => {
             const orderId = btn.dataset.id;
@@ -873,14 +991,18 @@ export async function renderAdminOrders(containerId = 'ordersList') {
             } else {
                 showToast(`❌ Erreur: ${res.error}`);
             }
-            btn.disabled = false; btn.innerHTML = originalText;
+            btn.disabled = false;
+            btn.innerHTML = originalText;
         });
     });
 
     container.querySelectorAll('[data-action="admin:delete-order"]').forEach(btn => {
         btn.addEventListener('click', async () => {
             const orderId = btn.dataset.id;
-            const confirmed = await confirmAction(t('confirmDeleteOrderMsg').replace('{id}', orderId.slice(0, 8).toUpperCase()), { title: t('confirmDeleteOrderTitle'), confirmText: t('confirmDeleteYes'), cancelText: t('confirmDeleteNo'), variant: 'danger' });
+            const confirmed = await confirmAction(
+                t('confirmDeleteOrderMsg').replace('{id}', orderId.slice(0, 8).toUpperCase()),
+                { title: t('confirmDeleteOrderTitle'), confirmText: t('confirmDeleteYes'), cancelText: t('confirmDeleteNo'), variant: 'danger' }
+            );
             if (!confirmed) return;
             btn.disabled = true;
             try {
@@ -998,7 +1120,7 @@ export async function openReturnModal(orderId) {
         if (!snap.exists()) return showToast('❌ Commande introuvable');
         const order = { id: snap.id, ...snap.data() };
         const items = order.items || [];
-        
+
         const modalHtml = `
             <div class="modal-overlay open" id="returnModal" style="z-index:2500;">
                 <div class="modal" style="max-width:600px;">
@@ -1026,14 +1148,14 @@ export async function openReturnModal(orderId) {
                 </div>
             </div>
         `;
-        
+
         document.body.insertAdjacentHTML('beforeend', modalHtml);
         const modal = document.getElementById('returnModal');
         const closeModal = () => modal.remove();
         document.getElementById('closeReturnModalBtn').addEventListener('click', closeModal);
         document.getElementById('cancelReturnBtn').addEventListener('click', closeModal);
         modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
-        
+
         document.getElementById('confirmReturnBtn').addEventListener('click', async () => {
             const inputs = modal.querySelectorAll('.return-qty-input');
             const returns = [];
@@ -1046,10 +1168,10 @@ export async function openReturnModal(orderId) {
                 }
             });
             if (!hasChanges) { showToast('⚠️ Aucune quantité à retourner'); return; }
-            
+
             const btn = document.getElementById('confirmReturnBtn');
             btn.disabled = true; btn.textContent = '⏳...';
-            
+
             try {
                 await processReturnTransaction(order, returns);
                 const allReturns = [...(Array.isArray(order.returns) ? order.returns : []), { date: new Date(), items: returns.map(r => ({ productId: r.productId, variant: r.variant, delta: r.quantity })) }];
@@ -1082,7 +1204,7 @@ async function processReturnTransaction(order, returnsToProcess) {
         const currentReturns = currentOrder.returns || [];
         const productRefs = returnsToProcess.map(r => doc(db, "products", String(r.productId)));
         const productSnaps = await Promise.all(productRefs.map(ref => transaction.get(ref)));
-        
+
         productSnaps.forEach((snap, i) => {
             if (!snap.exists()) return;
             const pData = snap.data();
@@ -1101,14 +1223,99 @@ async function processReturnTransaction(order, returnsToProcess) {
             }
             transaction.update(productRefs[i], updateData);
         });
-        
+
         const newReturnEntry = { date: Timestamp.now(), items: returnsToProcess.map(r => ({ productId: r.productId, variant: r.variant, delta: r.quantity })) };
         transaction.update(orderRef, { returns: [...currentReturns, newReturnEntry], status: ORDER_STATUS.RETURNED, updatedAt: Timestamp.now() });
     });
 }
 
 // ============================================================
-// CLIENT : AFFICHER LES COMMANDES
+// ✅ NOUVEAU : SYNC AUTOMATIQUE EN ARRIÈRE-PLAN (Throttle 5 min)
+// ============================================================
+const AUTO_SYNC_THROTTLE_MS = 5 * 60 * 1000;
+const AUTO_SYNC_STORAGE_PREFIX = 'swi9a_sync_';
+
+let _autoSyncInProgress = false;
+
+/**
+ * Synchronise en arrière-plan les commandes actives avec Speedaf.
+ * Throttle : 1 appel max par commande toutes les 5 minutes (via localStorage).
+ *
+ * @param {Array} orders - Liste des commandes à vérifier
+ * @param {Function|null} onComplete - Callback appelé si ≥1 commande mise à jour
+ */
+export async function autoSyncActiveOrders(orders, onComplete = null) {
+    if (isTestMode()) {
+        console.log('🧪 [TEST] autoSyncActiveOrders désactivé en mode test');
+        return;
+    }
+
+    if (_autoSyncInProgress) {
+        console.log('⏸️ Auto-sync déjà en cours — skip');
+        return;
+    }
+
+    if (typeof localStorage === 'undefined') return;
+
+    const now = Date.now();
+
+    const ordersToSync = (orders || []).filter(order => {
+        const status = normalizeOrderStatus(order.status);
+        const hasTracking = !!order.speedafTracking;
+        const isActive = ['confirmed', 'shipping'].includes(status);
+        if (!hasTracking || !isActive) return false;
+
+        const key = AUTO_SYNC_STORAGE_PREFIX + order.id;
+        let lastSync = 0;
+        try {
+            lastSync = parseInt(localStorage.getItem(key) || '0', 10) || 0;
+        } catch (e) {
+            return false;
+        }
+        if (now - lastSync < AUTO_SYNC_THROTTLE_MS) return false;
+        return true;
+    });
+
+    if (ordersToSync.length === 0) {
+        console.log('✅ Auto-sync : aucune commande éligible');
+        return;
+    }
+
+    _autoSyncInProgress = true;
+    console.log(`🔄 Auto-sync : ${ordersToSync.length} commande(s) à vérifier`);
+
+    let updatedCount = 0;
+
+    for (const order of ordersToSync) {
+        try {
+            localStorage.setItem(AUTO_SYNC_STORAGE_PREFIX + order.id, String(Date.now()));
+        } catch (e) {}
+
+        try {
+            const result = await syncSpeedafStatus(order.id);
+            if (result.success && result.updated) {
+                updatedCount++;
+                console.log(`✅ Cmd ${order.id.slice(0, 8)} → ${result.newStatus}`);
+            }
+        } catch (e) {
+            console.warn(`⚠️ Auto-sync ${order.id.slice(0, 8)} :`, e?.message || e);
+        }
+    }
+
+    _autoSyncInProgress = false;
+
+    if (updatedCount > 0) {
+        showToast(`🔄 ${updatedCount} commande(s) mise(s) à jour`, 3000);
+        if (typeof onComplete === 'function') {
+            try { onComplete(updatedCount); } catch (e) {}
+        }
+    }
+
+    console.log(`✅ Auto-sync terminé : ${updatedCount}/${ordersToSync.length} mise(s) à jour`);
+}
+
+// ============================================================
+// CLIENT : AFFICHER LES COMMANDES (avec timeline 4 étapes)
 // ============================================================
 export async function renderUserOrders(containerId = 'tabContent') {
     const container = document.getElementById(containerId);
@@ -1120,6 +1327,13 @@ export async function renderUserOrders(containerId = 'tabContent') {
             container.innerHTML = `<div style="text-align:center;padding:2rem;color:var(--text-muted);">${t('noOrders')}</div>`;
             return;
         }
+
+        // ✅ Auto-sync en arrière-plan (throttled) — re-render si updates
+        autoSyncActiveOrders(orders, () => {
+            const c = document.getElementById(containerId);
+            if (c) renderUserOrders(containerId);
+        });
+
         let html = '';
         orders.forEach(order => {
             const status = normalizeOrderStatus(order.status);
@@ -1129,15 +1343,49 @@ export async function renderUserOrders(containerId = 'tabContent') {
             const cancellable = isOrderCancellable(order);
             const timeRemaining = cancellable ? formatTimeRemaining(getTimeRemainingForCancellation(order)) : null;
             const isTest = order._test === true;
-            const testBadge = isTest ? `<span style="background:#dc3545;color:#fff;font-size:0.6rem;padding:0.1rem 0.35rem;border-radius:30px;margin-left:0.3rem;font-weight:700;">TEST</span>` : '';
-            const cancelBtnHtml = cancellable ? `<div style="margin-top:0.5rem;display:flex;justify-content:space-between;align-items:center;"><span style="font-size:0.75rem;color:var(--gold);font-weight:600;">⏱️ ${t('orderCancellableIn').replace('{time}', timeRemaining)}</span><button class="order-cancel-btn" data-order-id="${order.id}">${t('orderCancel')}</button></div>` : '';
-            const trackingBtnHtml = order.speedafTracking ? `<a href="https://www.speedaf.com/tracking?waybill=${order.speedafTracking}" target="_blank" style="display:inline-flex; align-items:center; gap:0.3rem; padding:0.4rem 1rem; background:rgba(165,123,46,0.1); color:var(--gold); border:1px solid var(--gold); border-radius:30px; text-decoration:none; font-weight:700; font-size:0.8rem; margin-top:0.5rem;">🚚 Suivre mon colis</a>` : '';
+            const testBadge = isTest
+                ? `<span style="background:#dc3545;color:#fff;font-size:0.6rem;padding:0.1rem 0.35rem;border-radius:30px;margin-left:0.3rem;font-weight:700;">TEST</span>`
+                : '';
+
+            const cancelBtnHtml = cancellable
+                ? `<div style="margin-top:0.5rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.4rem;">
+                       <span style="font-size:0.75rem;color:var(--gold);font-weight:600;">⏱️ ${t('orderCancellableIn').replace('{time}', timeRemaining)}</span>
+                       <button class="order-cancel-btn" data-order-id="${order.id}">${t('orderCancel')}</button>
+                   </div>`
+                : '';
+
+            const trackingBtnHtml = order.speedafTracking
+                ? `<a href="https://www.speedaf.com/tracking?waybill=${encodeURIComponent(order.speedafTracking)}" target="_blank" rel="noopener noreferrer"
+                       style="display:inline-flex; align-items:center; gap:0.3rem; padding:0.4rem 1rem; background:rgba(165,123,46,0.1); color:var(--gold); border:1px solid var(--gold); border-radius:30px; text-decoration:none; font-weight:700; font-size:0.8rem;">
+                       🚚 Suivre mon colis
+                   </a>`
+                : '';
+
+            // ✅ Timeline 4 étapes (done ✓, current emoji, future emoji)
+            const timelineSteps = getOrderTimelineSteps(status);
+            const timelineHtml = `
+                <div class="order-timeline" style="margin:1rem 0; padding:0.8rem 0.3rem;">
+                    ${timelineSteps.map(step => {
+                        const isDone = step.done;
+                        const isCurrent = step.current;
+                        const dotContent = (isDone && !isCurrent) ? '✓' : step.emoji;
+                        return `
+                            <div class="order-timeline-step ${isDone ? 'done' : ''} ${isCurrent ? 'current' : ''} ${status === 'returned' ? 'returned' : ''}">
+                                <div class="order-timeline-dot">${dotContent}</div>
+                                <span class="order-timeline-label">${t(step.label)}</span>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            `;
+
             html += `
                 <div class="order-card">
                     <div class="order-card-header">
                         <span class="order-card-id">#${idShort}${testBadge} ${emoji}</span>
                         <span class="order-card-date">${date}</span>
                     </div>
+                    ${timelineHtml}
                     <div class="order-card-body">
                         <div>🛒 <strong>${order.items?.length || 0}</strong> ${t('items')} - <strong>${order.total || 0} ${t('currency')}</strong></div>
                         <div style="font-size:0.8rem;color:var(--text-muted);">📍 ${escapeHTML(order.deliveryAddress?.city || '')}</div>
@@ -1150,23 +1398,33 @@ export async function renderUserOrders(containerId = 'tabContent') {
                 </div>
             `;
         });
+
         container.innerHTML = html;
+
         container.querySelectorAll('.order-details-btn').forEach(btn => {
             btn.addEventListener('click', () => openOrderDetails(btn.dataset.orderId, false));
         });
+
         container.querySelectorAll('.order-cancel-btn').forEach(btn => {
             btn.addEventListener('click', async () => {
                 const orderId = btn.dataset.orderId;
-                const confirmed = await confirmAction(t('confirmCancelOrderMsg'), { title: t('confirmCancelOrderTitle'), confirmText: t('confirmCancelOrderYes'), cancelText: t('confirmCancelOrderNo'), variant: 'danger' });
+                const confirmed = await confirmAction(t('confirmCancelOrderMsg'), {
+                    title: t('confirmCancelOrderTitle'),
+                    confirmText: t('confirmCancelOrderYes'),
+                    cancelText: t('confirmCancelOrderNo'),
+                    variant: 'danger'
+                });
                 if (!confirmed) return;
-                btn.disabled = true; btn.textContent = '⏳...';
+                btn.disabled = true;
+                btn.textContent = '⏳...';
                 const res = await cancelOrder(orderId);
                 if (res.success) {
                     showToast('✅ ' + t('orderCancelled'));
                     await renderUserOrders(containerId);
                 } else {
                     showToast('❌ ' + res.error);
-                    btn.disabled = false; btn.textContent = t('orderCancel');
+                    btn.disabled = false;
+                    btn.textContent = t('orderCancel');
                 }
             });
         });
@@ -1218,6 +1476,7 @@ export async function openOrderDetails(orderId, isAdmin = false) {
                         <div>${escapeHTML(order.deliveryAddress?.phone || '')}</div>
                         <div>${escapeHTML(order.deliveryAddress?.address || '')}</div>
                         <div>${escapeHTML(order.deliveryAddress?.city || '')}</div>
+                        ${order.deliveryAddress?.note ? `<div style="margin-top:0.5rem;padding:0.5rem;background:rgba(165,123,46,0.08);border-radius:8px;font-style:italic;">📝 ${escapeHTML(order.deliveryAddress.note)}</div>` : ''}
                     </div>
                 </div>
             </div>
@@ -1233,4 +1492,7 @@ export async function openOrderDetails(orderId, isAdmin = false) {
     }
 }
 
-console.log('✅ orders.js chargé — v5.2.0 (Fix types de données Speedaf)');
+// ============================================================
+// LOG
+// ============================================================
+console.log('✅ orders.js chargé — v6.0.0 (Timeline + Auto-Sync + Auto-Pay + Paiement)');
