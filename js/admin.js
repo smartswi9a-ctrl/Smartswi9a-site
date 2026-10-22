@@ -1,7 +1,7 @@
 // js/admin.js
 // ============================================================
 // PANNEAU ADMINISTRATION - SMART SWI9A
-// Version 8.1.0 — SKU auto, Logistique +5DH, Ramassage Speedaf
+// Version 9.0.0 — Mode Test complet avec snapshot/rollback Storage
 // ============================================================
 
 import { auth, db, storage } from "./firebase.js";
@@ -14,19 +14,40 @@ import {
     orderBy, limit, increment, addDoc, deleteField
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
-import { 
+import {
     ROLES, ORDER_STATUS, CATEGORIES, CATEGORY_GROUPS, CONFIG, normalizeOrderStatus,
-    normalizeCategory, getCategoryById
+    normalizeCategory, getCategoryById, APP_MODE, isTestMode
 } from "./config.js";
 import {
     escapeHTML, slugify, getStoragePathFromUrl, isStorageUrl,
     getSignupMethodLabel, getSignupMethodEmoji, toDate, t, getCityName
 } from "./utils.js";
-import { 
-    renderAdminOrders, resetAdminOrdersCache, openReturnModal, syncSpeedafStatus 
+import {
+    renderAdminOrders, resetAdminOrdersCache, openReturnModal, syncSpeedafStatus
 } from "./orders.js";
 import { renderAdminReviews } from "./reviews.js";
 import { showToast, confirmAction } from "./ui-core.js";
+
+// ============================================================
+// 🧪 MODE TEST — CONFIGURATION
+// ============================================================
+const PROTECTED_USER_EMAILS = [
+    "asaminfo20@gmail.com"   // Compte test permanent — jamais supprimé
+];
+
+const TEST_SNAPSHOT_ROOT = "_test_snapshots";
+
+const COLLECTIONS_TO_SNAPSHOT = [
+    "products",
+    "orders",
+    "coupons",
+    "coupon_uses",
+    "reviews",
+    "notifications",
+    "speedaf_pickups",
+    "users",
+    "blog"
+];
 
 // ============================================================
 // ÉTAT LOCAL
@@ -76,7 +97,7 @@ const COUPON_TYPES = {
 };
 
 // ============================================================
-// HELPERS COMPTABILITÉ & SKU
+// HELPERS COMPTABILITÉ & DATES
 // ============================================================
 function formatMAD(n) {
     const num = Number(n) || 0;
@@ -101,7 +122,6 @@ function getDateRangeFromPeriod(period, customStart, customEnd) {
     return { start, end };
 }
 
-// ✅ Générateur de SKU
 function generateUniqueSku(category) {
     const catPrefix = category ? category.substring(0, 4).toUpperCase() : 'GEN';
     const now = new Date();
@@ -125,340 +145,328 @@ async function deleteStorageImages(urls) {
 }
 
 // ============================================================
-// LOADERS ROBUSTES
+// 🧪 MODE TEST — COLLECTE ET SUPPRESSION DES FICHIERS STORAGE
 // ============================================================
-async function loadPurchases() {
-    try {
-        const snap = await getDocs(query(collection(db, "purchases"), orderBy("date", "desc"), limit(500)));
-        cachedPurchases = snap.docs.map(d => ({ id: d.id, ...d.data(), date: toDate(d.data().date) }));
-    } catch (err) {
+async function collectTestFiles(batchId) {
+    const urlsToDelete = new Set();
+    const FILE_FIELDS = {
+        products: ['img', 'gallery'],
+        reviews:  ['photos'],
+        blog:     ['image']
+    };
+
+    for (const [coll, fields] of Object.entries(FILE_FIELDS)) {
         try {
-            const snap = await getDocs(collection(db, "purchases"));
-            cachedPurchases = snap.docs.map(d => ({ id: d.id, ...d.data(), date: toDate(d.data().date) }));
-            cachedPurchases.sort((a, b) => safeDate(b.date) - safeDate(a.date));
-        } catch (err2) { cachedPurchases = []; }
-    }
-    return cachedPurchases;
-}
-
-async function loadExpenses() {
-    try {
-        const snap = await getDocs(query(collection(db, "expenses"), orderBy("date", "desc"), limit(500)));
-        cachedExpenses = snap.docs.map(d => ({ id: d.id, ...d.data(), date: toDate(d.data().date) }));
-    } catch (err) {
-        try {
-            const snap = await getDocs(collection(db, "expenses"));
-            cachedExpenses = snap.docs.map(d => ({ id: d.id, ...d.data(), date: toDate(d.data().date) }));
-            cachedExpenses.sort((a, b) => safeDate(b.date) - safeDate(a.date));
-        } catch (err2) { cachedExpenses = []; }
-    }
-    return cachedExpenses;
-}
-
-async function loadTransactions() {
-    try {
-        const snap = await getDocs(query(collection(db, "transactions"), orderBy("date", "desc"), limit(500)));
-        cachedTransactions = snap.docs.map(d => ({ id: d.id, ...d.data(), date: toDate(d.data().date) }));
-    } catch (err) {
-        try {
-            const snap = await getDocs(collection(db, "transactions"));
-            cachedTransactions = snap.docs.map(d => ({ id: d.id, ...d.data(), date: toDate(d.data().date) }));
-            cachedTransactions.sort((a, b) => safeDate(b.date) - safeDate(a.date));
-        } catch (err2) { cachedTransactions = []; }
-    }
-    return cachedTransactions;
-}
-
-// ============================================================
-// BANDEAU D'ALERTES
-// ============================================================
-function initAdminAlerts() {
-    refreshAdminAlerts();
-    if (alertInterval) clearInterval(alertInterval);
-    alertInterval = setInterval(refreshAdminAlerts, 60000);
-
-    document.getElementById('closeAlertBannerBtn')?.addEventListener('click', () => {
-        const banner = document.getElementById('adminAlertBanner');
-        if (banner) banner.style.display = 'none';
-    });
-
-    document.getElementById('alertOrdersBtn')?.addEventListener('click', () => document.querySelector('[data-tab="orders"]')?.click());
-    document.getElementById('alertReviewsBtn')?.addEventListener('click', () => document.querySelector('[data-tab="reviews"]')?.click());
-    document.getElementById('alertStockOutBtn')?.addEventListener('click', () => { tempStockFilter = 'out'; document.querySelector('[data-tab="products"]')?.click(); });
-    document.getElementById('alertStockLowBtn')?.addEventListener('click', () => { tempStockFilter = 'low'; document.querySelector('[data-tab="products"]')?.click(); });
-}
-
-async function refreshAdminAlerts() {
-    const banner = document.getElementById('adminAlertBanner');
-    if (!banner || !auth.currentUser) return;
-
-    try {
-        const [ordersSnap, reviewsSnap] = await Promise.allSettled([
-            getCountFromServer(query(collection(db, "orders"), where("status", "==", "pending"))),
-            getCountFromServer(query(collection(db, "reviews"), where("status", "==", "pending")))
-        ]);
-
-        const pendingOrdersCount = ordersSnap.value?.data().count || 0;
-        const pendingReviewsCount = reviewsSnap.value?.data().count || 0;
-
-        const stockOutNames = [];
-        const stockLowNames = [];
-        
-        if (cachedProducts.length > 0) {
-            cachedProducts.forEach(p => {
-                const name = p.nameFr || p.nameEn || 'Sans nom';
-                if (p.variants && p.variants.length > 0) {
-                    p.variants.forEach(v => {
-                        const vStock = Number(v.stock) || 0;
-                        const vLabel = [v.size, v.color].filter(Boolean).join('/');
-                        if (vStock === 0) stockOutNames.push(`${name} [${vLabel}]`);
-                        else if (vStock <= 4) stockLowNames.push(`${name} [${vLabel}]`);
-                    });
-                } else {
-                    const stock = Number(p.stock) || 0;
-                    if (stock === 0) stockOutNames.push(name);
-                    else if (stock > 0 && stock <= 4) stockLowNames.push(name);
-                }
+            const snapDocs = await getDocs(collection(db, TEST_SNAPSHOT_ROOT, batchId, coll));
+            const snapshotUrls = new Set();
+            snapDocs.forEach(d => {
+                const data = d.data();
+                fields.forEach(f => {
+                    const v = data[f];
+                    if (typeof v === 'string' && v) snapshotUrls.add(v);
+                    else if (Array.isArray(v)) v.forEach(u => u && snapshotUrls.add(u));
+                });
             });
+
+            const curDocs = await getDocs(collection(db, coll));
+            curDocs.forEach(d => {
+                const data = d.data();
+                fields.forEach(f => {
+                    const v = data[f];
+                    const addIfNew = (u) => {
+                        if (u && typeof u === 'string' && u.startsWith('http') && !snapshotUrls.has(u)) {
+                            urlsToDelete.add(u);
+                        }
+                    };
+                    if (typeof v === 'string') addIfNew(v);
+                    else if (Array.isArray(v)) v.forEach(addIfNew);
+                });
+            });
+        } catch (e) {
+            console.warn(`Collecte Storage ${coll} :`, e);
         }
+    }
 
-        const btnOrders = document.getElementById('alertOrdersBtn');
-        const btnReviews = document.getElementById('alertReviewsBtn');
-        const btnStockOut = document.getElementById('alertStockOutBtn');
-        const btnStockLow = document.getElementById('alertStockLowBtn');
-
-        let hasAlerts = false;
-
-        if (btnOrders) { if (pendingOrdersCount > 0) { document.getElementById('alertOrdersCount').textContent = pendingOrdersCount; btnOrders.style.display = 'inline-flex'; hasAlerts = true; } else { btnOrders.style.display = 'none'; } }
-        if (btnReviews) { if (pendingReviewsCount > 0) { document.getElementById('alertReviewsCount').textContent = pendingReviewsCount; btnReviews.style.display = 'inline-flex'; hasAlerts = true; } else { btnReviews.style.display = 'none'; } }
-        if (btnStockOut) {
-            if (stockOutNames.length > 0) {
-                document.getElementById('alertStockOutCount').textContent = stockOutNames.length;
-                const tooltip = document.getElementById('alertStockOutTooltip');
-                if (tooltip) tooltip.textContent = formatTooltipList(stockOutNames);
-                btnStockOut.style.display = 'inline-flex'; hasAlerts = true;
-            } else { btnStockOut.style.display = 'none'; }
-        }
-        if (btnStockLow) {
-            if (stockLowNames.length > 0) {
-                document.getElementById('alertStockLowCount').textContent = stockLowNames.length;
-                const tooltip = document.getElementById('alertStockLowTooltip');
-                if (tooltip) tooltip.textContent = formatTooltipList(stockLowNames);
-                btnStockLow.style.display = 'inline-flex'; hasAlerts = true;
-            } else { btnStockLow.style.display = 'none'; }
-        }
-
-        banner.style.display = hasAlerts ? 'block' : 'none';
-    } catch (e) { console.warn('⚠️ Impossible de rafraîchir les alertes :', e); }
+    console.log(`📦 ${urlsToDelete.size} fichier(s) Storage à supprimer`);
+    return Array.from(urlsToDelete);
 }
 
-function formatTooltipList(arr, max = 5) {
-    if (!arr || arr.length === 0) return '';
-    if (arr.length <= max) return arr.join(', ');
-    return arr.slice(0, max).join(', ') + ` +${arr.length - max} autre(s)`;
+async function deleteStorageFiles(urls) {
+    let deleted = 0, failed = 0;
+    for (const url of urls) {
+        try {
+            const path = getStoragePathFromUrl(url);
+            if (!path) { failed++; continue; }
+            await deleteObject(ref(storage, path));
+            deleted++;
+        } catch (e) {
+            console.warn(`Delete Storage ${url} :`, e?.message || e);
+            failed++;
+        }
+    }
+    return { deleted, failed };
 }
 
 // ============================================================
-// INITIALISATION
+// 🧪 MODE TEST — INITIALISATION
 // ============================================================
-function initAdmin() {
-    console.log('🚀 Admin : initialisation...');
+function initTestMode() {
+    const saved = localStorage.getItem('swi9a_app_mode');
+    if (saved === 'test' || saved === 'production') {
+        APP_MODE.current = saved === 'test' ? 'test' : 'production';
+        APP_MODE.testBatchId = saved === 'test' ? localStorage.getItem('swi9a_test_batch') : null;
+        activateAdminPanel();
+    } else {
+        showModeChoiceScreen();
+    }
+}
 
-    onAuthStateChanged(auth, async (user) => {
-        if (user) {
-            if (!user.emailVerified && user.providerData?.[0]?.providerId === 'password') {
-                currentAdmin = null;
-                pendingLoginError = '📧 Vérifiez votre email avant de vous connecter. Consultez votre boîte mail (et les spams).';
-                showLoginBox();
-                await signOut(auth);
-                return;
-            }
+function showModeChoiceScreen() {
+    document.getElementById('adminLoginBox').style.display = 'none';
+    document.getElementById('adminPanel').style.display = 'none';
+    document.getElementById('modeChoiceScreen').style.display = 'flex';
+    document.body.style.paddingTop = '';
 
+    document.getElementById('chooseRealModeBtn').onclick = () => chooseMode('production');
+    document.getElementById('chooseTestModeBtn').onclick = () => chooseMode('test');
+}
+
+async function chooseMode(mode) {
+    if (mode === 'test') {
+        const ok = await confirmAction(
+            'Cette action va :\n\n' +
+            '1. Créer un SNAPSHOT complet de ta base\n' +
+            '   (produits, commandes, coupons, avis, notifications, blog, users, pickups)\n\n' +
+            '2. Activer le mode test\n\n' +
+            'Pendant le mode test :\n' +
+            '• Speedaf DÉSACTIVÉ (aucun appel réseau)\n' +
+            '• Firebase, EmailJS, WhatsApp fonctionnent normalement\n' +
+            '• TOUTES tes actions seront enregistrées\n\n' +
+            'Quand tu cliqueras "Test Terminé", TOUT sera restauré.\n\n' +
+            '⚠️ Utilise ton propre email pour tester (pas d\'adresse bidon)\n\n' +
+            'Continuer ?',
+            { title: '🔴 Activer Mode Test', confirmText: 'Activer', cancelText: 'Annuler', variant: 'danger' }
+        );
+        if (!ok) return;
+
+        const btn = document.getElementById('chooseTestModeBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<div style="font-size:1.5rem;font-weight:800;margin-bottom:0.3rem;">⏳ Snapshot...</div>';
+
+        await startTestBatch(btn);
+    } else {
+        APP_MODE.current = 'production';
+        APP_MODE.testBatchId = null;
+        localStorage.setItem('swi9a_app_mode', 'production');
+        localStorage.removeItem('swi9a_test_batch');
+        activateAdminPanel();
+    }
+}
+
+async function startTestBatch(btn) {
+    const batchId = 'batch_' + Date.now();
+    try {
+        let totalDocs = 0;
+        for (const coll of COLLECTIONS_TO_SNAPSHOT) {
             try {
-                const userDoc = await getDoc(doc(db, "users", user.uid));
-                if (userDoc.exists() && userDoc.data().role === ROLES.ADMIN) {
-                    currentAdmin = user;
-                    pendingLoginError = null;
-                    resetAdminOrdersCache();
-                    showAdminPanel(user);
-                    loadAllData();
-                    initAdminAlerts();
-                    attachChartListeners();
-                } else {
-                    pendingLoginError = '⚠️ Ce compte n\'a pas les droits administrateur. Vérifiez le champ "role" dans Firestore (collection users).';
-                    currentAdmin = null;
-                    showLoginBox();
-                    await signOut(auth);
+                const snap = await getDocs(collection(db, coll));
+                totalDocs += snap.size;
+                for (let i = 0; i < snap.docs.length; i += 400) {
+                    const batch = writeBatch(db);
+                    snap.docs.slice(i, i + 400).forEach(d => {
+                        batch.set(doc(db, TEST_SNAPSHOT_ROOT, batchId, coll, d.id), d.data());
+                    });
+                    await batch.commit();
                 }
             } catch (e) {
-                console.error('❌ Erreur vérif admin :', e);
-                pendingLoginError = '❌ Erreur de vérification du compte : ' + (e.message || 'inconnue');
-                currentAdmin = null;
-                showLoginBox();
-                await signOut(auth);
+                console.warn(`Snapshot ${coll} :`, e);
             }
-        } else {
-            currentAdmin = null;
-            showLoginBox();
-            document.getElementById('adminAlertBanner').style.display = 'none';
-            if (alertInterval) clearInterval(alertInterval);
         }
-    });
 
-    document.getElementById('adminLoginBtn')?.addEventListener('click', handleLogin);
-
-    document.getElementById('adminEmail')?.addEventListener('input', () => {
-        pendingLoginError = null;
-        const msgEl = document.getElementById('adminLoginMsg');
-        if (msgEl && msgEl.textContent) msgEl.textContent = '';
-    });
-    document.getElementById('adminPassword')?.addEventListener('input', () => {
-        pendingLoginError = null;
-        const msgEl = document.getElementById('adminLoginMsg');
-        if (msgEl && msgEl.textContent) msgEl.textContent = '';
-    });
-
-    document.getElementById('adminPassword')?.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') { e.preventDefault(); handleLogin(); }
-    });
-
-    document.getElementById('adminLogoutBtn')?.addEventListener('click', async () => {
-        resetAdminOrdersCache();
-        if (alertInterval) clearInterval(alertInterval);
-        await signOut(auth);
-        showToast('👋 ' + t('logout'));
-    });
-
-    document.querySelectorAll('.admin-tabs > button[data-tab]').forEach(btn => {
-        btn.addEventListener('click', async () => {
-            document.querySelectorAll('.admin-tabs > button[data-tab]').forEach(b => b.classList.remove('active'));
-            document.querySelectorAll('.admin-content').forEach(c => c.classList.remove('active'));
-            btn.classList.add('active');
-            const tab = btn.dataset.tab;
-            document.getElementById(`tab-${tab}`)?.classList.add('active');
-
-            refreshAdminAlerts();
-
-            if (tab === 'tools') loadCollectionsStatus();
-            else if (tab === 'blog') loadBlogPosts();
-            else if (tab === 'products') { await loadProducts(); await loadStats(); }
-            else if (tab === 'orders') await loadOrders();
-            else if (tab === 'speedaf') await loadSpeedafTab();
-            else if (tab === 'coupons') await loadCoupons();
-            else if (tab === 'finances') await loadFinancesTab();
-            else if (tab === 'users') await loadUsers();
-            else if (tab === 'reviews') await loadReviews();
+        await setDoc(doc(db, TEST_SNAPSHOT_ROOT, batchId), {
+            batchId,
+            startedAt: Timestamp.now(),
+            collections: COLLECTIONS_TO_SNAPSHOT,
+            totalDocs,
+            status: 'active'
         });
-    });
 
-    document.querySelectorAll('[data-acc-tab]').forEach(btn => {
-        btn.addEventListener('click', async () => {
-            document.querySelectorAll('[data-acc-tab]').forEach(b => b.classList.remove('active'));
-            document.querySelectorAll('.acc-content').forEach(c => c.classList.remove('active'));
-            btn.classList.add('active');
-            document.getElementById(`acc-${btn.dataset.accTab}`)?.classList.add('active');
+        APP_MODE.current = 'test';
+        APP_MODE.testBatchId = batchId;
+        localStorage.setItem('swi9a_app_mode', 'test');
+        localStorage.setItem('swi9a_test_batch', batchId);
 
-            if (btn.dataset.accTab === 'overview') await refreshAccOverview();
-            else if (btn.dataset.accTab === 'purchases') await renderPurchasesList();
-            else if (btn.dataset.accTab === 'expenses') await renderExpensesList();
-            else if (btn.dataset.accTab === 'transactions') await renderTransactionsList();
-            else if (btn.dataset.accTab === 'simulator') {
-                if (!cachedProducts || cachedProducts.length === 0) await loadProducts();
-                renderFinanceProductSelection();
-                attachSimulatorListeners();
+        showToast(`🔴 Mode TEST activé — ${totalDocs} docs sauvegardés`);
+        activateAdminPanel();
+    } catch (e) {
+        console.error(e);
+        showToast('❌ Snapshot : ' + e.message);
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<div style="font-size:1.5rem;font-weight:800;margin-bottom:0.3rem;">🔴 Mode Test</div><div style="font-size:0.85rem;opacity:0.9;">Snapshot base — Speedaf désactivé</div>';
+        }
+    }
+}
+
+// ============================================================
+// 🧪 MODE TEST — ROLLBACK COMPLET
+// ============================================================
+async function endTestBatch() {
+    const batchId = APP_MODE.testBatchId;
+    if (!batchId) {
+        showToast('⚠️ Aucun batch actif');
+        return;
+    }
+
+    const ok = await confirmAction(
+        '🟢 ROLLBACK COMPLET\n\n' +
+        'TOUT sera restauré à l\'état d\'avant le test :\n\n' +
+        '• Commandes, produits, coupons, avis, blog → restaurés\n' +
+        '• Stocks, statuts, usedCount → restaurés\n' +
+        '• Notifications, pickups, users docs → restaurés\n' +
+        '• 🖼️ Images/photos Storage → SUPPRIMÉES de Firebase\n\n' +
+        '⚠️ Compte test protégé : asaminfo20@gmail.com (jamais supprimé)\n\n' +
+        '⚠️ NON supprimés (limitations) :\n' +
+        '• Emails déjà envoyés (EmailJS)\n' +
+        '• Vidéos sur videos.smartswi9a.top (hébergeur externe)\n\n' +
+        'Continuer ?',
+        { title: '🟢 Test Terminé', confirmText: 'TOUT RESTAURER', cancelText: 'Annuler', variant: 'danger' }
+    );
+    if (!ok) return;
+
+    const btn = document.getElementById('endTestBtn');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Rollback...'; }
+
+    APP_MODE.current = 'production';
+    APP_MODE.testBatchId = null;
+    localStorage.setItem('swi9a_app_mode', 'production');
+    localStorage.removeItem('swi9a_test_batch');
+    updateTestModeUI();
+
+    let totalDeleted = 0, totalRestored = 0, filesDeleted = 0, filesFailed = 0;
+
+    try {
+        console.log('🗑️ Collecte des fichiers Storage créés pendant le test...');
+        const testFiles = await collectTestFiles(batchId);
+
+        for (const coll of COLLECTIONS_TO_SNAPSHOT) {
+            try {
+                const snapDocs = await getDocs(collection(db, TEST_SNAPSHOT_ROOT, batchId, coll));
+                const snapshotMap = new Map();
+                snapDocs.forEach(d => snapshotMap.set(d.id, d.data()));
+
+                const curDocs = await getDocs(collection(db, coll));
+
+                const isProtected = (d) => {
+                    if (coll !== 'users') return false;
+                    const email = (d.data()?.email || '').toLowerCase();
+                    return PROTECTED_USER_EMAILS.map(e => e.toLowerCase()).includes(email);
+                };
+
+                const toDelete = curDocs.docs.filter(d => !snapshotMap.has(d.id) && !isProtected(d));
+                for (let i = 0; i < toDelete.length; i += 400) {
+                    const batch = writeBatch(db);
+                    toDelete.slice(i, i + 400).forEach(d => batch.delete(d.ref));
+                    await batch.commit();
+                }
+                totalDeleted += toDelete.length;
+
+                const arr = Array.from(snapshotMap.entries());
+                for (let i = 0; i < arr.length; i += 400) {
+                    const batch = writeBatch(db);
+                    arr.slice(i, i + 400).forEach(([id, data]) => {
+                        batch.set(doc(db, coll, id), data);
+                    });
+                    await batch.commit();
+                }
+                totalRestored += arr.length;
+
+                for (let i = 0; i < snapDocs.docs.length; i += 400) {
+                    const batch = writeBatch(db);
+                    snapDocs.docs.slice(i, i + 400).forEach(d => batch.delete(d.ref));
+                    await batch.commit();
+                }
+
+                console.log(`✅ Rollback ${coll} : -${toDelete.length} créés, ${arr.length} restaurés`);
+            } catch (e) {
+                console.error(`Rollback ${coll} échoué :`, e);
             }
-        });
-    });
+        }
 
-    document.addEventListener('order-stock-changed', async () => {
-        try { await loadProducts(); await loadStats(); refreshAdminAlerts(); } catch (e) {}
-    });
+        if (testFiles.length > 0) {
+            console.log(`🗑️ Suppression de ${testFiles.length} fichier(s) Storage...`);
+            const r = await deleteStorageFiles(testFiles);
+            filesDeleted = r.deleted;
+            filesFailed = r.failed;
+        }
 
-    attachProductFormEvents();
-    populateCategoriesFilter();
-    attachBlogFormEvents();
-    attachCouponFormEvents();
+        try { await deleteDoc(doc(db, TEST_SNAPSHOT_ROOT, batchId)); } catch (e) {}
 
-    document.getElementById('productSearchAdmin')?.addEventListener('input', () => { tempStockFilter = null; productsCurrentPage = 1; filterProductsList(); });
-    document.getElementById('productCategoryFilter')?.addEventListener('change', () => { tempStockFilter = null; productsCurrentPage = 1; filterProductsList(); });
-    document.getElementById('userSearchAdmin')?.addEventListener('input', filterUsersList);
-    
-    document.querySelectorAll('[data-signup-filter]').forEach(btn => {
-        btn.addEventListener('click', () => {
-            document.querySelectorAll('[data-signup-filter]').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            filterUsersList();
-        });
-    });
-    
-    document.getElementById('blogSearchAdmin')?.addEventListener('input', () => { blogCurrentPage = 1; filterBlogList(); });
-    document.getElementById('couponSearchAdmin')?.addEventListener('input', filterCouponsList);
+        let msg = `✅ Rollback OK : ${totalDeleted} créés supprimés, ${totalRestored} docs restaurés`;
+        if (filesDeleted > 0) msg += `, ${filesDeleted} fichiers Storage supprimés`;
+        if (filesFailed > 0) msg += ` (⚠️ ${filesFailed} fichiers non supprimés)`;
+        showToast(msg, 5000);
 
-    // Boutons Speedaf
-    document.getElementById('speedafSearchAdmin')?.addEventListener('input', renderSpeedafList);
-    document.getElementById('speedafStatusFilter')?.addEventListener('change', renderSpeedafList);
-    document.getElementById('syncAllSpeedafBtn')?.addEventListener('click', handleSyncAllSpeedaf);
-    
-    // Modale Ramassage
-    document.getElementById('pickupSpeedafBtn')?.addEventListener('click', () => {
-        document.getElementById('pickupDate').valueAsDate = new Date();
-        document.getElementById('pickupModal').classList.add('open');
-    });
-    document.getElementById('closePickupModalBtn')?.addEventListener('click', () => document.getElementById('pickupModal').classList.remove('open'));
-    document.getElementById('confirmPickupBtn')?.addEventListener('click', handleConfirmPickup);
+        await loadStats();
+        await loadOrders();
+        await loadProducts(true);
 
-    // Boutons Outils
-    document.getElementById('migrateCitiesBtn')?.addEventListener('click', handleMigrateCities);
-    document.getElementById('migrateLegacyCategoriesBtn')?.addEventListener('click', handleMigrateLegacyCategories);
-    document.getElementById('migrateSkuBtn')?.addEventListener('click', handleMigrateSku);
-    document.getElementById('refreshCollectionsBtn')?.addEventListener('click', loadCollectionsStatus);
+    } catch (e) {
+        console.error('Rollback error:', e);
+        showToast('❌ Rollback : ' + e.message);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '🟢 Test Terminé (Rollback)'; }
+    }
+}
 
-    // Comptabilité
-    document.getElementById('accRefreshBtn')?.addEventListener('click', refreshAccOverview);
-    document.getElementById('accPeriod')?.addEventListener('change', (e) => {
-        const startEl = document.getElementById('accStart');
-        const endEl = document.getElementById('accEnd');
-        const isCustom = e.target.value === 'custom';
-        if (startEl) startEl.disabled = !isCustom;
-        if (endEl) endEl.disabled = !isCustom;
-        if (!isCustom) refreshAccOverview();
-    });
+// ============================================================
+// 🧪 MODE TEST — UI
+// ============================================================
+function updateTestModeUI() {
+    const indicator = document.getElementById('adminModeIndicator');
+    const banner = document.getElementById('testModeBanner');
 
-    const accStartInit = document.getElementById('accStart');
-    const accEndInit = document.getElementById('accEnd');
-    if (accStartInit) accStartInit.disabled = true;
-    if (accEndInit) accEndInit.disabled = true;
+    if (isTestMode()) {
+        if (indicator) {
+            indicator.innerHTML = '🔴 MODE TEST';
+            indicator.style.color = '#dc3545';
+        }
+        if (banner) banner.style.display = 'flex';
+        document.body.style.paddingTop = '50px';
+    } else {
+        if (indicator) {
+            indicator.innerHTML = '🟢 MODE RÉEL';
+            indicator.style.color = '#2ecc71';
+        }
+        if (banner) banner.style.display = 'none';
+        document.body.style.paddingTop = '';
+    }
+}
 
-    document.getElementById('addPurchaseBtn')?.addEventListener('click', saveNewPurchase);
-    document.getElementById('addExpenseBtn')?.addEventListener('click', saveNewExpense);
-    document.getElementById('addTransactionBtn')?.addEventListener('click', saveNewTransaction);
-    document.getElementById('generateReportBtn')?.addEventListener('click', generateReport);
-    document.getElementById('exportCSVBtn')?.addEventListener('click', exportReportCSV);
-    document.getElementById('printReportBtn')?.addEventListener('click', () => window.print());
-    document.getElementById('exportOrdersCSVBtn')?.addEventListener('click', exportOrdersCSV);
-    document.getElementById('exportProductsCSVBtn')?.addEventListener('click', exportProductsCSV);
+function activateAdminPanel() {
+    document.getElementById('modeChoiceScreen').style.display = 'none';
+    document.getElementById('adminLoginBox').style.display = 'none';
+    document.getElementById('adminPanel').style.display = 'block';
 
-    document.getElementById('transSearch')?.addEventListener('input', renderTransactionsList);
-    document.getElementById('transFilterType')?.addEventListener('change', renderTransactionsList);
-    document.getElementById('reportType')?.addEventListener('change', updateReportDates);
+    if (currentAdmin) {
+        document.getElementById('adminUserEmail').textContent = currentAdmin.email;
+    }
 
-    ['purDate', 'expDate', 'transDate'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.valueAsDate = new Date();
-    });
+    updateTestModeUI();
+    if (isTestMode()) {
+        const endBtn = document.getElementById('endTestBtn');
+        if (endBtn) endBtn.onclick = endTestBatch;
+    }
 
-    document.getElementById('calculateFinancesBtn')?.addEventListener('click', calculateFinances);
-    const slider = document.getElementById('finReturnRate');
-    if (slider) slider.addEventListener('input', (e) => {
-        const el = document.getElementById('finReturnRateValue');
-        if (el) el.textContent = e.target.value + '%';
-    });
-
-    document.getElementById('generateVariantsBtn')?.addEventListener('click', generateVariants);
+    loadStats();
+    loadAllData();
+    initAdminAlerts();
+    attachChartListeners();
 }
 
 function showLoginBox() {
     document.getElementById('adminLoginBox').style.display = 'block';
+    document.getElementById('modeChoiceScreen').style.display = 'none';
     document.getElementById('adminPanel').style.display = 'none';
     const msgEl = document.getElementById('adminLoginMsg');
     if (msgEl) {
@@ -468,13 +476,9 @@ function showLoginBox() {
     }
 }
 
-function showAdminPanel(user) {
-    document.getElementById('adminLoginBox').style.display = 'none';
-    document.getElementById('adminPanel').style.display = 'block';
-    document.getElementById('adminUserEmail').textContent = user.email;
-    loadStats();
-}
-
+// ============================================================
+// LOGIN
+// ============================================================
 async function handleLogin() {
     const email = document.getElementById('adminEmail').value.trim();
     const password = document.getElementById('adminPassword').value;
@@ -531,6 +535,129 @@ async function handleLogin() {
     }
 }
 
+// ============================================================
+// INITIALISATION
+// ============================================================
+function initAdmin() {
+    console.log('🚀 Admin : initialisation...');
+
+    onAuthStateChanged(auth, async (user) => {
+        if (user) {
+            if (!user.emailVerified && user.providerData?.[0]?.providerId === 'password') {
+                currentAdmin = null;
+                pendingLoginError = '📧 Vérifiez votre email avant de vous connecter. Consultez votre boîte mail (et les spams).';
+                showLoginBox();
+                await signOut(auth);
+                return;
+            }
+
+            try {
+                const userDoc = await getDoc(doc(db, "users", user.uid));
+                if (userDoc.exists() && userDoc.data().role === ROLES.ADMIN) {
+                    currentAdmin = user;
+                    pendingLoginError = null;
+                    resetAdminOrdersCache();
+                    initTestMode();
+                } else {
+                    pendingLoginError = '⚠️ Ce compte n\'a pas les droits administrateur. Vérifiez le champ "role" dans Firestore (collection users).';
+                    currentAdmin = null;
+                    showLoginBox();
+                    await signOut(auth);
+                }
+            } catch (e) {
+                console.error('❌ Erreur vérif admin :', e);
+                pendingLoginError = '❌ Erreur de vérification du compte : ' + (e.message || 'inconnue');
+                currentAdmin = null;
+                showLoginBox();
+                await signOut(auth);
+            }
+        } else {
+            currentAdmin = null;
+            showLoginBox();
+            document.getElementById('adminAlertBanner').style.display = 'none';
+            if (alertInterval) clearInterval(alertInterval);
+        }
+    });
+
+    document.getElementById('adminLoginBtn')?.addEventListener('click', handleLogin);
+
+    document.getElementById('adminEmail')?.addEventListener('input', () => {
+        pendingLoginError = null;
+        const msgEl = document.getElementById('adminLoginMsg');
+        if (msgEl && msgEl.textContent) msgEl.textContent = '';
+    });
+    document.getElementById('adminPassword')?.addEventListener('input', () => {
+        pendingLoginError = null;
+        const msgEl = document.getElementById('adminLoginMsg');
+        if (msgEl && msgEl.textContent) msgEl.textContent = '';
+    });
+
+    document.getElementById('adminPassword')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); handleLogin(); }
+    });
+
+    document.getElementById('adminLogoutBtn')?.addEventListener('click', async () => {
+        resetAdminOrdersCache();
+        if (alertInterval) clearInterval(alertInterval);
+        await signOut(auth);
+        localStorage.removeItem('swi9a_app_mode');
+        localStorage.removeItem('swi9a_test_batch');
+        APP_MODE.current = 'production';
+        APP_MODE.testBatchId = null;
+        showToast('👋 ' + t('logout'));
+    });
+
+    document.querySelectorAll('.admin-tabs > button[data-tab]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            document.querySelectorAll('.admin-tabs > button[data-tab]').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.admin-content').forEach(c => c.classList.remove('active'));
+            btn.classList.add('active');
+            const tab = btn.dataset.tab;
+            document.getElementById(`tab-${tab}`)?.classList.add('active');
+
+            refreshAdminAlerts();
+
+            if (tab === 'tools') loadCollectionsStatus();
+            else if (tab === 'blog') loadBlogPosts();
+            else if (tab === 'products') { await loadProducts(); await loadStats(); }
+            else if (tab === 'orders') await loadOrders();
+            else if (tab === 'speedaf') await loadSpeedafTab();
+            else if (tab === 'coupons') await loadCoupons();
+            else if (tab === 'finances') await loadFinancesTab();
+            else if (tab === 'users') await loadUsers();
+            else if (tab === 'reviews') await loadReviews();
+        });
+    });
+
+    document.querySelectorAll('[data-acc-tab]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            document.querySelectorAll('[data-acc-tab]').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.acc-content').forEach(c => c.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById(`acc-${btn.dataset.accTab}`)?.classList.add('active');
+
+            if (btn.dataset.accTab === 'overview') await refreshAccOverview();
+            else if (btn.dataset.accTab === 'purchases') await renderPurchasesList();
+            else if (btn.dataset.accTab === 'expenses') await renderExpensesList();
+            else if (btn.dataset.accTab === 'transactions') await renderTransactionsList();
+            else if (btn.dataset.accTab === 'simulator') {
+                if (!cachedProducts || cachedProducts.length === 0) await loadProducts();
+                renderFinanceProductSelection();
+                attachSimulatorListeners();
+            }
+        });
+    });
+
+    document.addEventListener('order-stock-changed', async () => {
+        try { await loadProducts(); await loadStats(); refreshAdminAlerts(); } catch (e) {}
+    });
+
+    attachAllRemainingEvents();
+}
+
+// ============================================================
+// CHARGEMENT DONNÉES
+// ============================================================
 async function loadAllData() {
     await loadProducts();
     await loadStats();
@@ -542,6 +669,50 @@ async function loadAllData() {
         await Promise.all([loadPurchases(), loadExpenses(), loadTransactions()]);
     } catch (e) {}
 }
+
+async function loadStats() {
+    try {
+        const c = await getCountFromServer(collection(db, "products"));
+        const el = document.getElementById('statProducts');
+        if (el) el.textContent = c.data().count;
+
+        const [ordersSnap, pendingOrdersSnap] = await Promise.allSettled([
+            getCountFromServer(collection(db, "orders")),
+            getCountFromServer(query(collection(db, "orders"), where("status", "==", "pending")))
+        ]);
+
+        let revenue = 0;
+        try {
+            const qRev = query(collection(db, "orders"), where("status", "in", ["delivered", "received"]), limit(500));
+            const revSnap = await getDocs(qRev);
+            revSnap.forEach(d => { revenue += Number(d.data().total) || 0; });
+        } catch(e) {}
+
+        const sO = document.getElementById('statOrders');
+        const sOP = document.getElementById('statOrdersPending');
+        const sR = document.getElementById('statRevenue');
+        if (sO) sO.textContent = ordersSnap.value?.data().count || 0;
+        if (sOP) sOP.textContent = pendingOrdersSnap.value?.data().count || 0;
+        if (sR) sR.textContent = `${revenue} MAD`;
+
+        const cu = await getCountFromServer(collection(db, "users"));
+        const elU = document.getElementById('statUsers');
+        if (elU) elU.textContent = cu.data().count;
+
+        const cr = await getCountFromServer(query(collection(db, "reviews"), where("status", "==", "pending")));
+        const elR = document.getElementById('statReviewsPending');
+        if (elR) elR.textContent = cr.data().count;
+
+        try {
+            const cc = await getCountFromServer(collection(db, "cities"));
+            const elC = document.getElementById('statCities');
+            if (elC) elC.textContent = cc.data().count;
+        } catch (e) { if (document.getElementById('statCities')) document.getElementById('statCities').textContent = '—'; }
+    } catch (e) { console.error('❌ loadStats:', e); }
+}
+
+async function loadOrders() { await renderAdminOrders('adminOrdersList'); }
+async function loadReviews() { await renderAdminReviews('reviewsList', 'all'); }
 
 // ============================================================
 // PRODUITS
@@ -711,10 +882,10 @@ function renderProductsList(products) {
     });
     container.querySelectorAll('[data-page]').forEach(btn => {
         btn.addEventListener('click', () => {
-            const t = btn.dataset.page;
-            if (t === 'prev' && productsCurrentPage > 1) productsCurrentPage--;
-            else if (t === 'next' && productsCurrentPage < totalPages) productsCurrentPage++;
-            else if (!isNaN(parseInt(t))) productsCurrentPage = parseInt(t);
+            const val = btn.dataset.page;
+            if (val === 'prev' && productsCurrentPage > 1) productsCurrentPage--;
+            else if (val === 'next' && productsCurrentPage < totalPages) productsCurrentPage++;
+            else if (!isNaN(parseInt(val))) productsCurrentPage = parseInt(val);
             else return;
             filterProductsList(false);
             container.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -746,10 +917,7 @@ function filterProductsList(resetPage = true) {
     if (tempStockFilter === 'out') {
         filtered = filtered.filter(p => (Number(p.stock) || 0) === 0);
     } else if (tempStockFilter === 'low') {
-        filtered = filtered.filter(p => {
-            const s = Number(p.stock) || 0;
-            return s > 0 && s <= 4;
-        });
+        filtered = filtered.filter(p => { const s = Number(p.stock) || 0; return s > 0 && s <= 4; });
     }
 
     if (resetPage) productsCurrentPage = 1;
@@ -846,7 +1014,6 @@ function attachProductFormEvents() {
         });
     }
     
-    // Bouton Générer SKU
     document.getElementById('generateSkuBtn')?.addEventListener('click', () => {
         const category = document.getElementById('pCategory').value;
         document.getElementById('pSku').value = generateUniqueSku(category);
@@ -895,6 +1062,7 @@ function attachProductFormEvents() {
 
     document.getElementById('saveProductBtn')?.addEventListener('click', saveProduct);
     document.getElementById('cancelProductEdit')?.addEventListener('click', resetProductForm);
+    document.getElementById('generateVariantsBtn')?.addEventListener('click', generateVariants);
 }
 
 function generateVariants() {
@@ -1013,7 +1181,6 @@ async function editProduct(id) {
             childSelect.value = p.category || '';
         }
 
-        // Gestion du prix de base et des +5 DH
         const hasLogisticsFee = p.logisticsFee > 0;
         document.getElementById('pLogisticsFee').checked = hasLogisticsFee;
         document.getElementById('pPrice').value = hasLogisticsFee ? (Number(p.price) - Number(p.logisticsFee)) : (p.price || '');
@@ -1138,8 +1305,8 @@ async function saveProduct() {
                 const safeSize = String(tr.dataset.size).replace(/[<>"'&]/g, '').trim().slice(0, 50);
                 const safeColor = String(tr.dataset.color).replace(/[<>"'&]/g, '').trim().slice(0, 50);
 
-                if (!Number.isFinite(vPrice) || vPrice < 0 || vPrice > 100000) throw new Error(`Prix invalide pour la variante ${safeSize}/${safeColor}`);
-                if (!Number.isFinite(vStock) || vStock < 0 || vStock > 99999) throw new Error(`Stock invalide pour la variante ${safeSize}/${safeColor}`);
+                if (!Number.isFinite(vPrice) || vPrice < 0 || vPrice > 100000) throw new Error(`Prix invalide pour ${safeSize}/${safeColor}`);
+                if (!Number.isFinite(vStock) || vStock < 0 || vStock > 99999) throw new Error(`Stock invalide pour ${safeSize}/${safeColor}`);
 
                 variants.push({ size: safeSize, color: safeColor, price: vPrice + (applyFee ? 5 : 0), stock: vStock });
             });
@@ -1157,20 +1324,15 @@ async function saveProduct() {
             height: parseFloat(document.getElementById('pHeight').value) || 0
         };
 
-        // ✅ GESTION DU SKU
         let finalSku = sku;
         if (!finalSku) finalSku = generateUniqueSku(category);
-
-        // ✅ GESTION DES +5 DH
         const finalPrice = priceBase + (applyFee ? 5 : 0);
 
         const productData = {
             nameFr,
             nameAr: document.getElementById('pNameAr').value.trim(),
             nameEn: document.getElementById('pNameEn').value.trim(),
-            slug,
-            sku: finalSku,
-            category,
+            slug, sku: finalSku, category,
             basePrice: priceBase,
             logisticsFee: applyFee ? 5 : 0,
             price: finalPrice,
@@ -1180,15 +1342,14 @@ async function saveProduct() {
             ratingAvg: Math.min(5, Math.max(0, parseFloat(document.getElementById('pRating').value) || 0)),
             isNew: document.getElementById('pIsNew').checked,
             hasSizeGuide: document.getElementById('pSizeGuide').checked,
-            dimensions,
-            variants,
+            dimensions, variants,
             descFr: document.getElementById('pDescFr').value.trim(),
             descAr: document.getElementById('pDescAr').value.trim(),
             descEn: document.getElementById('pDescEn').value.trim(),
             featuresFr: document.getElementById('pFeaturesFr').value.split('\n').map(l => l.trim()).filter(l => l),
             featuresAr: document.getElementById('pFeaturesAr').value.split('\n').map(l => l.trim()).filter(l => l),
             featuresEn: document.getElementById('pFeaturesEn').value.split('\n').map(l => l.trim()).filter(l => l),
-            img: imgUrl, gallery, 
+            img: imgUrl, gallery,
             video: videoValue || deleteField(),
             updatedAt: Timestamp.now()
         };
@@ -1208,7 +1369,7 @@ async function saveProduct() {
             productData.createdAt = Timestamp.now();
             productData.salesCount = 0;
             productData.ratingCount = 0;
-            productData.isSpeedafStored = false; // Prêt pour l'envoi Speedaf
+            productData.isSpeedafStored = false;
             if (!videoValue) delete productData.video; 
             await setDoc(doc(db, "products", newId), productData);
             showToast('✅ ' + t('success'));
@@ -1243,292 +1404,6 @@ async function deleteProduct(id) {
         await loadProducts(true);
         await loadStats();
     } catch (e) { showToast('❌ ' + t('error')); }
-}
-
-// ============================================================
-// STATS & COMMANDES / CLIENTS
-// ============================================================
-async function loadStats() {
-    try {
-        const c = await getCountFromServer(collection(db, "products"));
-        const el = document.getElementById('statProducts');
-        if (el) el.textContent = c.data().count;
-
-        const [ordersSnap, pendingOrdersSnap] = await Promise.allSettled([
-            getCountFromServer(collection(db, "orders")),
-            getCountFromServer(query(collection(db, "orders"), where("status", "==", "pending")))
-        ]);
-        
-        let revenue = 0;
-        try {
-            const qRev = query(collection(db, "orders"), where("status", "in", ["delivered", "received"]), limit(500));
-            const revSnap = await getDocs(qRev);
-            revSnap.forEach(d => { revenue += Number(d.data().total) || 0; });
-        } catch(e) {}
-
-        const sO = document.getElementById('statOrders');
-        const sOP = document.getElementById('statOrdersPending');
-        const sR = document.getElementById('statRevenue');
-        if (sO) sO.textContent = ordersSnap.value?.data().count || 0;
-        if (sOP) sOP.textContent = pendingOrdersSnap.value?.data().count || 0;
-        if (sR) sR.textContent = `${revenue} MAD`;
-
-        const cu = await getCountFromServer(collection(db, "users"));
-        const elU = document.getElementById('statUsers');
-        if (elU) elU.textContent = cu.data().count;
-
-        const cr = await getCountFromServer(query(collection(db, "reviews"), where("status", "==", "pending")));
-        const elR = document.getElementById('statReviewsPending');
-        if (elR) elR.textContent = cr.data().count;
-
-        try {
-            const cc = await getCountFromServer(collection(db, "cities"));
-            const elC = document.getElementById('statCities');
-            if (elC) elC.textContent = cc.data().count;
-        } catch (e) { if (document.getElementById('statCities')) document.getElementById('statCities').textContent = '—'; }
-        
-    } catch (e) { console.error('❌ loadStats:', e); }
-}
-
-async function loadOrders() { await renderAdminOrders('adminOrdersList'); }
-async function loadReviews() { await renderAdminReviews('reviewsList', 'all'); }
-
-// ============================================================
-// 🚀 SPEEDAF TAB & RAMASSAGE
-// ============================================================
-async function loadSpeedafTab() {
-    const container = document.getElementById('adminSpeedafList');
-    if (!container) return;
-
-    container.innerHTML = `<div class="admin-loading">⏳ Chargement des commandes Speedaf...</div>`;
-
-    try {
-        const q = query(collection(db, "orders"), orderBy("createdAt", "desc"), limit(100));
-        const snap = await getDocs(q);
-        
-        speedafOrdersCache = snap.docs.map(d => {
-            const data = d.data();
-            return { id: d.id, ...data, createdAt: toDate(data.createdAt) };
-        });
-
-        updateSpeedafStats();
-        renderSpeedafList();
-
-    } catch (e) {
-        console.error('❌ Erreur chargement Speedaf :', e);
-        container.innerHTML = `<div class="admin-empty" style="color:var(--danger);">${t('loadingError')}</div>`;
-    }
-}
-
-function updateSpeedafStats() {
-    let pending = 0, shipping = 0, delivered = 0;
-    
-    speedafOrdersCache.forEach(o => {
-        const status = normalizeOrderStatus(o.status);
-        if (status === 'pending') pending++;
-        else if (status === 'shipping') shipping++;
-        else if (status === 'delivered') delivered++;
-    });
-
-    // Comptage des produits stockés chez Speedaf
-    const storedCount = cachedProducts.filter(p => p.isSpeedafStored === true).length;
-
-    const elPending = document.getElementById('speedafStatPending');
-    const elShipping = document.getElementById('speedafStatShipping');
-    const elDelivered = document.getElementById('speedafStatDelivered');
-    const elStorage = document.getElementById('speedafStatStorage');
-    
-    if (elPending) elPending.textContent = pending;
-    if (elShipping) elShipping.textContent = shipping;
-    if (elDelivered) elDelivered.textContent = delivered;
-    if (elStorage) {
-        elStorage.textContent = `${storedCount} / 10`;
-        elStorage.style.color = storedCount >= 10 ? 'var(--danger)' : 'var(--text)';
-    }
-}
-
-function renderSpeedafList() {
-    const container = document.getElementById('adminSpeedafList');
-    if (!container) return;
-
-    const search = document.getElementById('speedafSearchAdmin')?.value.toLowerCase().trim() || '';
-    const filterStatus = document.getElementById('speedafStatusFilter')?.value || 'all';
-
-    let filtered = speedafOrdersCache;
-
-    if (filterStatus !== 'all') {
-        filtered = filtered.filter(o => normalizeOrderStatus(o.status) === filterStatus);
-    }
-
-    if (search) {
-        filtered = filtered.filter(o => {
-            const idStr = o.id.slice(0, 8).toLowerCase();
-            const trackingStr = (o.speedafTracking || '').toLowerCase();
-            const clientName = (o.deliveryAddress?.name || '').toLowerCase();
-            return idStr.includes(search) || trackingStr.includes(search) || clientName.includes(search);
-        });
-    }
-
-    if (filtered.length === 0) {
-        container.innerHTML = `<div class="admin-empty">Aucune commande trouvée.</div>`;
-        return;
-    }
-
-    let html = '';
-    filtered.forEach(order => {
-        const status = normalizeOrderStatus(order.status);
-        const dateStr = order.createdAt ? order.createdAt.toLocaleDateString('fr-FR') : '—';
-        const idShort = order.id.slice(0, 8).toUpperCase();
-        const cityStr = getCityName({ 
-            name: order.deliveryAddress?.cityAr || order.deliveryAddress?.city, 
-            nameFr: order.deliveryAddress?.cityFr, 
-            nameAr: order.deliveryAddress?.cityAr 
-        });
-
-        let statusBadge = '';
-        if (status === 'pending') statusBadge = '⏳ À expédier';
-        else if (status === 'confirmed') statusBadge = '✅ Confirmée';
-        else if (status === 'shipping') statusBadge = '🚚 En cours';
-        else if (status === 'delivered') statusBadge = '📦 Livré';
-        else if (status === 'returned') statusBadge = '↩️ Retourné';
-        else if (status === 'cancelled') statusBadge = '❌ Annulé';
-
-        const trackingHtml = order.speedafTracking 
-            ? `<div style="font-size:0.8rem; color:var(--gold); margin-top:0.2rem;">🔗 <strong>Suivi:</strong> ${escapeHTML(order.speedafTracking)}</div>` 
-            : '';
-
-        const printBtn = order.speedafLabelUrl 
-            ? `<a href="${escapeHTML(order.speedafLabelUrl)}" target="_blank" class="admin-btn-primary" style="padding:0.4rem 0.8rem; font-size:0.75rem; text-decoration:none; margin-left:0.3rem;">🖨️ Étiquette</a>` 
-            : '';
-
-        const syncBtn = order.speedafTracking && ['shipping', 'confirmed'].includes(status)
-            ? `<button class="admin-btn-secondary" data-sync-id="${order.id}" style="padding:0.4rem 0.8rem; font-size:0.75rem; margin-left:0.3rem;">🔄 Sync</button>`
-            : '';
-
-        html += `
-            <div class="admin-list-item" style="flex-direction:column; align-items:stretch; padding:1rem;">
-                <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.5rem;">
-                    <div>
-                        <strong style="color:var(--gold); font-size:1rem;">#${idShort}</strong> 
-                        <span style="margin-left:0.5rem; font-size:0.85rem; color:var(--text-muted);">${dateStr}</span>
-                        <span style="margin-left:0.5rem; font-size:0.8rem; font-weight:700;">${statusBadge}</span>
-                    </div>
-                    <div style="font-weight:700; color:var(--text);">${order.total || 0} MAD</div>
-                </div>
-                <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:0.5rem;">
-                    👤 ${escapeHTML(order.deliveryAddress?.name || '—')} · 📞 ${escapeHTML(order.deliveryAddress?.phone || '')} · 🏙️ ${escapeHTML(cityStr)}
-                </div>
-                ${trackingHtml}
-                <div style="display:flex; justify-content:flex-end; margin-top:0.5rem;">
-                    ${syncBtn}
-                    ${printBtn}
-                </div>
-            </div>
-        `;
-    });
-
-    container.innerHTML = html;
-
-    container.querySelectorAll('[data-sync-id]').forEach(btn => {
-        btn.addEventListener('click', async () => {
-            const orderId = btn.dataset.syncId;
-            const originalText = btn.innerHTML;
-            btn.disabled = true;
-            btn.innerHTML = '⏳...';
-            
-            const res = await syncSpeedafStatus(orderId);
-            if (res.success) {
-                if (res.updated) {
-                    showToast(`✅ Statut mis à jour : ${res.newStatus}`);
-                    await loadSpeedafTab();
-                } else {
-                    showToast(`ℹ️ Statut Speedaf : ${res.currentStatus}`);
-                }
-            } else {
-                showToast(`❌ Erreur: ${res.error}`);
-            }
-            btn.disabled = false; btn.innerHTML = originalText;
-        });
-    });
-}
-
-async function handleSyncAllSpeedaf() {
-    if (isSyncingAllSpeedaf) return;
-    const btn = document.getElementById('syncAllSpeedafBtn');
-    if (btn) { btn.disabled = true; btn.textContent = '⏳ Synchronisation...'; }
-    isSyncingAllSpeedaf = true;
-
-    const ordersToSync = speedafOrdersCache.filter(o => 
-        o.speedafTracking && ['shipping', 'confirmed'].includes(normalizeOrderStatus(o.status))
-    );
-
-    if (ordersToSync.length === 0) {
-        showToast('ℹ️ Aucune commande en cours à synchroniser.');
-        if (btn) { btn.disabled = false; btn.textContent = '🔄 Synchroniser les statuts'; }
-        isSyncingAllSpeedaf = false;
-        return;
-    }
-
-    let updatedCount = 0;
-    let errorCount = 0;
-
-    for (const order of ordersToSync) {
-        try {
-            const res = await syncSpeedafStatus(order.id);
-            if (res.success && res.updated) {
-                updatedCount++;
-            }
-        } catch (e) {
-            errorCount++;
-        }
-    }
-
-    showToast(`✅ ${updatedCount} commande(s) mise(s) à jour. ${errorCount > 0 ? errorCount + ' erreur(s).' : ''}`);
-    await loadSpeedafTab();
-    
-    if (btn) { btn.disabled = false; btn.textContent = '🔄 Synchroniser les statuts'; }
-    isSyncingAllSpeedaf = false;
-}
-
-// ✅ NOUVEAU : Traitement de la demande de ramassage
-async function handleConfirmPickup() {
-    const dateVal = document.getElementById('pickupDate').value;
-    const packages = parseInt(document.getElementById('pickupPackages').value) || 1;
-    const weight = parseFloat(document.getElementById('pickupWeight').value) || 1;
-    const note = document.getElementById('pickupNote').value.trim();
-
-    if (!dateVal) { showToast('⚠️ Sélectionnez une date'); return; }
-
-    const btn = document.getElementById('confirmPickupBtn');
-    btn.disabled = true; btn.textContent = '⏳ Envoi...';
-
-    try {
-        // ⚠️ ICI : Appel API Speedaf réel quand on aura l'endpoint
-        // const response = await fetch(`${SPEEDAF_API_CONFIG.BASE_URL}/create-pickup`, { ... });
-        
-        // Simulation d'envoi réussi
-        await new Promise(r => setTimeout(r, 1500));
-        
-        // On enregistre la demande dans une collection pour l'historique
-        await addDoc(collection(db, "speedaf_pickups"), {
-            date: Timestamp.fromDate(new Date(dateVal)),
-            packages,
-            weight,
-            note,
-            status: 'pending',
-            createdAt: Timestamp.now()
-        });
-
-        showToast('✅ Demande de ramassage envoyée à Speedaf !');
-        document.getElementById('pickupModal').classList.remove('open');
-        
-        // Si Meriem te dit que le ramassage est payant, on pourra même l'ajouter automatiquement dans les dépenses ici.
-
-    } catch (e) {
-        showToast('❌ Erreur lors de la demande de ramassage : ' + e.message);
-    } finally {
-        btn.disabled = false; btn.textContent = '🚀 Envoyer la demande';
-    }
 }
 
 // ============================================================
@@ -1707,10 +1582,10 @@ function renderBlogListAdmin(posts) {
     
     container.querySelectorAll('[data-blog-page]').forEach(btn => {
         btn.addEventListener('click', () => {
-            const t = btn.dataset.blogPage;
-            if (t === 'prev' && blogCurrentPage > 1) blogCurrentPage--;
-            else if (t === 'next' && blogCurrentPage < totalPages) blogCurrentPage++;
-            else if (!isNaN(parseInt(t))) blogCurrentPage = parseInt(t);
+            const val = btn.dataset.blogPage;
+            if (val === 'prev' && blogCurrentPage > 1) blogCurrentPage--;
+            else if (val === 'next' && blogCurrentPage < totalPages) blogCurrentPage++;
+            else if (!isNaN(parseInt(val))) blogCurrentPage = parseInt(val);
             else return;
             filterBlogList(false);
             container.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1759,7 +1634,7 @@ function attachBlogFormEvents() {
         (CONFIG.BLOG.CATEGORIES || []).filter(c => c.id !== 'all').forEach(cat => {
             html += `<option value="${cat.id}">${cat.emoji} ${tBlogCategory(cat.id)}</option>`;
         });
-        catSelect.innerHTML = html;
+        catSelect.innerHTML = html || `<option value="conseils">💡 Conseils</option><option value="tendances">🔥 Tendances</option><option value="tests">🧪 Tests</option><option value="tutoriels">📖 Tutoriels</option><option value="smart-home">🏠 Smart Home</option><option value="gadgets">📱 Gadgets</option><option value="actualites">📰 Actualités</option><option value="general">📝 Général</option>`;
         catSelect._populated = true;
     }
     document.getElementById('saveBlogBtn')?.addEventListener('click', saveBlogPost);
@@ -1885,7 +1760,7 @@ async function deleteBlogPost(id) {
 }
 
 // ============================================================
-// CODES PROMO
+// COUPONS
 // ============================================================
 async function loadCoupons() {
     const container = document.getElementById('couponsList');
@@ -2033,7 +1908,6 @@ async function editCoupon(id) {
         const snap = await getDoc(doc(db, "coupons", id));
         if (!snap.exists()) { showToast('❌ Coupon introuvable'); return; }
         const c = snap.data();
-
         document.getElementById('couponFormTitle').textContent = '✏️ Modifier le code promo';
         document.getElementById('couponEditId').value = id;
         document.getElementById('cCode').value = c.code || '';
@@ -2045,13 +1919,10 @@ async function editCoupon(id) {
         document.getElementById('cExpiresAt').value = c.expiresAt ? (toDate(c.expiresAt)?.toISOString().split('T')[0] || '') : '';
         document.getElementById('cOneUsePerUser').checked = c.oneUsePerUser === true;
         document.getElementById('cIsActive').checked = c.isActive === true;
-
         document.getElementById('saveCouponBtnText').textContent = 'Enregistrer les modifications';
         document.getElementById('cancelCouponEdit').style.display = 'inline-flex';
         document.getElementById('tab-coupons')?.scrollIntoView({ behavior: 'smooth' });
-    } catch (e) {
-        showToast('❌ ' + t('loadError'));
-    }
+    } catch (e) { showToast('❌ ' + t('loadError')); }
 }
 
 async function saveCoupon() {
@@ -2088,14 +1959,9 @@ async function saveCoupon() {
         btnText.textContent = '⏳ ' + t('loading');
 
         const couponData = {
-            code,
-            description,
-            type,
+            code, description, type,
             value: type === 'free_shipping' ? 0 : valueRaw,
-            minPurchase,
-            maxUses,
-            oneUsePerUser,
-            isActive,
+            minPurchase, maxUses, oneUsePerUser, isActive,
             updatedAt: Timestamp.now()
         };
 
@@ -2155,218 +2021,299 @@ function filterCouponsList() {
 }
 
 // ============================================================
-// OUTILS : MIGRATION VILLES, CATEGORIES & SKU
+// SPEEDAF TAB
 // ============================================================
-async function handleMigrateCities() {
-    const btn = document.getElementById('migrateCitiesBtn');
-    const logEl = document.getElementById('migrationLog');
-    const log = (msg, isErr = false) => { if (!logEl) return; logEl.classList.add('active'); const span = document.createElement('div'); if (isErr) span.className = 'error'; span.textContent = msg; logEl.appendChild(span); logEl.scrollTop = logEl.scrollHeight; };
-    if (logEl) logEl.innerHTML = '';
-    btn.disabled = true;
-    if (!auth.currentUser) { log('❌ Login requis', true); btn.disabled = false; return; }
-
-    let cities;
+async function loadSpeedafTab() {
+    const container = document.getElementById('adminSpeedafList');
+    if (!container) return;
+    container.innerHTML = `<div class="admin-loading">⏳ Chargement des commandes Speedaf...</div>`;
     try {
-        const res = await fetch('/villes.json');
-        cities = await res.json();
-        log(`✅ ${cities.length} villes chargées`);
-    } catch (e) { log(`❌ ${e.message}`, true); btn.disabled = false; return; }
+        const q = query(collection(db, "orders"), orderBy("createdAt", "desc"), limit(100));
+        const snap = await getDocs(q);
+        speedafOrdersCache = snap.docs.map(d => {
+            const data = d.data();
+            return { id: d.id, ...data, createdAt: toDate(data.createdAt) };
+        });
+        updateSpeedafStats();
+        renderSpeedafList();
+    } catch (e) {
+        console.error('❌ Erreur chargement Speedaf :', e);
+        container.innerHTML = `<div class="admin-empty" style="color:var(--danger);">${t('loadingError')}</div>`;
+    }
+}
 
-    const existingSnap = await getDocs(collection(db, "cities"));
-    if (!existingSnap.empty) {
-        const confirmed = await confirmAction(t('confirmMigrateMsg').replace('{n}', existingSnap.size), { title: t('confirmMigrateTitle'), confirmText: t('confirmMigrateYes'), cancelText: t('confirmDeleteNo'), variant: 'danger' });
-        if (!confirmed) { btn.disabled = false; return; }
-        
-        log(`⏳ Suppression des anciennes villes...`);
-        const oldDocs = existingSnap.docs;
-        for (let i = 0; i < oldDocs.length; i += 400) {
-            const batch = writeBatch(db);
-            oldDocs.slice(i, i + 400).forEach(d => batch.delete(d.ref));
-            await batch.commit();
-        }
+function updateSpeedafStats() {
+    let pending = 0, shipping = 0, delivered = 0;
+    speedafOrdersCache.forEach(o => {
+        const status = normalizeOrderStatus(o.status);
+        if (status === 'pending') pending++;
+        else if (status === 'shipping') shipping++;
+        else if (status === 'delivered') delivered++;
+    });
+    const storedCount = cachedProducts.filter(p => p.isSpeedafStored === true).length;
+
+    const elP = document.getElementById('speedafStatPending');
+    const elS = document.getElementById('speedafStatShipping');
+    const elD = document.getElementById('speedafStatDelivered');
+    const elSt = document.getElementById('speedafStatStorage');
+    
+    if (elP) elP.textContent = pending;
+    if (elS) elS.textContent = shipping;
+    if (elD) elD.textContent = delivered;
+    if (elSt) {
+        elSt.textContent = `${storedCount} / 10`;
+        elSt.style.color = storedCount >= 10 ? 'var(--danger)' : 'var(--text)';
+    }
+}
+
+function renderSpeedafList() {
+    const container = document.getElementById('adminSpeedafList');
+    if (!container) return;
+
+    const search = document.getElementById('speedafSearchAdmin')?.value.toLowerCase().trim() || '';
+    const filterStatus = document.getElementById('speedafStatusFilter')?.value || 'all';
+
+    let filtered = speedafOrdersCache;
+    if (filterStatus !== 'all') filtered = filtered.filter(o => normalizeOrderStatus(o.status) === filterStatus);
+    if (search) {
+        filtered = filtered.filter(o => {
+            const idStr = o.id.slice(0, 8).toLowerCase();
+            const trackingStr = (o.speedafTracking || '').toLowerCase();
+            const clientName = (o.deliveryAddress?.name || '').toLowerCase();
+            return idStr.includes(search) || trackingStr.includes(search) || clientName.includes(search);
+        });
     }
 
-    const BATCH = 400;
-    let processed = 0;
-    for (let i = 0; i < cities.length; i += BATCH) {
-        const batch = writeBatch(db);
-        const chunk = cities.slice(i, i + BATCH);
-        for (const city of chunk) {
-            if (!city.id || (!city.name && !city.nameAr)) continue;
-            const ref = doc(db, "cities", String(city.id));
-            batch.set(ref, {
-                id: Number(city.id),
-                key: String(city.key || '').toLowerCase().trim(),
-                name: String(city.nameAr || city.name || '').trim(),
-                nameAr: String(city.nameAr || city.name || '').trim(),
-                nameFr: String(city.nameFr || city.name || '').trim(),
-                nameEn: String(city.nameEn || city.nameFr || city.name || '').trim(),
-                price: Number(city.price) || 30,
-                delay: String(city.delay || '48h').trim()
+    if (filtered.length === 0) {
+        container.innerHTML = `<div class="admin-empty">Aucune commande trouvée.</div>`;
+        return;
+    }
+
+    let html = '';
+    filtered.forEach(order => {
+        const status = normalizeOrderStatus(order.status);
+        const dateStr = order.createdAt ? order.createdAt.toLocaleDateString('fr-FR') : '—';
+        const idShort = order.id.slice(0, 8).toUpperCase();
+        const cityStr = getCityName({ 
+            name: order.deliveryAddress?.cityAr || order.deliveryAddress?.city, 
+            nameFr: order.deliveryAddress?.cityFr, 
+            nameAr: order.deliveryAddress?.cityAr 
+        });
+
+        let statusBadge = '';
+        if (status === 'pending') statusBadge = '⏳ À expédier';
+        else if (status === 'confirmed') statusBadge = '✅ Confirmée';
+        else if (status === 'shipping') statusBadge = '🚚 En cours';
+        else if (status === 'delivered') statusBadge = '📦 Livré';
+        else if (status === 'returned') statusBadge = '↩️ Retourné';
+        else if (status === 'cancelled') statusBadge = '❌ Annulé';
+
+        const trackingHtml = order.speedafTracking 
+            ? `<div style="font-size:0.8rem; color:var(--gold); margin-top:0.2rem;">🔗 <strong>Suivi:</strong> ${escapeHTML(order.speedafTracking)}</div>` 
+            : '';
+
+        const printBtn = order.speedafLabelUrl 
+            ? `<a href="${escapeHTML(order.speedafLabelUrl)}" target="_blank" class="admin-btn-primary" style="padding:0.4rem 0.8rem; font-size:0.75rem; text-decoration:none; margin-left:0.3rem;">🖨️ Étiquette</a>` 
+            : '';
+
+        const syncBtn = order.speedafTracking && ['shipping', 'confirmed'].includes(status)
+            ? `<button class="admin-btn-secondary" data-sync-id="${order.id}" style="padding:0.4rem 0.8rem; font-size:0.75rem; margin-left:0.3rem;">🔄 Sync</button>`
+            : '';
+
+        html += `
+            <div class="admin-list-item" style="flex-direction:column; align-items:stretch; padding:1rem;">
+                <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.5rem;">
+                    <div>
+                        <strong style="color:var(--gold); font-size:1rem;">#${idShort}</strong> 
+                        <span style="margin-left:0.5rem; font-size:0.85rem; color:var(--text-muted);">${dateStr}</span>
+                        <span style="margin-left:0.5rem; font-size:0.8rem; font-weight:700;">${statusBadge}</span>
+                    </div>
+                    <div style="font-weight:700; color:var(--text);">${order.total || 0} MAD</div>
+                </div>
+                <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:0.5rem;">
+                    👤 ${escapeHTML(order.deliveryAddress?.name || '—')} · 📞 ${escapeHTML(order.deliveryAddress?.phone || '')} · 🏙️ ${escapeHTML(cityStr)}
+                </div>
+                ${trackingHtml}
+                <div style="display:flex; justify-content:flex-end; margin-top:0.5rem;">
+                    ${syncBtn}
+                    ${printBtn}
+                </div>
+            </div>
+        `;
+    });
+
+    container.innerHTML = html;
+
+    container.querySelectorAll('[data-sync-id]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const orderId = btn.dataset.syncId;
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '⏳...';
+            const res = await syncSpeedafStatus(orderId);
+            if (res.success) {
+                if (res.updated) {
+                    showToast(`✅ Statut mis à jour : ${res.newStatus}`);
+                    await loadSpeedafTab();
+                } else {
+                    showToast(`ℹ️ Statut Speedaf : ${res.currentStatus}`);
+                }
+            } else {
+                showToast(`❌ Erreur: ${res.error}`);
+            }
+            btn.disabled = false; btn.innerHTML = originalText;
+        });
+    });
+}
+
+async function handleSyncAllSpeedaf() {
+    if (isSyncingAllSpeedaf) return;
+    const btn = document.getElementById('syncAllSpeedafBtn');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Synchronisation...'; }
+    isSyncingAllSpeedaf = true;
+
+    const ordersToSync = speedafOrdersCache.filter(o => 
+        o.speedafTracking && ['shipping', 'confirmed'].includes(normalizeOrderStatus(o.status))
+    );
+
+    if (ordersToSync.length === 0) {
+        showToast('ℹ️ Aucune commande en cours à synchroniser.');
+        if (btn) { btn.disabled = false; btn.textContent = '🔄 Synchroniser les statuts'; }
+        isSyncingAllSpeedaf = false;
+        return;
+    }
+
+    let updatedCount = 0, errorCount = 0;
+    for (const order of ordersToSync) {
+        try {
+            const res = await syncSpeedafStatus(order.id);
+            if (res.success && res.updated) updatedCount++;
+        } catch (e) { errorCount++; }
+    }
+
+    showToast(`✅ ${updatedCount} commande(s) mise(s) à jour. ${errorCount > 0 ? errorCount + ' erreur(s).' : ''}`);
+    await loadSpeedafTab();
+    
+    if (btn) { btn.disabled = false; btn.textContent = '🔄 Synchroniser les statuts'; }
+    isSyncingAllSpeedaf = false;
+}
+
+async function handleConfirmPickup() {
+    const dateVal = document.getElementById('pickupDate').value;
+    const packages = parseInt(document.getElementById('pickupPackages').value) || 1;
+    const weight = parseFloat(document.getElementById('pickupWeight').value) || 1;
+    const note = document.getElementById('pickupNote').value.trim();
+    if (!dateVal) { showToast('⚠️ Sélectionnez une date'); return; }
+
+    const btn = document.getElementById('confirmPickupBtn');
+    btn.disabled = true; btn.textContent = '⏳ Envoi...';
+
+    try {
+        await addDoc(collection(db, "speedaf_pickups"), {
+            date: Timestamp.fromDate(new Date(dateVal)),
+            packages, weight, note,
+            status: isTestMode() ? 'test_mode' : 'pending_manual',
+            createdAt: Timestamp.now()
+        });
+        showToast(isTestMode() ? '🧪 [TEST] Demande enregistrée (rollback à la fin)' : '✅ Demande enregistrée (à confirmer avec Speedaf)');
+        document.getElementById('pickupModal').classList.remove('open');
+    } catch (e) {
+        showToast('❌ Erreur : ' + e.message);
+    } finally {
+        btn.disabled = false; btn.textContent = '🚀 Envoyer la demande';
+    }
+}
+
+// ============================================================
+// ALERTES BANNER
+// ============================================================
+function formatTooltipList(arr, max = 5) {
+    if (!arr || arr.length === 0) return '';
+    if (arr.length <= max) return arr.join(', ');
+    return arr.slice(0, max).join(', ') + ` +${arr.length - max} autre(s)`;
+}
+
+function initAdminAlerts() {
+    refreshAdminAlerts();
+    if (alertInterval) clearInterval(alertInterval);
+    alertInterval = setInterval(refreshAdminAlerts, 60000);
+
+    document.getElementById('closeAlertBannerBtn')?.addEventListener('click', () => {
+        const banner = document.getElementById('adminAlertBanner');
+        if (banner) banner.style.display = 'none';
+    });
+
+    document.getElementById('alertOrdersBtn')?.addEventListener('click', () => document.querySelector('[data-tab="orders"]')?.click());
+    document.getElementById('alertReviewsBtn')?.addEventListener('click', () => document.querySelector('[data-tab="reviews"]')?.click());
+    document.getElementById('alertStockOutBtn')?.addEventListener('click', () => { tempStockFilter = 'out'; document.querySelector('[data-tab="products"]')?.click(); });
+    document.getElementById('alertStockLowBtn')?.addEventListener('click', () => { tempStockFilter = 'low'; document.querySelector('[data-tab="products"]')?.click(); });
+}
+
+async function refreshAdminAlerts() {
+    const banner = document.getElementById('adminAlertBanner');
+    if (!banner || !auth.currentUser) return;
+
+    try {
+        const [ordersSnap, reviewsSnap] = await Promise.allSettled([
+            getCountFromServer(query(collection(db, "orders"), where("status", "==", "pending"))),
+            getCountFromServer(query(collection(db, "reviews"), where("status", "==", "pending")))
+        ]);
+
+        const pendingOrdersCount = ordersSnap.value?.data().count || 0;
+        const pendingReviewsCount = reviewsSnap.value?.data().count || 0;
+
+        const stockOutNames = [];
+        const stockLowNames = [];
+        
+        if (cachedProducts.length > 0) {
+            cachedProducts.forEach(p => {
+                const name = p.nameFr || p.nameEn || 'Sans nom';
+                if (p.variants && p.variants.length > 0) {
+                    p.variants.forEach(v => {
+                        const vStock = Number(v.stock) || 0;
+                        const vLabel = [v.size, v.color].filter(Boolean).join('/');
+                        if (vStock === 0) stockOutNames.push(`${name} [${vLabel}]`);
+                        else if (vStock <= 4) stockLowNames.push(`${name} [${vLabel}]`);
+                    });
+                } else {
+                    const stock = Number(p.stock) || 0;
+                    if (stock === 0) stockOutNames.push(name);
+                    else if (stock > 0 && stock <= 4) stockLowNames.push(name);
+                }
             });
         }
-        try {
-            await batch.commit();
-            processed += chunk.length;
-            log(`  ✓ ${processed}/${cities.length}`);
-        } catch (e) { log(`❌ batch ${i} : ${e.message}`, true); btn.disabled = false; return; }
-    }
-    log(`\n🎉 Migration OK — ${cities.length} villes`);
-    btn.disabled = false;
-    btn.textContent = '✅ ' + t('success');
-    loadCollectionsStatus();
-    loadStats();
-    showToast('🎉 ' + t('success'));
-}
 
-async function handleMigrateLegacyCategories() {
-    const btn = document.getElementById('migrateLegacyCategoriesBtn');
-    const logEl = document.getElementById('legacyMigrationLog');
-    const log = (msg, isErr = false) => { 
-        if (!logEl) return; 
-        logEl.classList.add('active'); 
-        const span = document.createElement('div'); 
-        if (isErr) span.className = 'error'; 
-        span.textContent = msg; 
-        logEl.appendChild(span); 
-        logEl.scrollTop = logEl.scrollHeight; 
-    };
-    
-    if (logEl) logEl.innerHTML = '';
-    btn.disabled = true;
+        const btnO = document.getElementById('alertOrdersBtn');
+        const btnR = document.getElementById('alertReviewsBtn');
+        const btnSO = document.getElementById('alertStockOutBtn');
+        const btnSL = document.getElementById('alertStockLowBtn');
 
-    if (!auth.currentUser) { 
-        log('❌ Login requis', true); 
-        btn.disabled = false; 
-        return; 
-    }
-
-    try {
-        const snap = await getDocs(collection(db, "products"));
-        let updatedCount = 0;
-        
-        let batch = writeBatch(db);
-        let batchCount = 0;
-
-        for (const docSnap of snap.docs) {
-            const p = docSnap.data();
-            const oldCat = p.category;
-            if (!oldCat) continue;
-
-            const newCat = normalizeCategory(oldCat);
-            
-            if (newCat !== oldCat) {
-                batch.update(docSnap.ref, { category: newCat });
-                updatedCount++;
-                batchCount++;
-                log(`🔄 ${p.nameFr || docSnap.id} : ${oldCat} ➔ ${newCat}`);
-
-                if (batchCount === 400) {
-                    await batch.commit();
-                    log(`💾 Lot de 400 produits sauvegardé...`);
-                    batchCount = 0;
-                    batch = writeBatch(db);
-                }
-            }
+        let hasAlerts = false;
+        if (btnO) { if (pendingOrdersCount > 0) { document.getElementById('alertOrdersCount').textContent = pendingOrdersCount; btnO.style.display = 'inline-flex'; hasAlerts = true; } else btnO.style.display = 'none'; }
+        if (btnR) { if (pendingReviewsCount > 0) { document.getElementById('alertReviewsCount').textContent = pendingReviewsCount; btnR.style.display = 'inline-flex'; hasAlerts = true; } else btnR.style.display = 'none'; }
+        if (btnSO) {
+            if (stockOutNames.length > 0) {
+                document.getElementById('alertStockOutCount').textContent = stockOutNames.length;
+                const tip = document.getElementById('alertStockOutTooltip');
+                if (tip) tip.textContent = formatTooltipList(stockOutNames);
+                btnSO.style.display = 'inline-flex'; hasAlerts = true;
+            } else btnSO.style.display = 'none';
+        }
+        if (btnSL) {
+            if (stockLowNames.length > 0) {
+                document.getElementById('alertStockLowCount').textContent = stockLowNames.length;
+                const tip = document.getElementById('alertStockLowTooltip');
+                if (tip) tip.textContent = formatTooltipList(stockLowNames);
+                btnSL.style.display = 'inline-flex'; hasAlerts = true;
+            } else btnSL.style.display = 'none';
         }
 
-        if (batchCount > 0) {
-            await batch.commit();
-        }
-
-        if (updatedCount === 0) {
-            log(`\n✅ Aucun produit à migrer. Toutes les catégories sont à jour !`);
-        } else {
-            log(`\n🎉 Migration terminée ! ${updatedCount} produit(s) mis à jour.`);
-            showToast(`✅ ${updatedCount} produits migrés`);
-        }
-    } catch (e) {
-        log(`❌ Erreur : ${e.message}`, true);
-    } finally {
-        btn.disabled = false;
-    }
-}
-
-// ✅ NOUVEAU : Migration des SKU
-async function handleMigrateSku() {
-    const btn = document.getElementById('migrateSkuBtn');
-    const logEl = document.getElementById('skuMigrationLog');
-    const log = (msg, isErr = false) => { 
-        if (!logEl) return; 
-        logEl.classList.add('active'); 
-        const span = document.createElement('div'); 
-        if (isErr) span.className = 'error'; 
-        span.textContent = msg; 
-        logEl.appendChild(span); 
-        logEl.scrollTop = logEl.scrollHeight; 
-    };
-    
-    if (logEl) logEl.innerHTML = '';
-    btn.disabled = true;
-    log('⏳ Recherche des produits sans SKU...');
-
-    try {
-        const snap = await getDocs(collection(db, "products"));
-        let updatedCount = 0;
-        let batch = writeBatch(db);
-        let batchCount = 0;
-
-        for (const docSnap of snap.docs) {
-            const p = docSnap.data();
-            if (!p.sku) {
-                const newSku = `SW-LEGACY-${String(docSnap.id).slice(-4)}`;
-                batch.update(docSnap.ref, { sku: newSku });
-                updatedCount++;
-                batchCount++;
-                log(`🔄 ${p.nameFr || docSnap.id} ➔ ${newSku}`);
-
-                if (batchCount === 400) {
-                    await batch.commit();
-                    batchCount = 0;
-                    batch = writeBatch(db);
-                }
-            }
-        }
-
-        if (batchCount > 0) await batch.commit();
-
-        if (updatedCount === 0) {
-            log(`\n✅ Tous les produits ont déjà un SKU.`);
-        } else {
-            log(`\n🎉 ${updatedCount} produit(s) mis à jour avec un SKU.`);
-            showToast(`✅ ${updatedCount} SKU générés`);
-            await loadProducts(true); // Recharger la liste
-        }
-    } catch (e) {
-        log(`❌ Erreur : ${e.message}`, true);
-    } finally {
-        btn.disabled = false;
-    }
-}
-
-async function loadCollectionsStatus() {
-    const cols = ['products', 'orders', 'users', 'reviews', 'cities', 'blog', 'coupons'];
-    const ids = { products: 'countProducts', orders: 'countOrders', users: 'countUsers', reviews: 'countReviews', cities: 'countCities', blog: 'countBlog', coupons: 'countCoupons' };
-    for (const col of cols) {
-        const el = document.getElementById(ids[col]);
-        if (el) el.textContent = '⏳';
-    }
-    for (const col of cols) {
-        const el = document.getElementById(ids[col]);
-        if (!el) continue;
-        try {
-            const snap = await getCountFromServer(collection(db, col));
-            el.textContent = `${snap.data().count}`;
-            el.style.color = snap.data().count > 0 ? 'var(--success)' : 'var(--text-muted)';
-        } catch (e) {
-            el.textContent = '❌';
-            el.style.color = 'var(--danger)';
-        }
-    }
+        banner.style.display = hasAlerts ? 'block' : 'none';
+    } catch (e) { console.warn('⚠️ Alertes :', e); }
 }
 
 // ============================================================
-// CHART & SIMULATEUR
+// CHART REVENUS
 // ============================================================
 function attachChartListeners() {
     if (chartListenersAttached) return;
@@ -2403,7 +2350,7 @@ async function renderRevenueChart(period = 7, preloadedOrders = null) {
         const buckets = {};
         for (let i = 0; i < period; i++) {
             const d = new Date(startDate); d.setDate(startDate.getDate() + i);
-            buckets[d.toISOString().split('T')[0]] = { revenue: 0, costs: 0, date: d };
+            buckets[d.toISOString().split('T')[0]] = { revenue: 0, date: d };
         }
 
         orders.forEach(o => {
@@ -2430,8 +2377,50 @@ async function renderRevenueChart(period = 7, preloadedOrders = null) {
 }
 
 // ============================================================
-// COMPTABILITÉ
+// COMPTABILITÉ — CHARGEMENT
 // ============================================================
+async function loadPurchases() {
+    try {
+        const snap = await getDocs(query(collection(db, "purchases"), orderBy("date", "desc"), limit(500)));
+        cachedPurchases = snap.docs.map(d => ({ id: d.id, ...d.data(), date: toDate(d.data().date) }));
+    } catch (err) {
+        try {
+            const snap = await getDocs(collection(db, "purchases"));
+            cachedPurchases = snap.docs.map(d => ({ id: d.id, ...d.data(), date: toDate(d.data().date) }));
+            cachedPurchases.sort((a, b) => safeDate(b.date) - safeDate(a.date));
+        } catch (err2) { cachedPurchases = []; }
+    }
+    return cachedPurchases;
+}
+
+async function loadExpenses() {
+    try {
+        const snap = await getDocs(query(collection(db, "expenses"), orderBy("date", "desc"), limit(500)));
+        cachedExpenses = snap.docs.map(d => ({ id: d.id, ...d.data(), date: toDate(d.data().date) }));
+    } catch (err) {
+        try {
+            const snap = await getDocs(collection(db, "expenses"));
+            cachedExpenses = snap.docs.map(d => ({ id: d.id, ...d.data(), date: toDate(d.data().date) }));
+            cachedExpenses.sort((a, b) => safeDate(b.date) - safeDate(a.date));
+        } catch (err2) { cachedExpenses = []; }
+    }
+    return cachedExpenses;
+}
+
+async function loadTransactions() {
+    try {
+        const snap = await getDocs(query(collection(db, "transactions"), orderBy("date", "desc"), limit(500)));
+        cachedTransactions = snap.docs.map(d => ({ id: d.id, ...d.data(), date: toDate(d.data().date) }));
+    } catch (err) {
+        try {
+            const snap = await getDocs(collection(db, "transactions"));
+            cachedTransactions = snap.docs.map(d => ({ id: d.id, ...d.data(), date: toDate(d.data().date) }));
+            cachedTransactions.sort((a, b) => safeDate(b.date) - safeDate(a.date));
+        } catch (err2) { cachedTransactions = []; }
+    }
+    return cachedTransactions;
+}
+
 async function loadFinancesTab() {
     if (!cachedProducts || cachedProducts.length === 0) await loadProducts();
     const periodEl = document.getElementById('accPeriod');
@@ -2480,11 +2469,9 @@ async function refreshAccOverview() {
             if (status === 'delivered') {
                 ordersCount++;
                 revenue += Number(o.total) || 0;
-                // Estimation COGS (utilise le prix d'achat + 5 DH logistique)
                 (o.items || []).forEach(item => {
                     const p = cachedProducts.find(pp => String(pp.id) === String(item.productId));
                     const buyPrice = p ? Number(p.purchasePrice) || 0 : 0;
-                    // On ajoute le coût logistique de 5DH s'il est présent
                     const logistics = p && p.logisticsFee ? Number(p.logisticsFee) : 0;
                     cogs += (buyPrice + logistics) * (Number(item.quantity) || 1);
                 });
@@ -2519,9 +2506,9 @@ async function refreshAccOverview() {
 
         kpis.innerHTML = `
             <div class="admin-stat-card"><span class="stat-value" style="color:var(--success);">${formatMAD(revenue)}</span><span class="stat-label">💰 Chiffre d'affaires</span></div>
-            <div class="admin-stat-card"><span class="stat-value" style="color:var(--danger);">${formatMAD(cogs)}</span><span class="stat-label">📦 Coût des marchandises (COGS)</span></div>
-            <div class="admin-stat-card"><span class="stat-value" style="color:var(--danger);">${formatMAD(shippingCost)}</span><span class="stat-label">🚚 Frais de livraison</span></div>
-            <div class="admin-stat-card"><span class="stat-value" style="color:var(--danger);">${formatMAD(adSpend)}</span><span class="stat-label">📢 Publicité / Marketing</span></div>
+            <div class="admin-stat-card"><span class="stat-value" style="color:var(--danger);">${formatMAD(cogs)}</span><span class="stat-label">📦 COGS</span></div>
+            <div class="admin-stat-card"><span class="stat-value" style="color:var(--danger);">${formatMAD(shippingCost)}</span><span class="stat-label">🚚 Frais livraison</span></div>
+            <div class="admin-stat-card"><span class="stat-value" style="color:var(--danger);">${formatMAD(adSpend)}</span><span class="stat-label">📢 Publicité</span></div>
             <div class="admin-stat-card"><span class="stat-value" style="color:var(--danger);">${formatMAD(otherExpenses)}</span><span class="stat-label">📉 Autres dépenses</span></div>
             <div class="admin-stat-card"><span class="stat-value" style="color:var(--info);">${formatMAD(extraIncome)}</span><span class="stat-label">💸 Autres revenus</span></div>
             <div class="admin-stat-card" style="border-color:var(--gold);"><span class="stat-value" style="color:var(--gold);">${formatMAD(netProfit)}</span><span class="stat-label">🏆 Bénéfice NET</span></div>
@@ -2531,18 +2518,17 @@ async function refreshAccOverview() {
         waterfall.innerHTML = `
             <table class="acc-table" style="width:100%;">
                 <tr><td>💰 Chiffre d'affaires</td><td style="text-align:right;color:var(--success);font-weight:700;">${formatMAD(revenue)}</td></tr>
-                <tr><td>📦 Coût des marchandises (COGS)</td><td style="text-align:right;color:var(--danger);">-${formatMAD(cogs)}</td></tr>
+                <tr><td>📦 COGS</td><td style="text-align:right;color:var(--danger);">-${formatMAD(cogs)}</td></tr>
                 <tr style="font-weight:700;background:rgba(0,0,0,0.02);"><td>💵 Marge Brute</td><td style="text-align:right;">${formatMAD(grossProfit)}</td></tr>
-                <tr><td>🚚 Frais de livraison</td><td style="text-align:right;color:var(--danger);">-${formatMAD(shippingCost)}</td></tr>
-                <tr><td>📢 Publicité</td><td style="text-align:right;color:var(--danger);">-${formatMAD(adSpend)}</td></tr>
-                <tr><td>📉 Autres dépenses</td><td style="text-align:right;color:var(--danger);">-${formatMAD(otherExpenses)}</td></tr>
-                <tr><td>💸 Autres revenus</td><td style="text-align:right;color:var(--info);">+${formatMAD(extraIncome)}</td></tr>
+                <tr><td>🚚 Livraison</td><td style="text-align:right;color:var(--danger);">-${formatMAD(shippingCost)}</td></tr>
+                <tr><td>📢 Pub</td><td style="text-align:right;color:var(--danger);">-${formatMAD(adSpend)}</td></tr>
+                <tr><td>📉 Autres dép.</td><td style="text-align:right;color:var(--danger);">-${formatMAD(otherExpenses)}</td></tr>
+                <tr><td>💸 Autres rev.</td><td style="text-align:right;color:var(--info);">+${formatMAD(extraIncome)}</td></tr>
                 <tr style="font-weight:800;background:var(--bg-surface);border-top:2px solid var(--gold);"><td>🏆 Bénéfice NET</td><td style="text-align:right;color:var(--gold);">${formatMAD(netProfit)}</td></tr>
             </table>
         `;
 
         await renderRevenueChart(currentChartPeriod, ordersSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-
     } catch (e) {
         console.error('❌ refreshAccOverview:', e);
         kpis.innerHTML = `<div class="admin-empty" style="color:var(--danger);">${t('error')}</div>`;
@@ -2566,7 +2552,7 @@ function updateReportDates() {
 }
 
 // ============================================================
-// COMPTABILITÉ - ACHATS
+// ACHATS / DÉPENSES / TRANSACTIONS — CRUD
 // ============================================================
 async function saveNewPurchase() {
     const productId = document.getElementById('purProductId').value;
@@ -2647,9 +2633,6 @@ async function renderPurchasesList() {
     container.innerHTML = html;
 }
 
-// ============================================================
-// COMPTABILITÉ - DÉPENSES
-// ============================================================
 async function saveNewExpense() {
     const category = document.getElementById('expCategory').value;
     const amount = parseFloat(document.getElementById('expAmount').value);
@@ -2669,11 +2652,9 @@ async function saveNewExpense() {
             date: Timestamp.fromDate(new Date(dateVal)),
             createdAt: Timestamp.now()
         });
-
         showToast('✅ Dépense enregistrée');
         document.getElementById('expAmount').value = '';
         document.getElementById('expDescription').value = '';
-        
         await loadExpenses();
         await renderExpensesList();
     } catch (e) {
@@ -2707,9 +2688,6 @@ async function renderExpensesList() {
     container.innerHTML = html;
 }
 
-// ============================================================
-// COMPTABILITÉ - TRANSACTIONS
-// ============================================================
 async function saveNewTransaction() {
     const type = document.getElementById('transType').value;
     const amount = parseFloat(document.getElementById('transAmount').value);
@@ -2729,11 +2707,9 @@ async function saveNewTransaction() {
             date: Timestamp.fromDate(new Date(dateVal)),
             createdAt: Timestamp.now()
         });
-
         showToast('✅ Transaction enregistrée');
         document.getElementById('transAmount').value = '';
         document.getElementById('transDescription').value = '';
-        
         await loadTransactions();
         await renderTransactionsList();
     } catch (e) {
@@ -2776,7 +2752,7 @@ async function renderTransactionsList() {
 }
 
 // ============================================================
-// RAPPORTS & EXPORTS CSV
+// RAPPORTS
 // ============================================================
 async function generateReport() {
     const startVal = document.getElementById('reportStart').value;
@@ -2817,8 +2793,8 @@ async function generateReport() {
                 <table class="acc-table" style="margin-top:1rem;">
                     <tr><td>📦 Commandes livrées</td><td style="text-align:right;font-weight:700;">${ordersCount}</td></tr>
                     <tr><td>💰 Chiffre d'affaires</td><td style="text-align:right;color:var(--success);font-weight:700;">${formatMAD(revenue)}</td></tr>
-                    <tr><td>📉 Dépenses (Fixes)</td><td style="text-align:right;color:var(--danger);">-${formatMAD(expenses)}</td></tr>
-                    <tr><td>📦 Achats de stock</td><td style="text-align:right;color:var(--danger);">-${formatMAD(purchases)}</td></tr>
+                    <tr><td>📉 Dépenses</td><td style="text-align:right;color:var(--danger);">-${formatMAD(expenses)}</td></tr>
+                    <tr><td>📦 Achats</td><td style="text-align:right;color:var(--danger);">-${formatMAD(purchases)}</td></tr>
                     <tr style="font-weight:800;background:var(--bg-surface);border-top:2px solid var(--gold);">
                         <td>🏆 Résultat NET</td>
                         <td style="text-align:right;color:${net >= 0 ? 'var(--success)' : 'var(--danger)'};">${formatMAD(net)}</td>
@@ -2887,7 +2863,7 @@ async function exportProductsCSV() {
 }
 
 // ============================================================
-// SIMULATEUR AVANCÉ
+// SIMULATEUR
 // ============================================================
 function renderFinanceProductSelection() {
     const container = document.getElementById('financeProductSelector');
@@ -2902,7 +2878,7 @@ function renderFinanceProductSelection() {
     cachedProducts.forEach(p => {
         const name = p.nameFr || p.nameEn || 'Sans nom';
         const buyPrice = Number(p.purchasePrice) || 0;
-        const salePrice = Number(p.basePrice || p.price) || 0; // On utilise le prix de base pour la marge
+        const salePrice = Number(p.basePrice || p.price) || 0;
         const stock = Number(p.stock) || 0;
 
         html += `
@@ -2910,7 +2886,7 @@ function renderFinanceProductSelection() {
                 <input type="checkbox" class="fin-product-checkbox" value="${p.id}" data-buy="${buyPrice}" data-sale="${salePrice}" data-stock="${stock}" style="width:auto;margin:0;">
                 <div style="flex:1;">
                     <strong style="font-size:0.85rem;color:var(--text);">${escapeHTML(name)}</strong>
-                    <div style="font-size:0.75rem;color:var(--text-muted);">Achat: ${buyPrice} MAD · Vente Base: ${salePrice} MAD · Stock: ${stock}</div>
+                    <div style="font-size:0.75rem;color:var(--text-muted);">Achat: ${buyPrice} MAD · Vente: ${salePrice} MAD · Stock: ${stock}</div>
                 </div>
             </label>
         `;
@@ -2945,6 +2921,13 @@ function attachSimulatorListeners() {
         });
         sorted.slice(0, 5).forEach(cb => cb.checked = true);
     });
+
+    document.getElementById('finReturnRate')?.addEventListener('input', (e) => {
+        const el = document.getElementById('finReturnRateValue');
+        if (el) el.textContent = e.target.value + '%';
+    });
+
+    document.getElementById('calculateFinancesBtn')?.addEventListener('click', calculateFinances);
 }
 
 function calculateFinances() {
@@ -2966,19 +2949,15 @@ function calculateFinances() {
 
     if (selected.length === 0) { showToast('⚠️ Sélectionnez au moins un produit'); return; }
 
-    // Le coût logistique inclut les 5DH de Speedaf (ou frais réels)
     const logisticsCost = packaging + (returnRate / 100) * (returnShipping + packaging);
     
     let totalRevenue = 0, totalInvestment = 0, totalLogistics = 0, totalGrossProfit = 0, totalUnits = 0;
     const results = [];
 
     selected.forEach(p => {
-        // p.sale contient déjà le prix de base (ex: 50)
-        // On ajoute 5 DH pour le prix final vu par le client, mais la marge se calcule sur le prix final - coût Speedaf réel
-        const finalSalePrice = p.sale + 5; // +5DH pour le client
-        const spdDeliveryCost = 35; // Coût Speedaf
+        const finalSalePrice = p.sale + 5;
+        const spdDeliveryCost = 35;
         const marginNetUnit = finalSalePrice - p.buy - spdDeliveryCost - logisticsCost;
-        
         const cpaMax = Math.max(0, marginNetUnit * (1 - safetyMargin / 100));
         const profitTotal = marginNetUnit * p.stock;
         const roi = p.buy > 0 ? (marginNetUnit / p.buy) * 100 : 0;
@@ -2998,7 +2977,6 @@ function calculateFinances() {
         ? Math.ceil(adSpend / (totalGrossProfit / totalUnits)) 
         : 0;
 
-    // Update UI
     document.getElementById('financesResults').style.display = 'block';
     document.getElementById('finTotalRevenue').textContent = formatMAD(totalRevenue);
     document.getElementById('finTotalInvestment').textContent = formatMAD(totalInvestment);
@@ -3017,17 +2995,11 @@ function calculateFinances() {
 
     let recHtml = '';
     if (netProfit < 0) {
-        recHtml = `<div style="background:var(--danger-bg);border:1px solid var(--danger);padding:1rem;border-radius:var(--radius-sm);color:var(--danger);margin-bottom:1rem;">
-            <strong>⚠️ Attention :</strong> Votre budget publicitaire (${formatMAD(adSpend)}) dépasse votre profit brut. Vous êtes en perte. Réduisez la pub ou augmentez vos prix.
-        </div>`;
+        recHtml = `<div style="background:var(--danger-bg);border:1px solid var(--danger);padding:1rem;border-radius:var(--radius-sm);color:var(--danger);margin-bottom:1rem;"><strong>⚠️ Attention :</strong> Votre budget pub dépasse votre profit brut.</div>`;
     } else if (globalRoi < 50) {
-        recHtml = `<div style="background:var(--warning-bg);border:1px solid var(--warning);padding:1rem;border-radius:var(--radius-sm);color:var(--warning);margin-bottom:1rem;">
-            <strong>💡 Conseil :</strong> Votre ROI global est de ${globalRoi.toFixed(1)}%. Il est recommandé d'avoir au moins 100% pour couvrir les imprévus et scaler.
-        </div>`;
+        recHtml = `<div style="background:var(--warning-bg);border:1px solid var(--warning);padding:1rem;border-radius:var(--radius-sm);color:var(--warning);margin-bottom:1rem;"><strong>💡 Conseil :</strong> ROI de ${globalRoi.toFixed(1)}%. Objectif : 100%+</div>`;
     } else {
-        recHtml = `<div style="background:var(--success-bg);border:1px solid var(--success);padding:1rem;border-radius:var(--radius-sm);color:var(--success);margin-bottom:1rem;">
-            <strong>✅ Excellente rentabilité :</strong> ROI de ${globalRoi.toFixed(1)}%. Vos marges sont saines pour ce budget pub.
-        </div>`;
+        recHtml = `<div style="background:var(--success-bg);border:1px solid var(--success);padding:1rem;border-radius:var(--radius-sm);color:var(--success);margin-bottom:1rem;"><strong>✅ Excellente rentabilité :</strong> ROI de ${globalRoi.toFixed(1)}%.</div>`;
     }
     document.getElementById('finRecommendations').innerHTML = recHtml;
 
@@ -3053,7 +3025,283 @@ function calculateFinances() {
 }
 
 // ============================================================
+// TOOLS — MIGRATIONS
+// ============================================================
+async function handleMigrateCities() {
+    const btn = document.getElementById('migrateCitiesBtn');
+    const logEl = document.getElementById('migrationLog');
+    const log = (msg, isErr = false) => { if (!logEl) return; logEl.classList.add('active'); const span = document.createElement('div'); if (isErr) span.className = 'error'; span.textContent = msg; logEl.appendChild(span); logEl.scrollTop = logEl.scrollHeight; };
+    if (logEl) logEl.innerHTML = '';
+    btn.disabled = true;
+    if (!auth.currentUser) { log('❌ Login requis', true); btn.disabled = false; return; }
+
+    let cities;
+    try {
+        const res = await fetch('/villes.json');
+        cities = await res.json();
+        log(`✅ ${cities.length} villes chargées`);
+    } catch (e) { log(`❌ ${e.message}`, true); btn.disabled = false; return; }
+
+    const existingSnap = await getDocs(collection(db, "cities"));
+    if (!existingSnap.empty) {
+        const confirmed = await confirmAction(t('confirmMigrateMsg').replace('{n}', existingSnap.size), { title: t('confirmMigrateTitle'), confirmText: t('confirmMigrateYes'), cancelText: t('confirmDeleteNo'), variant: 'danger' });
+        if (!confirmed) { btn.disabled = false; return; }
+        
+        log(`⏳ Suppression des anciennes villes...`);
+        const oldDocs = existingSnap.docs;
+        for (let i = 0; i < oldDocs.length; i += 400) {
+            const batch = writeBatch(db);
+            oldDocs.slice(i, i + 400).forEach(d => batch.delete(d.ref));
+            await batch.commit();
+        }
+    }
+
+    const BATCH = 400;
+    let processed = 0;
+    for (let i = 0; i < cities.length; i += BATCH) {
+        const batch = writeBatch(db);
+        const chunk = cities.slice(i, i + BATCH);
+        for (const city of chunk) {
+            if (!city.id || (!city.name && !city.nameAr)) continue;
+            const ref = doc(db, "cities", String(city.id));
+            batch.set(ref, {
+                id: Number(city.id),
+                key: String(city.key || '').toLowerCase().trim(),
+                name: String(city.nameAr || city.name || '').trim(),
+                nameAr: String(city.nameAr || city.name || '').trim(),
+                nameFr: String(city.nameFr || city.name || '').trim(),
+                nameEn: String(city.nameEn || city.nameFr || city.name || '').trim(),
+                price: Number(city.price) || 30,
+                delay: String(city.delay || '48h').trim()
+            });
+        }
+        try {
+            await batch.commit();
+            processed += chunk.length;
+            log(`  ✓ ${processed}/${cities.length}`);
+        } catch (e) { log(`❌ batch ${i} : ${e.message}`, true); btn.disabled = false; return; }
+    }
+    log(`\n🎉 Migration OK — ${cities.length} villes`);
+    btn.disabled = false;
+    btn.textContent = '✅ ' + t('success');
+    loadCollectionsStatus();
+    loadStats();
+    showToast('🎉 ' + t('success'));
+}
+
+async function handleMigrateLegacyCategories() {
+    const btn = document.getElementById('migrateLegacyCategoriesBtn');
+    const logEl = document.getElementById('legacyMigrationLog');
+    const log = (msg, isErr = false) => { 
+        if (!logEl) return; 
+        logEl.classList.add('active'); 
+        const span = document.createElement('div'); 
+        if (isErr) span.className = 'error'; 
+        span.textContent = msg; 
+        logEl.appendChild(span); 
+        logEl.scrollTop = logEl.scrollHeight; 
+    };
+    
+    if (logEl) logEl.innerHTML = '';
+    btn.disabled = true;
+
+    if (!auth.currentUser) { log('❌ Login requis', true); btn.disabled = false; return; }
+
+    try {
+        const snap = await getDocs(collection(db, "products"));
+        let updatedCount = 0;
+        let batch = writeBatch(db);
+        let batchCount = 0;
+
+        for (const docSnap of snap.docs) {
+            const p = docSnap.data();
+            const oldCat = p.category;
+            if (!oldCat) continue;
+
+            const newCat = normalizeCategory(oldCat);
+            
+            if (newCat !== oldCat) {
+                batch.update(docSnap.ref, { category: newCat });
+                updatedCount++;
+                batchCount++;
+                log(`🔄 ${p.nameFr || docSnap.id} : ${oldCat} ➔ ${newCat}`);
+
+                if (batchCount === 400) {
+                    await batch.commit();
+                    log(`💾 Lot de 400 produits sauvegardé...`);
+                    batchCount = 0;
+                    batch = writeBatch(db);
+                }
+            }
+        }
+
+        if (batchCount > 0) await batch.commit();
+
+        if (updatedCount === 0) {
+            log(`\n✅ Aucun produit à migrer.`);
+        } else {
+            log(`\n🎉 Migration terminée ! ${updatedCount} produit(s) mis à jour.`);
+            showToast(`✅ ${updatedCount} produits migrés`);
+        }
+    } catch (e) {
+        log(`❌ Erreur : ${e.message}`, true);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+async function handleMigrateSku() {
+    const btn = document.getElementById('migrateSkuBtn');
+    const logEl = document.getElementById('skuMigrationLog');
+    const log = (msg, isErr = false) => { 
+        if (!logEl) return; 
+        logEl.classList.add('active'); 
+        const span = document.createElement('div'); 
+        if (isErr) span.className = 'error'; 
+        span.textContent = msg; 
+        logEl.appendChild(span); 
+        logEl.scrollTop = logEl.scrollHeight; 
+    };
+    
+    if (logEl) logEl.innerHTML = '';
+    btn.disabled = true;
+    log('⏳ Recherche des produits sans SKU...');
+
+    try {
+        const snap = await getDocs(collection(db, "products"));
+        let updatedCount = 0;
+        let batch = writeBatch(db);
+        let batchCount = 0;
+
+        for (const docSnap of snap.docs) {
+            const p = docSnap.data();
+            if (!p.sku) {
+                const newSku = `SW-LEGACY-${String(docSnap.id).slice(-4)}`;
+                batch.update(docSnap.ref, { sku: newSku });
+                updatedCount++;
+                batchCount++;
+                log(`🔄 ${p.nameFr || docSnap.id} ➔ ${newSku}`);
+
+                if (batchCount === 400) {
+                    await batch.commit();
+                    batchCount = 0;
+                    batch = writeBatch(db);
+                }
+            }
+        }
+
+        if (batchCount > 0) await batch.commit();
+
+        if (updatedCount === 0) {
+            log(`\n✅ Tous les produits ont déjà un SKU.`);
+        } else {
+            log(`\n🎉 ${updatedCount} produit(s) mis à jour avec un SKU.`);
+            showToast(`✅ ${updatedCount} SKU générés`);
+            await loadProducts(true);
+        }
+    } catch (e) {
+        log(`❌ Erreur : ${e.message}`, true);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+async function loadCollectionsStatus() {
+    const cols = ['products', 'orders', 'users', 'reviews', 'cities', 'blog', 'coupons'];
+    const ids = { products: 'countProducts', orders: 'countOrders', users: 'countUsers', reviews: 'countReviews', cities: 'countCities', blog: 'countBlog', coupons: 'countCoupons' };
+    for (const col of cols) {
+        const el = document.getElementById(ids[col]);
+        if (el) el.textContent = '⏳';
+    }
+    for (const col of cols) {
+        const el = document.getElementById(ids[col]);
+        if (!el) continue;
+        try {
+            const snap = await getCountFromServer(collection(db, col));
+            el.textContent = `${snap.data().count}`;
+            el.style.color = snap.data().count > 0 ? 'var(--success)' : 'var(--text-muted)';
+        } catch (e) {
+            el.textContent = '❌';
+            el.style.color = 'var(--danger)';
+        }
+    }
+}
+
+// ============================================================
+// ATTACH ALL REMAINING EVENTS
+// ============================================================
+function attachAllRemainingEvents() {
+    attachProductFormEvents();
+
+    document.getElementById('productSearchAdmin')?.addEventListener('input', () => { tempStockFilter = null; productsCurrentPage = 1; filterProductsList(); });
+    document.getElementById('productCategoryFilter')?.addEventListener('change', () => { tempStockFilter = null; productsCurrentPage = 1; filterProductsList(); });
+    document.getElementById('userSearchAdmin')?.addEventListener('input', filterUsersList);
+    document.getElementById('blogSearchAdmin')?.addEventListener('input', () => { blogCurrentPage = 1; filterBlogList(); });
+    document.getElementById('couponSearchAdmin')?.addEventListener('input', filterCouponsList);
+
+    document.querySelectorAll('[data-signup-filter]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('[data-signup-filter]').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            filterUsersList();
+        });
+    });
+
+    document.getElementById('speedafSearchAdmin')?.addEventListener('input', renderSpeedafList);
+    document.getElementById('speedafStatusFilter')?.addEventListener('change', renderSpeedafList);
+    document.getElementById('syncAllSpeedafBtn')?.addEventListener('click', handleSyncAllSpeedaf);
+    
+    document.getElementById('pickupSpeedafBtn')?.addEventListener('click', () => {
+        document.getElementById('pickupDate').valueAsDate = new Date();
+        document.getElementById('pickupModal').classList.add('open');
+    });
+    document.getElementById('closePickupModalBtn')?.addEventListener('click', () => document.getElementById('pickupModal').classList.remove('open'));
+    document.getElementById('confirmPickupBtn')?.addEventListener('click', handleConfirmPickup);
+
+    document.getElementById('migrateCitiesBtn')?.addEventListener('click', handleMigrateCities);
+    document.getElementById('migrateLegacyCategoriesBtn')?.addEventListener('click', handleMigrateLegacyCategories);
+    document.getElementById('migrateSkuBtn')?.addEventListener('click', handleMigrateSku);
+    document.getElementById('refreshCollectionsBtn')?.addEventListener('click', loadCollectionsStatus);
+
+    document.getElementById('accRefreshBtn')?.addEventListener('click', refreshAccOverview);
+    document.getElementById('accPeriod')?.addEventListener('change', (e) => {
+        const startEl = document.getElementById('accStart');
+        const endEl = document.getElementById('accEnd');
+        const isCustom = e.target.value === 'custom';
+        if (startEl) startEl.disabled = !isCustom;
+        if (endEl) endEl.disabled = !isCustom;
+        if (!isCustom) refreshAccOverview();
+    });
+
+    const accStartInit = document.getElementById('accStart');
+    const accEndInit = document.getElementById('accEnd');
+    if (accStartInit) accStartInit.disabled = true;
+    if (accEndInit) accEndInit.disabled = true;
+
+    document.getElementById('addPurchaseBtn')?.addEventListener('click', saveNewPurchase);
+    document.getElementById('addExpenseBtn')?.addEventListener('click', saveNewExpense);
+    document.getElementById('addTransactionBtn')?.addEventListener('click', saveNewTransaction);
+    document.getElementById('generateReportBtn')?.addEventListener('click', generateReport);
+    document.getElementById('exportCSVBtn')?.addEventListener('click', exportReportCSV);
+    document.getElementById('printReportBtn')?.addEventListener('click', () => window.print());
+    document.getElementById('exportOrdersCSVBtn')?.addEventListener('click', exportOrdersCSV);
+    document.getElementById('exportProductsCSVBtn')?.addEventListener('click', exportProductsCSV);
+
+    document.getElementById('transSearch')?.addEventListener('input', renderTransactionsList);
+    document.getElementById('transFilterType')?.addEventListener('change', renderTransactionsList);
+    document.getElementById('reportType')?.addEventListener('change', updateReportDates);
+
+    ['purDate', 'expDate', 'transDate'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.valueAsDate = new Date();
+    });
+
+    attachBlogFormEvents();
+    attachCouponFormEvents();
+}
+
+// ============================================================
 // DÉMARRAGE
 // ============================================================
 initAdmin();
-console.log('✅ admin.js chargé — v8.1.0 (SKU + Logistique + Ramassage)');
+console.log('✅ admin.js chargé — v9.0.0 (Test Mode + Snapshot/Rollback Storage)');
