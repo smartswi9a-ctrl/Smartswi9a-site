@@ -1,7 +1,7 @@
 // js/orders.js
 // ============================================================
 // GESTION DES COMMANDES - SMART SWI9A
-// Version 4.4.1 — Fix : Transaction Firestore (Reads before Writes)
+// Version 4.4.2 — Ajout de logs de débogage pour Firestore
 // ============================================================
 
 import {
@@ -574,7 +574,7 @@ async function restoreStockInTransaction(transaction, order, productSnaps, produ
 
 // ============================================================
 // UPDATE ORDER STATUS (ATOMIQUE + SPEEDAF AUTO)
-// ✅ FIX : Restructuration de la transaction (Reads -> Logic -> Writes)
+// ✅ AJOUT DE LOGS
 // ============================================================
 export async function updateOrderStatus(orderId, newStatus) {
     try {
@@ -621,16 +621,19 @@ export async function updateOrderStatus(orderId, newStatus) {
             // PHASE 2 : LOGIQUE & ÉCRITURES (WRITES)
             // ==========================================
             if (normalizedStatus === ORDER_STATUS.CONFIRMED && previousStatus === ORDER_STATUS.PENDING && order.stockDeducted !== true) {
+                console.log("🔥 LOG DB : Deduct Stock (Confirm)");
                 await deductStockInTransaction(transaction, order, productSnaps, productRefs);
                 order.stockDeducted = true;
             }
             
             if (normalizedStatus === ORDER_STATUS.CANCELLED && [ORDER_STATUS.CONFIRMED, ORDER_STATUS.SHIPPING].includes(previousStatus) && order.stockDeducted === true) {
+                console.log("🔥 LOG DB : Restore Stock (Cancel)");
                 await restoreStockInTransaction(transaction, order, productSnaps, productRefs);
                 order.stockDeducted = false;
             }
             
             if (normalizedStatus === ORDER_STATUS.CANCELLED && order.couponId && !order.couponRestored) {
+                console.log("🔥 LOG DB : Restore Coupon (Cancel)");
                 const couponRef = doc(db, "coupons", order.couponId);
                 const couponUseRef = doc(db, "coupon_uses", `${order.couponId}_${order.userId}`);
                 transaction.update(couponRef, { usedCount: increment(-1) });
@@ -644,6 +647,7 @@ export async function updateOrderStatus(orderId, newStatus) {
                 stockDeducted: order.stockDeducted,
                 couponRestored: order.couponRestored || false
             };
+            console.log("🔥 LOG DB : Update Order Status", updatePayload);
             transaction.update(orderRef, updatePayload);
         });
         
@@ -652,6 +656,7 @@ export async function updateOrderStatus(orderId, newStatus) {
             if (!orderForEmail.speedafTracking) {
                 const spdResult = await sendToSpeedafAPI(orderForEmail);
                 if (spdResult.success && spdResult.trackingNumber) {
+                    console.log("🔥 LOG DB : Speedaf Update Order (Auto Shipping)");
                     await updateDoc(orderRef, {
                         status: ORDER_STATUS.SHIPPING,
                         speedafTracking: spdResult.trackingNumber,
@@ -700,7 +705,6 @@ export async function updateOrderStatus(orderId, newStatus) {
 
 // ============================================================
 // SUPPRESSION COMPLETE DE LA COMMANDE
-// ✅ FIX : Restructuration de la transaction (Reads -> Logic -> Writes)
 // ============================================================
 async function deleteOrderCompletely(orderId) {
     const orderSnap = await getDoc(doc(db, "orders", orderId));
@@ -714,6 +718,7 @@ async function deleteOrderCompletely(orderId) {
             const productSnaps = await Promise.all(productRefs.map(r => transaction.get(r)));
             
             // --- ÉCRITURES ---
+            console.log("🔥 LOG DB : Restore Stock (Delete Order)");
             await restoreStockInTransaction(transaction, order, productSnaps, productRefs);
         });
     }
@@ -721,14 +726,17 @@ async function deleteOrderCompletely(orderId) {
     const batch = writeBatch(db);
     
     if (order.couponId && !order.couponRestored) {
+        console.log("🔥 LOG DB : Restore Coupon (Delete Order)");
         batch.update(doc(db, "coupons", order.couponId), { usedCount: increment(-1) });
         batch.delete(doc(db, "coupon_uses", `${order.couponId}_${order.userId}`));
     }
     
     const notifQ = query(collection(db, "notifications"), where("orderId", "==", orderId));
     const notifSnap = await getDocs(notifQ);
+    console.log("🔥 LOG DB : Delete Notifications (Delete Order)");
     notifSnap.forEach(d => batch.delete(d.ref));
     
+    console.log("🔥 LOG DB : Delete Order", orderId);
     batch.delete(doc(db, "orders", orderId));
     await batch.commit();
     
@@ -1116,7 +1124,7 @@ export async function openReturnModal(orderId) {
     }
 }
 
-// ✅ FIX : Restructuration de la transaction (Reads -> Logic -> Writes)
+// ✅ Restructuration de la transaction (Reads -> Logic -> Writes) + Logs
 async function processReturnTransaction(order, returnsToProcess) {
     await runTransaction(db, async (transaction) => {
         // ==========================================
@@ -1152,6 +1160,7 @@ async function processReturnTransaction(order, returnsToProcess) {
             } else {
                 updateData.stock = (Number(pData.stock) || 0) + r.quantity;
             }
+            console.log("🔥 LOG DB : Update Product (Return)", productRefs[i].path, updateData);
             transaction.update(productRefs[i], updateData);
         });
         
@@ -1164,6 +1173,7 @@ async function processReturnTransaction(order, returnsToProcess) {
             }))
         };
         
+        console.log("🔥 LOG DB : Update Order (Return)", orderRef.path);
         transaction.update(orderRef, {
             returns: [...currentReturns, newReturnEntry],
             status: ORDER_STATUS.RETURNED,
@@ -1344,4 +1354,4 @@ export async function openOrderDetails(orderId, isAdmin = false) {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ orders.js chargé — v4.4.1 (Fix Transaction Firestore: Reads before Writes)');
+console.log('✅ orders.js chargé — v4.4.2 (Logs de débogage Firestore)');
