@@ -1,7 +1,13 @@
 // js/cart.js
 // ============================================================
 // PANIER ET COMMANDES - SMART SWI9A
-// Version 3.4.1 — Ajout du poids dans les articles de la commande
+// Version 3.5.0 — Fix popup vide + deliveryAddress.note
+// ============================================================
+// CHANGEMENTS v3.5.0 :
+// ✅ Tâche 5a — checkout() : suppression window.open('', '_blank')
+// ✅ Tâche 5b — createOrder() : ajout deliveryAddress.note
+// ✅ Tâche 5c — checkout() : redirection directe window.location.href
+// ✅ Tâche 5d — checkout() retourne { success, orderId } (pour panier.js)
 // ============================================================
 
 import {
@@ -58,7 +64,7 @@ export function loadCart() {
     try {
         const data = safeGetItem(getCartStorageKey());
         cart = Array.isArray(data) ? data : [];
-        
+
         cart = cart.filter(item =>
             item &&
             Number.isFinite(Number(item.productId)) &&
@@ -168,7 +174,7 @@ function mergeCarts(localCart, firestoreCart) {
             qty = Math.min(qty, maxStock);
         }
         if (qty < 1) return;
-        
+
         const existingIdx = merged.findIndex(li => li.id === itemId);
         if (existingIdx > -1) {
             merged[existingIdx].quantity = Math.max(merged[existingIdx].quantity, qty);
@@ -279,8 +285,8 @@ export async function addToCart(productId, variant = null) {
 
     let validVariant = null;
     if (variant) {
-        validVariant = product.variants.find(v => 
-            (v.size || '') === (variant.size || '') && 
+        validVariant = product.variants.find(v =>
+            (v.size || '') === (variant.size || '') &&
             (v.color || '') === (variant.color || '')
         );
         if (!validVariant) { showToast('❌ Variante introuvable'); return; }
@@ -300,11 +306,11 @@ export async function addToCart(productId, variant = null) {
     if (existing) {
         existing.quantity = newQty;
     } else {
-        cart.push({ 
+        cart.push({
             id: itemId,
-            productId: pid, 
+            productId: pid,
             variant: validVariant ? { size: validVariant.size || '', color: validVariant.color || '', price: itemPrice } : null,
-            quantity: 1 
+            quantity: 1
         });
     }
 
@@ -336,7 +342,7 @@ export function updateCartQuantity(itemId, quantity) {
 
     const products = getProducts();
     const product = products.find(p => Number(p.id) === item.productId);
-    
+
     let maxStock = Infinity;
     if (item.variant) {
         const v = product?.variants?.find(v => (v.size || '') === (item.variant.size || '') && (v.color || '') === (item.variant.color || ''));
@@ -466,19 +472,22 @@ export function calculateCouponDiscount(coupon, subtotal, deliveryFee) {
 }
 
 // ============================================================
-// CHECKOUT
+// ✅ CHECKOUT — Fix popup vide + redirection directe
+// ------------------------------------------------------------
+// AVANT : ouverture waWindow='' puis waWindow.location.href = url
+// APRÈS : création commande PUIS window.location.href direct
 // ============================================================
-export async function checkout(cartItems, deliveryInfo, appliedCoupon = null, waWindow = null) {
+export async function checkout(cartItems, deliveryInfo, appliedCoupon = null) {
     if (!cartItems || cartItems.length === 0) {
         showToast('⚠️ ' + t('cartEmpty'));
-        return;
+        return { success: false, error: 'empty_cart' };
     }
 
     const user = getCurrentUser();
     if (!user) {
         showToast('🔒 ' + t('loginRequired'));
         document.dispatchEvent(new CustomEvent('open-account'));
-        return;
+        return { success: false, error: 'not_logged' };
     }
 
     const cleanName = String(deliveryInfo.name || '').trim();
@@ -488,63 +497,81 @@ export async function checkout(cartItems, deliveryInfo, appliedCoupon = null, wa
 
     if (!cleanName || !cleanPhone || !cleanAddress || !cleanCity) {
         showToast('⚠️ ' + t('fillAllFields'));
-        if (waWindow) waWindow.close();
-        return;
+        return { success: false, error: 'missing_fields' };
     }
 
     const userConfirmed = await confirmAction(t('confirmOrderMsg'), {
-        title: t('confirmOrderTitle'), confirmText: t('confirmOrderYes'), cancelText: t('confirmOrderNo'), variant: 'primary'
+        title: t('confirmOrderTitle'),
+        confirmText: t('confirmOrderYes'),
+        cancelText: t('confirmOrderNo'),
+        variant: 'primary'
     });
     if (!userConfirmed) {
         showToast('⏸️ ' + t('orderCancelled'));
-        if (waWindow) waWindow.close();
-        return;
+        return { success: false, error: 'cancelled' };
     }
 
     const result = await createOrder(cartItems, deliveryInfo, appliedCoupon);
     if (!result.success) {
         showToast('❌ ' + (result.error || t('orderError')));
-        if (waWindow) waWindow.close();
-        return;
+        return result;
     }
 
     const { orderId, totals, validatedItems } = result;
     const msg = buildWhatsAppMessage(validatedItems, deliveryInfo, orderId, totals);
     const url = `https://wa.me/${CONFIG.SHOP.WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`;
 
-    if (waWindow && !waWindow.closed) {
-        waWindow.location.href = url;
-    } else {
-        window.location.href = url;
-    }
-
+    // ✅ Emails en arrière-plan (non bloquant)
     (async () => {
         try {
             const { sendOrderEmail } = await import('./orders.js');
             const orderForEmail = {
-                id: orderId, userId: user.uid, userEmail: user.email || '',
-                items: validatedItems, subtotal: totals.subtotal, discount: totals.discount,
-                couponCode: totals.couponCode || null, couponDiscount: totals.couponDiscount || 0,
-                deliveryFee: totals.deliveryFee, total: totals.total,
-                deliveryAddress: { name: deliveryInfo.name, phone: deliveryInfo.phone, address: deliveryInfo.address, city: deliveryInfo.city, cityId: deliveryInfo.cityId, cityAr: deliveryInfo.cityAr, cityFr: deliveryInfo.cityFr, email: deliveryInfo.email || user.email || '' }
+                id: orderId,
+                userId: user.uid,
+                userEmail: user.email || '',
+                items: validatedItems,
+                subtotal: totals.subtotal,
+                discount: totals.discount,
+                couponCode: totals.couponCode || null,
+                couponDiscount: totals.couponDiscount || 0,
+                deliveryFee: totals.deliveryFee,
+                total: totals.total,
+                deliveryAddress: {
+                    name: deliveryInfo.name,
+                    phone: deliveryInfo.phone,
+                    address: deliveryInfo.address,
+                    city: deliveryInfo.city,
+                    cityId: deliveryInfo.cityId,
+                    cityAr: deliveryInfo.cityAr,
+                    cityFr: deliveryInfo.cityFr,
+                    note: deliveryInfo.note || '',
+                    email: deliveryInfo.email || user.email || ''
+                }
             };
             await sendOrderEmail(orderForEmail, 'pending', 'client');
             await sendOrderEmail(orderForEmail, 'pending', 'admin');
-        } catch (e) { }
+        } catch (e) { /* ignore */ }
     })();
 
     if (appliedCoupon) {
-        try { sessionStorage.removeItem('swi9a_applied_coupon'); } catch (e) { }
+        try { sessionStorage.removeItem('swi9a_applied_coupon'); } catch (e) { /* ignore */ }
     }
 
     clearCart();
     showToast('✅ ' + t('orderSent'));
-    document.dispatchEvent(new CustomEvent('close-cart'));
+
+    // ✅ Redirection directe (plus de fenêtre vide)
+    // Petit délai pour laisser le toast s'afficher
+    setTimeout(() => {
+        window.location.href = url;
+    }, 200);
+
+    return { success: true, orderId, redirected: true };
 }
 
 // ============================================================
 // CRÉATION DE COMMANDE (Déduction Stock Immédiate)
-// ✅ AJOUT : tag _test + récupération du poids
+// ✅ NOUVEAU : deliveryAddress.note sauvegardé
 // ============================================================
 export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
     const user = getCurrentUser();
@@ -572,7 +599,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
 
             let couponSnap = null;
             let couponUseSnap = null;
-            
+
             if (appliedCoupon && appliedCoupon.id) {
                 const couponRef = doc(db, "coupons", appliedCoupon.id);
                 couponSnap = await transaction.get(couponRef);
@@ -590,13 +617,13 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
             let subtotal = 0;
             let discountableItems = 0;
             const validatedItems = [];
-            const productUpdates = []; 
+            const productUpdates = [];
 
             productSnaps.forEach((snap, i) => {
                 if (!snap.exists()) throw new Error(`Produit ${items[i].productId} introuvable`);
                 const data = snap.data();
                 const qty = Math.max(1, Math.floor(Number(items[i].quantity) || 1));
-                
+
                 let availableStock = 0;
                 let unitPrice = Number(data.price) || 0;
                 const itemVariant = items[i].variant;
@@ -605,7 +632,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                 if (itemVariant) {
                     const vIdx = (data.variants || []).findIndex(v => (v.size || '') === (itemVariant.size || '') && (v.color || '') === (itemVariant.color || ''));
                     if (vIdx === -1) throw new Error(`La variante n'existe plus pour ${data.nameFr}`);
-                    
+
                     const variants = [...(data.variants || [])];
                     availableStock = Number(variants[vIdx].stock) || 0;
                     unitPrice = Number(variants[vIdx].price) || unitPrice;
@@ -625,14 +652,14 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
 
                 subtotal += unitPrice * qty;
                 discountableItems += qty;
-                validatedItems.push({ 
-                    id: String(items[i].id), 
-                    productId: String(items[i].productId), 
-                    variant: itemVariant || null, 
-                    quantity: Number(qty), 
-                    price: Number(unitPrice), 
+                validatedItems.push({
+                    id: String(items[i].id),
+                    productId: String(items[i].productId),
+                    variant: itemVariant || null,
+                    quantity: Number(qty),
+                    price: Number(unitPrice),
                     name: String(data.nameFr || data.nameEn || 'Produit'),
-                    weight: Number(data.dimensions?.weight) || 0 // ✅ Ajout du poids
+                    weight: Number(data.dimensions?.weight) || 0
                 });
             });
 
@@ -651,7 +678,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
             if (appliedCoupon && appliedCoupon.id) {
                 if (!couponSnap.exists()) throw new Error('Code promo introuvable');
                 const c = couponSnap.data();
-                
+
                 if (c.isActive !== true) throw new Error('Code promo inactif');
                 if (c.expiresAt) {
                     const expDate = c.expiresAt.toDate ? c.expiresAt.toDate() : new Date(c.expiresAt);
@@ -677,37 +704,38 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
             const orderRef = doc(collection(db, "orders"));
             const cancellableUntil = new Date(Date.now() + CONFIG.ORDERS.CANCELLABLE_HOURS * 3600 * 1000);
 
-            // ✅ AJOUT : tag _test + _testBatch si mode test
             const orderData = {
                 _test: testMode,
                 _testBatch: testBatchId,
-                userId: String(user.uid), 
-                userName: String(user.name || ''), 
+                userId: String(user.uid),
+                userName: String(user.name || ''),
                 userEmail: String(user.email || ''),
-                items: validatedItems, 
-                status: ORDER_STATUS.PENDING, 
+                items: validatedItems,
+                status: ORDER_STATUS.PENDING,
                 paymentStatus: 'unpaid',
-                subtotal: Number(subtotal) || 0, 
-                discount: Number(discount) || 0, 
-                couponId: appliedCoupon?.id ? String(appliedCoupon.id) : null, 
+                subtotal: Number(subtotal) || 0,
+                discount: Number(discount) || 0,
+                couponId: appliedCoupon?.id ? String(appliedCoupon.id) : null,
                 couponCode: appliedCoupon?.code ? String(appliedCoupon.code) : null,
-                couponDiscount: Number(couponDiscount) || 0, 
-                deliveryFee: Number(deliveryFee) || 0, 
-                total: Number(total) || 0, 
+                couponDiscount: Number(couponDiscount) || 0,
+                deliveryFee: Number(deliveryFee) || 0,
+                total: Number(total) || 0,
                 stockDeducted: true,
                 deliveryAddress: {
-                    name: String(deliveryInfo.name || '').trim().slice(0, 100), 
+                    name: String(deliveryInfo.name || '').trim().slice(0, 100),
                     phone: String(deliveryInfo.phone || '').trim().slice(0, 20),
-                    address: String(deliveryInfo.address || '').trim().slice(0, 300), 
+                    address: String(deliveryInfo.address || '').trim().slice(0, 300),
                     city: String(deliveryInfo.city || '').trim().slice(0, 100),
-                    cityId: deliveryInfo.cityId ? String(deliveryInfo.cityId) : null, 
-                    cityAr: deliveryInfo.cityAr ? String(deliveryInfo.cityAr) : null, 
+                    cityId: deliveryInfo.cityId ? String(deliveryInfo.cityId) : null,
+                    cityAr: deliveryInfo.cityAr ? String(deliveryInfo.cityAr) : null,
                     cityFr: deliveryInfo.cityFr ? String(deliveryInfo.cityFr) : null,
-                    email: String(deliveryInfo.email || user.email || '')
+                    email: String(deliveryInfo.email || user.email || ''),
+                    // ✅ NOUVEAU : note de livraison (optionnelle)
+                    note: deliveryInfo.note ? String(deliveryInfo.note).trim().slice(0, 300) : null
                 },
-                createdAt: Timestamp.now(), 
+                createdAt: Timestamp.now(),
                 updatedAt: Timestamp.now(),
-                cancellableUntil: Timestamp.fromDate(cancellableUntil), 
+                cancellableUntil: Timestamp.fromDate(cancellableUntil),
                 cancelledAt: null
             };
 
@@ -715,19 +743,18 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
             const notifData = {
                 _test: testMode,
                 _testBatch: testBatchId,
-                userId: String(user.uid), 
-                type: 'order_created', 
+                userId: String(user.uid),
+                type: 'order_created',
                 title: String(t('notificationOrderCreated') || '📦 Commande reçue'),
                 message: String((t('notificationOrderCreatedMsg') || 'Merci pour votre commande #{id} !').replace('{id}', orderRef.id.slice(0, 8).toUpperCase())),
-                orderId: String(orderRef.id), 
-                read: false, 
+                orderId: String(orderRef.id),
+                read: false,
                 createdAt: Timestamp.now()
             };
 
             // ==========================================
             // PHASE 3 : TOUTES LES ÉCRITURES (WRITES)
             // ==========================================
-
             productUpdates.forEach(update => {
                 transaction.update(update.ref, update.data);
             });
@@ -739,11 +766,11 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                 transaction.set(doc(db, "coupon_uses", `${appliedCoupon.id}_${user.uid}`), {
                     _test: testMode,
                     _testBatch: testBatchId,
-                    couponId: String(appliedCoupon.id), 
-                    code: String(couponData.code), 
+                    couponId: String(appliedCoupon.id),
+                    code: String(couponData.code),
                     userId: String(user.uid),
-                    orderId: String(orderRef.id), 
-                    discountApplied: Number(couponDiscount) || 0, 
+                    orderId: String(orderRef.id),
+                    discountApplied: Number(couponDiscount) || 0,
                     usedAt: Timestamp.now()
                 });
             }
@@ -762,6 +789,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
 
 // ============================================================
 // MESSAGE WHATSAPP
+// ✅ NOUVEAU : inclut la note de livraison si présente
 // ============================================================
 function buildWhatsAppMessage(validatedItems, deliveryInfo, orderId, totals) {
     const productList = validatedItems.map(item => {
@@ -772,6 +800,8 @@ function buildWhatsAppMessage(validatedItems, deliveryInfo, orderId, totals) {
     let msg = `🛒 *${t('waNewOrder')}*\n\n`;
     if (orderId) msg += `📦 ${t('waOrder')} : *#${orderId.slice(0, 8).toUpperCase()}*\n\n`;
     msg += `👤 ${t('waName')} : ${deliveryInfo.name}\n📞 ${t('waPhone')} : ${deliveryInfo.phone}\n📍 ${t('waAddress')} : ${deliveryInfo.address}\n🏙️ ${t('waCity')} : ${deliveryInfo.city}\n`;
+    // ✅ NOUVEAU : note si présente
+    if (deliveryInfo.note) msg += `📝 Note : ${deliveryInfo.note}\n`;
     if (deliveryInfo.email) msg += `✉️ ${t('waEmail')} : ${deliveryInfo.email}\n`;
     msg += `\n📋 *${t('waItems')} :*\n${productList}\n\n`;
     msg += `💰 ${t('waSubtotal')} : ${totals.subtotal} MAD\n`;
@@ -896,4 +926,4 @@ export function checkAbandonedCart() {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ cart.js chargé — v3.4.1 (Ajout du poids dans la commande)');
+console.log('✅ cart.js chargé — v3.5.0 (Fix popup + deliveryAddress.note)');
