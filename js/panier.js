@@ -1,14 +1,21 @@
 // js/panier.js
 // ============================================================
 // PAGE PANIER DÉDIÉE - SMART SWI9A
-// Version 2.0.1 — Fix Popup, Stock Variante, Coupon Deterministic
-// + Traduction dynamique des catégories dans le panier
+// Version 2.1.0 — Fix popup vide + validation renforcée
+//                 + Champ Note de livraison
+// ============================================================
+// CHANGEMENTS v2.1.0 :
+// ✅ Tâche 5a — handleCheckoutFromPage : plus de window.open('', '_blank')
+// ✅ Tâche 5b — renderForm : ajout champ "Note de livraison"
+// ✅ Tâche 5c — handleCheckoutFromPage : validation renforcée
+//                 (nom ≥2, phone ≥9 chiffres, email valide, ville sélectionnée)
+// ✅ Tâche 5d — handleCheckoutFromPage : passe note à checkout()
 // ============================================================
 
-import { CONFIG, getCategoryById } from "./config.js"; // ✅ Ajout de getCategoryById
+import { CONFIG, getCategoryById } from "./config.js";
 import {
     t, escapeHTML, getProductName, getProductImageUrl, getFallbackImage,
-    getDiscountPercent, renderStars, getCityName, toDate
+    getDiscountPercent, renderStars, getCityName, toDate, isValidEmail
 } from "./utils.js";
 import {
     getCart, getProducts, getState, setSelectedCity, getSelectedCity
@@ -16,7 +23,7 @@ import {
 import {
     getCartSubtotal, getCartTotalItems, getCartSavings, getCartDiscount,
     getCartDeliveryFee, updateCartQuantity, removeFromCart,
-    clearCart, checkout, updateCartBadge, calculateCouponDiscount // ✅ Importé de cart.js
+    clearCart, checkout, updateCartBadge, calculateCouponDiscount
 } from "./cart.js";
 import { getCurrentUser } from "./auth.js";
 import { showToast, confirmAction } from "./ui-core.js";
@@ -229,7 +236,7 @@ function renderCartItem(product, quantity, item) {
     const fallback = getFallbackImage(name);
     const price = item.variant ? Number(item.variant.price) : Number(product.price);
     const oldPrice = Number(product.oldPrice) || 0;
-    
+
     // ✅ Calcul du stock selon la variante
     let maxStock = Number(product.stock) || 999;
     if (item.variant) {
@@ -242,13 +249,13 @@ function renderCartItem(product, quantity, item) {
     const lineTotal = price * quantity;
     const productUrl = `/produit?slug=${encodeURIComponent(product.slug || '')}`;
 
-    let stockHtml = maxStock === 0 
+    let stockHtml = maxStock === 0
         ? `<span class="cart-item-stock out">❌ ${t('productOutOfStock')}</span>`
         : (maxStock <= 3 ? `<span class="cart-item-stock low">⚠️ ${t('cartStockLow')} (${maxStock})</span>` : `<span class="cart-item-stock ok">✅ ${t('productInStock')}</span>`);
 
     const variantText = item.variant ? `<div style="font-size:0.75rem;color:var(--gold);font-weight:600;margin-bottom:0.2rem;">Taille: ${escapeHTML(item.variant.size || '—')} | Couleur: ${escapeHTML(item.variant.color || '—')}</div>` : '';
 
-    // ✅ FIX : Traduction dynamique de la catégorie
+    // ✅ Traduction dynamique de la catégorie
     const catObj = getCategoryById(product.category);
     const categoryLabel = catObj ? `${catObj.emoji} ${t(catObj.label)}` : escapeHTML(product.category || '');
 
@@ -382,7 +389,7 @@ function refreshSummaryTotals() {
 }
 
 // ============================================================
-// FORMULAIRE CLIENT
+// ✅ FORMULAIRE CLIENT (avec champ Note de livraison)
 // ============================================================
 function renderForm(user) {
     const selectedCity = getSelectedCity();
@@ -391,16 +398,38 @@ function renderForm(user) {
     return `
         <div class="cart-page-form">
             <h3 class="cart-page-form-title">📝 ${t('cartCheckoutInfo')}</h3>
-            <div class="cart-page-field"><label>👤 ${t('accountNamePlaceholder')} *</label><input type="text" id="cartName" value="${escapeHTML(user?.name || '')}"></div>
-            <div class="cart-page-field"><label>📞 ${t('accountPhonePlaceholder')} *</label><input type="tel" id="cartPhone" value="${escapeHTML(user?.phone || '')}"></div>
-            <div class="cart-page-field"><label>📍 ${t('cartAddressPlaceholder')} *</label><textarea id="cartAddress" rows="2"></textarea></div>
-            <div class="cart-page-field"><label>✉️ ${t('accountEmailPlaceholder')}</label><input type="email" id="cartEmail" value="${escapeHTML(user?.email || '')}"></div>
+            <div class="cart-page-field">
+                <label>👤 ${t('accountNamePlaceholder')} *</label>
+                <input type="text" id="cartName" value="${escapeHTML(user?.name || '')}" autocomplete="name">
+            </div>
+            <div class="cart-page-field">
+                <label>📞 ${t('accountPhonePlaceholder')} *</label>
+                <input type="tel" id="cartPhone" value="${escapeHTML(user?.phone || '')}" autocomplete="tel" inputmode="tel">
+            </div>
+            <div class="cart-page-field">
+                <label>📍 ${t('cartAddressPlaceholder')} *</label>
+                <textarea id="cartAddress" rows="2" autocomplete="street-address"></textarea>
+            </div>
+            <div class="cart-page-field">
+                <label>✉️ ${t('accountEmailPlaceholder')}</label>
+                <input type="email" id="cartEmail" value="${escapeHTML(user?.email || '')}" autocomplete="email">
+            </div>
             <div class="cart-page-field city-search-wrapper">
                 <label>🏙️ ${t('city')} *</label>
                 <input type="text" id="cityFilterInput" placeholder="${t('searchCity')}" value="${escapeHTML(cityValue)}" autocomplete="off">
                 <div class="city-suggestions" id="citySuggestions"></div>
             </div>
-            <div class="cart-page-trust"><div>✅ ${t('trust1')}</div><div>✅ ${t('trust2')}</div><div>✅ ${t('trust3')}</div><div>✅ ${t('trust4')}</div></div>
+            <!-- ✅ NOUVEAU : champ Note de livraison (optionnel) -->
+            <div class="cart-page-field">
+                <label>📝 Note de livraison (${t('optional') || 'optionnel'})</label>
+                <textarea id="cartDeliveryNote" rows="2" placeholder="Ex: Sonner deux fois, 3ème étage, laisser chez le gardien..." maxlength="300"></textarea>
+            </div>
+            <div class="cart-page-trust">
+                <div>✅ ${t('trust1')}</div>
+                <div>✅ ${t('trust2')}</div>
+                <div>✅ ${t('trust3')}</div>
+                <div>✅ ${t('trust4')}</div>
+            </div>
         </div>
     `;
 }
@@ -473,12 +502,12 @@ async function applyCouponCode() {
     try {
         const deterministicId = code.replace(/[^A-Z0-9]/g, '_');
         const snap = await getDoc(doc(db, "coupons", deterministicId));
-        
+
         if (!snap.exists()) { showMsg('❌ Code introuvable'); return; }
         const couponData = snap.data();
 
         if (couponData.isActive !== true) { showMsg('⏸️ Ce code n\'est pas actif'); return; }
-        
+
         const expiresAt = couponData.expiresAt ? toDate(couponData.expiresAt) : null;
         if (expiresAt && expiresAt.getTime() < Date.now()) { showMsg('⏰ Ce code a expiré'); return; }
 
@@ -635,44 +664,93 @@ function initCitySearchOnPage() {
 }
 
 // ============================================================
-// ✅ CHECKOUT (Fenêtre ouverte AVANT le clic)
+// ✅ CHECKOUT — Validation renforcée + plus de popup vide
+// ------------------------------------------------------------
+// AVANT : window.open('', '_blank') avant validation
+// APRÈS : validation PUIS checkout() (qui redirige directement)
 // ============================================================
 async function handleCheckoutFromPage() {
     const user = getCurrentUser();
-    if (!user) { showToast('🔒 ' + t('loginRequired')); document.dispatchEvent(new CustomEvent('open-account')); return; }
+    if (!user) {
+        showToast('🔒 ' + t('loginRequired'));
+        document.dispatchEvent(new CustomEvent('open-account'));
+        return;
+    }
 
     const name = document.getElementById('cartName')?.value.trim() || '';
     const phone = document.getElementById('cartPhone')?.value.trim() || '';
     const address = document.getElementById('cartAddress')?.value.trim() || '';
     const email = document.getElementById('cartEmail')?.value.trim() || '';
+    const deliveryNote = document.getElementById('cartDeliveryNote')?.value.trim() || '';
     const cityInput = document.getElementById('cityFilterInput');
     const selectedCity = getSelectedCity();
     const cityId = selectedCity?.id || cityInput?.dataset?.cityId;
 
-    if (!name || !phone || !address) { showToast('⚠️ ' + t('fillAllFields')); return; }
-    if (!cityId) { showToast('⚠️ ' + t('selectCityRequired')); return; }
+    // ✅ VALIDATION RENFORCÉE
+    if (name.length < 2) {
+        showToast('⚠️ Nom invalide (min 2 caractères)');
+        return;
+    }
+
+    const cleanPhoneDigits = phone.replace(/\D/g, '');
+    if (cleanPhoneDigits.length < 9) {
+        showToast('⚠️ Numéro de téléphone invalide (min 9 chiffres)');
+        return;
+    }
+
+    if (address.length < 5) {
+        showToast('⚠️ Adresse trop courte (min 5 caractères)');
+        return;
+    }
+
+    // ✅ Email : format valide si fourni
+    const finalEmail = email || user?.email || '';
+    if (finalEmail && !isValidEmail(finalEmail)) {
+        showToast('⚠️ Format d\'email invalide');
+        return;
+    }
+
+    // ✅ Ville : doit être sélectionnée depuis la liste
+    if (!cityId) {
+        showToast('⚠️ ' + t('selectCityRequired'));
+        return;
+    }
 
     const checkoutBtn = document.getElementById('cartPageCheckout');
-    if (checkoutBtn) { checkoutBtn.disabled = true; checkoutBtn.textContent = '⏳...'; }
+    if (checkoutBtn) {
+        checkoutBtn.disabled = true;
+        checkoutBtn.textContent = '⏳...';
+    }
 
-    // ✅ OUVERTURE DE LA FENÊTRE ICI (Préserve le geste utilisateur)
-    const waWindow = window.open('', '_blank');
-    
     try {
         await revalidateCoupon();
-        await checkout(getCart(), {
-            name, phone, address, email,
+        // ✅ Plus de window.open('', '_blank') — checkout() redirige directement
+        const result = await checkout(getCart(), {
+            name,
+            phone,
+            address,
+            email: finalEmail,
+            note: deliveryNote,
             city: selectedCity ? getCityName(selectedCity) : (cityInput?.value.trim() || ''),
             cityId,
             cityAr: selectedCity?.nameAr || selectedCity?.name || '',
             cityFr: selectedCity?.nameFr || ''
-        }, appliedCoupon, waWindow);
+        }, appliedCoupon);
+
+        // Si pas de redirection (annulé, erreur, panier vide), réactiver le bouton
+        if (!result.success || !result.redirected) {
+            if (checkoutBtn && checkoutBtn.isConnected) {
+                checkoutBtn.disabled = false;
+                checkoutBtn.textContent = '💬 ' + t('cartCheckout');
+            }
+        }
+        // Sinon : checkout() fait setTimeout(window.location.href = waUrl, 200)
+        // → on laisse le bouton désactivé, la page va se rediriger
     } catch (e) {
-        if (waWindow) waWindow.close();
         showToast('❌ ' + (e.message || 'Erreur'));
-    } finally {
-        if (getCart().length > 0 && checkoutBtn && checkoutBtn.isConnected) {
-            checkoutBtn.disabled = false; checkoutBtn.textContent = '💬 ' + t('cartCheckout');
+        if (checkoutBtn && checkoutBtn.isConnected) {
+            checkoutBtn.disabled = false;
+            checkoutBtn.textContent = '💬 ' + t('cartCheckout');
         }
     }
 }
@@ -683,4 +761,4 @@ async function handleCheckoutFromPage() {
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initCartPage);
 else initCartPage();
 
-console.log('✅ panier.js chargé — v2.0.1 (Traduction dynamique des catégories)');
+console.log('✅ panier.js chargé — v2.1.0 (Fix popup + validation + note)');
