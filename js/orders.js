@@ -1,7 +1,7 @@
 // js/orders.js
 // ============================================================
 // GESTION DES COMMANDES - SMART SWI9A
-// Version 5.1.0 — Fix: blnSure manquant + affichage erreur
+// Version 5.2.0 — Fix blInsure + Conversion poids + Guards Test
 // ============================================================
 
 import {
@@ -43,7 +43,7 @@ const EMAILJS = {
 };
 
 // ============================================================
-// HELPER : Chargement dynamique du SDK EmailJS
+// HELPERS EMAILJS
 // ============================================================
 let emailjsSDK = null;
 async function getEmailJS() {
@@ -77,9 +77,6 @@ async function sendEmailViaEmailJS(toEmail, toName, subject, htmlContent, textCo
     }
 }
 
-// ============================================================
-// HELPERS EMAIL / LANGUE
-// ============================================================
 async function getUserLangById(userId) {
     if (!userId) return getLang() || 'fr';
     try {
@@ -130,7 +127,6 @@ function buildOrderEmailText(order, status, recipient, lang = 'fr') {
     const shortId = String(order.id).slice(0, 8).toUpperCase();
     const name = order.deliveryAddress?.name || '—';
     const city = getCityName({ name: order.deliveryAddress?.cityAr || order.deliveryAddress?.city, nameFr: order.deliveryAddress?.cityFr, nameAr: order.deliveryAddress?.cityAr });
-    
     const greetings = { fr: 'Bonjour', ar: 'مرحباً', en: 'Hello' };
     const thanks = { fr: `Merci pour votre commande #${shortId} !`, ar: `شكراً على طلبك #${shortId}!`, en: `Thank you for your order #${shortId}!` };
     const confirmed = { fr: `Bonne nouvelle ! Votre commande #${shortId} est confirmée.`, ar: `خبر سار! طلبك #${shortId} مؤكد.`, en: `Good news! Your order #${shortId} is confirmed.` };
@@ -139,12 +135,9 @@ function buildOrderEmailText(order, status, recipient, lang = 'fr') {
     const returned = { fr: `Le retour de votre commande #${shortId} a été enregistré.`, ar: `لقد سجلنا إرجاع طلبك #${shortId}.`, en: `Your order #${shortId} return has been recorded.` };
     const cancelled = { fr: `Votre commande #${shortId} a été annulée.`, ar: `تم إلغاء طلبك #${shortId}.`, en: `Your order #${shortId} has been cancelled.` };
     const team = { fr: "L'équipe Smart Swi9a", ar: "فريق سمارت سويقة", en: "Smart Swi9a team" };
-    
     const map = { pending: thanks, confirmed, shipping, delivered, returned, cancelled };
     const message = map[status]?.[lang] || thanks[lang];
-    
-    let text = `${greetings[lang]} ${name},\n\n${message}\n\n`;
-    text += `Articles :\n`;
+    let text = `${greetings[lang]} ${name},\n\n${message}\n\nArticles :\n`;
     (order.items || []).forEach(item => {
         const variantText = item.variant ? ` (${[item.variant.size, item.variant.color].filter(Boolean).join(' - ')})` : '';
         text += `- ${item.name}${variantText} × ${item.quantity} : ${(item.price * item.quantity)} MAD\n`;
@@ -159,16 +152,7 @@ function getItemsHtml(order, align = 'left') {
         const qty = Number(item.quantity) || 1;
         const price = Number(item.price) || 0;
         const variantText = item.variant ? `<br><span style="font-size:12px;color:#a57b2e;">(${[item.variant.size, item.variant.color].filter(Boolean).join(' - ')})</span>` : '';
-        return `
-            <tr>
-                <td style="padding:8px 0;border-bottom:1px solid #eee;font-size:14px;text-align:${align};">
-                    ${itemName} × ${qty}${variantText}
-                </td>
-                <td style="padding:8px 0;border-bottom:1px solid #eee;font-size:14px;text-align:${align === 'left' ? 'right' : 'left'};color:#a57b2e;font-weight:bold;">
-                    ${price * qty} MAD
-                </td>
-            </tr>
-        `;
+        return `<tr><td style="padding:8px 0;border-bottom:1px solid #eee;font-size:14px;text-align:${align};">${itemName} × ${qty}${variantText}</td><td style="padding:8px 0;border-bottom:1px solid #eee;font-size:14px;text-align:${align === 'left' ? 'right' : 'left'};color:#a57b2e;font-weight:bold;">${price * qty} MAD</td></tr>`;
     }).join('');
 }
 
@@ -176,7 +160,6 @@ function buildOrderEmailHtml(order, status, recipient, lang = 'fr') {
     const shortId = String(order.id).slice(0, 8).toUpperCase();
     const name = order.deliveryAddress?.name || '—';
     const city = getCityName({ name: order.deliveryAddress?.cityAr || order.deliveryAddress?.city, nameFr: order.deliveryAddress?.cityFr, nameAr: order.deliveryAddress?.cityAr });
-    
     const emojis = { pending: '📦', confirmed: '✅', shipping: '🚚', delivered: '🎉', returned: '↩️', cancelled: '❌' };
     const titles = {
         fr: { pending: recipient === 'admin' ? 'Nouvelle commande' : 'Commande reçue', confirmed: 'Commande confirmée', shipping: 'Commande en route', delivered: 'Commande livrée', returned: 'Retour enregistré', cancelled: 'Commande annulée' },
@@ -199,7 +182,6 @@ function buildOrderEmailHtml(order, status, recipient, lang = 'fr') {
     const isRtl = lang === 'ar';
     const align = isRtl ? 'right' : 'left';
     const itemsHtml = getItemsHtml(order, align);
-
     return `
         <div style="text-align:${align};direction:${isRtl ? 'rtl' : 'ltr'};">
             <h2 style="margin:0 0 15px;color:#a57b2e;font-size:20px;font-family:Georgia,serif;">${emojis[status] || '📦'} ${t_[status] || t_.pending}</h2>
@@ -239,66 +221,36 @@ function buildInvoiceHtml(order, recipient, lang = 'fr') {
     const invoiceNum = getInvoiceNumber(order);
     const orderDate = toDate(order.createdAt);
     const invoiceDate = orderDate ? orderDate.toLocaleDateString(isRtl ? 'ar-MA' : (lang === 'en' ? 'en-GB' : 'fr-FR')) : '—';
-
     const labels = {
         fr: { invoice: 'FACTURE', issuedOn: 'Émise le', billedTo: 'FACTURÉ À', items: 'ARTICLES', product: 'Produit', qty: 'Qté', unitPrice: 'Prix unit.', lineTotal: 'Total', subtotal: 'Sous-total', volumeDiscount: 'Réduction volume', couponDiscount: 'Code promo', delivery: 'Livraison', total: 'TOTAL', paymentMethod: 'Mode de paiement', cod: 'Paiement à la livraison', paid: 'Payé', shopName: 'SMART SWI9A', footer: 'Cet email tient lieu de facture. Aucune signature requise.' },
         ar: { invoice: 'فاتورة', issuedOn: 'صدرت في', billedTo: 'فاتورة إلى', items: 'المنتجات', product: 'المنتج', qty: 'الكمية', unitPrice: 'سعر الوحدة', lineTotal: 'الإجمالي', subtotal: 'المجموع الفرعي', volumeDiscount: 'خصم الكمية', couponDiscount: 'كود الخصم', delivery: 'التوصيل', total: 'الإجمالي', paymentMethod: 'طريقة الدفع', cod: 'الدفع عند الاستلام', paid: 'مدفوع', shopName: 'سمارت سويقة', footer: 'هذا البريد بمثابة فاتورة. لا حاجة لتوقيع.' },
         en: { invoice: 'INVOICE', issuedOn: 'Issued on', billedTo: 'BILLED TO', items: 'ITEMS', product: 'Product', qty: 'Qty', unitPrice: 'Unit price', lineTotal: 'Total', subtotal: 'Subtotal', volumeDiscount: 'Volume discount', couponDiscount: 'Coupon code', delivery: 'Delivery', total: 'TOTAL', paymentMethod: 'Payment method', cod: 'Cash on delivery', paid: 'Paid', shopName: 'SMART SWI9A', footer: 'This email serves as an invoice. No signature required.' }
     };
     const l = labels[lang] || labels.fr;
-    
     const clientName = escapeHTML(order.deliveryAddress?.name || '—');
     const clientPhone = escapeHTML(order.deliveryAddress?.phone || '');
     const clientAddress = escapeHTML(order.deliveryAddress?.address || '');
     const clientCity = escapeHTML(getCityName({ name: order.deliveryAddress?.cityAr || order.deliveryAddress?.city, nameFr: order.deliveryAddress?.cityFr, nameAr: order.deliveryAddress?.cityAr }));
     const clientEmail = escapeHTML(order.deliveryAddress?.email || order.userEmail || '');
-
     const itemsHtml = (order.items || []).map(item => {
         const itemName = escapeHTML(item.name || 'Produit');
         const variantText = item.variant ? `<br><span style="font-size:11px;color:#a57b2e;">(${[item.variant.size, item.variant.color].filter(Boolean).join(' - ')})</span>` : '';
         const qty = Number(item.quantity) || 1;
         const price = Number(item.price) || 0;
-        return `
-            <tr>
-                <td style="padding:10px 8px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#1a1a2e;text-align:${align};">${itemName}${variantText}</td>
-                <td style="padding:10px 8px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#5c5c5c;text-align:center;">${qty}</td>
-                <td style="padding:10px 8px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#5c5c5c;text-align:${isRtl ? 'left' : 'right'};">${price} MAD</td>
-                <td style="padding:10px 8px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#a57b2e;font-weight:700;text-align:${isRtl ? 'left' : 'right'};">${price * qty} MAD</td>
-            </tr>
-        `;
+        return `<tr><td style="padding:10px 8px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#1a1a2e;text-align:${align};">${itemName}${variantText}</td><td style="padding:10px 8px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#5c5c5c;text-align:center;">${qty}</td><td style="padding:10px 8px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#5c5c5c;text-align:${isRtl ? 'left' : 'right'};">${price} MAD</td><td style="padding:10px 8px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#a57b2e;font-weight:700;text-align:${isRtl ? 'left' : 'right'};">${price * qty} MAD</td></tr>`;
     }).join('');
-
     const subtotal = Number(order.subtotal) || 0;
     const volumeDiscount = Number(order.discount) || 0;
     const couponDiscount = Number(order.couponDiscount) || 0;
     const couponCode = order.couponCode ? escapeHTML(order.couponCode) : '';
     const deliveryFee = Number(order.deliveryFee) || 0;
     const total = Number(order.total) || 0;
-
     const rowsTotals = [];
     rowsTotals.push(`<tr><td style="padding:6px 8px;font-size:13px;color:#5c5c5c;text-align:${align};">${l.subtotal}</td><td style="padding:6px 8px;font-size:13px;color:#1a1a2e;font-weight:600;text-align:${isRtl ? 'left' : 'right'};">${subtotal} MAD</td></tr>`);
     if (volumeDiscount > 0) rowsTotals.push(`<tr><td style="padding:6px 8px;font-size:13px;color:#2ecc71;text-align:${align};">🎉 ${l.volumeDiscount}</td><td style="padding:6px 8px;font-size:13px;color:#2ecc71;font-weight:600;text-align:${isRtl ? 'left' : 'right'};">−${volumeDiscount} MAD</td></tr>`);
     if (couponDiscount > 0 && couponCode) rowsTotals.push(`<tr><td style="padding:6px 8px;font-size:13px;color:#2ecc71;text-align:${align};">🎟️ ${l.couponDiscount} <strong style="color:#a57b2e;">${couponCode}</strong></td><td style="padding:6px 8px;font-size:13px;color:#2ecc71;font-weight:600;text-align:${isRtl ? 'left' : 'right'};">−${couponDiscount} MAD</td></tr>`);
     rowsTotals.push(`<tr><td style="padding:6px 8px;font-size:13px;color:#5c5c5c;text-align:${align};">🚚 ${l.delivery}</td><td style="padding:6px 8px;font-size:13px;color:#1a1a2e;font-weight:600;text-align:${isRtl ? 'left' : 'right'};">${deliveryFee} MAD</td></tr>`);
-
-    return `
-<!DOCTYPE html>
-<html dir="${dir}" lang="${lang}">
-<head><meta charset="UTF-8"><title>${l.invoice} ${invoiceNum}</title></head>
-<body style="margin:0;padding:0;background:#f8f6f2;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;direction:${dir};">
-<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f8f6f2;padding:20px 0;"><tr><td align="center">
-<table width="600" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.08);max-width:600px;width:100%;">
-    <tr><td style="background:linear-gradient(135deg,#a57b2e 0%,#7d5a1d 100%);padding:24px 30px;"><table width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="text-align:${align};"><div style="font-family:Georgia,serif;font-size:22px;font-weight:700;color:#ffffff;letter-spacing:2px;">${l.shopName}</div></td><td style="text-align:${isRtl ? 'left' : 'right'};"><div style="font-size:11px;color:rgba(255,255,255,0.85);">${l.invoice}</div><div style="font-size:18px;font-weight:800;color:#ffffff;font-family:'Courier New',monospace;">${invoiceNum}</div></td></tr></table></td></tr>
-    <tr><td style="padding:24px 30px 12px;"><table width="100%"><tr><td style="text-align:${align};"><div style="font-size:11px;color:#a57b2e;font-weight:700;margin-bottom:8px;">${l.billedTo}</div><div style="font-size:15px;font-weight:700;color:#1a1a2e;">${clientName}</div>${clientPhone ? `<div style="font-size:13px;color:#5c5c5c;">📞 ${clientPhone}</div>` : ''}${clientAddress ? `<div style="font-size:13px;color:#5c5c5c;">📍 ${clientAddress}</div>` : ''}${clientCity ? `<div style="font-size:13px;color:#5c5c5c;">🏙️ ${clientCity}</div>` : ''}${clientEmail ? `<div style="font-size:13px;color:#5c5c5c;">✉️ ${clientEmail}</div>` : ''}</td></tr></table></td></tr>
-    <tr><td style="padding:12px 30px;"><div style="font-size:11px;color:#a57b2e;font-weight:700;margin-bottom:8px;text-align:${align};">${l.items}</div><table width="100%" style="border:1px solid #f0f0f0;border-radius:8px;overflow:hidden;"><thead><tr style="background:#faf8f3;"><th style="padding:10px;text-align:${align};">${l.product}</th><th style="padding:10px;text-align:center;">${l.qty}</th><th style="padding:10px;text-align:${isRtl ? 'left' : 'right'};">${l.unitPrice}</th><th style="padding:10px;text-align:${isRtl ? 'left' : 'right'};">${l.lineTotal}</th></tr></thead><tbody>${itemsHtml}</tbody></table></td></tr>
-    <tr><td style="padding:12px 30px 20px;"><table width="100%" style="max-width:320px;margin-${isRtl ? 'right' : 'left'}:auto;">${rowsTotals.join('')}<tr><td colspan="2" style="padding:4px 8px;"><div style="height:1px;background:#f0f0f0;"></div></td></tr><tr><td style="padding:12px 8px 8px;font-size:15px;font-weight:800;text-align:${align};">${l.total}</td><td style="padding:12px 8px 8px;font-size:18px;color:#a57b2e;font-weight:800;text-align:${isRtl ? 'left' : 'right'};">${total} MAD</td></tr></table></td></tr>
-    <tr><td style="padding:0 30px 20px;"><table width="100%" style="background:#e8f8f0;border-left:4px solid #2ecc71;border-radius:6px;"><tr><td style="padding:12px 16px;text-align:${align};"><div style="font-size:11px;color:#2ecc71;font-weight:700;">${l.paymentMethod}</div><div style="font-size:14px;color:#1a1a2e;font-weight:700;">✅ ${l.cod} — ${l.paid}</div></td></tr></table></td></tr>
-    <tr><td style="background:#faf8f3;padding:16px 30px;text-align:center;border-top:1px solid #f0f0f0;"><div style="font-size:11px;color:#9a9a9a;line-height:1.6;">${l.footer}</div><div style="font-size:10px;color:#b5b5b5;margin-top:6px;">© ${new Date().getFullYear()} ${l.shopName} 🇲🇦</div></td></tr>
-</table>
-</td></tr></table>
-</body>
-</html>
-    `;
+    return `<!DOCTYPE html><html dir="${dir}" lang="${lang}"><head><meta charset="UTF-8"><title>${l.invoice} ${invoiceNum}</title></head><body style="margin:0;padding:0;background:#f8f6f2;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;direction:${dir};"><table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f8f6f2;padding:20px 0;"><tr><td align="center"><table width="600" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.08);max-width:600px;width:100%;"><tr><td style="background:linear-gradient(135deg,#a57b2e 0%,#7d5a1d 100%);padding:24px 30px;"><table width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="text-align:${align};"><div style="font-family:Georgia,serif;font-size:22px;font-weight:700;color:#ffffff;letter-spacing:2px;">${l.shopName}</div></td><td style="text-align:${isRtl ? 'left' : 'right'};"><div style="font-size:11px;color:rgba(255,255,255,0.85);">${l.invoice}</div><div style="font-size:18px;font-weight:800;color:#ffffff;font-family:'Courier New',monospace;">${invoiceNum}</div></td></tr></table></td></tr><tr><td style="padding:24px 30px 12px;"><table width="100%"><tr><td style="text-align:${align};"><div style="font-size:11px;color:#a57b2e;font-weight:700;margin-bottom:8px;">${l.billedTo}</div><div style="font-size:15px;font-weight:700;color:#1a1a2e;">${clientName}</div>${clientPhone ? `<div style="font-size:13px;color:#5c5c5c;">📞 ${clientPhone}</div>` : ''}${clientAddress ? `<div style="font-size:13px;color:#5c5c5c;">📍 ${clientAddress}</div>` : ''}${clientCity ? `<div style="font-size:13px;color:#5c5c5c;">🏙️ ${clientCity}</div>` : ''}${clientEmail ? `<div style="font-size:13px;color:#5c5c5c;">✉️ ${clientEmail}</div>` : ''}</td></tr></table></td></tr><tr><td style="padding:12px 30px;"><div style="font-size:11px;color:#a57b2e;font-weight:700;margin-bottom:8px;text-align:${align};">${l.items}</div><table width="100%" style="border:1px solid #f0f0f0;border-radius:8px;overflow:hidden;"><thead><tr style="background:#faf8f3;"><th style="padding:10px;text-align:${align};">${l.product}</th><th style="padding:10px;text-align:center;">${l.qty}</th><th style="padding:10px;text-align:${isRtl ? 'left' : 'right'};">${l.unitPrice}</th><th style="padding:10px;text-align:${isRtl ? 'left' : 'right'};">${l.lineTotal}</th></tr></thead><tbody>${itemsHtml}</tbody></table></td></tr><tr><td style="padding:12px 30px 20px;"><table width="100%" style="max-width:320px;margin-${isRtl ? 'right' : 'left'}:auto;">${rowsTotals.join('')}<tr><td colspan="2" style="padding:4px 8px;"><div style="height:1px;background:#f0f0f0;"></div></td></tr><tr><td style="padding:12px 8px 8px;font-size:15px;font-weight:800;text-align:${align};">${l.total}</td><td style="padding:12px 8px 8px;font-size:18px;color:#a57b2e;font-weight:800;text-align:${isRtl ? 'left' : 'right'};">${total} MAD</td></tr></table></td></tr><tr><td style="padding:0 30px 20px;"><table width="100%" style="background:#e8f8f0;border-left:4px solid #2ecc71;border-radius:6px;"><tr><td style="padding:12px 16px;text-align:${align};"><div style="font-size:11px;color:#2ecc71;font-weight:700;">${l.paymentMethod}</div><div style="font-size:14px;color:#1a1a2e;font-weight:700;">✅ ${l.cod} — ${l.paid}</div></td></tr></table></td></tr><tr><td style="background:#faf8f3;padding:16px 30px;text-align:center;border-top:1px solid #f0f0f0;"><div style="font-size:11px;color:#9a9a9a;line-height:1.6;">${l.footer}</div><div style="font-size:10px;color:#b5b5b5;margin-top:6px;">© ${new Date().getFullYear()} ${l.shopName} 🇲🇦</div></td></tr></table></td></tr></table></body></html>`;
 }
 
 function buildInvoiceText(order, recipient, lang = 'fr') {
@@ -351,7 +303,6 @@ export async function sendOrderEmail(order, status, recipient) {
         cancelled: { client: true,  admin: false }
     };
     if (!emailConfig[status]?.[recipient]) return { skipped: true };
-
     let toEmail, toName;
     if (recipient === 'admin') {
         toEmail = CONFIG.SHOP.EMAIL;
@@ -361,16 +312,13 @@ export async function sendOrderEmail(order, status, recipient) {
         toName = order.deliveryAddress?.name || 'Client';
     }
     if (!toEmail || !toEmail.includes('@')) return { skipped: true, reason: 'no_email' };
-
     const lang = recipient === 'client' ? await getUserLangById(order.userId) : 'fr';
-
     if (status === 'delivered') {
         const subject = buildInvoiceSubject(order, recipient, lang);
         const html = buildInvoiceHtml(order, recipient, lang);
         const text = buildInvoiceText(order, recipient, lang);
         return await sendEmailViaEmailJS(toEmail, toName, subject, html, text);
     }
-
     const subject = buildOrderEmailSubject(status, recipient, order.id, lang);
     const html = buildOrderEmailHtml(order, status, recipient, lang);
     const text = buildOrderEmailText(order, status, recipient, lang);
@@ -391,10 +339,14 @@ function cleanMoroccanPhone(phone) {
 // 🚀 SPEEDAF — CREATE ORDER (Guard mode test)
 // ============================================================
 export async function sendToSpeedafAPI(order) {
-    // 🧪 MODE TEST
+    // 🧪 MODE TEST : ZÉRO appel réseau
     if (isTestMode()) {
-        console.log('🧪 [TEST] sendToSpeedafAPI MOCK');
-        return { success: true, trackingNumber: "TEST-" + Date.now(), labelUrl: null };
+        console.log('🧪 [TEST] sendToSpeedafAPI MOCK — aucun appel Speedaf');
+        return {
+            success: true,
+            trackingNumber: "TEST-" + Date.now(),
+            labelUrl: null
+        };
     }
 
     try {
@@ -415,7 +367,7 @@ export async function sendToSpeedafAPI(order) {
                 goodsType: "IT01",
                 goodsWeight: String((itemWeightGrams / 1000).toFixed(3)),
                 goodsUrl: "",
-                blnSure: 0,
+                blInsure: 0,    // ✅ CORRECTION ICI (avec un I majuscule)
                 battery: 0
             };
         });
@@ -484,7 +436,6 @@ export async function sendToSpeedafAPI(order) {
         if (data.error) {
             if (typeof data.error === 'string') errorMsg = data.error;
             else if (data.error.message) errorMsg = data.error.message;
-            else if (data.error.error) errorMsg = data.error.error;
             else if (data.error.errorCode) errorMsg = "Code: " + data.error.errorCode;
             else errorMsg = JSON.stringify(data.error);
         } else if (data.errorCode) {
@@ -503,10 +454,12 @@ export async function sendToSpeedafAPI(order) {
 // 🚀 SPEEDAF — CANCEL (Guard mode test)
 // ============================================================
 export async function cancelSpeedafShipment(trackingNumber) {
+    // 🧪 MODE TEST : ZÉRO appel réseau
     if (isTestMode()) {
-        console.log('🧪 [TEST] cancelSpeedafShipment MOCK');
+        console.log('🧪 [TEST] cancelSpeedafShipment MOCK — aucun appel Speedaf');
         return true;
     }
+
     if (!trackingNumber) return false;
     try {
         const response = await fetch(`${SPEEDAF_API_CONFIG.BASE_URL}/cancel-order`, {
@@ -522,8 +475,12 @@ export async function cancelSpeedafShipment(trackingNumber) {
             })
         });
         const data = await response.json();
+        console.log('📨 Speedaf cancel response:', data);
         const cancelResult = data?.data?.[0];
-        if (cancelResult && cancelResult.success === true) return true;
+        if (cancelResult && cancelResult.success === true) {
+            return true;
+        }
+        console.warn("⚠️ Échec annulation Speedaf:", cancelResult?.message);
         return false;
     } catch (error) {
         console.error("❌ Erreur annulation Speedaf:", error);
@@ -535,8 +492,9 @@ export async function cancelSpeedafShipment(trackingNumber) {
 // 🚀 SPEEDAF — SYNC STATUS (Guard mode test)
 // ============================================================
 export async function syncSpeedafStatus(orderId) {
+    // 🧪 MODE TEST : ZÉRO appel réseau
     if (isTestMode()) {
-        console.log('🧪 [TEST] syncSpeedafStatus MOCK');
+        console.log('🧪 [TEST] syncSpeedafStatus MOCK — aucun appel Speedaf');
         return { success: true, updated: false, currentStatus: "test_mode_no_sync" };
     }
 
@@ -555,8 +513,12 @@ export async function syncSpeedafStatus(orderId) {
         });
 
         const data = await response.json();
+        console.log('📨 Speedaf track response:', data);
+
         const tracks = data?.data?.[0]?.tracks || [];
-        if (tracks.length === 0) return { success: true, updated: false, currentStatus: "no_tracks" };
+        if (tracks.length === 0) {
+            return { success: true, updated: false, currentStatus: "no_tracks" };
+        }
 
         const latest = tracks[tracks.length - 1];
         const action = String(latest.action || "").trim();
@@ -725,7 +687,7 @@ export async function updateOrderStatus(orderId, newStatus) {
                     orderForEmail.speedafTracking = spdResult.trackingNumber;
                     showToast(`✅ Colis créé chez Speedaf (Suivi: ${spdResult.trackingNumber})`);
                 } else {
-                    showToast(`⚠️ Speedaf a refusé la commande : ${spdResult.error}`, 6000);
+                    showToast(`⚠️ Speedaf a refusé la commande : ${spdResult.error}`, 4000);
                 }
             }
         }
@@ -1276,4 +1238,4 @@ export async function openOrderDetails(orderId, isAdmin = false) {
     }
 }
 
-console.log('✅ orders.js chargé — v5.1.0 (Fix blnSure + erreurs claires)');
+console.log('✅ orders.js chargé — v5.2.0 (Fix blInsure + Poids KG)');
