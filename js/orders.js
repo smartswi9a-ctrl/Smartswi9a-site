@@ -1,7 +1,7 @@
 // js/orders.js
 // ============================================================
 // GESTION DES COMMANDES - SMART SWI9A
-// Version 5.2.0 — Fix blInsure + Conversion poids + Guards Test
+// Version 5.2.0 — Fix types de données Speedaf (blInsure, battery)
 // ============================================================
 
 import {
@@ -199,9 +199,6 @@ function buildOrderEmailHtml(order, status, recipient, lang = 'fr') {
     `;
 }
 
-// ============================================================
-// FACTURE HTML
-// ============================================================
 function getInvoiceNumber(order) { return 'INV-' + String(order.id || '').slice(0, 8).toUpperCase(); }
 
 function buildInvoiceSubject(order, recipient, lang = 'fr') {
@@ -350,9 +347,12 @@ export async function sendToSpeedafAPI(order) {
     }
 
     try {
-        if (!order || !order.deliveryAddress) throw new Error("Données invalides");
+        if (!order || !order.deliveryAddress) {
+            throw new Error("Données de commande invalides");
+        }
         const addr = order.deliveryAddress;
 
+        // ✅ Calcul du poids total en KG
         let totalWeightGrams = 0;
         const itemList = (order.items || []).map(item => {
             const itemWeightGrams = Number(item.weight) || 500; 
@@ -364,11 +364,11 @@ export async function sendToSpeedafAPI(order) {
                 goodsQTY: Number(item.quantity) || 1,
                 goodsValue: String(item.price || 0),
                 currencyType: "MAD",
-                goodsType: "IT01",
+                goodsType: "IT02", // IT02 selon l'exemple du PDF
                 goodsWeight: String((itemWeightGrams / 1000).toFixed(3)),
                 goodsUrl: "",
-                blInsure: 0,    // ✅ CORRECTION ICI (avec un I majuscule)
-                battery: 0
+                blInsure: "0",    // ✅ String "0"
+                battery: "0"      // ✅ String "0"
             };
         });
 
@@ -386,8 +386,8 @@ export async function sendToSpeedafAPI(order) {
                 deliveryType: "DE01",
                 transportType: "TT01",
                 shipType: "ST01",
-                payMethod: "PA01",
-                isAllowOpen: 0,
+                payMethod: "PA02",    // PA02 selon l'exemple du PDF
+                isAllowOpen: "0",     // ✅ String "0"
                 
                 acceptName: String(addr.name || 'Client').slice(0, 100),
                 acceptMobile: cleanMoroccanPhone(addr.phone),
@@ -408,12 +408,12 @@ export async function sendToSpeedafAPI(order) {
                 sendCityName: "Casablanca",
                 sendDistrictName: "Casablanca",
                 
-                parcelWeight: parcelWeightKg,
+                parcelWeight: String(parcelWeightKg), // ✅ String selon l'exemple du PDF
                 piece: 1,
                 goodsQTY: order.items?.reduce((s, i) => s + Number(i.quantity || 0), 0) || 1,
                 codFee: String(order.total),
                 currencyType: "MAD",
-                pickUpAging: 0,
+                pickUpAging: "0",
                 remark: "Commande Smart Swi9a",
                 itemList: itemList
             }
@@ -429,7 +429,11 @@ export async function sendToSpeedafAPI(order) {
         console.log('📨 Speedaf create response:', JSON.stringify(data, null, 2));
 
         if (data.success && data.data && data.data.billCode) {
-            return { success: true, trackingNumber: data.data.billCode, labelUrl: data.data.labelUrl || null };
+            return {
+                success: true,
+                trackingNumber: data.data.billCode,
+                labelUrl: data.data.labelUrl || null
+            };
         }
 
         let errorMsg = "Erreur inconnue";
@@ -442,7 +446,10 @@ export async function sendToSpeedafAPI(order) {
             errorMsg = "Code: " + data.errorCode;
         }
 
-        return { success: false, error: errorMsg };
+        return {
+            success: false,
+            error: errorMsg
+        };
 
     } catch (error) {
         console.error("❌ Erreur Speedaf create:", error);
@@ -451,12 +458,11 @@ export async function sendToSpeedafAPI(order) {
 }
 
 // ============================================================
-// 🚀 SPEEDAF — CANCEL (Guard mode test)
+// 🚀 SPEEDAF — CANCEL
 // ============================================================
 export async function cancelSpeedafShipment(trackingNumber) {
-    // 🧪 MODE TEST : ZÉRO appel réseau
     if (isTestMode()) {
-        console.log('🧪 [TEST] cancelSpeedafShipment MOCK — aucun appel Speedaf');
+        console.log('🧪 [TEST] cancelSpeedafShipment MOCK');
         return true;
     }
 
@@ -475,26 +481,22 @@ export async function cancelSpeedafShipment(trackingNumber) {
             })
         });
         const data = await response.json();
-        console.log('📨 Speedaf cancel response:', data);
         const cancelResult = data?.data?.[0];
         if (cancelResult && cancelResult.success === true) {
             return true;
         }
-        console.warn("⚠️ Échec annulation Speedaf:", cancelResult?.message);
         return false;
     } catch (error) {
-        console.error("❌ Erreur annulation Speedaf:", error);
         return false;
     }
 }
 
 // ============================================================
-// 🚀 SPEEDAF — SYNC STATUS (Guard mode test)
+// 🚀 SPEEDAF — SYNC STATUS
 // ============================================================
 export async function syncSpeedafStatus(orderId) {
-    // 🧪 MODE TEST : ZÉRO appel réseau
     if (isTestMode()) {
-        console.log('🧪 [TEST] syncSpeedafStatus MOCK — aucun appel Speedaf');
+        console.log('🧪 [TEST] syncSpeedafStatus MOCK');
         return { success: true, updated: false, currentStatus: "test_mode_no_sync" };
     }
 
@@ -513,8 +515,6 @@ export async function syncSpeedafStatus(orderId) {
         });
 
         const data = await response.json();
-        console.log('📨 Speedaf track response:', data);
-
         const tracks = data?.data?.[0]?.tracks || [];
         if (tracks.length === 0) {
             return { success: true, updated: false, currentStatus: "no_tracks" };
@@ -535,15 +535,13 @@ export async function syncSpeedafStatus(orderId) {
         return { success: true, updated: false, currentStatus: latest.actionName || action };
 
     } catch (error) {
-        console.error("Erreur syncSpeedaf:", error);
         return { success: false, error: error.message };
     }
 }
 
 // ============================================================
-// CACHES
+// CACHES & PAGINATION
 // ============================================================
-let userOrdersCache = [];
 let adminOrdersCache = [];
 const ADMIN_PAGE_SIZE = 20;
 let adminLastVisible = null;
@@ -551,7 +549,7 @@ let adminHasMore = true;
 let adminLoading = false;
 
 // ============================================================
-// HELPER : Décrémenter le stock (Transaction)
+// STOCK HELPERS
 // ============================================================
 async function deductStockInTransaction(transaction, order, productSnaps, productRefs) {
     productSnaps.forEach((snap, i) => {
@@ -910,9 +908,6 @@ export async function renderAdminOrders(containerId = 'ordersList') {
     }
 }
 
-// ============================================================
-// CHARGER LES COMMANDES (Pagination Admin)
-// ============================================================
 export async function loadAllOrders(reset = false) {
     if (reset) { adminLastVisible = null; adminHasMore = true; adminOrdersCache = []; }
     if (adminLoading || !adminHasMore) return { orders: adminOrdersCache, hasMore: adminHasMore };
@@ -1238,4 +1233,4 @@ export async function openOrderDetails(orderId, isAdmin = false) {
     }
 }
 
-console.log('✅ orders.js chargé — v5.2.0 (Fix blInsure + Poids KG)');
+console.log('✅ orders.js chargé — v5.2.0 (Fix types de données Speedaf)');
