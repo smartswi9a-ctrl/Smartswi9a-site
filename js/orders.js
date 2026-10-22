@@ -1,7 +1,7 @@
 // js/orders.js
 // ============================================================
 // GESTION DES COMMANDES - SMART SWI9A
-// Version 4.4.2 — Ajout de logs de débogage pour Firestore
+// Version 5.0.0 — Mode Test guards + intégration Worker Speedaf
 // ============================================================
 
 import {
@@ -12,7 +12,8 @@ import {
 import { db } from "./firebase.js";
 import {
     CONFIG, ORDER_STATUS, normalizeOrderStatus, NOTIFICATION_TYPES,
-    canReturnOrder, getReturnedQuantities, isFullReturn
+    canReturnOrder, getReturnedQuantities, isFullReturn,
+    isTestMode, APP_MODE
 } from "./config.js";
 import {
     t, escapeHTML, formatDateTime,
@@ -26,12 +27,10 @@ import { showToast, confirmAction } from "./ui-core.js";
 import { cancelOrder, loadUserOrders } from "./cart.js";
 
 // ============================================================
-// 🚀 CONFIGURATION SPEEDAF (Via Cloudflare Worker Proxy)
+// 🚀 CONFIGURATION SPEEDAF (Via Worker Cloudflare)
 // ============================================================
 const SPEEDAF_API_CONFIG = {
-    BASE_URL: "https://speedaf-proxy.smartswi9a.workers.dev", 
-    API_KEY: "CACHEE_SUR_CLOUDFLARE", 
-    AUTH_HEADER: "Authorization" 
+    BASE_URL: "https://speedaf-proxy.smartswi9a.workers.dev"
 };
 
 // ============================================================
@@ -44,7 +43,7 @@ const EMAILJS = {
 };
 
 // ============================================================
-// HELPER : Chargement dynamique du SDK EmailJS
+// HELPERS EMAILJS
 // ============================================================
 let emailjsSDK = null;
 async function getEmailJS() {
@@ -78,9 +77,6 @@ async function sendEmailViaEmailJS(toEmail, toName, subject, htmlContent, textCo
     }
 }
 
-// ============================================================
-// HELPERS EMAIL / LANGUE
-// ============================================================
 async function getUserLangById(userId) {
     if (!userId) return getLang() || 'fr';
     try {
@@ -131,7 +127,6 @@ function buildOrderEmailText(order, status, recipient, lang = 'fr') {
     const shortId = String(order.id).slice(0, 8).toUpperCase();
     const name = order.deliveryAddress?.name || '—';
     const city = getCityName({ name: order.deliveryAddress?.cityAr || order.deliveryAddress?.city, nameFr: order.deliveryAddress?.cityFr, nameAr: order.deliveryAddress?.cityAr });
-    
     const greetings = { fr: 'Bonjour', ar: 'مرحباً', en: 'Hello' };
     const thanks = { fr: `Merci pour votre commande #${shortId} !`, ar: `شكراً على طلبك #${shortId}!`, en: `Thank you for your order #${shortId}!` };
     const confirmed = { fr: `Bonne nouvelle ! Votre commande #${shortId} est confirmée.`, ar: `خبر سار! طلبك #${shortId} مؤكد.`, en: `Good news! Your order #${shortId} is confirmed.` };
@@ -140,12 +135,9 @@ function buildOrderEmailText(order, status, recipient, lang = 'fr') {
     const returned = { fr: `Le retour de votre commande #${shortId} a été enregistré.`, ar: `لقد سجلنا إرجاع طلبك #${shortId}.`, en: `Your order #${shortId} return has been recorded.` };
     const cancelled = { fr: `Votre commande #${shortId} a été annulée.`, ar: `تم إلغاء طلبك #${shortId}.`, en: `Your order #${shortId} has been cancelled.` };
     const team = { fr: "L'équipe Smart Swi9a", ar: "فريق سمارت سويقة", en: "Smart Swi9a team" };
-    
     const map = { pending: thanks, confirmed, shipping, delivered, returned, cancelled };
     const message = map[status]?.[lang] || thanks[lang];
-    
-    let text = `${greetings[lang]} ${name},\n\n${message}\n\n`;
-    text += `Articles :\n`;
+    let text = `${greetings[lang]} ${name},\n\n${message}\n\nArticles :\n`;
     (order.items || []).forEach(item => {
         const variantText = item.variant ? ` (${[item.variant.size, item.variant.color].filter(Boolean).join(' - ')})` : '';
         text += `- ${item.name}${variantText} × ${item.quantity} : ${(item.price * item.quantity)} MAD\n`;
@@ -160,16 +152,7 @@ function getItemsHtml(order, align = 'left') {
         const qty = Number(item.quantity) || 1;
         const price = Number(item.price) || 0;
         const variantText = item.variant ? `<br><span style="font-size:12px;color:#a57b2e;">(${[item.variant.size, item.variant.color].filter(Boolean).join(' - ')})</span>` : '';
-        return `
-            <tr>
-                <td style="padding:8px 0;border-bottom:1px solid #eee;font-size:14px;text-align:${align};">
-                    ${itemName} × ${qty}${variantText}
-                </td>
-                <td style="padding:8px 0;border-bottom:1px solid #eee;font-size:14px;text-align:${align === 'left' ? 'right' : 'left'};color:#a57b2e;font-weight:bold;">
-                    ${price * qty} MAD
-                </td>
-            </tr>
-        `;
+        return `<tr><td style="padding:8px 0;border-bottom:1px solid #eee;font-size:14px;text-align:${align};">${itemName} × ${qty}${variantText}</td><td style="padding:8px 0;border-bottom:1px solid #eee;font-size:14px;text-align:${align === 'left' ? 'right' : 'left'};color:#a57b2e;font-weight:bold;">${price * qty} MAD</td></tr>`;
     }).join('');
 }
 
@@ -177,7 +160,6 @@ function buildOrderEmailHtml(order, status, recipient, lang = 'fr') {
     const shortId = String(order.id).slice(0, 8).toUpperCase();
     const name = order.deliveryAddress?.name || '—';
     const city = getCityName({ name: order.deliveryAddress?.cityAr || order.deliveryAddress?.city, nameFr: order.deliveryAddress?.cityFr, nameAr: order.deliveryAddress?.cityAr });
-    
     const emojis = { pending: '📦', confirmed: '✅', shipping: '🚚', delivered: '🎉', returned: '↩️', cancelled: '❌' };
     const titles = {
         fr: { pending: recipient === 'admin' ? 'Nouvelle commande' : 'Commande reçue', confirmed: 'Commande confirmée', shipping: 'Commande en route', delivered: 'Commande livrée', returned: 'Retour enregistré', cancelled: 'Commande annulée' },
@@ -200,7 +182,6 @@ function buildOrderEmailHtml(order, status, recipient, lang = 'fr') {
     const isRtl = lang === 'ar';
     const align = isRtl ? 'right' : 'left';
     const itemsHtml = getItemsHtml(order, align);
-
     return `
         <div style="text-align:${align};direction:${isRtl ? 'rtl' : 'ltr'};">
             <h2 style="margin:0 0 15px;color:#a57b2e;font-size:20px;font-family:Georgia,serif;">${emojis[status] || '📦'} ${t_[status] || t_.pending}</h2>
@@ -240,66 +221,36 @@ function buildInvoiceHtml(order, recipient, lang = 'fr') {
     const invoiceNum = getInvoiceNumber(order);
     const orderDate = toDate(order.createdAt);
     const invoiceDate = orderDate ? orderDate.toLocaleDateString(isRtl ? 'ar-MA' : (lang === 'en' ? 'en-GB' : 'fr-FR')) : '—';
-
     const labels = {
-        fr: { invoice: 'FACTURE', issuedOn: 'Émise le', billedTo: 'FACTURÉ À', items: 'ARTICLES', product: 'Produit', qty: 'Qté', unitPrice: 'Prix unit.', lineTotal: 'Total', subtotal: 'Sous-total', volumeDiscount: 'Réduction volume', couponDiscount: 'Code promo', delivery: 'Livraison', total: 'TOTAL', paymentMethod: 'Mode de paiement', cod: 'Paiement à la livraison', paid: 'Payé', thanks: 'Merci pour votre confiance !', question: 'Pour toute question, contactez-nous :', shopName: 'SMART SWI9A', footer: 'Cet email tient lieu de facture. Aucune signature requise.' },
-        ar: { invoice: 'فاتورة', issuedOn: 'صدرت في', billedTo: 'فاتورة إلى', items: 'المنتجات', product: 'المنتج', qty: 'الكمية', unitPrice: 'سعر الوحدة', lineTotal: 'الإجمالي', subtotal: 'المجموع الفرعي', volumeDiscount: 'خصم الكمية', couponDiscount: 'كود الخصم', delivery: 'التوصيل', total: 'الإجمالي', paymentMethod: 'طريقة الدفع', cod: 'الدفع عند الاستلام', paid: 'مدفوع', thanks: 'شكراً على ثقتكم!', question: 'لأي استفسار، تواصلوا معنا:', shopName: 'سمارت سويقة', footer: 'هذا البريد بمثابة فاتورة. لا حاجة لتوقيع.' },
-        en: { invoice: 'INVOICE', issuedOn: 'Issued on', billedTo: 'BILLED TO', items: 'ITEMS', product: 'Product', qty: 'Qty', unitPrice: 'Unit price', lineTotal: 'Total', subtotal: 'Subtotal', volumeDiscount: 'Volume discount', couponDiscount: 'Coupon code', delivery: 'Delivery', total: 'TOTAL', paymentMethod: 'Payment method', cod: 'Cash on delivery', paid: 'Paid', thanks: 'Thank you for your trust!', question: 'For any question, contact us:', shopName: 'SMART SWI9A', footer: 'This email serves as an invoice. No signature required.' }
+        fr: { invoice: 'FACTURE', issuedOn: 'Émise le', billedTo: 'FACTURÉ À', items: 'ARTICLES', product: 'Produit', qty: 'Qté', unitPrice: 'Prix unit.', lineTotal: 'Total', subtotal: 'Sous-total', volumeDiscount: 'Réduction volume', couponDiscount: 'Code promo', delivery: 'Livraison', total: 'TOTAL', paymentMethod: 'Mode de paiement', cod: 'Paiement à la livraison', paid: 'Payé', shopName: 'SMART SWI9A', footer: 'Cet email tient lieu de facture. Aucune signature requise.' },
+        ar: { invoice: 'فاتورة', issuedOn: 'صدرت في', billedTo: 'فاتورة إلى', items: 'المنتجات', product: 'المنتج', qty: 'الكمية', unitPrice: 'سعر الوحدة', lineTotal: 'الإجمالي', subtotal: 'المجموع الفرعي', volumeDiscount: 'خصم الكمية', couponDiscount: 'كود الخصم', delivery: 'التوصيل', total: 'الإجمالي', paymentMethod: 'طريقة الدفع', cod: 'الدفع عند الاستلام', paid: 'مدفوع', shopName: 'سمارت سويقة', footer: 'هذا البريد بمثابة فاتورة. لا حاجة لتوقيع.' },
+        en: { invoice: 'INVOICE', issuedOn: 'Issued on', billedTo: 'BILLED TO', items: 'ITEMS', product: 'Product', qty: 'Qty', unitPrice: 'Unit price', lineTotal: 'Total', subtotal: 'Subtotal', volumeDiscount: 'Volume discount', couponDiscount: 'Coupon code', delivery: 'Delivery', total: 'TOTAL', paymentMethod: 'Payment method', cod: 'Cash on delivery', paid: 'Paid', shopName: 'SMART SWI9A', footer: 'This email serves as an invoice. No signature required.' }
     };
     const l = labels[lang] || labels.fr;
-    
     const clientName = escapeHTML(order.deliveryAddress?.name || '—');
     const clientPhone = escapeHTML(order.deliveryAddress?.phone || '');
     const clientAddress = escapeHTML(order.deliveryAddress?.address || '');
     const clientCity = escapeHTML(getCityName({ name: order.deliveryAddress?.cityAr || order.deliveryAddress?.city, nameFr: order.deliveryAddress?.cityFr, nameAr: order.deliveryAddress?.cityAr }));
     const clientEmail = escapeHTML(order.deliveryAddress?.email || order.userEmail || '');
-
     const itemsHtml = (order.items || []).map(item => {
         const itemName = escapeHTML(item.name || 'Produit');
         const variantText = item.variant ? `<br><span style="font-size:11px;color:#a57b2e;">(${[item.variant.size, item.variant.color].filter(Boolean).join(' - ')})</span>` : '';
         const qty = Number(item.quantity) || 1;
         const price = Number(item.price) || 0;
-        return `
-            <tr>
-                <td style="padding:10px 8px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#1a1a2e;text-align:${align};">${itemName}${variantText}</td>
-                <td style="padding:10px 8px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#5c5c5c;text-align:center;">${qty}</td>
-                <td style="padding:10px 8px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#5c5c5c;text-align:${isRtl ? 'left' : 'right'};">${price} MAD</td>
-                <td style="padding:10px 8px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#a57b2e;font-weight:700;text-align:${isRtl ? 'left' : 'right'};">${price * qty} MAD</td>
-            </tr>
-        `;
+        return `<tr><td style="padding:10px 8px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#1a1a2e;text-align:${align};">${itemName}${variantText}</td><td style="padding:10px 8px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#5c5c5c;text-align:center;">${qty}</td><td style="padding:10px 8px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#5c5c5c;text-align:${isRtl ? 'left' : 'right'};">${price} MAD</td><td style="padding:10px 8px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#a57b2e;font-weight:700;text-align:${isRtl ? 'left' : 'right'};">${price * qty} MAD</td></tr>`;
     }).join('');
-
     const subtotal = Number(order.subtotal) || 0;
     const volumeDiscount = Number(order.discount) || 0;
     const couponDiscount = Number(order.couponDiscount) || 0;
     const couponCode = order.couponCode ? escapeHTML(order.couponCode) : '';
     const deliveryFee = Number(order.deliveryFee) || 0;
     const total = Number(order.total) || 0;
-
     const rowsTotals = [];
     rowsTotals.push(`<tr><td style="padding:6px 8px;font-size:13px;color:#5c5c5c;text-align:${align};">${l.subtotal}</td><td style="padding:6px 8px;font-size:13px;color:#1a1a2e;font-weight:600;text-align:${isRtl ? 'left' : 'right'};">${subtotal} MAD</td></tr>`);
     if (volumeDiscount > 0) rowsTotals.push(`<tr><td style="padding:6px 8px;font-size:13px;color:#2ecc71;text-align:${align};">🎉 ${l.volumeDiscount}</td><td style="padding:6px 8px;font-size:13px;color:#2ecc71;font-weight:600;text-align:${isRtl ? 'left' : 'right'};">−${volumeDiscount} MAD</td></tr>`);
     if (couponDiscount > 0 && couponCode) rowsTotals.push(`<tr><td style="padding:6px 8px;font-size:13px;color:#2ecc71;text-align:${align};">🎟️ ${l.couponDiscount} <strong style="color:#a57b2e;">${couponCode}</strong></td><td style="padding:6px 8px;font-size:13px;color:#2ecc71;font-weight:600;text-align:${isRtl ? 'left' : 'right'};">−${couponDiscount} MAD</td></tr>`);
     rowsTotals.push(`<tr><td style="padding:6px 8px;font-size:13px;color:#5c5c5c;text-align:${align};">🚚 ${l.delivery}</td><td style="padding:6px 8px;font-size:13px;color:#1a1a2e;font-weight:600;text-align:${isRtl ? 'left' : 'right'};">${deliveryFee} MAD</td></tr>`);
-
-    return `
-<!DOCTYPE html>
-<html dir="${dir}" lang="${lang}">
-<head><meta charset="UTF-8"><title>${l.invoice} ${invoiceNum}</title></head>
-<body style="margin:0;padding:0;background:#f8f6f2;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;direction:${dir};">
-<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f8f6f2;padding:20px 0;"><tr><td align="center">
-<table width="600" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.08);max-width:600px;width:100%;">
-    <tr><td style="background:linear-gradient(135deg,#a57b2e 0%,#7d5a1d 100%);padding:24px 30px;"><table width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="text-align:${align};"><div style="font-family:Georgia,serif;font-size:22px;font-weight:700;color:#ffffff;letter-spacing:2px;">${l.shopName}</div></td><td style="text-align:${isRtl ? 'left' : 'right'};"><div style="font-size:11px;color:rgba(255,255,255,0.85);">${l.invoice}</div><div style="font-size:18px;font-weight:800;color:#ffffff;font-family:'Courier New',monospace;">${invoiceNum}</div></td></tr></table></td></tr>
-    <tr><td style="padding:24px 30px 12px;"><table width="100%"><tr><td style="text-align:${align};"><div style="font-size:11px;color:#a57b2e;font-weight:700;margin-bottom:8px;">${l.billedTo}</div><div style="font-size:15px;font-weight:700;color:#1a1a2e;">${clientName}</div>${clientPhone ? `<div style="font-size:13px;color:#5c5c5c;">📞 ${clientPhone}</div>` : ''}${clientAddress ? `<div style="font-size:13px;color:#5c5c5c;">📍 ${clientAddress}</div>` : ''}${clientCity ? `<div style="font-size:13px;color:#5c5c5c;">🏙️ ${clientCity}</div>` : ''}${clientEmail ? `<div style="font-size:13px;color:#5c5c5c;">✉️ ${clientEmail}</div>` : ''}</td></tr></table></td></tr>
-    <tr><td style="padding:12px 30px;"><div style="font-size:11px;color:#a57b2e;font-weight:700;margin-bottom:8px;text-align:${align};">${l.items}</div><table width="100%" style="border:1px solid #f0f0f0;border-radius:8px;overflow:hidden;"><thead><tr style="background:#faf8f3;"><th style="padding:10px;text-align:${align};">${l.product}</th><th style="padding:10px;text-align:center;">${l.qty}</th><th style="padding:10px;text-align:${isRtl ? 'left' : 'right'};">${l.unitPrice}</th><th style="padding:10px;text-align:${isRtl ? 'left' : 'right'};">${l.lineTotal}</th></tr></thead><tbody>${itemsHtml}</tbody></table></td></tr>
-    <tr><td style="padding:12px 30px 20px;"><table width="100%" style="max-width:320px;margin-${isRtl ? 'right' : 'left'}:auto;">${rowsTotals.join('')}<tr><td colspan="2" style="padding:4px 8px;"><div style="height:1px;background:#f0f0f0;"></div></td></tr><tr><td style="padding:12px 8px 8px;font-size:15px;font-weight:800;text-align:${align};">${l.total}</td><td style="padding:12px 8px 8px;font-size:18px;color:#a57b2e;font-weight:800;text-align:${isRtl ? 'left' : 'right'};">${total} MAD</td></tr></table></td></tr>
-    <tr><td style="padding:0 30px 20px;"><table width="100%" style="background:#e8f8f0;border-left:4px solid #2ecc71;border-radius:6px;"><tr><td style="padding:12px 16px;text-align:${align};"><div style="font-size:11px;color:#2ecc71;font-weight:700;">${l.paymentMethod}</div><div style="font-size:14px;color:#1a1a2e;font-weight:700;">✅ ${l.cod} — ${l.paid}</div></td></tr></table></td></tr>
-    <tr><td style="background:#faf8f3;padding:16px 30px;text-align:center;border-top:1px solid #f0f0f0;"><div style="font-size:11px;color:#9a9a9a;line-height:1.6;">${l.footer}</div><div style="font-size:10px;color:#b5b5b5;margin-top:6px;">© ${new Date().getFullYear()} ${l.shopName} 🇲🇦</div></td></tr>
-</table>
-</td></tr></table>
-</body>
-</html>
-    `;
+    return `<!DOCTYPE html><html dir="${dir}" lang="${lang}"><head><meta charset="UTF-8"><title>${l.invoice} ${invoiceNum}</title></head><body style="margin:0;padding:0;background:#f8f6f2;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;direction:${dir};"><table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f8f6f2;padding:20px 0;"><tr><td align="center"><table width="600" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.08);max-width:600px;width:100%;"><tr><td style="background:linear-gradient(135deg,#a57b2e 0%,#7d5a1d 100%);padding:24px 30px;"><table width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="text-align:${align};"><div style="font-family:Georgia,serif;font-size:22px;font-weight:700;color:#ffffff;letter-spacing:2px;">${l.shopName}</div></td><td style="text-align:${isRtl ? 'left' : 'right'};"><div style="font-size:11px;color:rgba(255,255,255,0.85);">${l.invoice}</div><div style="font-size:18px;font-weight:800;color:#ffffff;font-family:'Courier New',monospace;">${invoiceNum}</div></td></tr></table></td></tr><tr><td style="padding:24px 30px 12px;"><table width="100%"><tr><td style="text-align:${align};"><div style="font-size:11px;color:#a57b2e;font-weight:700;margin-bottom:8px;">${l.billedTo}</div><div style="font-size:15px;font-weight:700;color:#1a1a2e;">${clientName}</div>${clientPhone ? `<div style="font-size:13px;color:#5c5c5c;">📞 ${clientPhone}</div>` : ''}${clientAddress ? `<div style="font-size:13px;color:#5c5c5c;">📍 ${clientAddress}</div>` : ''}${clientCity ? `<div style="font-size:13px;color:#5c5c5c;">🏙️ ${clientCity}</div>` : ''}${clientEmail ? `<div style="font-size:13px;color:#5c5c5c;">✉️ ${clientEmail}</div>` : ''}</td></tr></table></td></tr><tr><td style="padding:12px 30px;"><div style="font-size:11px;color:#a57b2e;font-weight:700;margin-bottom:8px;text-align:${align};">${l.items}</div><table width="100%" style="border:1px solid #f0f0f0;border-radius:8px;overflow:hidden;"><thead><tr style="background:#faf8f3;"><th style="padding:10px;text-align:${align};">${l.product}</th><th style="padding:10px;text-align:center;">${l.qty}</th><th style="padding:10px;text-align:${isRtl ? 'left' : 'right'};">${l.unitPrice}</th><th style="padding:10px;text-align:${isRtl ? 'left' : 'right'};">${l.lineTotal}</th></tr></thead><tbody>${itemsHtml}</tbody></table></td></tr><tr><td style="padding:12px 30px 20px;"><table width="100%" style="max-width:320px;margin-${isRtl ? 'right' : 'left'}:auto;">${rowsTotals.join('')}<tr><td colspan="2" style="padding:4px 8px;"><div style="height:1px;background:#f0f0f0;"></div></td></tr><tr><td style="padding:12px 8px 8px;font-size:15px;font-weight:800;text-align:${align};">${l.total}</td><td style="padding:12px 8px 8px;font-size:18px;color:#a57b2e;font-weight:800;text-align:${isRtl ? 'left' : 'right'};">${total} MAD</td></tr></table></td></tr><tr><td style="padding:0 30px 20px;"><table width="100%" style="background:#e8f8f0;border-left:4px solid #2ecc71;border-radius:6px;"><tr><td style="padding:12px 16px;text-align:${align};"><div style="font-size:11px;color:#2ecc71;font-weight:700;">${l.paymentMethod}</div><div style="font-size:14px;color:#1a1a2e;font-weight:700;">✅ ${l.cod} — ${l.paid}</div></td></tr></table></td></tr><tr><td style="background:#faf8f3;padding:16px 30px;text-align:center;border-top:1px solid #f0f0f0;"><div style="font-size:11px;color:#9a9a9a;line-height:1.6;">${l.footer}</div><div style="font-size:10px;color:#b5b5b5;margin-top:6px;">© ${new Date().getFullYear()} ${l.shopName} 🇲🇦</div></td></tr></table></td></tr></table></body></html>`;
 }
 
 function buildInvoiceText(order, recipient, lang = 'fr') {
@@ -342,9 +293,6 @@ function buildInvoiceText(order, recipient, lang = 'fr') {
     return lines.join('\n');
 }
 
-// ============================================================
-// HELPER : Envoyer l'email complet (client ou admin)
-// ============================================================
 export async function sendOrderEmail(order, status, recipient) {
     const emailConfig = {
         pending:   { client: true,  admin: true  },
@@ -355,7 +303,6 @@ export async function sendOrderEmail(order, status, recipient) {
         cancelled: { client: true,  admin: false }
     };
     if (!emailConfig[status]?.[recipient]) return { skipped: true };
-
     let toEmail, toName;
     if (recipient === 'admin') {
         toEmail = CONFIG.SHOP.EMAIL;
@@ -365,16 +312,13 @@ export async function sendOrderEmail(order, status, recipient) {
         toName = order.deliveryAddress?.name || 'Client';
     }
     if (!toEmail || !toEmail.includes('@')) return { skipped: true, reason: 'no_email' };
-
     const lang = recipient === 'client' ? await getUserLangById(order.userId) : 'fr';
-
     if (status === 'delivered') {
         const subject = buildInvoiceSubject(order, recipient, lang);
         const html = buildInvoiceHtml(order, recipient, lang);
         const text = buildInvoiceText(order, recipient, lang);
         return await sendEmailViaEmailJS(toEmail, toName, subject, html, text);
     }
-
     const subject = buildOrderEmailSubject(status, recipient, order.id, lang);
     const html = buildOrderEmailHtml(order, status, recipient, lang);
     const text = buildOrderEmailText(order, status, recipient, lang);
@@ -382,9 +326,8 @@ export async function sendOrderEmail(order, status, recipient) {
 }
 
 // ============================================================
-// 🚀 LOGIQUE SPEEDAF (API)
+// 🚀 SPEEDAF — HELPERS
 // ============================================================
-
 function cleanMoroccanPhone(phone) {
     if (!phone) return '';
     let cleaned = String(phone).replace(/\D/g, '');
@@ -392,106 +335,193 @@ function cleanMoroccanPhone(phone) {
     return cleaned;
 }
 
+// ============================================================
+// 🚀 SPEEDAF — CREATE ORDER (Guard mode test)
+// ============================================================
 export async function sendToSpeedafAPI(order) {
-    try {
-        if (!order || !order.deliveryAddress) throw new Error("Données de commande invalides");
+    // 🧪 MODE TEST : ZÉRO appel réseau
+    if (isTestMode()) {
+        console.log('🧪 [TEST] sendToSpeedafAPI MOCK — aucun appel Speedaf');
+        return {
+            success: true,
+            trackingNumber: "TEST-" + Date.now(),
+            labelUrl: null
+        };
+    }
 
+    try {
+        if (!order || !order.deliveryAddress) {
+            throw new Error("Données de commande invalides");
+        }
+        const addr = order.deliveryAddress;
+
+        // Payload conforme PDF Speedaf pages 6-10
         const payload = {
-            reference: order.id.slice(0, 8).toUpperCase(),
-            receiver_name: order.deliveryAddress.name,
-            receiver_phone: cleanMoroccanPhone(order.deliveryAddress.phone),
-            receiver_address: order.deliveryAddress.address,
-            city: order.deliveryAddress.city, 
-            cod_amount: order.total,
-            weight: order.totalWeight || 1, 
-            remark: order.deliveryAddress.note || "Commande Smart Swi9a"
+            data: {
+                customOrderNo: String(order.id).slice(0, 8).toUpperCase(),
+                customerCode: "MA000025",
+                platformSource: "Smart Swi9a",
+                parcelType: "PT01",
+                deliveryType: "DE01",
+                transportType: "TT01",
+                shipType: "ST01",
+                payMethod: "PA01",
+                isAllowOpen: 0,
+
+                acceptName: String(addr.name || '').slice(0, 100),
+                acceptPostCode: "",
+                acceptMobile: cleanMoroccanPhone(addr.phone),
+                acceptEmail: addr.email || "client@smartswi9a.top",
+                acceptAddress: String(addr.address || '').slice(0, 500),
+                acceptCountryCode: "MA",
+                acceptCountryName: "Morocco",
+                acceptProvinceName: addr.cityFr || addr.city || "Casablanca",
+                acceptCityName: addr.cityFr || addr.city || "Casablanca",
+                acceptDistrictName: addr.cityFr || addr.city || "Casablanca",
+
+                sendName: "Smart Swi9a",
+                sendAddress: "Casablanca Smart Swi9a Warehouse",
+                sendMobile: "0656613303",
+                sendCountryCode: "MA",
+                sendCountryName: "Morocco",
+                sendProvinceName: "Casablanca",
+                sendCityName: "Casablanca",
+                sendDistrictName: "Casablanca",
+
+                parcelWeight: 100,
+                piece: 1,
+                goodsQTY: order.items?.reduce((s, i) => s + Number(i.quantity || 0), 0) || 1,
+                codFee: Number(order.total) || 0,
+                currencyType: "MAD",
+                pickUpAging: 0,
+                remark: "Commande Smart Swi9a",
+
+                itemList: (order.items || []).map(item => ({
+                    sku: String(item.productId),
+                    goodsName: String(item.name || 'Produit').slice(0, 100),
+                    goodsQTY: Number(item.quantity) || 1,
+                    goodsValue: Number(item.price) || 0,
+                    currencyType: "MAD",
+                    goodsType: "IT01",
+                    goodsWeight: 100,
+                    goodsUrl: "",
+                    blnSure: 0,
+                    battery: 0
+                }))
+            }
         };
 
         const response = await fetch(`${SPEEDAF_API_CONFIG.BASE_URL}/create-order`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                [SPEEDAF_API_CONFIG.AUTH_HEADER]: SPEEDAF_API_CONFIG.API_KEY
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
 
-        if (!response.ok) {
-            const errorData = await response.text();
-            console.error("❌ Erreur API Speedaf:", errorData);
-            return { success: false, error: errorData };
+        const data = await response.json();
+        console.log('📨 Speedaf create response:', data);
+
+        if (data.success && data.data && data.data.billCode) {
+            return {
+                success: true,
+                trackingNumber: data.data.billCode,
+                labelUrl: data.data.labelUrl || null
+            };
         }
 
-        const data = await response.json();
-        console.log("✅ Succès Speedaf:", data);
-        
-        const trackingNumber = data.trackingNumber || data.waybill || data.tracking_number;
-        const labelUrl = data.labelUrl || data.printUrl || data.label_url;
-
-        return { 
-            success: true, 
-            trackingNumber, 
-            labelUrl 
+        return {
+            success: false,
+            error: data.error || ("Speedaf code: " + (data.errorCode || "inconnu"))
         };
 
     } catch (error) {
-        console.error("❌ Erreur réseau Speedaf:", error);
+        console.error("❌ Erreur Speedaf create:", error);
         return { success: false, error: error.message };
     }
 }
 
+// ============================================================
+// 🚀 SPEEDAF — CANCEL (Guard mode test)
+// ============================================================
 export async function cancelSpeedafShipment(trackingNumber) {
+    // 🧪 MODE TEST : ZÉRO appel réseau
+    if (isTestMode()) {
+        console.log('🧪 [TEST] cancelSpeedafShipment MOCK — aucun appel Speedaf');
+        return true;
+    }
+
     if (!trackingNumber) return false;
     try {
         const response = await fetch(`${SPEEDAF_API_CONFIG.BASE_URL}/cancel-order`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                [SPEEDAF_API_CONFIG.AUTH_HEADER]: SPEEDAF_API_CONFIG.API_KEY
-            },
-            body: JSON.stringify({ tracking_number: trackingNumber })
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                data: [{
+                    customerCode: "MA000025",
+                    billCode: trackingNumber,
+                    cancelReason: "Annulation client",
+                    cancelBy: "Smart Swi9a"
+                }]
+            })
         });
-        return response.ok;
+        const data = await response.json();
+        console.log('📨 Speedaf cancel response:', data);
+        const cancelResult = data?.data?.[0];
+        if (cancelResult && cancelResult.success === true) {
+            return true;
+        }
+        console.warn("⚠️ Échec annulation Speedaf:", cancelResult?.message);
+        return false;
     } catch (error) {
-        console.warn("⚠️ Impossible d'annuler le colis chez Speedaf:", error);
+        console.error("❌ Erreur annulation Speedaf:", error);
         return false;
     }
 }
 
+// ============================================================
+// 🚀 SPEEDAF — SYNC STATUS (Guard mode test)
+// ============================================================
 export async function syncSpeedafStatus(orderId) {
+    // 🧪 MODE TEST : ZÉRO appel réseau
+    if (isTestMode()) {
+        console.log('🧪 [TEST] syncSpeedafStatus MOCK — aucun appel Speedaf');
+        return { success: true, updated: false, currentStatus: "test_mode_no_sync" };
+    }
+
     try {
         const orderRef = doc(db, "orders", orderId);
         const snap = await getDoc(orderRef);
         if (!snap.exists()) return { success: false, error: "Commande introuvable" };
-        
+
         const order = snap.data();
         if (!order.speedafTracking) return { success: false, error: "Aucun numéro de suivi" };
 
-        const response = await fetch(`${SPEEDAF_API_CONFIG.BASE_URL}/track/${order.speedafTracking}`, {
-            method: 'GET',
-            headers: {
-                [SPEEDAF_API_CONFIG.AUTH_HEADER]: SPEEDAF_API_CONFIG.API_KEY
-            }
+        const response = await fetch(`${SPEEDAF_API_CONFIG.BASE_URL}/track`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ data: { mailNoList: [order.speedafTracking] } })
         });
 
-        if (!response.ok) throw new Error("Erreur API lors du tracking");
-
         const data = await response.json();
-        const speedafStatus = (data.status || data.state || "").toLowerCase();
+        console.log('📨 Speedaf track response:', data);
 
-        if (speedafStatus.includes('delivered') || speedafStatus.includes('livré')) {
-            if (normalizeOrderStatus(order.status) !== ORDER_STATUS.DELIVERED) {
-                await updateOrderStatus(orderId, ORDER_STATUS.DELIVERED);
-                return { success: true, updated: true, newStatus: 'delivered' };
-            }
-        } else if (speedafStatus.includes('returned') || speedafStatus.includes('retour')) {
-            if (normalizeOrderStatus(order.status) !== ORDER_STATUS.RETURNED) {
-                await updateOrderStatus(orderId, ORDER_STATUS.RETURNED);
-                return { success: true, updated: true, newStatus: 'returned' };
-            }
+        const tracks = data?.data?.[0]?.tracks || [];
+        if (tracks.length === 0) {
+            return { success: true, updated: false, currentStatus: "no_tracks" };
         }
-        
-        return { success: true, updated: false, currentStatus: speedafStatus };
+
+        const latest = tracks[tracks.length - 1];
+        const action = String(latest.action || "").trim();
+        let newStatus = null;
+        if (action === "5") newStatus = ORDER_STATUS.DELIVERED;
+        else if (action === "-7" || action === "10" || action === "730") newStatus = ORDER_STATUS.RETURNED;
+        else if (["1", "2", "3", "4"].includes(action)) newStatus = ORDER_STATUS.SHIPPING;
+
+        if (newStatus && normalizeOrderStatus(order.status) !== newStatus) {
+            await updateOrderStatus(orderId, newStatus);
+            return { success: true, updated: true, newStatus };
+        }
+
+        return { success: true, updated: false, currentStatus: latest.actionName || action };
 
     } catch (error) {
         console.error("Erreur syncSpeedaf:", error);
@@ -518,7 +548,6 @@ async function deductStockInTransaction(transaction, order, productSnaps, produc
         const pData = snap.data();
         const qty = Number(order.items[i].quantity) || 0;
         const itemVariant = order.items[i].variant;
-        
         let availableStock = 0;
         if (itemVariant) {
             const v = (pData.variants || []).find(v => (v.size || '') === (itemVariant.size || '') && (v.color || '') === (itemVariant.color || ''));
@@ -526,11 +555,8 @@ async function deductStockInTransaction(transaction, order, productSnaps, produc
         } else {
             availableStock = Number(pData.stock) || 0;
         }
-
         if (availableStock < qty) throw new Error(`Stock insuffisant pour ${pData.nameFr || 'ce produit'}`);
-
         let updateData = { salesCount: (Number(pData.salesCount) || 0) + qty };
-        
         if (itemVariant) {
             const variants = [...(pData.variants || [])];
             const idx = variants.findIndex(v => (v.size || '') === (itemVariant.size || '') && (v.color || '') === (itemVariant.color || ''));
@@ -546,9 +572,6 @@ async function deductStockInTransaction(transaction, order, productSnaps, produc
     });
 }
 
-// ============================================================
-// HELPER : Restaurer le stock (Transaction)
-// ============================================================
 async function restoreStockInTransaction(transaction, order, productSnaps, productRefs) {
     productSnaps.forEach((snap, i) => {
         if (!snap.exists()) return;
@@ -556,7 +579,6 @@ async function restoreStockInTransaction(transaction, order, productSnaps, produ
         const qty = Number(order.items[i].quantity) || 0;
         const itemVariant = order.items[i].variant;
         let updateData = { salesCount: Math.max(0, (Number(pData.salesCount) || 0) - qty) };
-        
         if (itemVariant) {
             const variants = [...(pData.variants || [])];
             const idx = variants.findIndex(v => (v.size || '') === (itemVariant.size || '') && (v.color || '') === (itemVariant.color || ''));
@@ -573,8 +595,7 @@ async function restoreStockInTransaction(transaction, order, productSnaps, produ
 }
 
 // ============================================================
-// UPDATE ORDER STATUS (ATOMIQUE + SPEEDAF AUTO)
-// ✅ AJOUT DE LOGS
+// UPDATE ORDER STATUS
 // ============================================================
 export async function updateOrderStatus(orderId, newStatus) {
     try {
@@ -589,11 +610,7 @@ export async function updateOrderStatus(orderId, newStatus) {
         let orderForEmail = null;
         let emailStatus = null;
         
-        // 1. TRANSACTION FIRESTORE
         await runTransaction(db, async (transaction) => {
-            // ==========================================
-            // PHASE 1 : TOUTES LES LECTURES (READS)
-            // ==========================================
             const orderSnap = await transaction.get(orderRef);
             if (!orderSnap.exists()) throw new Error('Commande introuvable');
             
@@ -617,23 +634,17 @@ export async function updateOrderStatus(orderId, newStatus) {
                 productSnaps = await Promise.all(productRefs.map(r => transaction.get(r)));
             }
             
-            // ==========================================
-            // PHASE 2 : LOGIQUE & ÉCRITURES (WRITES)
-            // ==========================================
             if (normalizedStatus === ORDER_STATUS.CONFIRMED && previousStatus === ORDER_STATUS.PENDING && order.stockDeducted !== true) {
-                console.log("🔥 LOG DB : Deduct Stock (Confirm)");
                 await deductStockInTransaction(transaction, order, productSnaps, productRefs);
                 order.stockDeducted = true;
             }
             
             if (normalizedStatus === ORDER_STATUS.CANCELLED && [ORDER_STATUS.CONFIRMED, ORDER_STATUS.SHIPPING].includes(previousStatus) && order.stockDeducted === true) {
-                console.log("🔥 LOG DB : Restore Stock (Cancel)");
                 await restoreStockInTransaction(transaction, order, productSnaps, productRefs);
                 order.stockDeducted = false;
             }
             
             if (normalizedStatus === ORDER_STATUS.CANCELLED && order.couponId && !order.couponRestored) {
-                console.log("🔥 LOG DB : Restore Coupon (Cancel)");
                 const couponRef = doc(db, "coupons", order.couponId);
                 const couponUseRef = doc(db, "coupon_uses", `${order.couponId}_${order.userId}`);
                 transaction.update(couponRef, { usedCount: increment(-1) });
@@ -647,16 +658,13 @@ export async function updateOrderStatus(orderId, newStatus) {
                 stockDeducted: order.stockDeducted,
                 couponRestored: order.couponRestored || false
             };
-            console.log("🔥 LOG DB : Update Order Status", updatePayload);
             transaction.update(orderRef, updatePayload);
         });
         
-        // 2. 🚀 SYNCHRONISATION AUTOMATIQUE SPEEDAF
         if (normalizedStatus === ORDER_STATUS.CONFIRMED && orderForEmail) {
             if (!orderForEmail.speedafTracking) {
                 const spdResult = await sendToSpeedafAPI(orderForEmail);
                 if (spdResult.success && spdResult.trackingNumber) {
-                    console.log("🔥 LOG DB : Speedaf Update Order (Auto Shipping)");
                     await updateDoc(orderRef, {
                         status: ORDER_STATUS.SHIPPING,
                         speedafTracking: spdResult.trackingNumber,
@@ -678,7 +686,6 @@ export async function updateOrderStatus(orderId, newStatus) {
             if (cancelled) showToast('✅ Colis annulé chez Speedaf');
         }
         
-        // 3. ENVOI DES EMAILS
         if (emailStatus && ['confirmed', 'shipping', 'delivered', 'cancelled'].includes(emailStatus)) {
             try {
                 await sendOrderEmail(orderForEmail, emailStatus, 'client');
@@ -688,7 +695,6 @@ export async function updateOrderStatus(orderId, newStatus) {
             }
         }
         
-        // 4. NOTIFICATIONS CLIENT
         if (normalizedStatus === ORDER_STATUS.DELIVERED && orderForEmail.userId) {
             try {
                 const { createNotification } = await import("./notifications.js");
@@ -704,7 +710,7 @@ export async function updateOrderStatus(orderId, newStatus) {
 }
 
 // ============================================================
-// SUPPRESSION COMPLETE DE LA COMMANDE
+// SUPPRESSION COMPLÈTE
 // ============================================================
 async function deleteOrderCompletely(orderId) {
     const orderSnap = await getDoc(doc(db, "orders", orderId));
@@ -713,33 +719,22 @@ async function deleteOrderCompletely(orderId) {
     
     if (order.stockDeducted === true && ![ORDER_STATUS.CANCELLED, ORDER_STATUS.RETURNED].includes(normalizeOrderStatus(order.status))) {
         await runTransaction(db, async (transaction) => {
-            // --- LECTURES ---
             const productRefs = order.items.map(i => doc(db, "products", String(i.productId)));
             const productSnaps = await Promise.all(productRefs.map(r => transaction.get(r)));
-            
-            // --- ÉCRITURES ---
-            console.log("🔥 LOG DB : Restore Stock (Delete Order)");
             await restoreStockInTransaction(transaction, order, productSnaps, productRefs);
         });
     }
     
     const batch = writeBatch(db);
-    
     if (order.couponId && !order.couponRestored) {
-        console.log("🔥 LOG DB : Restore Coupon (Delete Order)");
         batch.update(doc(db, "coupons", order.couponId), { usedCount: increment(-1) });
         batch.delete(doc(db, "coupon_uses", `${order.couponId}_${order.userId}`));
     }
-    
     const notifQ = query(collection(db, "notifications"), where("orderId", "==", orderId));
     const notifSnap = await getDocs(notifQ);
-    console.log("🔥 LOG DB : Delete Notifications (Delete Order)");
     notifSnap.forEach(d => batch.delete(d.ref));
-    
-    console.log("🔥 LOG DB : Delete Order", orderId);
     batch.delete(doc(db, "orders", orderId));
     await batch.commit();
-    
     return { success: true };
 }
 
@@ -762,9 +757,7 @@ export async function renderAdminOrders(containerId = 'ordersList') {
         return;
     }
     
-    let html = `<div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
-        <button id="refreshAdminOrdersBtn" class="admin-btn-secondary" style="font-size:0.8rem;">🔄 Rafraîchir</button>
-    </div>`;
+    let html = `<div style="display:flex; justify-content:flex-end; margin-bottom:1rem;"><button id="refreshAdminOrdersBtn" class="admin-btn-secondary" style="font-size:0.8rem;">🔄 Rafraîchir</button></div>`;
 
     adminOrdersCache.forEach(order => {
         const status = normalizeOrderStatus(order.status);
@@ -773,17 +766,13 @@ export async function renderAdminOrders(containerId = 'ordersList') {
         const orderIdShort = order.id.slice(0, 8).toUpperCase();
         const itemCount = order.items?.length || 0;
         const cityDisplay = getCityName({ name: order.deliveryAddress?.cityAr || order.deliveryAddress?.city, nameFr: order.deliveryAddress?.cityFr, nameAr: order.deliveryAddress?.cityAr });
-        
+        const isTest = order._test === true;
+        const testBadge = isTest ? `<span style="background:#dc3545;color:#fff;font-size:0.65rem;padding:0.15rem 0.4rem;border-radius:30px;margin-left:0.3rem;font-weight:700;">TEST</span>` : '';
         const stockBadge = order.stockDeducted === true ? `<span style="font-size:0.7rem;color:var(--success);font-weight:700;">📦 Stock déduit</span>` : `<span style="font-size:0.7rem;color:var(--warning);font-weight:700;">⏳ Stock non déduit</span>`;
         
         let speedafHtml = '';
         if (order.speedafTracking) {
-            speedafHtml = `
-                <div style="margin-top:0.5rem; padding:0.5rem; background:rgba(165,123,46,0.05); border:1px solid var(--border-gold); border-radius:var(--radius-sm); font-size:0.8rem;">
-                    <strong>🚀 Speedaf:</strong> <code>${escapeHTML(order.speedafTracking)}</code>
-                    ${order.speedafLabelUrl ? `<a href="${escapeHTML(order.speedafLabelUrl)}" target="_blank" style="margin-left:0.5rem; color:var(--gold); font-weight:700;">🖨️ Étiquette</a>` : ''}
-                </div>
-            `;
+            speedafHtml = `<div style="margin-top:0.5rem; padding:0.5rem; background:rgba(165,123,46,0.05); border:1px solid var(--border-gold); border-radius:var(--radius-sm); font-size:0.8rem;"><strong>🚀 Speedaf:</strong> <code>${escapeHTML(order.speedafTracking)}</code>${order.speedafLabelUrl ? `<a href="${escapeHTML(order.speedafLabelUrl)}" target="_blank" style="margin-left:0.5rem; color:var(--gold); font-weight:700;">🖨️ Étiquette</a>` : ''}</div>`;
         }
 
         const itemsSummary = (order.items || []).map(i => {
@@ -793,10 +782,10 @@ export async function renderAdminOrders(containerId = 'ordersList') {
         }).join(', ');
 
         html += `
-            <div class="admin-order-item" style="flex-direction:column;align-items:stretch;padding:0.8rem;border-bottom:1px solid var(--border);">
+            <div class="admin-order-item" style="flex-direction:column;align-items:stretch;padding:0.8rem;border-bottom:1px solid var(--border);${isTest ? 'border-left:4px solid #dc3545;background:rgba(220,53,69,0.03);' : ''}">
                 <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.6rem;">
                     <div>
-                        <strong style="color:var(--gold);">#${orderIdShort}</strong> ${emoji} — ${date}<br>
+                        <strong style="color:var(--gold);">#${orderIdShort}</strong>${testBadge} ${emoji} — ${date}<br>
                         <small>👤 ${escapeHTML(order.deliveryAddress?.name || '—')} · 📞 ${escapeHTML(order.deliveryAddress?.phone || '')} · 🏙️ ${escapeHTML(cityDisplay)}</small><br>
                         <small>🛒 <strong>${itemsSummary}</strong></small><br>
                         <small>${itemCount} ${t('items')} · 💰 ${order.total || 0} ${t('currency')} · ${stockBadge}</small>
@@ -812,9 +801,7 @@ export async function renderAdminOrders(containerId = 'ordersList') {
                         <option value="returned" ${status === 'returned' ? 'selected' : ''}>↩️ ${t('orderStatusReturned')}</option>
                         <option value="cancelled" ${status === 'cancelled' ? 'selected' : ''}>❌ ${t('orderStatusCancelled')}</option>
                     </select>
-                    
                     ${order.speedafTracking ? `<button class="admin-btn-secondary" data-action="admin:sync-speedaf" data-id="${order.id}" style="font-size:0.75rem; padding:0.3rem 0.6rem;">🔄 Sync Speedaf</button>` : ''}
-                    
                     <button class="btn-danger" data-action="admin:delete-order" data-id="${order.id}" style="padding:0.3rem 0.8rem;border-radius:30px;background:var(--danger);color:white;border:none;cursor:pointer;margin-left:auto;">🗑️</button>
                 </div>
             </div>
@@ -828,8 +815,7 @@ export async function renderAdminOrders(containerId = 'ordersList') {
     container.innerHTML = html;
 
     document.getElementById('refreshAdminOrdersBtn')?.addEventListener('click', async (e) => {
-        const btn = e.target;
-        btn.textContent = '⏳...';
+        e.target.textContent = '⏳...';
         adminOrdersCache = [];
         await renderAdminOrders(containerId);
     });
@@ -845,7 +831,7 @@ export async function renderAdminOrders(containerId = 'ordersList') {
                     const result = await updateOrderStatus(orderId, value);
                     if (result.success) {
                         showToast('✅ ' + t('success'));
-                        adminOrdersCache = []; // Force le rechargement
+                        adminOrdersCache = [];
                         await renderAdminOrders(containerId);
                     } else {
                         showToast('❌ ' + result.error);
@@ -853,7 +839,6 @@ export async function renderAdminOrders(containerId = 'ordersList') {
                     }
                 }
             } catch (e) {
-                console.error(e);
                 showToast('❌ ' + e.message);
             } finally {
                 select.disabled = false;
@@ -955,7 +940,6 @@ async function syncReviewsWithOrderReturn(order, allReturns) {
     if (!order || !order.userId || !Array.isArray(order.items) || order.items.length === 0) {
         return { deleted: 0, unverified: 0 };
     }
-
     const returnedByProduct = {};
     (allReturns || []).forEach(ret => {
         if (!ret || !Array.isArray(ret.items)) return;
@@ -965,39 +949,29 @@ async function syncReviewsWithOrderReturn(order, allReturns) {
             returnedByProduct[pid] = (returnedByProduct[pid] || 0) + (Number(item.delta) || 0);
         });
     });
-
     const orderedByProduct = {};
     order.items.forEach(item => {
         const pid = String(item.productId);
         orderedByProduct[pid] = (orderedByProduct[pid] || 0) + (Number(item.quantity) || 0);
     });
-
-    let deleted = 0;
-    let unverified = 0;
-
+    let deleted = 0, unverified = 0;
     let reviewsModule;
     try {
         reviewsModule = await import("./reviews.js");
     } catch (e) {
         return { deleted: 0, unverified: 0 };
     }
-
     const { deleteReview } = reviewsModule;
-
     for (const pid of Object.keys(returnedByProduct)) {
         const returnedQty = returnedByProduct[pid] || 0;
         const orderedQty = orderedByProduct[pid] || 0;
         if (returnedQty <= 0 || orderedQty <= 0) continue;
-
         const reviewId = `review_${order.userId}_${pid}`;
         const reviewRef = doc(db, "reviews", reviewId);
-
         try {
             const reviewSnap = await getDoc(reviewRef);
             if (!reviewSnap.exists()) continue;
-
             const reviewData = reviewSnap.data();
-
             if (returnedQty >= orderedQty) {
                 const result = await deleteReview(reviewId);
                 if (result && result.success) deleted++;
@@ -1009,7 +983,6 @@ async function syncReviewsWithOrderReturn(order, allReturns) {
             }
         } catch (e) {}
     }
-
     return { deleted, unverified };
 }
 
@@ -1017,7 +990,6 @@ export async function openReturnModal(orderId) {
     try {
         const snap = await getDoc(doc(db, "orders", orderId));
         if (!snap.exists()) return showToast('❌ Commande introuvable');
-        
         const order = { id: snap.id, ...snap.data() };
         const items = order.items || [];
         
@@ -1026,9 +998,7 @@ export async function openReturnModal(orderId) {
                 <div class="modal" style="max-width:600px;">
                     <button class="modal-close" id="closeReturnModalBtn">✕</button>
                     <h2 style="color:var(--gold);text-align:center;margin-bottom:0.5rem;">↩️ Gérer le retour</h2>
-                    <p style="font-size:0.85rem;color:var(--text-muted);text-align:center;margin-bottom:1rem;">
-                        Commande #${orderId.slice(0,8).toUpperCase()}
-                    </p>
+                    <p style="font-size:0.85rem;color:var(--text-muted);text-align:center;margin-bottom:1rem;">Commande #${orderId.slice(0,8).toUpperCase()}</p>
                     <div style="display:flex;flex-direction:column;gap:0.8rem;margin-bottom:1.5rem;">
                         ${items.map((item, index) => `
                             <div class="return-item-row">
@@ -1053,7 +1023,6 @@ export async function openReturnModal(orderId) {
         
         document.body.insertAdjacentHTML('beforeend', modalHtml);
         const modal = document.getElementById('returnModal');
-        
         const closeModal = () => modal.remove();
         document.getElementById('closeReturnModalBtn').addEventListener('click', closeModal);
         document.getElementById('cancelReturnBtn').addEventListener('click', closeModal);
@@ -1063,52 +1032,27 @@ export async function openReturnModal(orderId) {
             const inputs = modal.querySelectorAll('.return-qty-input');
             const returns = [];
             let hasChanges = false;
-            
             inputs.forEach((input, index) => {
                 const qty = parseInt(input.value) || 0;
                 if (qty > 0) {
-                    returns.push({
-                        productId: items[index].productId,
-                        variant: items[index].variant || null,
-                        quantity: qty
-                    });
+                    returns.push({ productId: items[index].productId, variant: items[index].variant || null, quantity: qty });
                     hasChanges = true;
                 }
             });
-            
-            if (!hasChanges) {
-                showToast('⚠️ Aucune quantité à retourner');
-                return;
-            }
+            if (!hasChanges) { showToast('⚠️ Aucune quantité à retourner'); return; }
             
             const btn = document.getElementById('confirmReturnBtn');
             btn.disabled = true; btn.textContent = '⏳...';
             
             try {
                 await processReturnTransaction(order, returns);
-
-                const allReturns = [
-                    ...(Array.isArray(order.returns) ? order.returns : []),
-                    {
-                        date: new Date(),
-                        items: returns.map(r => ({
-                            productId: r.productId,
-                            variant: r.variant,
-                            delta: r.quantity
-                        }))
-                    }
-                ];
-
+                const allReturns = [...(Array.isArray(order.returns) ? order.returns : []), { date: new Date(), items: returns.map(r => ({ productId: r.productId, variant: r.variant, delta: r.quantity })) }];
                 let reviewSync = { deleted: 0, unverified: 0 };
-                try {
-                    reviewSync = await syncReviewsWithOrderReturn(order, allReturns);
-                } catch (e) {}
-
+                try { reviewSync = await syncReviewsWithOrderReturn(order, allReturns); } catch (e) {}
                 let toastMsg = '✅ Retour enregistré, stock mis à jour';
                 if (reviewSync.deleted > 0) toastMsg += ` · ${reviewSync.deleted} avis supprimé(s)`;
                 if (reviewSync.unverified > 0) toastMsg += ` · ${reviewSync.unverified} badge(s) retiré(s)`;
                 showToast(toastMsg, 4000);
-
                 closeModal();
                 if (typeof resetAdminOrdersCache === 'function') resetAdminOrdersCache();
                 if (typeof renderAdminOrders === 'function') renderAdminOrders('adminOrdersList');
@@ -1117,38 +1061,27 @@ export async function openReturnModal(orderId) {
                 btn.disabled = false; btn.textContent = 'Valider le retour';
             }
         });
-        
     } catch (e) {
         console.error(e);
         showToast('❌ Erreur lors de l\'ouverture du retour');
     }
 }
 
-// ✅ Restructuration de la transaction (Reads -> Logic -> Writes) + Logs
 async function processReturnTransaction(order, returnsToProcess) {
     await runTransaction(db, async (transaction) => {
-        // ==========================================
-        // PHASE 1 : LECTURES
-        // ==========================================
         const orderRef = doc(db, "orders", order.id);
         const orderSnap = await transaction.get(orderRef);
         if (!orderSnap.exists()) throw new Error("Commande introuvable");
-        
         const currentOrder = orderSnap.data();
         const currentReturns = currentOrder.returns || [];
-        
         const productRefs = returnsToProcess.map(r => doc(db, "products", String(r.productId)));
         const productSnaps = await Promise.all(productRefs.map(ref => transaction.get(ref)));
         
-        // ==========================================
-        // PHASE 2 : ÉCRITURES
-        // ==========================================
         productSnaps.forEach((snap, i) => {
             if (!snap.exists()) return;
             const pData = snap.data();
             const r = returnsToProcess[i];
             let updateData = { salesCount: Math.max(0, (Number(pData.salesCount) || 0) - r.quantity) };
-            
             if (r.variant) {
                 const variants = [...(pData.variants || [])];
                 const vIdx = variants.findIndex(v => (v.size||'') === (r.variant.size||'') && (v.color||'') === (r.variant.color||''));
@@ -1160,25 +1093,11 @@ async function processReturnTransaction(order, returnsToProcess) {
             } else {
                 updateData.stock = (Number(pData.stock) || 0) + r.quantity;
             }
-            console.log("🔥 LOG DB : Update Product (Return)", productRefs[i].path, updateData);
             transaction.update(productRefs[i], updateData);
         });
         
-        const newReturnEntry = {
-            date: Timestamp.now(),
-            items: returnsToProcess.map(r => ({
-                productId: r.productId,
-                variant: r.variant,
-                delta: r.quantity
-            }))
-        };
-        
-        console.log("🔥 LOG DB : Update Order (Return)", orderRef.path);
-        transaction.update(orderRef, {
-            returns: [...currentReturns, newReturnEntry],
-            status: ORDER_STATUS.RETURNED,
-            updatedAt: Timestamp.now()
-        });
+        const newReturnEntry = { date: Timestamp.now(), items: returnsToProcess.map(r => ({ productId: r.productId, variant: r.variant, delta: r.quantity })) };
+        transaction.update(orderRef, { returns: [...currentReturns, newReturnEntry], status: ORDER_STATUS.RETURNED, updatedAt: Timestamp.now() });
     });
 }
 
@@ -1188,16 +1107,13 @@ async function processReturnTransaction(order, returnsToProcess) {
 export async function renderUserOrders(containerId = 'tabContent') {
     const container = document.getElementById(containerId);
     if (!container) return;
-
     container.innerHTML = `<div style="text-align:center;padding:1rem;color:var(--text-muted);">⏳ ${t('loadingOrders')}</div>`;
-
     try {
         const orders = await loadUserOrders();
         if (!orders || orders.length === 0) {
             container.innerHTML = `<div style="text-align:center;padding:2rem;color:var(--text-muted);">${t('noOrders')}</div>`;
             return;
         }
-
         let html = '';
         orders.forEach(order => {
             const status = normalizeOrderStatus(order.status);
@@ -1206,22 +1122,14 @@ export async function renderUserOrders(containerId = 'tabContent') {
             const idShort = order.id.slice(0, 8).toUpperCase();
             const cancellable = isOrderCancellable(order);
             const timeRemaining = cancellable ? formatTimeRemaining(getTimeRemainingForCancellation(order)) : null;
-
-            const cancelBtnHtml = cancellable 
-                ? `<div style="margin-top:0.5rem;display:flex;justify-content:space-between;align-items:center;">
-                    <span style="font-size:0.75rem;color:var(--gold);font-weight:600;">⏱️ ${t('orderCancellableIn').replace('{time}', timeRemaining)}</span>
-                    <button class="order-cancel-btn" data-order-id="${order.id}">${t('orderCancel')}</button>
-                   </div>` 
-                : '';
-
-            const trackingBtnHtml = order.speedafTracking 
-                ? `<a href="https://www.speedaf.com/tracking?waybill=${order.speedafTracking}" target="_blank" style="display:inline-flex; align-items:center; gap:0.3rem; padding:0.4rem 1rem; background:rgba(165,123,46,0.1); color:var(--gold); border:1px solid var(--gold); border-radius:30px; text-decoration:none; font-weight:700; font-size:0.8rem; margin-top:0.5rem;">🚚 Suivre mon colis</a>`
-                : '';
-
+            const isTest = order._test === true;
+            const testBadge = isTest ? `<span style="background:#dc3545;color:#fff;font-size:0.6rem;padding:0.1rem 0.35rem;border-radius:30px;margin-left:0.3rem;font-weight:700;">TEST</span>` : '';
+            const cancelBtnHtml = cancellable ? `<div style="margin-top:0.5rem;display:flex;justify-content:space-between;align-items:center;"><span style="font-size:0.75rem;color:var(--gold);font-weight:600;">⏱️ ${t('orderCancellableIn').replace('{time}', timeRemaining)}</span><button class="order-cancel-btn" data-order-id="${order.id}">${t('orderCancel')}</button></div>` : '';
+            const trackingBtnHtml = order.speedafTracking ? `<a href="https://www.speedaf.com/tracking?waybill=${order.speedafTracking}" target="_blank" style="display:inline-flex; align-items:center; gap:0.3rem; padding:0.4rem 1rem; background:rgba(165,123,46,0.1); color:var(--gold); border:1px solid var(--gold); border-radius:30px; text-decoration:none; font-weight:700; font-size:0.8rem; margin-top:0.5rem;">🚚 Suivre mon colis</a>` : '';
             html += `
                 <div class="order-card">
                     <div class="order-card-header">
-                        <span class="order-card-id">#${idShort} ${emoji}</span>
+                        <span class="order-card-id">#${idShort}${testBadge} ${emoji}</span>
                         <span class="order-card-date">${date}</span>
                     </div>
                     <div class="order-card-body">
@@ -1237,17 +1145,13 @@ export async function renderUserOrders(containerId = 'tabContent') {
             `;
         });
         container.innerHTML = html;
-
         container.querySelectorAll('.order-details-btn').forEach(btn => {
             btn.addEventListener('click', () => openOrderDetails(btn.dataset.orderId, false));
         });
-
         container.querySelectorAll('.order-cancel-btn').forEach(btn => {
             btn.addEventListener('click', async () => {
                 const orderId = btn.dataset.orderId;
-                const confirmed = await confirmAction(t('confirmCancelOrderMsg'), {
-                    title: t('confirmCancelOrderTitle'), confirmText: t('confirmCancelOrderYes'), cancelText: t('confirmCancelOrderNo'), variant: 'danger'
-                });
+                const confirmed = await confirmAction(t('confirmCancelOrderMsg'), { title: t('confirmCancelOrderTitle'), confirmText: t('confirmCancelOrderYes'), cancelText: t('confirmCancelOrderNo'), variant: 'danger' });
                 if (!confirmed) return;
                 btn.disabled = true; btn.textContent = '⏳...';
                 const res = await cancelOrder(orderId);
@@ -1267,66 +1171,41 @@ export async function renderUserOrders(containerId = 'tabContent') {
 }
 
 // ============================================================
-// MODALE DÉTAILS DE LA COMMANDE (CLIENT)
+// MODALE DÉTAILS CLIENT
 // ============================================================
 export async function openOrderDetails(orderId, isAdmin = false) {
     try {
         const snap = await getDoc(doc(db, "orders", orderId));
         if (!snap.exists()) return showToast('❌ Commande introuvable');
         const order = { id: snap.id, ...snap.data() };
-        
         const status = normalizeOrderStatus(order.status);
         const timelineSteps = getOrderTimelineSteps(status);
-        
         const timelineHtml = timelineSteps.map(step => `
             <div class="order-timeline-step ${step.active ? 'done' : ''} ${step.current ? 'current' : ''} ${status === 'returned' ? 'returned' : ''}">
                 <div class="order-timeline-dot">${step.emoji}</div>
                 <span class="order-timeline-label">${t(step.label)}</span>
             </div>
         `).join('');
-
         const itemsHtml = (order.items || []).map(item => {
             const v = item.variant ? ` (${[item.variant.size, item.variant.color].filter(Boolean).join('-')})` : '';
-            return `
-                <div style="display:flex;justify-content:space-between;padding:0.5rem 0;border-bottom:1px dashed var(--border);font-size:0.85rem;">
-                    <span>${escapeHTML(item.name)}${escapeHTML(v)} × ${item.quantity}</span>
-                    <strong style="color:var(--gold);">${item.price * item.quantity} MAD</strong>
-                </div>
-            `;
+            return `<div style="display:flex;justify-content:space-between;padding:0.5rem 0;border-bottom:1px dashed var(--border);font-size:0.85rem;"><span>${escapeHTML(item.name)}${escapeHTML(v)} × ${item.quantity}</span><strong style="color:var(--gold);">${item.price * item.quantity} MAD</strong></div>`;
         }).join('');
-
         let trackingHtml = '';
         if (order.speedafTracking) {
-            trackingHtml = `
-                <div style="background:rgba(165,123,46,0.1);padding:1rem;border-radius:var(--radius-sm);margin-bottom:1rem;font-size:0.85rem;border:1px solid var(--border-gold);">
-                    <h4 style="margin-bottom:0.5rem;color:var(--gold);font-size:0.95rem;">🚚 Livraison Speedaf</h4>
-                    <div><strong>N° de suivi :</strong> ${escapeHTML(order.speedafTracking)}</div>
-                    <a href="https://www.speedaf.com/tracking?waybill=${order.speedafTracking}" target="_blank" style="display:inline-block; margin-top:0.5rem; color:var(--gold); font-weight:700; text-decoration:underline;">Suivre en temps réel →</a>
-                </div>
-            `;
+            trackingHtml = `<div style="background:rgba(165,123,46,0.1);padding:1rem;border-radius:var(--radius-sm);margin-bottom:1rem;font-size:0.85rem;border:1px solid var(--border-gold);"><h4 style="margin-bottom:0.5rem;color:var(--gold);font-size:0.95rem;">🚚 Livraison Speedaf</h4><div><strong>N° de suivi :</strong> ${escapeHTML(order.speedafTracking)}</div><a href="https://www.speedaf.com/tracking?waybill=${order.speedafTracking}" target="_blank" style="display:inline-block; margin-top:0.5rem; color:var(--gold); font-weight:700; text-decoration:underline;">Suivre en temps réel →</a></div>`;
         }
-
         let html = `
             <div class="modal-overlay open" id="orderDetailsModal" style="z-index:2500;">
                 <div class="modal" style="max-width:600px;padding:1.5rem;">
                     <button class="modal-close" id="closeOrderDetailsBtn">✕</button>
-                    <h2 style="font-family:var(--font-secondary);color:var(--gold);text-align:center;margin-bottom:1rem;">
-                        #${orderId.slice(0,8).toUpperCase()}
-                    </h2>
-
+                    <h2 style="font-family:var(--font-secondary);color:var(--gold);text-align:center;margin-bottom:1rem;">#${orderId.slice(0,8).toUpperCase()}</h2>
                     <div class="order-timeline" style="margin:1rem 0;">${timelineHtml}</div>
-
                     ${trackingHtml}
-
                     <div style="background:var(--bg-surface);padding:1rem;border-radius:var(--radius-sm);margin-bottom:1rem;">
                         <h4 style="margin-bottom:0.5rem;color:var(--text);font-size:0.95rem;">📦 ${t('orderArticles')}</h4>
                         ${itemsHtml}
-                        <div style="display:flex;justify-content:space-between;margin-top:0.8rem;font-weight:800;color:var(--text);">
-                            <span>${t('orderTotal')}</span>
-                            <span style="color:var(--gold);">${order.total || 0} MAD</span>
-                        </div>
+                        <div style="display:flex;justify-content:space-between;margin-top:0.8rem;font-weight:800;color:var(--text);"><span>${t('orderTotal')}</span><span style="color:var(--gold);">${order.total || 0} MAD</span></div>
                     </div>
-
                     <div style="background:var(--bg-surface);padding:1rem;border-radius:var(--radius-sm);margin-bottom:1rem;font-size:0.85rem;">
                         <h4 style="margin-bottom:0.5rem;color:var(--text);font-size:0.95rem;">📍 ${t('orderDeliveryAddress')}</h4>
                         <div><strong>${escapeHTML(order.deliveryAddress?.name || '')}</strong></div>
@@ -1337,21 +1216,15 @@ export async function openOrderDetails(orderId, isAdmin = false) {
                 </div>
             </div>
         `;
-        
         document.body.insertAdjacentHTML('beforeend', html);
         const modal = document.getElementById('orderDetailsModal');
         const closeModal = () => modal.remove();
-        
         document.getElementById('closeOrderDetailsBtn').addEventListener('click', closeModal);
         modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
-
     } catch (e) {
         console.error(e);
         showToast('❌ ' + t('error'));
     }
 }
 
-// ============================================================
-// LOG
-// ============================================================
-console.log('✅ orders.js chargé — v4.4.2 (Logs de débogage Firestore)');
+console.log('✅ orders.js chargé — v5.0.0 (Test Mode guards + Worker Speedaf)');
