@@ -1,10 +1,25 @@
 // js/config.js
 // ============================================================
 // CONFIGURATION CENTRALISÉE - SMART SWI9A
-// Version 4.1.0 — Fix : Mapping legacy complet + suppression dépendance utils.js
+// Version 5.0.0 — Ajout APP_MODE (test/réel)
 // ============================================================
 
 export const VIDEO_BASE_URL = "https://videos.smartswi9a.top/";
+
+// ============================================================
+// 🧪 MODE TEST / RÉEL
+// ============================================================
+// current : "production" (défaut) | "test"
+// testBatchId : identifiant unique de la session test (généré au clic "Mode Test")
+// ============================================================
+export const APP_MODE = {
+    current: "production",
+    testBatchId: null
+};
+
+export function isTestMode() {
+    return APP_MODE.current === "test";
+}
 
 export const CONFIG = {
     FIREBASE: {
@@ -64,7 +79,7 @@ export function normalizeOrderStatus(status) {
     return STATUS_MIGRATION_MAP[status] || status;
 }
 
-// ✅ FIX : Mapping complet des anciennes catégories vers les nouvelles (pour la migration admin)
+// Mapping complet des anciennes catégories vers les nouvelles
 export const LEGACY_CATEGORY_MAP = {
     'electronics': 'smartphones',
     'smartphone': 'smartphones',
@@ -111,6 +126,7 @@ export function canReturnOrder(order) {
     if (!order) return false;
     return CONFIG.ORDERS.RETURNABLE_FROM.includes(normalizeOrderStatus(order.status));
 }
+
 export function getReturnedQuantities(order) {
     const result = {};
     if (!order || !order.returns || !Array.isArray(order.returns)) return result;
@@ -124,6 +140,7 @@ export function getReturnedQuantities(order) {
     });
     return result;
 }
+
 export function isFullReturn(order) {
     if (!order || !order.items) return false;
     const returned = getReturnedQuantities(order);
@@ -134,7 +151,7 @@ export const LANGUAGES = ['fr', 'ar', 'en'];
 export const DEFAULT_LANGUAGE = 'fr';
 
 // ============================================================
-// ✅ NOUVELLES CATÉGORIES (23 PARENTS + ENFANTS)
+// CATÉGORIES (23 PARENTS + ENFANTS)
 // ============================================================
 export const CATEGORY_GROUPS = [
     {
@@ -347,12 +364,14 @@ export function getCategoryById(catId) {
     const index = buildCategoryIndex();
     return index.get(catId) || index.get(normalizeCategory(catId)) || null;
 }
+
 export function getParentCategory(catId) {
     const cat = getCategoryById(catId);
     if (!cat) return null;
     if (cat.isParent) return cat;
     return cat.parentId ? getCategoryById(cat.parentId) : null;
 }
+
 export function getCategoryPath(catId) {
     const cat = getCategoryById(catId);
     if (!cat) return [];
@@ -378,4 +397,4 @@ export const SORT_OPTIONS = [
     { value: 'rating', label: 'sortRating' }
 ];
 
-console.log('✅ config.js chargé — v4.1.0 (mapping legacy complet)');
+console.log('✅ config.js chargé — v5.0.0 (ajout APP_MODE + isTestMode)');
