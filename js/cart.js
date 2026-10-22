@@ -1,7 +1,7 @@
 // js/cart.js
 // ============================================================
 // PANIER ET COMMANDES - SMART SWI9A
-// Version 3.2.0 — Fix : Logs de débogage transaction + Nettoyage data
+// Version 3.3.0 — Fix : Nettoyage strict des types pour Firestore Rules
 // ============================================================
 
 import {
@@ -548,7 +548,7 @@ export async function checkout(cartItems, deliveryInfo, appliedCoupon = null, wa
 
 // ============================================================
 // CRÉATION DE COMMANDE (Déduction Stock Immédiate)
-// ✅ AJOUT DE LOGS ET SÉCURISATION DES DONNÉES POUR FIRESTORE
+// ✅ FIX : Typage strict pour passer les Firestore Rules
 // ============================================================
 export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
     const user = getCurrentUser();
@@ -628,7 +628,14 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
 
                 subtotal += unitPrice * qty;
                 discountableItems += qty;
-                validatedItems.push({ id: items[i].id, productId: items[i].productId, variant: itemVariant || null, quantity: qty, price: unitPrice, name: data.nameFr || data.nameEn || 'Produit' });
+                validatedItems.push({ 
+                    id: String(items[i].id), 
+                    productId: String(items[i].productId), 
+                    variant: itemVariant || null, 
+                    quantity: Number(qty), 
+                    price: Number(unitPrice), 
+                    name: String(data.nameFr || data.nameEn || 'Produit') 
+                });
             });
 
             // 2.2 Traitement de la ville
@@ -639,7 +646,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
 
             // 2.3 Remise volume
             const discountRate = discountableItems >= CONFIG.SHOP.DISCOUNT_THRESHOLD ? CONFIG.SHOP.DISCOUNT_PERCENT / 100 : 0;
-            const discount = Math.round(subtotal * discountRate);
+            const discount = Math.round(subtotal * discountRate) || 0;
 
             // 2.4 Traitement du coupon
             const deliveryFee = cityData ? (Number(cityData.price) || 0) : 0;
@@ -665,28 +672,28 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                     }
                 }
 
-                couponDiscount = calculateCouponDiscount(c, subtotal, deliveryFee);
+                couponDiscount = calculateCouponDiscount(c, subtotal, deliveryFee) || 0;
                 if (couponDiscount <= 0) throw new Error('Ce code ne produit aucune réduction');
                 couponData = c;
             }
 
-            // 2.5 Préparation des documents finaux (Sécurisation des types)
+            // 2.5 Préparation des documents finaux (Sécurisation stricte des types)
             const totalDiscount = Math.min(discount + couponDiscount, subtotal);
             const total = Math.max(0, subtotal - totalDiscount + deliveryFee);
             const orderRef = doc(collection(db, "orders"));
             const cancellableUntil = new Date(Date.now() + CONFIG.ORDERS.CANCELLABLE_HOURS * 3600 * 1000);
 
             const orderData = {
-                userId: user.uid, 
-                userName: user.name || '', 
-                userEmail: user.email || '',
+                userId: String(user.uid), 
+                userName: String(user.name || ''), 
+                userEmail: String(user.email || ''),
                 items: validatedItems, 
                 status: ORDER_STATUS.PENDING, 
                 paymentStatus: 'unpaid',
                 subtotal: Number(subtotal) || 0, 
                 discount: Number(discount) || 0, 
-                couponId: appliedCoupon?.id || null, 
-                couponCode: appliedCoupon?.code || null,
+                couponId: appliedCoupon?.id ? String(appliedCoupon.id) : null, 
+                couponCode: appliedCoupon?.code ? String(appliedCoupon.code) : null,
                 couponDiscount: Number(couponDiscount) || 0, 
                 deliveryFee: Number(deliveryFee) || 0, 
                 total: Number(total) || 0, 
@@ -696,10 +703,10 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                     phone: String(deliveryInfo.phone || '').trim().slice(0, 20),
                     address: String(deliveryInfo.address || '').trim().slice(0, 300), 
                     city: String(deliveryInfo.city || '').trim().slice(0, 100),
-                    cityId: deliveryInfo.cityId || null, 
-                    cityAr: deliveryInfo.cityAr || null, 
-                    cityFr: deliveryInfo.cityFr || null,
-                    email: deliveryInfo.email || user.email || ''
+                    cityId: deliveryInfo.cityId ? String(deliveryInfo.cityId) : null, 
+                    cityAr: deliveryInfo.cityAr ? String(deliveryInfo.cityAr) : null, 
+                    cityFr: deliveryInfo.cityFr ? String(deliveryInfo.cityFr) : null,
+                    email: String(deliveryInfo.email || user.email || '')
                 },
                 createdAt: Timestamp.now(), 
                 updatedAt: Timestamp.now(),
@@ -709,9 +716,13 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
 
             const notifRef = doc(collection(db, "notifications"));
             const notifData = {
-                userId: user.uid, type: 'order_created', title: t('notificationOrderCreated') || '📦 Commande reçue',
-                message: (t('notificationOrderCreatedMsg') || 'Merci pour votre commande #{id} !').replace('{id}', orderRef.id.slice(0, 8).toUpperCase()),
-                orderId: orderRef.id, read: false, createdAt: Timestamp.now()
+                userId: String(user.uid), 
+                type: 'order_created', 
+                title: String(t('notificationOrderCreated') || '📦 Commande reçue'),
+                message: String((t('notificationOrderCreatedMsg') || 'Merci pour votre commande #{id} !').replace('{id}', orderRef.id.slice(0, 8).toUpperCase())),
+                orderId: String(orderRef.id), 
+                read: false, 
+                createdAt: Timestamp.now()
             };
 
             // ==========================================
@@ -733,8 +744,12 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                 console.log("🔥 LOG DB : Update Coupon", appliedCoupon.id);
                 transaction.update(doc(db, "coupons", appliedCoupon.id), { usedCount: increment(1) });
                 transaction.set(doc(db, "coupon_uses", `${appliedCoupon.id}_${user.uid}`), {
-                    couponId: appliedCoupon.id, code: couponData.code, userId: user.uid,
-                    orderId: orderRef.id, discountApplied: Number(couponDiscount) || 0, usedAt: Timestamp.now()
+                    couponId: String(appliedCoupon.id), 
+                    code: String(couponData.code), 
+                    userId: String(user.uid),
+                    orderId: String(orderRef.id), 
+                    discountApplied: Number(couponDiscount) || 0, 
+                    usedAt: Timestamp.now()
                 });
             }
 
@@ -889,4 +904,4 @@ export function checkAbandonedCart() {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ cart.js chargé — v3.2.0 (Logs de débogage)');
+console.log('✅ cart.js chargé — v3.3.0 (Fix Types Firestore)');
