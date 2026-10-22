@@ -1,7 +1,7 @@
 // js/cart.js
 // ============================================================
 // PANIER ET COMMANDES - SMART SWI9A
-// Version 3.3.0 — Fix : Nettoyage strict des types pour Firestore Rules
+// Version 3.4.0 — Ajout tag _test pour mode test
 // ============================================================
 
 import {
@@ -9,7 +9,7 @@ import {
     query, where, Timestamp, increment
 } from "firebase/firestore";
 import { db } from "./firebase.js";
-import { CONFIG, ORDER_STATUS, normalizeOrderStatus } from "./config.js";
+import { CONFIG, ORDER_STATUS, normalizeOrderStatus, isTestMode, APP_MODE } from "./config.js";
 import {
     t, safeGetItem, safeSetItem, safeRemoveItem,
     toDate, getLang
@@ -158,7 +158,6 @@ function mergeCarts(localCart, firestoreCart) {
         let qty = Number(fi.quantity) || 0;
         if (qty < 1) return;
 
-        // ✅ Cap au stock disponible
         const p = products.find(pp => Number(pp.id) === Number(fi.productId));
         if (p) {
             let maxStock = Number(p.stock) || 0;
@@ -221,10 +220,10 @@ if (typeof document !== 'undefined') {
     document.addEventListener('auth-updated', async (e) => {
         const user = e.detail?.user;
         if (user && user.uid) {
-            loadCart(); // Recharger le panier de cet utilisateur
+            loadCart();
             await syncCartOnLogin();
         } else {
-            clearLocalCart(); // Vider si déconnexion
+            clearLocalCart();
         }
     });
 }
@@ -278,7 +277,6 @@ export async function addToCart(productId, variant = null) {
         return;
     }
 
-    // ✅ Valider la variante passée
     let validVariant = null;
     if (variant) {
         validVariant = product.variants.find(v => 
@@ -347,7 +345,6 @@ export function updateCartQuantity(itemId, quantity) {
         maxStock = product ? Number(product.stock) || Infinity : Infinity;
     }
 
-    // ✅ Si stock 0, retirer l'article
     if (Number.isFinite(maxStock) && maxStock === 0) {
         cart = cart.filter(i => i.id !== itemId);
         saveCart();
@@ -385,7 +382,7 @@ export function getCartTotalItems() {
 export function getCartSavings() {
     const products = getProducts();
     return cart.reduce((sum, item) => {
-        if (item.variant) return sum; // Les variantes n'ont pas de oldPrice
+        if (item.variant) return sum;
         const p = products.find(pp => Number(pp.id) === item.productId);
         if (p && p.oldPrice && Number(p.oldPrice) > Number(p.price)) {
             return sum + (Number(p.oldPrice) - Number(p.price)) * item.quantity;
@@ -416,7 +413,7 @@ export function getCartTotal(appliedCoupon = null) {
 }
 
 // ============================================================
-// ✅ REVALIDATION DES PRIX (Empêche les prix obsolètes)
+// REVALIDATION DES PRIX
 // ============================================================
 export function revalidateCartPrices() {
     const products = getProducts();
@@ -455,7 +452,7 @@ export function revalidateCartPrices() {
 }
 
 // ============================================================
-// ✅ CALCUL COUPON (Exporté pour panier.js)
+// CALCUL COUPON
 // ============================================================
 export function calculateCouponDiscount(coupon, subtotal, deliveryFee) {
     if (!coupon) return 0;
@@ -469,7 +466,7 @@ export function calculateCouponDiscount(coupon, subtotal, deliveryFee) {
 }
 
 // ============================================================
-// CHECKOUT (Ouvre la fenêtre AVANT les await)
+// CHECKOUT
 // ============================================================
 export async function checkout(cartItems, deliveryInfo, appliedCoupon = null, waWindow = null) {
     if (!cartItems || cartItems.length === 0) {
@@ -515,7 +512,6 @@ export async function checkout(cartItems, deliveryInfo, appliedCoupon = null, wa
     const msg = buildWhatsAppMessage(validatedItems, deliveryInfo, orderId, totals);
     const url = `https://wa.me/${CONFIG.SHOP.WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`;
 
-    // ✅ Utiliser la fenêtre pré-ouverte pour éviter le blocage popup
     if (waWindow && !waWindow.closed) {
         waWindow.location.href = url;
     } else {
@@ -548,30 +544,32 @@ export async function checkout(cartItems, deliveryInfo, appliedCoupon = null, wa
 
 // ============================================================
 // CRÉATION DE COMMANDE (Déduction Stock Immédiate)
-// ✅ FIX : Typage strict pour passer les Firestore Rules
+// ✅ AJOUT : tag _test en mode test
 // ============================================================
 export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
     const user = getCurrentUser();
     if (!user) return { success: false, error: 'NO_USER' };
+
+    const testMode = isTestMode();
+    const testBatchId = testMode ? APP_MODE.testBatchId : null;
+    if (testMode) {
+        console.log('🧪 [TEST] createOrder en mode test — batch:', testBatchId);
+    }
 
     try {
         const result = await runTransaction(db, async (transaction) => {
             // ==========================================
             // PHASE 1 : TOUTES LES LECTURES (READS)
             // ==========================================
-            
-            // 1. Lire les produits
             const productRefs = items.map(item => doc(db, "products", String(item.productId)));
             const productSnaps = await Promise.all(productRefs.map(ref => transaction.get(ref)));
 
-            // 2. Lire la ville
             let citySnap = null;
             if (deliveryInfo.cityId) {
                 const cityRef = doc(db, "cities", String(deliveryInfo.cityId));
                 citySnap = await transaction.get(cityRef);
             }
 
-            // 3. Lire le coupon (si applicable)
             let couponSnap = null;
             let couponUseSnap = null;
             
@@ -594,7 +592,6 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
             const validatedItems = [];
             const productUpdates = []; 
 
-            // 2.1 Traitement des produits
             productSnaps.forEach((snap, i) => {
                 if (!snap.exists()) throw new Error(`Produit ${items[i].productId} introuvable`);
                 const data = snap.data();
@@ -638,17 +635,14 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                 });
             });
 
-            // 2.2 Traitement de la ville
             let cityData = null;
             if (citySnap && citySnap.exists()) {
                 cityData = citySnap.data();
             }
 
-            // 2.3 Remise volume
             const discountRate = discountableItems >= CONFIG.SHOP.DISCOUNT_THRESHOLD ? CONFIG.SHOP.DISCOUNT_PERCENT / 100 : 0;
             const discount = Math.round(subtotal * discountRate) || 0;
 
-            // 2.4 Traitement du coupon
             const deliveryFee = cityData ? (Number(cityData.price) || 0) : 0;
             let couponData = null;
             let couponDiscount = 0;
@@ -677,13 +671,15 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                 couponData = c;
             }
 
-            // 2.5 Préparation des documents finaux (Sécurisation stricte des types)
             const totalDiscount = Math.min(discount + couponDiscount, subtotal);
             const total = Math.max(0, subtotal - totalDiscount + deliveryFee);
             const orderRef = doc(collection(db, "orders"));
             const cancellableUntil = new Date(Date.now() + CONFIG.ORDERS.CANCELLABLE_HOURS * 3600 * 1000);
 
+            // ✅ AJOUT : tag _test + _testBatch si mode test
             const orderData = {
+                _test: testMode,
+                _testBatch: testBatchId,
                 userId: String(user.uid), 
                 userName: String(user.name || ''), 
                 userEmail: String(user.email || ''),
@@ -716,6 +712,8 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
 
             const notifRef = doc(collection(db, "notifications"));
             const notifData = {
+                _test: testMode,
+                _testBatch: testBatchId,
                 userId: String(user.uid), 
                 type: 'order_created', 
                 title: String(t('notificationOrderCreated') || '📦 Commande reçue'),
@@ -729,21 +727,17 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
             // PHASE 3 : TOUTES LES ÉCRITURES (WRITES)
             // ==========================================
 
-            // 3.1 Mettre à jour les stocks
             productUpdates.forEach(update => {
-                console.log("🔥 LOG DB : Update Product", update.ref.path, update.data);
                 transaction.update(update.ref, update.data);
             });
 
-            // 3.2 Créer la commande
-            console.log("🔥 LOG DB : Create Order", orderData);
             transaction.set(orderRef, orderData);
 
-            // 3.3 Mettre à jour le coupon (si utilisé)
             if (couponData) {
-                console.log("🔥 LOG DB : Update Coupon", appliedCoupon.id);
                 transaction.update(doc(db, "coupons", appliedCoupon.id), { usedCount: increment(1) });
                 transaction.set(doc(db, "coupon_uses", `${appliedCoupon.id}_${user.uid}`), {
+                    _test: testMode,
+                    _testBatch: testBatchId,
                     couponId: String(appliedCoupon.id), 
                     code: String(couponData.code), 
                     userId: String(user.uid),
@@ -753,11 +747,8 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                 });
             }
 
-            // 3.4 Créer la notification
-            console.log("🔥 LOG DB : Create Notification", notifData);
             transaction.set(notifRef, notifData);
 
-            // Retourner les données
             return { orderId: orderRef.id, totals: { subtotal, discount, couponCode: appliedCoupon?.code || null, couponDiscount, deliveryFee, total }, validatedItems };
         });
 
@@ -831,7 +822,6 @@ export async function cancelOrder(orderId) {
             const cancellableUntilDate = toDate(order.cancellableUntil) || (order.createdAt?.toDate ? new Date(order.createdAt.toDate().getTime() + CONFIG.ORDERS.CANCELLABLE_HOURS * 3600000) : null);
             if (cancellableUntilDate && Date.now() > cancellableUntilDate.getTime()) throw new Error(t('orderCancelTooLate'));
 
-            // ✅ Restaurer le stock (car déduit à la création)
             if (order.stockDeducted === true) {
                 const productRefs = order.items.map(i => doc(db, "products", String(i.productId)));
                 const productSnaps = await Promise.all(productRefs.map(r => transaction.get(r)));
@@ -858,7 +848,6 @@ export async function cancelOrder(orderId) {
                 });
             }
 
-            // ✅ Restaurer le coupon
             if (order.couponId && !order.couponRestored) {
                 transaction.update(doc(db, "coupons", order.couponId), { usedCount: increment(-1) });
                 transaction.delete(doc(db, "coupon_uses", `${order.couponId}_${user.uid}`));
@@ -873,6 +862,8 @@ export async function cancelOrder(orderId) {
             });
 
             transaction.set(doc(collection(db, "notifications")), {
+                _test: order._test === true,
+                _testBatch: order._testBatch || null,
                 userId: user.uid, type: 'order_cancelled', title: t('notificationOrderCancelled'),
                 message: t('notificationOrderCancelledMsg').replace('{id}', orderId.slice(0, 8).toUpperCase()),
                 orderId: orderId, read: false, createdAt: Timestamp.now()
@@ -904,4 +895,4 @@ export function checkAbandonedCart() {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ cart.js chargé — v3.3.0 (Fix Types Firestore)');
+console.log('✅ cart.js chargé — v3.4.0 (tag _test ajouté)');
