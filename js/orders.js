@@ -1,7 +1,7 @@
 // js/orders.js
 // ============================================================
 // GESTION DES COMMANDES - SMART SWI9A
-// Version 5.0.0 — Mode Test guards + intégration Worker Speedaf
+// Version 5.0.1 — Conversion du poids en KG pour Speedaf
 // ============================================================
 
 import {
@@ -336,7 +336,7 @@ function cleanMoroccanPhone(phone) {
 }
 
 // ============================================================
-// 🚀 SPEEDAF — CREATE ORDER (Guard mode test)
+// 🚀 SPEEDAF — CREATE ORDER (Guard mode test + Poids en KG)
 // ============================================================
 export async function sendToSpeedafAPI(order) {
     // 🧪 MODE TEST : ZÉRO appel réseau
@@ -354,6 +354,32 @@ export async function sendToSpeedafAPI(order) {
             throw new Error("Données de commande invalides");
         }
         const addr = order.deliveryAddress;
+
+        // ✅ CALCUL DU POIDS : On récupère le poids en grammes (ex: 500) et on divise par 1000 pour avoir des KG (ex: 0.5)
+        let totalWeightGrams = 0;
+        
+        const itemList = (order.items || []).map(item => {
+            // Si le poids n'est pas dans la commande (ancien produit), on met 500g par défaut
+            const itemWeightGrams = Number(item.weight) || 500; 
+            totalWeightGrams += (itemWeightGrams * (Number(item.quantity) || 1));
+            
+            return {
+                sku: String(item.productId),
+                goodsName: String(item.name || 'Produit').slice(0, 100),
+                goodsQTY: Number(item.quantity) || 1,
+                goodsValue: Number(item.price) || 0,
+                currencyType: "MAD",
+                goodsType: "IT01",
+                goodsWeight: Number((itemWeightGrams / 1000).toFixed(3)), // ✅ Converti en KG
+                goodsUrl: "",
+                blnSure: 0,
+                battery: 0
+            };
+        });
+
+        // Poids total du colis en KG (minimum 0.1 kg pour éviter les erreurs)
+        let parcelWeightKg = Number((totalWeightGrams / 1000).toFixed(3));
+        if (parcelWeightKg <= 0) parcelWeightKg = 0.1; 
 
         // Payload conforme PDF Speedaf pages 6-10
         const payload = {
@@ -388,7 +414,8 @@ export async function sendToSpeedafAPI(order) {
                 sendCityName: "Casablanca",
                 sendDistrictName: "Casablanca",
 
-                parcelWeight: 100,
+                // ✅ UTILISATION DES POIDS CALCULÉS
+                parcelWeight: parcelWeightKg, 
                 piece: 1,
                 goodsQTY: order.items?.reduce((s, i) => s + Number(i.quantity || 0), 0) || 1,
                 codFee: Number(order.total) || 0,
@@ -396,18 +423,7 @@ export async function sendToSpeedafAPI(order) {
                 pickUpAging: 0,
                 remark: "Commande Smart Swi9a",
 
-                itemList: (order.items || []).map(item => ({
-                    sku: String(item.productId),
-                    goodsName: String(item.name || 'Produit').slice(0, 100),
-                    goodsQTY: Number(item.quantity) || 1,
-                    goodsValue: Number(item.price) || 0,
-                    currencyType: "MAD",
-                    goodsType: "IT01",
-                    goodsWeight: 100,
-                    goodsUrl: "",
-                    blnSure: 0,
-                    battery: 0
-                }))
+                itemList: itemList
             }
         };
 
@@ -1227,4 +1243,4 @@ export async function openOrderDetails(orderId, isAdmin = false) {
     }
 }
 
-console.log('✅ orders.js chargé — v5.0.0 (Test Mode guards + Worker Speedaf)');
+console.log('✅ orders.js chargé — v5.0.1 (Conversion du poids en KG)');
