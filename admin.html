@@ -352,7 +352,355 @@
         }
         .admin-alert-close:hover { background: var(--danger-bg); color: var(--danger); }
 
-        @m
+        @media (max-width: 700px) {
+            .admin-alert-title { display: none; }
+            .admin-alert-items { overflow-x: auto; flex-wrap: nowrap; padding-bottom: 0.2rem; scrollbar-width: thin; }
+            .admin-alert-items::-webkit-scrollbar { height: 4px; }
+            .admin-alert-items::-webkit-scrollbar-thumb { background: var(--border-gold); border-radius: 4px; }
+            .alert-badge { white-space: nowrap; flex-shrink: 0; }
+            .alert-tooltip { display: none; }
+        }
+
+        /* 🧪 MODE TEST - Écran de choix post-login */
+        #modeChoiceScreen {
+            min-height: 100vh;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            flex-direction: column;
+            text-align: center;
+        }
+        #modeChoiceScreen h1 {
+            font-family: var(--font-secondary);
+            color: var(--gold);
+            margin-bottom: 0.5rem;
+            font-size: 1.5rem;
+        }
+        #modeChoiceScreen p {
+            color: var(--text-muted);
+            margin-bottom: 2rem;
+            font-size: 0.9rem;
+        }
+        .mode-choice-btn {
+            border: none;
+            border-radius: var(--radius-lg);
+            padding: 1.5rem;
+            cursor: pointer;
+            text-align: left;
+            color: #fff;
+            transition: transform 0.2s, box-shadow 0.2s;
+            width: 100%;
+        }
+        .mode-choice-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-lg);
+        }
+        .mode-choice-btn .mode-title {
+            font-size: 1.5rem;
+            font-weight: 800;
+            margin-bottom: 0.3rem;
+        }
+        .mode-choice-btn .mode-desc {
+            font-size: 0.85rem;
+            opacity: 0.9;
+        }
+        .mode-choice-btn.real {
+            background: linear-gradient(135deg, #2ecc71, #1e7e34);
+        }
+        .mode-choice-btn.test {
+            background: linear-gradient(135deg, #dc3545, #a71d2a);
+        }
+
+        /* 🧪 MODE TEST - Bannière */
+        #testModeBanner {
+            position: fixed;
+            top: 0; left: 0; right: 0;
+            background: linear-gradient(90deg, #dc3545, #a71d2a);
+            color: #fff;
+            text-align: center;
+            padding: 0.5rem 1rem;
+            font-weight: 700;
+            font-size: 0.85rem;
+            z-index: 9999;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            gap: 0.8rem;
+            flex-wrap: wrap;
+        }
+        #testModeBanner button {
+            background: rgba(255,255,255,0.2);
+            border: 1px solid #fff;
+            color: #fff;
+            padding: 0.25rem 0.7rem;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            font-weight: 700;
+            transition: background 0.2s;
+        }
+        #testModeBanner button:hover {
+            background: rgba(255,255,255,0.35);
+        }
+    </style>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+    <!-- 🧪 ÉCRAN DE CHOIX MODE (post-login) -->
+    <div id="modeChoiceScreen">
+        <h1>⚙️ Administration Smart Swi9a</h1>
+        <p>Choisissez votre mode de travail</p>
+        <div style="display:flex;flex-direction:column;gap:1rem;max-width:420px;width:100%;">
+            <button id="chooseRealModeBtn" class="mode-choice-btn real">
+                <div class="mode-title">🟢 Mode Réel</div>
+                <div class="mode-desc">Site normal — données réelles — Speedaf activé</div>
+            </button>
+            <button id="chooseTestModeBtn" class="mode-choice-btn test">
+                <div class="mode-title">🔴 Mode Test</div>
+                <div class="mode-desc">Snapshot base — Speedaf désactivé — Rollback total</div>
+            </button>
+        </div>
+        <p style="margin-top:2rem;font-size:0.75rem;color:var(--text-dim);max-width:420px;">
+            ℹ️ Le mode est mémorisé jusqu'à ta prochaine déconnexion.
+        </p>
+    </div>
+
+    <!-- 🧪 BANNIÈRE MODE TEST -->
+    <div id="testModeBanner">
+        <span>🔴 MODE TEST — Speedaf DÉSACTIVÉ — Toutes les actions seront annulées</span>
+        <button id="endTestBtn" type="button">🟢 Test Terminé (Rollback)</button>
+    </div>
+
+    <!-- 🔐 LOGIN -->
+    <div class="admin-login-box" id="adminLoginBox">
+        <h2>🔐 Administration</h2>
+        <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:1.5rem;">Connectez-vous avec votre compte administrateur</p>
+        <input type="email" id="adminEmail" placeholder="📧 Email" autocomplete="email">
+        <input type="password" id="adminPassword" placeholder="🔒 Mot de passe" autocomplete="current-password">
+        <button id="adminLoginBtn">🔓 Se connecter</button>
+        <p id="adminLoginMsg" style="color:var(--danger);font-size:0.85rem;margin-top:1rem;min-height:1.2rem;"></p>
+        <p style="font-size:0.75rem;color:var(--text-dim);margin-top:1.5rem;">
+            <a href="/" style="color:var(--gold);">← Retour au site</a>
+        </p>
+    </div>
+
+    <!-- ⚙️ PANNEAU ADMIN -->
+    <div class="admin-container" id="adminPanel" style="display:none;">
+
+        <div class="admin-header">
+            <h1>⚙️ Administration Smart Swi9a</h1>
+            <div class="admin-user-info">
+                <span id="adminModeIndicator" style="font-size:0.8rem;font-weight:700;"></span>
+                <span id="adminUserEmail">—</span>
+                <button class="admin-btn-danger" id="adminLogoutBtn">🚪 Déconnexion</button>
+            </div>
+        </div>
+
+        <div class="admin-tabs">
+            <button class="active" data-tab="dashboard">📊 Tableau de bord</button>
+            <button data-tab="products">📦 Produits</button>
+            <button data-tab="orders">📋 Commandes</button>
+            <button data-tab="speedaf">🚀 Speedaf</button>
+            <button data-tab="users">👥 Clients</button>
+            <button data-tab="reviews">⭐ Avis</button>
+            <button data-tab="blog">📝 Blog</button>
+            <button data-tab="coupons">🎟️ Codes Promo</button>
+            <button data-tab="finances">💰 Comptabilité</button>
+            <button data-tab="tools">🛠️ Outils</button>
+        </div>
+
+        <!-- TABLEAU DE BORD -->
+        <div class="admin-content active" id="tab-dashboard">
+            <div class="admin-stats" id="adminStats">
+                <div class="admin-stat-card"><span class="stat-value" id="statProducts">—</span><span class="stat-label">📦 Produits</span></div>
+                <div class="admin-stat-card"><span class="stat-value" id="statOrders">—</span><span class="stat-label">📋 Commandes</span></div>
+                <div class="admin-stat-card"><span class="stat-value" id="statUsers">—</span><span class="stat-label">👥 Clients</span></div>
+                <div class="admin-stat-card"><span class="stat-value" id="statReviewsPending">—</span><span class="stat-label">⭐ Avis en attente</span></div>
+                <div class="admin-stat-card"><span class="stat-value" id="statOrdersPending">—</span><span class="stat-label">⏳ Commandes en attente</span></div>
+                <div class="admin-stat-card"><span class="stat-value" id="statRevenue">—</span><span class="stat-label">💰 Chiffre d'affaires</span></div>
+                <div class="admin-stat-card"><span class="stat-value" id="statCities">—</span><span class="stat-label">🏙️ Villes</span></div>
+            </div>
+        </div>
+
+        <!-- PRODUITS -->
+        <div class="admin-content" id="tab-products">
+            <div class="admin-form">
+                <h3 id="productFormTitle">➕ Ajouter un produit</h3>
+                <input type="hidden" id="productEditId">
+                
+                <div class="admin-form-row">
+                    <div><label>🇫🇷 Nom (Français) *</label><input type="text" id="pNameFr" placeholder="Ex: Prise Connectée WiFi"></div>
+                    <div><label>🇲🇦 Nom (Arabe)</label><input type="text" id="pNameAr" placeholder="اسم المنتج"></div>
+                </div>
+                <div class="admin-form-row">
+                    <div><label>🇬🇧 Nom (Anglais)</label><input type="text" id="pNameEn" placeholder="Product name"></div>
+                    <div><label>🔗 Slug (URL) *</label><input type="text" id="pSlug" placeholder="prise-connectee-wifi"></div>
+                </div>
+                <div class="admin-form-row">
+                    <div>
+                        <label>🏷️ SKU (Référence interne) *</label>
+                        <div style="display:flex; gap:0.4rem;">
+                            <input type="text" id="pSku" placeholder="Ex: SW-WEAR-2410-A1B" style="font-family:'Courier New', monospace; font-weight:700;">
+                            <button type="button" id="generateSkuBtn" class="admin-btn-secondary" style="padding:0 0.8rem; white-space:nowrap;" title="Générer un SKU">🎲</button>
+                        </div>
+                        <small style="color:var(--text-muted); font-size:0.7rem; display:block; margin-top:0.2rem;">Sera utilisé par Speedaf pour identifier le colis.</small>
+                    </div>
+                    <div>
+                        <label>📂 Catégorie Principale *</label>
+                        <select id="pParentCategory"></select>
+                    </div>
+                </div>
+                <div class="admin-form-row">
+                    <div>
+                        <label>📂 Sous-Catégorie *</label>
+                        <select id="pCategory"></select>
+                    </div>
+                </div>
+
+                <div class="admin-form-row cols-4">
+                    <div>
+                        <label>💰 Prix de base (MAD) *</label>
+                        <input type="number" id="pPrice" placeholder="50" min="0">
+                    </div>
+                    <div>
+                        <label>➕ Frais Logistique (+5 DH)</label>
+                        <div style="display:flex; align-items:center; gap:0.4rem; height: 38px;">
+                            <input type="checkbox" id="pLogisticsFee" checked style="width:auto; margin:0;">
+                            <span style="font-size:0.75rem; color:var(--success); font-weight:700;">Ajouter 5 DH</span>
+                        </div>
+                    </div>
+                    <div><label>💰 Ancien prix (MAD)</label><input type="number" id="pOldPrice" placeholder="199" min="0"></div>
+                    <div><label>💸 Prix d'achat (MAD)</label><input type="number" id="pPurchasePrice" placeholder="25" min="0" title="Prix payé au grossiste"></div>
+                </div>
+                <div class="admin-form-row cols-4" style="margin-top:0.5rem;">
+                    <div><label>📦 Stock *</label><input type="number" id="pStock" placeholder="10" min="0"></div>
+                    <div><label>⭐ Note moyenne</label><input type="number" id="pRating" placeholder="4.8" min="0" max="5" step="0.1"></div>
+                    <div style="display:flex;align-items:center;gap:0.4rem;cursor:pointer;color:var(--text);font-size:0.9rem; margin-top:1.5rem;">
+                        <input type="checkbox" id="pIsNew" style="width:auto;margin:0;">
+                        <label for="pIsNew" style="margin:0;cursor:pointer;">🆕 Nouveau Produit</label>
+                    </div>
+                </div>
+
+                <h4>📏 Dimensions & Poids (Requis pour Speedaf)</h4>
+                <div class="admin-form-row cols-4">
+                    <div><label>Poids (g)</label><input type="number" id="pWeight" placeholder="500" min="0"></div>
+                    <div><label>Longueur (cm)</label><input type="number" id="pLength" placeholder="20" min="0" step="0.1"></div>
+                    <div><label>Largeur (cm)</label><input type="number" id="pWidth" placeholder="15" min="0" step="0.1"></div>
+                    <div><label>Hauteur (cm)</label><input type="number" id="pHeight" placeholder="10" min="0" step="0.1"></div>
+                </div>
+
+                <h4>🎨 Variantes (Tailles / Couleurs)</h4>
+                <div class="admin-form-row">
+                    <div><label>Tailles (séparées par virgule)</label><input type="text" id="pSizes" placeholder="S, M, L, XL"></div>
+                    <div><label>Couleurs (séparées par virgule)</label><input type="text" id="pColors" placeholder="Rouge, Bleu, Noir"></div>
+                </div>
+                <button type="button" class="admin-btn-secondary" id="generateVariantsBtn" style="margin-top:0.5rem;margin-bottom:1rem;">🔄 Générer les combinaisons</button>
+                
+                <div id="variantsContainer">
+                    <p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.5rem;">Ajustez le stock et le prix pour chaque combinaison :</p>
+                    <table class="acc-table" id="variantsTable">
+                        <thead><tr><th>Combinaison</th><th>Prix (MAD)</th><th>Stock</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+
+                <div style="margin-top:1rem; padding:1rem; background:rgba(var(--gold-rgb), 0.05); border:1px solid var(--border-gold); border-radius:var(--radius-sm);">
+                    <div style="display:flex;align-items:center;gap:0.4rem;cursor:pointer;color:var(--text);font-size:0.9rem;">
+                        <input type="checkbox" id="pSizeGuide" style="width:auto;margin:0;">
+                        <label for="pSizeGuide" style="margin:0;cursor:pointer;font-weight:600;">📏 Activer le Guide des Tailles Automatique (US / EU)</label>
+                    </div>
+                </div>
+
+                <label>🇫🇷 Description (Français)</label>
+                <textarea id="pDescFr" placeholder="Description en français..."></textarea>
+                <label>🇲🇦 Description (Arabe)</label>
+                <textarea id="pDescAr" placeholder="الوصف بالعربية..."></textarea>
+                <label>🇬🇧 Description (Anglais)</label>
+                <textarea id="pDescEn" placeholder="Description in English..."></textarea>
+                <label>🇫🇷 Caractéristiques FR (une par ligne)</label>
+                <textarea id="pFeaturesFr" placeholder="Bluetooth 5.3&#10;Autonomie 30h"></textarea>
+                <label>🇲🇦 Caractéristiques AR (une par ligne)</label>
+                <textarea id="pFeaturesAr" placeholder="بلوتوث 5.3&#10;بطارية 30 ساعة"></textarea>
+                <label>🇬🇧 Caractéristiques EN (une par ligne)</label>
+                <textarea id="pFeaturesEn" placeholder="Bluetooth 5.3&#10;30h battery"></textarea>
+                
+                <label>📸 Image principale (URL ou upload)</label>
+                <input type="text" id="pImg" placeholder="https://... ou /photos/image.jpg">
+                <input type="file" id="pImgFile" accept="image/*" style="margin-top:0.5rem;">
+                <img id="pImgPreview" class="admin-preview-img" alt="Aperçu">
+                
+                <label>🖼️ Galerie (URLs séparées par des virgules, ou upload multiple)</label>
+                <input type="text" id="pGallery" placeholder="url1, url2, url3">
+                <input type="file" id="pGalleryFiles" accept="image/*" multiple style="margin-top:0.5rem;">
+                <div class="admin-gallery-preview" id="pGalleryPreview"></div>
+
+                <label>🎥 Vidéo de démonstration (Nom du fichier R2)</label>
+                <div style="display:flex;gap:0.5rem;align-items:center;">
+                    <input type="text" id="pVideo" placeholder="Ex: demo-montre.mp4" title="Entrez uniquement le nom du fichier tel qu'il est dans votre bucket R2" style="flex:1;">
+                    <button type="button" id="clearVideoBtn" class="admin-btn-secondary" style="white-space:nowrap; padding: 0.6rem 1rem;" title="Effacer la vidéo">❌ Effacer</button>
+                </div>
+
+                <div style="display:flex;gap:0.5rem;margin-top:1rem;flex-wrap:wrap;">
+                    <button class="admin-btn-primary" id="saveProductBtn">💾 <span id="saveProductBtnText">Enregistrer le produit</span></button>
+                    <button class="admin-btn-secondary" id="cancelProductEdit" style="display:none;">❌ Annuler la modification</button>
+                </div>
+            </div>
+
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.8rem;margin-bottom:1rem;">
+                <h3 style="font-family:var(--font-secondary);color:var(--gold);margin:0;">📦 Liste des produits</h3>
+                <button class="admin-btn-secondary" id="exportProductsCSVBtn" style="display:inline-flex;align-items:center;gap:0.4rem;">📥 Exporter CSV (Inventaire)</button>
+            </div>
+
+            <div class="admin-search-bar">
+                <input type="text" id="productSearchAdmin" placeholder="🔍 Rechercher un produit...">
+                <select id="productCategoryFilter"><option value="all">Toutes catégories</option></select>
+            </div>
+            <div id="adminProductsList"><div class="admin-loading">⏳ Chargement des produits...</div></div>
+        </div>
+
+        <!-- COMMANDES -->
+        <div class="admin-content" id="tab-orders">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.8rem;margin-bottom:1rem;">
+                <h3 style="font-family:var(--font-secondary);color:var(--gold);margin:0;">📋 Commandes</h3>
+                <button class="admin-btn-secondary" id="exportOrdersCSVBtn" style="display:inline-flex;align-items:center;gap:0.4rem;">📥 Exporter CSV (Speedaf)</button>
+            </div>
+            <div id="adminOrdersList"><div class="admin-loading">⏳ Chargement des commandes...</div></div>
+        </div>
+
+        <!-- SPEEDAF -->
+        <div class="admin-content" id="tab-speedaf">
+            <div class="admin-header" style="margin-bottom:1rem; padding:1rem; display:flex; justify-content:space-between; flex-wrap:wrap; gap:1rem;">
+                <h2 style="font-family:var(--font-secondary);color:var(--gold);margin:0;">🚀 Gestion des livraisons Speedaf</h2>
+                <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+                    <button class="admin-btn-secondary" id="pickupSpeedafBtn" style="margin:0; padding:0.6rem 1.2rem; border-color:var(--info); color:var(--info);">📦 Demander un ramassage</button>
+                    <button class="admin-btn-primary" id="syncAllSpeedafBtn" style="margin:0; padding:0.6rem 1.2rem;">🔄 Synchroniser les statuts</button>
+                </div>
+            </div>
+            
+            <div class="admin-stats" style="margin-bottom:1.5rem;">
+                <div class="admin-stat-card"><span class="stat-value" id="speedafStatPending">—</span><span class="stat-label">⏳ À expédier</span></div>
+                <div class="admin-stat-card"><span class="stat-value" id="speedafStatShipping">—</span><span class="stat-label">🚚 En cours de livraison</span></div>
+                <div class="admin-stat-card"><span class="stat-value" id="speedafStatDelivered">—</span><span class="stat-label">📦 Livrés</span></div>
+                <div class="admin-stat-card"><span class="stat-value" id="speedafStatStorage">—</span><span class="stat-label">🏬 Stockés (Max 10)</span></div>
+            </div>
+
+            <div class="admin-search-bar">
+                <input type="text" id="speedafSearchAdmin" placeholder="🔍 Rechercher (N° commande, N° suivi, client)...">
+                <select id="speedafStatusFilter">
+                    <option value="all">Tous les statuts</option>
+                    <option value="pending">⏳ À expédier</option>
+                    <option value="shipping">🚚 En cours de livraison</option>
+                    <option value="delivered">📦 Livrés</option>
+                    <option value="returned">↩️ Retournés</option>
+                </select>
+            </div>
+
+            <div id="adminSpeedafList"><div class="admin-loading">⏳ Chargement des commandes Speedaf...</div></div>
+        </div>
+
         <!-- CLIENTS -->
         <div class="admin-content" id="tab-users">
             <h3 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;">👥 Clients inscrits</h3>
@@ -657,25 +1005,16 @@
                 </div>
             </div>
 
-            <!-- SIMULATEUR AVANCÉ -->
+            <!-- SIMULATEUR -->
             <div class="acc-content" id="acc-simulator">
                 <h3 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;">🧮 Simulateur de rentabilité avancé</h3>
 
                 <div class="admin-form">
                     <h4 style="color:var(--gold);font-size:1rem;margin-bottom:1rem;">1. Paramètres généraux</h4>
                     <div class="admin-form-row cols-3">
-                        <div>
-                            <label>📢 Budget Pub total (MAD)</label>
-                            <input type="number" id="finAdSpend" value="800" min="0">
-                        </div>
-                        <div>
-                            <label>📦 Emballage par colis (MAD)</label>
-                            <input type="number" id="finPackaging" value="3" min="0" step="0.01">
-                        </div>
-                        <div>
-                            <label>🔄 Frais retour Speedaf (MAD)</label>
-                            <input type="number" id="finReturnShipping" value="35" min="0">
-                        </div>
+                        <div><label>📢 Budget Pub total (MAD)</label><input type="number" id="finAdSpend" value="800" min="0"></div>
+                        <div><label>📦 Emballage par colis (MAD)</label><input type="number" id="finPackaging" value="3" min="0" step="0.01"></div>
+                        <div><label>🔄 Frais retour Speedaf (MAD)</label><input type="number" id="finReturnShipping" value="35" min="0"></div>
                     </div>
 
                     <div class="admin-form-row" style="margin-top:0.8rem;">
@@ -706,9 +1045,7 @@
 
                     <div id="financeProductSelector" style="max-height:350px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.5rem;margin-bottom:1rem;background:var(--bg-surface);"></div>
 
-                    <button class="admin-btn-primary" id="calculateFinancesBtn" style="width:100%;">
-                        🧮 Lancer l'analyse complète
-                    </button>
+                    <button class="admin-btn-primary" id="calculateFinancesBtn" style="width:100%;">🧮 Lancer l'analyse complète</button>
                 </div>
 
                 <div id="financeResults" style="display:none;">
@@ -718,49 +1055,21 @@
                             <span class="stat-value" id="finTotalRevenue" style="color:var(--gold);">0 MAD</span>
                             <span class="stat-label">💰 CA Potentiel</span>
                         </div>
-                        <div class="admin-stat-card">
-                            <span class="stat-value" id="finTotalInvestment" style="color:var(--text-muted);">0 MAD</span>
-                            <span class="stat-label">📦 Investissement stock</span>
-                        </div>
-                        <div class="admin-stat-card">
-                            <span class="stat-value" id="finTotalLogistics" style="color:var(--text-muted);">0 MAD</span>
-                            <span class="stat-label">💸 Coût logistique</span>
-                        </div>
-                        <div class="admin-stat-card" style="border-color:var(--info);">
-                            <span class="stat-value" id="finTotalGrossProfit" style="color:var(--info);">0 MAD</span>
-                            <span class="stat-label">💵 Profit BRUT</span>
-                        </div>
-                        <div class="admin-stat-card" style="border-color:var(--success);">
-                            <span class="stat-value" id="finTotalProfit" style="color:var(--success);">0 MAD</span>
-                            <span class="stat-label">🏆 Profit NET (après pub)</span>
-                        </div>
-                        <div class="admin-stat-card">
-                            <span class="stat-value" id="finTotalROI">0%</span>
-                            <span class="stat-label">📈 ROI global</span>
-                        </div>
-                        <div class="admin-stat-card" style="border-color:var(--gold);">
-                            <span class="stat-value" id="finBreakEven" style="color:var(--gold);">0</span>
-                            <span class="stat-label">🎯 Point mort</span>
-                        </div>
+                        <div class="admin-stat-card"><span class="stat-value" id="finTotalInvestment" style="color:var(--text-muted);">0 MAD</span><span class="stat-label">📦 Investissement stock</span></div>
+                        <div class="admin-stat-card"><span class="stat-value" id="finTotalLogistics" style="color:var(--text-muted);">0 MAD</span><span class="stat-label">💸 Coût logistique</span></div>
+                        <div class="admin-stat-card" style="border-color:var(--info);"><span class="stat-value" id="finTotalGrossProfit" style="color:var(--info);">0 MAD</span><span class="stat-label">💵 Profit BRUT</span></div>
+                        <div class="admin-stat-card" style="border-color:var(--success);"><span class="stat-value" id="finTotalProfit" style="color:var(--success);">0 MAD</span><span class="stat-label">🏆 Profit NET (après pub)</span></div>
+                        <div class="admin-stat-card"><span class="stat-value" id="finTotalROI">0%</span><span class="stat-label">📈 ROI global</span></div>
+                        <div class="admin-stat-card" style="border-color:var(--gold);"><span class="stat-value" id="finBreakEven" style="color:var(--gold);">0</span><span class="stat-label">🎯 Point mort</span></div>
                     </div>
 
                     <div class="admin-stats" style="margin-bottom:1.5rem;">
-                        <div class="admin-stat-card">
-                            <span class="stat-value" id="finTotalProducts">0</span>
-                            <span class="stat-label">📦 Produits sélectionnés</span>
-                        </div>
-                        <div class="admin-stat-card">
-                            <span class="stat-value" id="finTotalUnits">0</span>
-                            <span class="stat-label">📊 Unités en stock</span>
-                        </div>
-                        <div class="admin-stat-card">
-                            <span class="stat-value" id="finStockSaleValue" style="color:var(--gold);">0 MAD</span>
-                            <span class="stat-label">💎 Valeur stock (prix vente)</span>
-                        </div>
+                        <div class="admin-stat-card"><span class="stat-value" id="finTotalProducts">0</span><span class="stat-label">📦 Produits sélectionnés</span></div>
+                        <div class="admin-stat-card"><span class="stat-value" id="finTotalUnits">0</span><span class="stat-label">📊 Unités en stock</span></div>
+                        <div class="admin-stat-card"><span class="stat-value" id="finStockSaleValue" style="color:var(--gold);">0 MAD</span><span class="stat-label">💎 Valeur stock (prix vente)</span></div>
                     </div>
 
                     <div id="finRecommendations" style="margin-bottom:1.5rem;"></div>
-
                     <div id="finCategorySummary"></div>
 
                     <h4 style="color:var(--gold);margin:1.5rem 0 1rem;">📦 Détail par produit</h4>
@@ -853,39 +1162,23 @@
         </div>
     </div>
 
-    <!-- MODALE DE RAMASSAGE SPEEDAF -->
+    <!-- MODALE RAMASSAGE SPEEDAF -->
     <div class="modal-overlay" id="pickupModal" style="z-index:2500;">
         <div class="modal" style="max-width:450px;">
             <button class="modal-close" id="closePickupModalBtn">✕</button>
             <h2 style="font-family:var(--font-secondary);color:var(--gold);text-align:center;margin-bottom:1rem;">📦 Demander un ramassage</h2>
-            <p style="font-size:0.85rem;color:var(--text-muted);text-align:center;margin-bottom:1.5rem;">
-                Planifiez le passage du livreur Speedaf pour récupérer vos colis.
-            </p>
+            <p style="font-size:0.85rem;color:var(--text-muted);text-align:center;margin-bottom:1.5rem;">Planifiez le passage du livreur Speedaf pour récupérer vos colis.</p>
             
             <div class="admin-form-row">
-                <div>
-                    <label>Date de ramassage *</label>
-                    <input type="date" id="pickupDate">
-                </div>
-                <div>
-                    <label>Nombre de colis (cartons) *</label>
-                    <input type="number" id="pickupPackages" min="1" value="1">
-                </div>
+                <div><label>Date de ramassage *</label><input type="date" id="pickupDate"></div>
+                <div><label>Nombre de colis (cartons) *</label><input type="number" id="pickupPackages" min="1" value="1"></div>
             </div>
             <div class="admin-form-row" style="margin-top:0.5rem;">
-                <div>
-                    <label>Poids total estimé (kg) *</label>
-                    <input type="number" id="pickupWeight" min="1" value="1" step="0.5">
-                </div>
-                <div>
-                    <label>Note (Optionnel)</label>
-                    <input type="text" id="pickupNote" placeholder="Ex: Colis fragiles">
-                </div>
+                <div><label>Poids total estimé (kg) *</label><input type="number" id="pickupWeight" min="1" value="1" step="0.5"></div>
+                <div><label>Note (Optionnel)</label><input type="text" id="pickupNote" placeholder="Ex: Colis fragiles"></div>
             </div>
             
-            <button class="admin-btn-primary" id="confirmPickupBtn" style="width:100%; justify-content:center; margin-top:1.5rem;">
-                🚀 Envoyer la demande
-            </button>
+            <button class="admin-btn-primary" id="confirmPickupBtn" style="width:100%; justify-content:center; margin-top:1.5rem;">🚀 Envoyer la demande</button>
         </div>
     </div>
 
