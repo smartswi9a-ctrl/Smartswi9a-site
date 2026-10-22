@@ -1,7 +1,7 @@
 // js/orders.js
 // ============================================================
 // GESTION DES COMMANDES - SMART SWI9A
-// Version 4.4.0 — Sécurisation API Speedaf via Cloudflare Worker
+// Version 4.4.1 — Fix : Transaction Firestore (Reads before Writes)
 // ============================================================
 
 import {
@@ -29,11 +29,8 @@ import { cancelOrder, loadUserOrders } from "./cart.js";
 // 🚀 CONFIGURATION SPEEDAF (Via Cloudflare Worker Proxy)
 // ============================================================
 const SPEEDAF_API_CONFIG = {
-    // ✅ On utilise l'URL de ton proxy Cloudflare
     BASE_URL: "https://speedaf-proxy.smartswi9a.workers.dev", 
-    // ✅ La vraie clé est cachée dans les paramètres de Cloudflare
     API_KEY: "CACHEE_SUR_CLOUDFLARE", 
-    // L'en-tête d'authentification
     AUTH_HEADER: "Authorization" 
 };
 
@@ -388,28 +385,25 @@ export async function sendOrderEmail(order, status, recipient) {
 // 🚀 LOGIQUE SPEEDAF (API)
 // ============================================================
 
-// Nettoie le numéro de téléphone (ex: +212 6 12 34 56 78 -> 0612345678)
 function cleanMoroccanPhone(phone) {
     if (!phone) return '';
-    let cleaned = String(phone).replace(/\D/g, ''); // Enlève tout sauf les chiffres
+    let cleaned = String(phone).replace(/\D/g, '');
     if (cleaned.startsWith('212')) cleaned = '0' + cleaned.substring(3);
     return cleaned;
 }
 
-// Envoie la commande à l'API Speedaf
 export async function sendToSpeedafAPI(order) {
     try {
         if (!order || !order.deliveryAddress) throw new Error("Données de commande invalides");
 
-        // ⚠️ ADAPTE CES CHAMPS SELON LA DOCUMENTATION DE SPEEDAF
         const payload = {
             reference: order.id.slice(0, 8).toUpperCase(),
             receiver_name: order.deliveryAddress.name,
             receiver_phone: cleanMoroccanPhone(order.deliveryAddress.phone),
             receiver_address: order.deliveryAddress.address,
-            city: order.deliveryAddress.city, // À mapper si Speedaf utilise des codes
+            city: order.deliveryAddress.city, 
             cod_amount: order.total,
-            weight: order.totalWeight || 1, // Poids par défaut de 1kg
+            weight: order.totalWeight || 1, 
             remark: order.deliveryAddress.note || "Commande Smart Swi9a"
         };
 
@@ -431,7 +425,6 @@ export async function sendToSpeedafAPI(order) {
         const data = await response.json();
         console.log("✅ Succès Speedaf:", data);
         
-        // Récupération du numéro de suivi et de l'URL de l'étiquette
         const trackingNumber = data.trackingNumber || data.waybill || data.tracking_number;
         const labelUrl = data.labelUrl || data.printUrl || data.label_url;
 
@@ -442,12 +435,11 @@ export async function sendToSpeedafAPI(order) {
         };
 
     } catch (error) {
-        console.error("❌ Erreur réseau lors de l'appel Speedaf (CORS ?):", error);
+        console.error("❌ Erreur réseau Speedaf:", error);
         return { success: false, error: error.message };
     }
 }
 
-// Annule une commande chez Speedaf
 export async function cancelSpeedafShipment(trackingNumber) {
     if (!trackingNumber) return false;
     try {
@@ -466,7 +458,6 @@ export async function cancelSpeedafShipment(trackingNumber) {
     }
 }
 
-// Vérifie le statut d'un colis (pour la synchro manuelle admin)
 export async function syncSpeedafStatus(orderId) {
     try {
         const orderRef = doc(db, "orders", orderId);
@@ -488,7 +479,6 @@ export async function syncSpeedafStatus(orderId) {
         const data = await response.json();
         const speedafStatus = (data.status || data.state || "").toLowerCase();
 
-        // Mapping des statuts Speedaf -> Site
         if (speedafStatus.includes('delivered') || speedafStatus.includes('livré')) {
             if (normalizeOrderStatus(order.status) !== ORDER_STATUS.DELIVERED) {
                 await updateOrderStatus(orderId, ORDER_STATUS.DELIVERED);
@@ -584,6 +574,7 @@ async function restoreStockInTransaction(transaction, order, productSnaps, produ
 
 // ============================================================
 // UPDATE ORDER STATUS (ATOMIQUE + SPEEDAF AUTO)
+// ✅ FIX : Restructuration de la transaction (Reads -> Logic -> Writes)
 // ============================================================
 export async function updateOrderStatus(orderId, newStatus) {
     try {
@@ -598,8 +589,11 @@ export async function updateOrderStatus(orderId, newStatus) {
         let orderForEmail = null;
         let emailStatus = null;
         
-        // 1. TRANSACTION FIRESTORE (Stock & Statut de base)
+        // 1. TRANSACTION FIRESTORE
         await runTransaction(db, async (transaction) => {
+            // ==========================================
+            // PHASE 1 : TOUTES LES LECTURES (READS)
+            // ==========================================
             const orderSnap = await transaction.get(orderRef);
             if (!orderSnap.exists()) throw new Error('Commande introuvable');
             
@@ -610,22 +604,32 @@ export async function updateOrderStatus(orderId, newStatus) {
             
             if (!Object.values(ORDER_STATUS).includes(normalizedStatus)) throw new Error('Statut invalide');
             
-            // Gestion du stock
+            let productSnaps = [];
+            let productRefs = [];
+            
             if (normalizedStatus === ORDER_STATUS.CONFIRMED && previousStatus === ORDER_STATUS.PENDING && order.stockDeducted !== true) {
-                const productRefs = order.items.map(i => doc(db, "products", String(i.productId)));
-                const productSnaps = await Promise.all(productRefs.map(r => transaction.get(r)));
+                productRefs = order.items.map(i => doc(db, "products", String(i.productId)));
+                productSnaps = await Promise.all(productRefs.map(r => transaction.get(r)));
+            }
+            
+            if (normalizedStatus === ORDER_STATUS.CANCELLED && [ORDER_STATUS.CONFIRMED, ORDER_STATUS.SHIPPING].includes(previousStatus) && order.stockDeducted === true) {
+                productRefs = order.items.map(i => doc(db, "products", String(i.productId)));
+                productSnaps = await Promise.all(productRefs.map(r => transaction.get(r)));
+            }
+            
+            // ==========================================
+            // PHASE 2 : LOGIQUE & ÉCRITURES (WRITES)
+            // ==========================================
+            if (normalizedStatus === ORDER_STATUS.CONFIRMED && previousStatus === ORDER_STATUS.PENDING && order.stockDeducted !== true) {
                 await deductStockInTransaction(transaction, order, productSnaps, productRefs);
                 order.stockDeducted = true;
             }
             
             if (normalizedStatus === ORDER_STATUS.CANCELLED && [ORDER_STATUS.CONFIRMED, ORDER_STATUS.SHIPPING].includes(previousStatus) && order.stockDeducted === true) {
-                const productRefs = order.items.map(i => doc(db, "products", String(i.productId)));
-                const productSnaps = await Promise.all(productRefs.map(r => transaction.get(r)));
                 await restoreStockInTransaction(transaction, order, productSnaps, productRefs);
                 order.stockDeducted = false;
             }
             
-            // Restauration coupon
             if (normalizedStatus === ORDER_STATUS.CANCELLED && order.couponId && !order.couponRestored) {
                 const couponRef = doc(db, "coupons", order.couponId);
                 const couponUseRef = doc(db, "coupon_uses", `${order.couponId}_${order.userId}`);
@@ -645,18 +649,15 @@ export async function updateOrderStatus(orderId, newStatus) {
         
         // 2. 🚀 SYNCHRONISATION AUTOMATIQUE SPEEDAF
         if (normalizedStatus === ORDER_STATUS.CONFIRMED && orderForEmail) {
-            // On tente l'envoi seulement si ce n'est pas déjà fait
             if (!orderForEmail.speedafTracking) {
                 const spdResult = await sendToSpeedafAPI(orderForEmail);
                 if (spdResult.success && spdResult.trackingNumber) {
-                    // Speedaf a accepté : on passe automatiquement en "En cours de livraison"
                     await updateDoc(orderRef, {
                         status: ORDER_STATUS.SHIPPING,
                         speedafTracking: spdResult.trackingNumber,
                         speedafLabelUrl: spdResult.labelUrl || null,
                         speedafSyncedAt: Timestamp.now()
                     });
-                    // On met à jour nos variables locales pour que l'email soit correct
                     emailStatus = ORDER_STATUS.SHIPPING;
                     orderForEmail.status = ORDER_STATUS.SHIPPING;
                     orderForEmail.speedafTracking = spdResult.trackingNumber;
@@ -672,7 +673,7 @@ export async function updateOrderStatus(orderId, newStatus) {
             if (cancelled) showToast('✅ Colis annulé chez Speedaf');
         }
         
-        // 3. ENVOI DES EMAILS (avec le statut mis à jour)
+        // 3. ENVOI DES EMAILS
         if (emailStatus && ['confirmed', 'shipping', 'delivered', 'cancelled'].includes(emailStatus)) {
             try {
                 await sendOrderEmail(orderForEmail, emailStatus, 'client');
@@ -682,7 +683,7 @@ export async function updateOrderStatus(orderId, newStatus) {
             }
         }
         
-        // 4. NOTIFICATIONS CLIENT (si livré)
+        // 4. NOTIFICATIONS CLIENT
         if (normalizedStatus === ORDER_STATUS.DELIVERED && orderForEmail.userId) {
             try {
                 const { createNotification } = await import("./notifications.js");
@@ -699,6 +700,7 @@ export async function updateOrderStatus(orderId, newStatus) {
 
 // ============================================================
 // SUPPRESSION COMPLETE DE LA COMMANDE
+// ✅ FIX : Restructuration de la transaction (Reads -> Logic -> Writes)
 // ============================================================
 async function deleteOrderCompletely(orderId) {
     const orderSnap = await getDoc(doc(db, "orders", orderId));
@@ -707,8 +709,11 @@ async function deleteOrderCompletely(orderId) {
     
     if (order.stockDeducted === true && ![ORDER_STATUS.CANCELLED, ORDER_STATUS.RETURNED].includes(normalizeOrderStatus(order.status))) {
         await runTransaction(db, async (transaction) => {
+            // --- LECTURES ---
             const productRefs = order.items.map(i => doc(db, "products", String(i.productId)));
             const productSnaps = await Promise.all(productRefs.map(r => transaction.get(r)));
+            
+            // --- ÉCRITURES ---
             await restoreStockInTransaction(transaction, order, productSnaps, productRefs);
         });
     }
@@ -731,7 +736,7 @@ async function deleteOrderCompletely(orderId) {
 }
 
 // ============================================================
-// ADMIN : RENDRE LES COMMANDES (Mis à jour avec boutons Speedaf)
+// ADMIN : RENDRE LES COMMANDES
 // ============================================================
 export async function renderAdminOrders(containerId = 'ordersList') {
     const container = document.getElementById(containerId);
@@ -763,7 +768,6 @@ export async function renderAdminOrders(containerId = 'ordersList') {
         
         const stockBadge = order.stockDeducted === true ? `<span style="font-size:0.7rem;color:var(--success);font-weight:700;">📦 Stock déduit</span>` : `<span style="font-size:0.7rem;color:var(--warning);font-weight:700;">⏳ Stock non déduit</span>`;
         
-        // 🚀 Affichage Speedaf
         let speedafHtml = '';
         if (order.speedafTracking) {
             speedafHtml = `
@@ -1112,8 +1116,12 @@ export async function openReturnModal(orderId) {
     }
 }
 
+// ✅ FIX : Restructuration de la transaction (Reads -> Logic -> Writes)
 async function processReturnTransaction(order, returnsToProcess) {
     await runTransaction(db, async (transaction) => {
+        // ==========================================
+        // PHASE 1 : LECTURES
+        // ==========================================
         const orderRef = doc(db, "orders", order.id);
         const orderSnap = await transaction.get(orderRef);
         if (!orderSnap.exists()) throw new Error("Commande introuvable");
@@ -1124,6 +1132,9 @@ async function processReturnTransaction(order, returnsToProcess) {
         const productRefs = returnsToProcess.map(r => doc(db, "products", String(r.productId)));
         const productSnaps = await Promise.all(productRefs.map(ref => transaction.get(ref)));
         
+        // ==========================================
+        // PHASE 2 : ÉCRITURES
+        // ==========================================
         productSnaps.forEach((snap, i) => {
             if (!snap.exists()) return;
             const pData = snap.data();
@@ -1162,7 +1173,7 @@ async function processReturnTransaction(order, returnsToProcess) {
 }
 
 // ============================================================
-// CLIENT : AFFICHER LES COMMANDES (Avec bouton suivi)
+// CLIENT : AFFICHER LES COMMANDES
 // ============================================================
 export async function renderUserOrders(containerId = 'tabContent') {
     const container = document.getElementById(containerId);
@@ -1193,7 +1204,6 @@ export async function renderUserOrders(containerId = 'tabContent') {
                    </div>` 
                 : '';
 
-            // 🚀 Bouton de suivi Speedaf
             const trackingBtnHtml = order.speedafTracking 
                 ? `<a href="https://www.speedaf.com/tracking?waybill=${order.speedafTracking}" target="_blank" style="display:inline-flex; align-items:center; gap:0.3rem; padding:0.4rem 1rem; background:rgba(165,123,46,0.1); color:var(--gold); border:1px solid var(--gold); border-radius:30px; text-decoration:none; font-weight:700; font-size:0.8rem; margin-top:0.5rem;">🚚 Suivre mon colis</a>`
                 : '';
@@ -1334,4 +1344,4 @@ export async function openOrderDetails(orderId, isAdmin = false) {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ orders.js chargé — v4.4.0 (Sécurisation API Speedaf)');
+console.log('✅ orders.js chargé — v4.4.1 (Fix Transaction Firestore: Reads before Writes)');
