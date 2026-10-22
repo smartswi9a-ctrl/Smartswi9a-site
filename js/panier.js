@@ -1,15 +1,7 @@
 // js/panier.js
 // ============================================================
 // PAGE PANIER DÉDIÉE - SMART SWI9A
-// Version 2.1.0 — Fix popup vide + validation renforcée
-//                 + Champ Note de livraison
-// ============================================================
-// CHANGEMENTS v2.1.0 :
-// ✅ Tâche 5a — handleCheckoutFromPage : plus de window.open('', '_blank')
-// ✅ Tâche 5b — renderForm : ajout champ "Note de livraison"
-// ✅ Tâche 5c — handleCheckoutFromPage : validation renforcée
-//                 (nom ≥2, phone ≥9 chiffres, email valide, ville sélectionnée)
-// ✅ Tâche 5d — handleCheckoutFromPage : passe note à checkout()
+// Version 2.2.0 — Fix Popup Mobile (Chargement + Redirection)
 // ============================================================
 
 import { CONFIG, getCategoryById } from "./config.js";
@@ -237,7 +229,6 @@ function renderCartItem(product, quantity, item) {
     const price = item.variant ? Number(item.variant.price) : Number(product.price);
     const oldPrice = Number(product.oldPrice) || 0;
 
-    // ✅ Calcul du stock selon la variante
     let maxStock = Number(product.stock) || 999;
     if (item.variant) {
         const v = product.variants?.find(v => (v.size || '') === (item.variant.size || '') && (v.color || '') === (item.variant.color || ''));
@@ -255,7 +246,6 @@ function renderCartItem(product, quantity, item) {
 
     const variantText = item.variant ? `<div style="font-size:0.75rem;color:var(--gold);font-weight:600;margin-bottom:0.2rem;">Taille: ${escapeHTML(item.variant.size || '—')} | Couleur: ${escapeHTML(item.variant.color || '—')}</div>` : '';
 
-    // ✅ Traduction dynamique de la catégorie
     const catObj = getCategoryById(product.category);
     const categoryLabel = catObj ? `${catObj.emoji} ${t(catObj.label)}` : escapeHTML(product.category || '');
 
@@ -389,7 +379,7 @@ function refreshSummaryTotals() {
 }
 
 // ============================================================
-// ✅ FORMULAIRE CLIENT (avec champ Note de livraison)
+// FORMULAIRE CLIENT
 // ============================================================
 function renderForm(user) {
     const selectedCity = getSelectedCity();
@@ -419,7 +409,6 @@ function renderForm(user) {
                 <input type="text" id="cityFilterInput" placeholder="${t('searchCity')}" value="${escapeHTML(cityValue)}" autocomplete="off">
                 <div class="city-suggestions" id="citySuggestions"></div>
             </div>
-            <!-- ✅ NOUVEAU : champ Note de livraison (optionnel) -->
             <div class="cart-page-field">
                 <label>📝 Note de livraison (${t('optional') || 'optionnel'})</label>
                 <textarea id="cartDeliveryNote" rows="2" placeholder="Ex: Sonner deux fois, 3ème étage, laisser chez le gardien..." maxlength="300"></textarea>
@@ -483,7 +472,7 @@ function renderSuggestions() {
 }
 
 // ============================================================
-// ✅ COUPON — APPLIQUER (Via ID Déterministe)
+// COUPON — APPLIQUER
 // ============================================================
 async function applyCouponCode() {
     const input = document.getElementById('couponCodeInput');
@@ -664,10 +653,7 @@ function initCitySearchOnPage() {
 }
 
 // ============================================================
-// ✅ CHECKOUT — Validation renforcée + plus de popup vide
-// ------------------------------------------------------------
-// AVANT : window.open('', '_blank') avant validation
-// APRÈS : validation PUIS checkout() (qui redirige directement)
+// ✅ CHECKOUT — Ouvre une fenêtre immédiatement (Fix Mobile)
 // ============================================================
 async function handleCheckoutFromPage() {
     const user = getCurrentUser();
@@ -703,14 +689,12 @@ async function handleCheckoutFromPage() {
         return;
     }
 
-    // ✅ Email : format valide si fourni
     const finalEmail = email || user?.email || '';
     if (finalEmail && !isValidEmail(finalEmail)) {
         showToast('⚠️ Format d\'email invalide');
         return;
     }
 
-    // ✅ Ville : doit être sélectionnée depuis la liste
     if (!cityId) {
         showToast('⚠️ ' + t('selectCityRequired'));
         return;
@@ -722,9 +706,54 @@ async function handleCheckoutFromPage() {
         checkoutBtn.textContent = '⏳...';
     }
 
+    // ✅ OUVERTURE IMMÉDIATE DE LA FENÊTRE (Préserve le geste utilisateur)
+    let waWindow = null;
+    try {
+        waWindow = window.open('', '_blank');
+        if (waWindow) {
+            // On écrit un joli écran de chargement dans la nouvelle fenêtre
+            waWindow.document.write(`
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>Validation de la commande...</title>
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <style>
+                        body {
+                            display: flex; flex-direction: column; justify-content: center; align-items: center;
+                            height: 100vh; margin: 0; background: #f8f6f2; font-family: system-ui, -apple-system, sans-serif;
+                            text-align: center; color: #1a1a2e;
+                        }
+                        h1 { color: #a57b2e; font-family: 'Georgia', serif; letter-spacing: 2px; margin-bottom: 10px; }
+                        .spinner {
+                            border: 4px solid #e0e0e0;
+                            border-top: 4px solid #a57b2e;
+                            border-radius: 50%;
+                            width: 40px; height: 40px;
+                            animation: spin 1s linear infinite;
+                            margin: 20px auto;
+                        }
+                        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+                        .msg { font-size: 15px; margin-top: 15px; font-weight: 600; }
+                        .submsg { font-size: 12px; color: #666; margin-top: 5px; }
+                    </style>
+                </head>
+                <body>
+                    <h1>SMART SWI9A</h1>
+                    <div class="spinner"></div>
+                    <div class="msg">Validation de votre commande...</div>
+                    <div class="submsg">Ne fermez pas cette fenêtre.</div>
+                </body>
+                </html>
+            `);
+            waWindow.document.close();
+        }
+    } catch (e) {
+        console.warn('⚠️ Popup bloquée par le navigateur', e);
+    }
+
     try {
         await revalidateCoupon();
-        // ✅ Plus de window.open('', '_blank') — checkout() redirige directement
         const result = await checkout(getCart(), {
             name,
             phone,
@@ -735,18 +764,18 @@ async function handleCheckoutFromPage() {
             cityId,
             cityAr: selectedCity?.nameAr || selectedCity?.name || '',
             cityFr: selectedCity?.nameFr || ''
-        }, appliedCoupon);
+        }, appliedCoupon, waWindow);
 
-        // Si pas de redirection (annulé, erreur, panier vide), réactiver le bouton
+        // Si pas de redirection (annulé, erreur, panier vide), on ferme la fenêtre
         if (!result.success || !result.redirected) {
+            if (waWindow && !waWindow.closed) waWindow.close();
             if (checkoutBtn && checkoutBtn.isConnected) {
                 checkoutBtn.disabled = false;
                 checkoutBtn.textContent = '💬 ' + t('cartCheckout');
             }
         }
-        // Sinon : checkout() fait setTimeout(window.location.href = waUrl, 200)
-        // → on laisse le bouton désactivé, la page va se rediriger
     } catch (e) {
+        if (waWindow && !waWindow.closed) waWindow.close();
         showToast('❌ ' + (e.message || 'Erreur'));
         if (checkoutBtn && checkoutBtn.isConnected) {
             checkoutBtn.disabled = false;
@@ -761,4 +790,4 @@ async function handleCheckoutFromPage() {
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initCartPage);
 else initCartPage();
 
-console.log('✅ panier.js chargé — v2.1.0 (Fix popup + validation + note)');
+console.log('✅ panier.js chargé — v2.2.0 (Fix Popup Mobile avec Chargement)');
