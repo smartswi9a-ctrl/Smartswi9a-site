@@ -1,13 +1,7 @@
 // js/cart.js
 // ============================================================
 // PANIER ET COMMANDES - SMART SWI9A
-// Version 3.5.0 — Fix popup vide + deliveryAddress.note
-// ============================================================
-// CHANGEMENTS v3.5.0 :
-// ✅ Tâche 5a — checkout() : suppression window.open('', '_blank')
-// ✅ Tâche 5b — createOrder() : ajout deliveryAddress.note
-// ✅ Tâche 5c — checkout() : redirection directe window.location.href
-// ✅ Tâche 5d — checkout() retourne { success, orderId } (pour panier.js)
+// Version 3.5.1 — Fix popup mobile (waWindow) + note livraison
 // ============================================================
 
 import {
@@ -472,14 +466,12 @@ export function calculateCouponDiscount(coupon, subtotal, deliveryFee) {
 }
 
 // ============================================================
-// ✅ CHECKOUT — Fix popup vide + redirection directe
-// ------------------------------------------------------------
-// AVANT : ouverture waWindow='' puis waWindow.location.href = url
-// APRÈS : création commande PUIS window.location.href direct
+// ✅ CHECKOUT — Accepte un waWindow pour éviter le blocage mobile
 // ============================================================
-export async function checkout(cartItems, deliveryInfo, appliedCoupon = null) {
+export async function checkout(cartItems, deliveryInfo, appliedCoupon = null, waWindow = null) {
     if (!cartItems || cartItems.length === 0) {
         showToast('⚠️ ' + t('cartEmpty'));
+        if (waWindow) waWindow.close();
         return { success: false, error: 'empty_cart' };
     }
 
@@ -487,6 +479,7 @@ export async function checkout(cartItems, deliveryInfo, appliedCoupon = null) {
     if (!user) {
         showToast('🔒 ' + t('loginRequired'));
         document.dispatchEvent(new CustomEvent('open-account'));
+        if (waWindow) waWindow.close();
         return { success: false, error: 'not_logged' };
     }
 
@@ -497,6 +490,7 @@ export async function checkout(cartItems, deliveryInfo, appliedCoupon = null) {
 
     if (!cleanName || !cleanPhone || !cleanAddress || !cleanCity) {
         showToast('⚠️ ' + t('fillAllFields'));
+        if (waWindow) waWindow.close();
         return { success: false, error: 'missing_fields' };
     }
 
@@ -508,12 +502,14 @@ export async function checkout(cartItems, deliveryInfo, appliedCoupon = null) {
     });
     if (!userConfirmed) {
         showToast('⏸️ ' + t('orderCancelled'));
+        if (waWindow) waWindow.close();
         return { success: false, error: 'cancelled' };
     }
 
     const result = await createOrder(cartItems, deliveryInfo, appliedCoupon);
     if (!result.success) {
         showToast('❌ ' + (result.error || t('orderError')));
+        if (waWindow) waWindow.close();
         return result;
     }
 
@@ -521,7 +517,7 @@ export async function checkout(cartItems, deliveryInfo, appliedCoupon = null) {
     const msg = buildWhatsAppMessage(validatedItems, deliveryInfo, orderId, totals);
     const url = `https://wa.me/${CONFIG.SHOP.WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`;
 
-    // ✅ Emails en arrière-plan (non bloquant)
+    // ✅ Emails en arrière-plan
     (async () => {
         try {
             const { sendOrderEmail } = await import('./orders.js');
@@ -560,18 +556,18 @@ export async function checkout(cartItems, deliveryInfo, appliedCoupon = null) {
     clearCart();
     showToast('✅ ' + t('orderSent'));
 
-    // ✅ Redirection directe (plus de fenêtre vide)
-    // Petit délai pour laisser le toast s'afficher
-    setTimeout(() => {
+    // ✅ Redirection WhatsApp (vers la fenêtre si elle existe, sinon même onglet)
+    if (waWindow && !waWindow.closed) {
+        waWindow.location.href = url;
+    } else {
         window.location.href = url;
-    }, 200);
+    }
 
     return { success: true, orderId, redirected: true };
 }
 
 // ============================================================
-// CRÉATION DE COMMANDE (Déduction Stock Immédiate)
-// ✅ NOUVEAU : deliveryAddress.note sauvegardé
+// CRÉATION DE COMMANDE
 // ============================================================
 export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
     const user = getCurrentUser();
@@ -585,9 +581,6 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
 
     try {
         const result = await runTransaction(db, async (transaction) => {
-            // ==========================================
-            // PHASE 1 : TOUTES LES LECTURES (READS)
-            // ==========================================
             const productRefs = items.map(item => doc(db, "products", String(item.productId)));
             const productSnaps = await Promise.all(productRefs.map(ref => transaction.get(ref)));
 
@@ -611,9 +604,6 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                 }
             }
 
-            // ==========================================
-            // PHASE 2 : LOGIQUE & VALIDATIONS
-            // ==========================================
             let subtotal = 0;
             let discountableItems = 0;
             const validatedItems = [];
@@ -730,7 +720,6 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                     cityAr: deliveryInfo.cityAr ? String(deliveryInfo.cityAr) : null,
                     cityFr: deliveryInfo.cityFr ? String(deliveryInfo.cityFr) : null,
                     email: String(deliveryInfo.email || user.email || ''),
-                    // ✅ NOUVEAU : note de livraison (optionnelle)
                     note: deliveryInfo.note ? String(deliveryInfo.note).trim().slice(0, 300) : null
                 },
                 createdAt: Timestamp.now(),
@@ -752,9 +741,6 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                 createdAt: Timestamp.now()
             };
 
-            // ==========================================
-            // PHASE 3 : TOUTES LES ÉCRITURES (WRITES)
-            // ==========================================
             productUpdates.forEach(update => {
                 transaction.update(update.ref, update.data);
             });
@@ -789,7 +775,6 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
 
 // ============================================================
 // MESSAGE WHATSAPP
-// ✅ NOUVEAU : inclut la note de livraison si présente
 // ============================================================
 function buildWhatsAppMessage(validatedItems, deliveryInfo, orderId, totals) {
     const productList = validatedItems.map(item => {
@@ -800,7 +785,6 @@ function buildWhatsAppMessage(validatedItems, deliveryInfo, orderId, totals) {
     let msg = `🛒 *${t('waNewOrder')}*\n\n`;
     if (orderId) msg += `📦 ${t('waOrder')} : *#${orderId.slice(0, 8).toUpperCase()}*\n\n`;
     msg += `👤 ${t('waName')} : ${deliveryInfo.name}\n📞 ${t('waPhone')} : ${deliveryInfo.phone}\n📍 ${t('waAddress')} : ${deliveryInfo.address}\n🏙️ ${t('waCity')} : ${deliveryInfo.city}\n`;
-    // ✅ NOUVEAU : note si présente
     if (deliveryInfo.note) msg += `📝 Note : ${deliveryInfo.note}\n`;
     if (deliveryInfo.email) msg += `✉️ ${t('waEmail')} : ${deliveryInfo.email}\n`;
     msg += `\n📋 *${t('waItems')} :*\n${productList}\n\n`;
@@ -834,7 +818,7 @@ export async function loadUserOrders() {
 }
 
 // ============================================================
-// ANNULER UNE COMMANDE (Restaure Stock + Coupon)
+// ANNULER UNE COMMANDE
 // ============================================================
 export async function cancelOrder(orderId) {
     const user = getCurrentUser();
@@ -926,4 +910,4 @@ export function checkAbandonedCart() {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ cart.js chargé — v3.5.0 (Fix popup + deliveryAddress.note)');
+console.log('✅ cart.js chargé — v3.5.1 (fix popup mobile)');
