@@ -1,7 +1,7 @@
 // js/cart.js
 // ============================================================
 // PANIER ET COMMANDES - SMART SWI9A
-// Version 3.4.0 — Ajout tag _test pour mode test
+// Version 3.4.1 — Ajout du poids dans les articles de la commande
 // ============================================================
 
 import {
@@ -544,7 +544,7 @@ export async function checkout(cartItems, deliveryInfo, appliedCoupon = null, wa
 
 // ============================================================
 // CRÉATION DE COMMANDE (Déduction Stock Immédiate)
-// ✅ AJOUT : tag _test en mode test
+// ✅ AJOUT : tag _test + récupération du poids
 // ============================================================
 export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
     const user = getCurrentUser();
@@ -631,7 +631,8 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                     variant: itemVariant || null, 
                     quantity: Number(qty), 
                     price: Number(unitPrice), 
-                    name: String(data.nameFr || data.nameEn || 'Produit') 
+                    name: String(data.nameFr || data.nameEn || 'Produit'),
+                    weight: Number(data.dimensions?.weight) || 0 // ✅ Ajout du poids
                 });
             });
 
@@ -895,4 +896,4 @@ export function checkAbandonedCart() {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ cart.js chargé — v3.4.0 (tag _test ajouté)');
+console.log('✅ cart.js chargé — v3.4.1 (Ajout du poids dans la commande)');
