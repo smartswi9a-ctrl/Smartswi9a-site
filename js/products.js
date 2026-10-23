@@ -1,7 +1,10 @@
 // js/products.js
 // ============================================================
 // GESTION DES PRODUITS - SMART SWI9A
-// Version 8.1.0 — Marketplace (correctifs E10/E13/IDs strings)
+// Version 8.2.0 — Marketplace (correctifs E10/E13/IDs strings + stats avis)
+//   - P1-b : getProductStatsBatch accepte IDs Number ET String
+//   - stats[String(pid)] uniformisé dans le rendu
+//   - listener review-submitted invalide cache sous forme normalisée
 // ============================================================
 
 import {
@@ -23,10 +26,9 @@ import {
     getPagination, setPagination
 } from "./store.js";
 import {
-    getCurrentUser, saveUserProfile, setCurrentUser
+    getCurrentUser, setCurrentUser
 } from "./auth.js";
 import { showToast } from "./ui-core.js";
-// B1 : import de la version ciblée (vendorsPublic), plus de preloadVendorNames
 import {
     preloadVendorsForProducts,
     getProductVendorLabelSync
@@ -34,6 +36,7 @@ import {
 
 // ============================================================
 // CACHE STATS AVIS
+// Clé = String(normalizedPid) pour supporter Number ET String
 // ============================================================
 const _statsCache = new Map();
 const STATS_CACHE_TTL = 60 * 1000;
@@ -45,8 +48,10 @@ let _lastRenderedLang = null;
 
 // ============================================================
 // NORMALISATION D'ID PRODUIT
-// Préserve les IDs numériques (compat favoris/reviews existants)
-// et accepte les IDs Firestore alphanumériques (produits vendeurs).
+// - "42" (chaîne numérique) → 42 (Number) — compat favoris/avis historiques
+// - "abc123" (auto-ID Firestore vendeur) → "abc123" (String)
+// - null/undefined/"" → null
+// Doit rester IDENTIQUE à reviews.js / product-detail.js / boutique.js
 // ============================================================
 function normalizeProductId(id) {
     if (id == null || id === '') return null;
@@ -56,16 +61,17 @@ function normalizeProductId(id) {
 
 if (typeof document !== 'undefined') {
     document.addEventListener('review-submitted', (e) => {
-        const pid = String(e.detail?.productId || '');
-        if (pid) {
+        const pid = normalizeProductId(e.detail?.productId);
+        if (pid != null) {
+            // Nouvelle clé (String) + ancienne clé (Number) pour nettoyage legacy
+            _statsCache.delete(String(pid));
             _statsCache.delete(Number(pid));
-            _statsCache.delete(pid);
         }
     });
 }
 
 // ============================================================
-// CSS INJECTION (inchangé)
+// CSS INJECTION (scroll horizontal des catégories)
 // ============================================================
 const CATEGORIES_SCROLL_CSS_ID = 'categories-scroll-css';
 
@@ -104,7 +110,7 @@ function injectCategoriesScrollCSS() {
 }
 
 // ============================================================
-// SCROLL BUTTONS (inchangé)
+// SCROLL BUTTONS
 // ============================================================
 const SCROLL_STEP = 300;
 let _globalScrollListenersAttached = false;
@@ -193,17 +199,13 @@ export async function loadProductsFromFirestore() {
             });
         });
 
-        // Filtre 2 (B2) : exclure les produits des vendeurs suspendus/rejetés.
-        // On lit uniquement `vendorsPublic` (aucune PII) via le helper ciblé.
+        // Filtre 2 : exclure les produits des vendeurs suspendus/rejetés.
         let products = raw;
         try {
             await preloadVendorsForProducts(raw);
             products = raw.filter(p => {
                 const label = getProductVendorLabelSync(p);
                 if (label.type === 'smart') return true;
-                // On garde si le statut n'est pas explicitement bloquant
-                // (unknown → optimiste, pour ne pas tout masquer si la
-                // pré-lecture a échoué partiellement).
                 return label.status !== 'suspended' && label.status !== 'rejected';
             });
         } catch (e) {
@@ -242,7 +244,6 @@ export function getFilteredProducts() {
     const filters = getFilters();
     const user = getCurrentUser();
 
-    // B7 : normalisation compatible IDs numériques + strings
     const favs = Array.isArray(user?.favorites)
         ? user.favorites.map(normalizeProductId).filter(f => f != null)
         : [];
@@ -313,7 +314,7 @@ export function goToPage(page) {
 }
 
 // ============================================================
-// SETTERS DE FILTRES (inchangé)
+// SETTERS DE FILTRES
 // ============================================================
 export function setCategory(category) {
     setFilters({ category });
@@ -362,63 +363,100 @@ export function getPromoProducts(onlyInStock = true) {
     });
 }
 
+// ============================================================
+// STATS AVIS (fix P1-b : supporte IDs Number ET String)
+// ------------------------------------------------------------
+// Firestore `where("productId", "in", [...])` accepte les types mixtes
+// (Number ET String) tant que la liste ≤ 30 items.
+// Cache : clé = String(normalizedPid) pour unifier Number ET String.
+// Retourne : objet indexé par String(pid) → { avg, count }
+// ============================================================
 export async function getProductStatsBatch(productIds) {
     if (!Array.isArray(productIds) || productIds.length === 0) return {};
-    // Limite Firestore "in" = 30.
-    // Les IDs non numériques (produits vendeurs) sont ignorés côté stats
-    // tant que le schéma `reviews.productId` reste numérique — voir impacts.
-    const ids = productIds
-        .map(Number)
-        .filter(Number.isFinite)
-        .slice(0, 30);
-    if (ids.length === 0) return {};
+
+    // Normaliser, dédupliquer, borner à 30 (limite Firestore `in`)
+    const normalizedIds = [];
+    const seen = new Set();
+    for (const id of productIds) {
+        const pid = normalizeProductId(id);
+        if (pid == null) continue;
+        const key = String(pid);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        normalizedIds.push(pid);
+        if (normalizedIds.length >= 30) break;
+    }
+    if (normalizedIds.length === 0) return {};
 
     const now = Date.now();
     const toFetch = [];
     const result = {};
 
-    ids.forEach(pid => {
-        const cached = _statsCache.get(pid);
-        if (cached && (now - cached.timestamp) < STATS_CACHE_TTL) result[pid] = cached.stats;
-        else toFetch.push(pid);
-    });
+    // Servir depuis le cache
+    for (const pid of normalizedIds) {
+        const key = String(pid);
+        const cached = _statsCache.get(key);
+        if (cached && (now - cached.timestamp) < STATS_CACHE_TTL) {
+            result[key] = cached.stats;
+        } else {
+            toFetch.push(pid);
+        }
+    }
 
     if (toFetch.length === 0) return result;
 
     try {
-        const q = query(collection(db, "reviews"), where("productId", "in", toFetch), where("status", "==", "approved"));
+        const q = query(
+            collection(db, "reviews"),
+            where("productId", "in", toFetch),
+            where("status", "==", "approved")
+        );
         const snap = await getDocs(q);
 
+        // Initialiser compteurs pour tous les IDs demandés
         const ratings = {};
-        toFetch.forEach(pid => { ratings[pid] = { sum: 0, count: 0 }; });
+        for (const pid of toFetch) {
+            ratings[String(pid)] = { sum: 0, count: 0 };
+        }
 
         snap.forEach(doc => {
             const r = doc.data();
-            // B6 : garde explicite (évite la collision null → 0)
             if (r.productId == null) return;
-            const pid = Number(r.productId);
-            if (!Number.isFinite(pid)) return;
-            if (!ratings[pid]) return;
-            ratings[pid].sum += Number(r.rating) || 0;
-            ratings[pid].count++;
+            const key = String(r.productId);
+            if (!ratings[key]) return;
+            ratings[key].sum += Number(r.rating) || 0;
+            ratings[key].count++;
         });
 
-        toFetch.forEach(pid => {
-            const stat = ratings[pid];
-            const stats = stat.count > 0 ? { avg: (stat.sum / stat.count).toFixed(1), count: stat.count } : { avg: null, count: 0 };
-            result[pid] = stats;
+        for (const pid of toFetch) {
+            const key = String(pid);
+            const stat = ratings[key];
+            const stats = stat.count > 0
+                ? { avg: (stat.sum / stat.count).toFixed(1), count: stat.count }
+                : { avg: null, count: 0 };
+            result[key] = stats;
+
+            // Éviction FIFO si cache plein
             if (_statsCache.size >= STATS_CACHE_MAX) {
                 const firstKey = _statsCache.keys().next().value;
                 if (firstKey !== undefined) _statsCache.delete(firstKey);
             }
-            _statsCache.set(pid, { stats, timestamp: now });
-        });
+            _statsCache.set(key, { stats, timestamp: now });
+        }
+
         return result;
-    } catch (e) { return result; }
+    } catch (e) {
+        console.warn('⚠️ getProductStatsBatch error:', e?.code || e);
+        // Fallback : retourner { avg: null, count: 0 } pour ne rien bloquer
+        for (const pid of toFetch) {
+            if (!result[String(pid)]) result[String(pid)] = { avg: null, count: 0 };
+        }
+        return result;
+    }
 }
 
 // ============================================================
-// RENDU DE LA GRILLE (Avec Badge Vendeur)
+// RENDU DE LA GRILLE
 // ============================================================
 export async function renderProducts() {
     const grid = document.getElementById('productsGrid');
@@ -429,11 +467,6 @@ export async function renderProducts() {
     grid.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:3rem 1rem;"><div class="spinner" style="margin:0 auto;"></div></div>`;
     const paginationEl = document.getElementById('paginationContainer');
     if (paginationEl) paginationEl.innerHTML = '';
-
-    // B1/B5 : plus d'appel bloquant à preloadVendorNames().
-    // Les vendeurs ont été préchargés au loadProductsFromFirestore().
-    // Un préchargement ciblé défensif reste possible en cas d'échec
-    // du premier (no-op si déjà en cache).
 
     const user = getCurrentUser();
     const favs = Array.isArray(user?.favorites)
@@ -447,7 +480,10 @@ export async function renderProducts() {
     // Préchargement défensif des vendeurs de la page courante.
     try { await preloadVendorsForProducts(pageProducts); } catch (_) { /* ignore */ }
 
-    const productIds = pageProducts.map(p => Number(p.id)).filter(Number.isFinite);
+    // P1-b : passer les IDs NORMALISÉS (Number ou String), pas seulement Number
+    const productIds = pageProducts
+        .map(p => normalizeProductId(p.id))
+        .filter(id => id != null);
     const stats = await getProductStatsBatch(productIds);
 
     if (thisRequest !== _renderRequestId) return;
@@ -464,7 +500,6 @@ export async function renderProducts() {
 
     let html = '';
     pageProducts.forEach(p => {
-        // B3 : normalisation compatible IDs Firestore alphanumériques
         const pid = normalizeProductId(p.id);
         if (pid == null) return;
 
@@ -479,11 +514,10 @@ export async function renderProducts() {
         const isNew = p.isNew || false;
         const discountPercent = getDiscountPercent(oldPrice, price);
 
-        // ✅ ATTRIBUTION VENDEUR
+        // Attribution vendeur
         const vendorInfo = getProductVendorLabelSync(p);
         const vendorOwner = p.vendorId && p.vendorId !== 'smartswi9a' ? p.vendorId : null;
 
-        // B4 : pas de lien boutique si l'ID vendeur est absent
         let vendorBadgeHtml;
         if (vendorInfo.type === 'smart') {
             vendorBadgeHtml = `<div style="font-size:0.68rem;color:var(--gold);font-weight:700;margin-top:0.2rem;">✅ ${t('vendorSmartSwi9a') || 'Smart Swi9a'}</div>`;
@@ -495,7 +529,9 @@ export async function renderProducts() {
 
         const hasVariants = Array.isArray(p.variants) && p.variants.length > 0;
         const optionsBadge = hasVariants ? `<span class="badge" style="background:var(--info);color:#fff;font-size:0.6rem;padding:0.15rem 0.4rem;border-radius:30px;position:absolute;top:0.5rem;right:0.5rem;z-index:2;">⚙️ Options</span>` : '';
-        const r = (typeof pid === 'number' ? stats[pid] : null) || { avg: null, count: 0 };
+
+        // P1-b : lookup unifié par String(pid) — fonctionne pour Number ET String
+        const r = stats[String(pid)] || { avg: null, count: 0 };
         const hasReviews = r.count > 0;
         const avgRating = hasReviews ? r.avg : '--';
         const reviewCount = r.count || 0;
@@ -557,7 +593,7 @@ export async function renderProducts() {
 }
 
 // ============================================================
-// RENDU DES CATÉGORIES (inchangé)
+// RENDU DES CATÉGORIES
 // ============================================================
 export function renderCategoryFilters() {
     const mainContainer = document.getElementById('filtersCategories');
@@ -669,7 +705,6 @@ export async function toggleFavorite(productId) {
         return;
     }
 
-    // B8 : normalisation compatible IDs numériques + strings
     const pid = normalizeProductId(productId);
     if (pid == null) return;
 
@@ -678,8 +713,6 @@ export async function toggleFavorite(productId) {
         : [];
     const isAdding = !currentFavs.includes(pid);
 
-    // Si l'ID est string (Firestore auto-ID), on stocke la string ;
-    // si numérique, on stocke le nombre — cohérent avec l'existant.
     const storedValue = pid;
 
     try {
@@ -704,4 +737,4 @@ export function openProductPage(slug) {
     window.location.href = `/produit?slug=${encodeURIComponent(slug)}`;
 }
 
-console.log('✅ products.js chargé — v8.1.0 (Marketplace)');
+console.log('✅ products.js chargé — v8.2.0 (Marketplace + stats vendeurs)');
