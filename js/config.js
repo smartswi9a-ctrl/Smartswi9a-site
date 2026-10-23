@@ -1,7 +1,9 @@
 // js/config.js
 // ============================================================
 // CONFIGURATION CENTRALISÉE - SMART SWI9A
-// Version 8.0.0 — FONDATION COMPLÈTE (Marketplace + Analytics)
+// Version 8.0.1 — FONDATION COMPLÈTE (Marketplace + Analytics)
+// Correctifs : clamping commission, SIGNUP_METHODS.VENDOR, secret webhook sorti,
+//              isProductPubliclyVisible accepte le vendeur en option.
 // ============================================================
 
 export const VIDEO_BASE_URL = "https://videos.smartswi9a.top/";
@@ -36,9 +38,14 @@ export const CONFIG = {
         CURRENCY: 'MAD',
         DISCOUNT_THRESHOLD: 3,
         DISCOUNT_PERCENT: 5,
+        // ⚠️ Sémantique ambiguë : si cart.js teste `subtotal >= FREE_DELIVERY_THRESHOLD`,
+        // alors 0 = livraison TOUJOURS gratuite (DELIVERY_FEE_BASE ignoré).
+        // Si cart.js teste `if (FREE_DELIVERY_THRESHOLD && subtotal >= ...)`, alors 0 = jamais gratuit.
+        // À trancher en lisant cart.js (étape 7).
         FREE_DELIVERY_THRESHOLD: 0,
         DELIVERY_FEE_BASE: 30,
         DELIVERY_FEE_PER_VENDOR_EXTRA: 0,
+        // ⚠️ Placeholders légaux — à remplir avant mise en production.
         ICE: 'XXXXXXXXXXXXXXX',
         RC: 'XXXXXX',
         PATENTE: 'XXXXXXXX',
@@ -80,7 +87,8 @@ export const CONFIG = {
         PAYOUT_APPROVED: 'payout_approved', PAYOUT_PAID: 'payout_paid', PAYOUT_REJECTED: 'payout_rejected',
         STORAGE_FEE_CHARGED: 'storage_fee_charged'
     }},
-    SIGNUP_METHODS: { OTP: 'otp', GOOGLE: 'google', FACEBOOK: 'facebook' },
+    // VENDOR ajouté (E14) : le vendeur ne passe pas par l'OTP EmailJS.
+    SIGNUP_METHODS: { OTP: 'otp', GOOGLE: 'google', FACEBOOK: 'facebook', VENDOR: 'vendor' },
     BREAKPOINTS: { MOBILE_MAX: 480, TABLET_MIN: 481, TABLET_MAX: 1024, DESKTOP_MIN: 1025, LARGE_MIN: 1441 },
     
     // ============================================================
@@ -113,6 +121,8 @@ export const CONFIG = {
         PRODUCT_VALIDATION_HOURS: 48,
         VENDOR_VALIDATION_HOURS: 72,
         CONTRACT_VERSION: '1.0.0',
+        // ⚠️ NE PAS utiliser tel quel côté DOM (voir E11). Le test correct
+        // est `scrollHeight <= clientHeight + tolérance`, puis fallback.
         CONTRACT_MIN_SCROLL: 0.95,
         ALLOWED_CATEGORIES: []
     },
@@ -171,7 +181,14 @@ export const CONFIG = {
         STORAGE_BILLING_DAY: 1, STORAGE_BILLING_HOUR: 0, STORAGE_BILLING_MINUTE: 30,
         EMAIL_DAILY_ADMIN_SUMMARY: true, EMAIL_DAILY_VENDOR_SUMMARY: true, EMAIL_MONTHLY_REPORTS: true,
         AUTO_SUSPEND_VENDORS: true, AUTO_SUSPEND_NEGATIVE_BALANCE: true,
-        WEBHOOKS_ENABLED: true, WEBHOOK_SPEEDAF_SECRET: 'swi9a_speedaf_secure_2026',
+        WEBHOOKS_ENABLED: true,
+        // ⚠️ SÉCURITÉ P0 — NE JAMAIS METTRE LE SECRET RÉEL ICI.
+        // Ce champ est chargé côté navigateur, donc PUBLIC. Le secret Speedaf
+        // doit vivre UNIQUEMENT dans les variables d'environnement du Worker
+        // Cloudflare (worker-cron / proxy Speedaf) — voir wrangler.toml.
+        // La valeur ci-dessous est un marqueur : toute comparaison échouera,
+        // ce qui est le comportement sûr (rejet par défaut).
+        WEBHOOK_SPEEDAF_SECRET: '__MIGRATED_TO_WORKER_ENV__',
         WEBHOOK_RETRY_ATTEMPTS: 3, WEBHOOK_RETRY_DELAY_MS: 5000
     },
     FULFILLMENT_BATCH_PREFIX: 'FUL-', FULFILLMENT_LABEL_PREFIX: 'SSW-FUL-'
@@ -239,6 +256,8 @@ export function normalizeCategory(catId) {
     return LEGACY_CATEGORY_MAP[catId] || catId;
 }
 
+// NOTE : référence CATEGORY_GROUPS déclarée plus bas. Sûr en ES module
+// (la fonction n'est exécutée qu'après l'initialisation du module).
 export function productMatchesCategory(product, categoryId) {
     if (!categoryId || categoryId === 'all') return true;
     if (!product || !product.category) return false;
@@ -288,11 +307,20 @@ export function getProductOwner(product) {
     return product.vendorId || 'smartswi9a';
 }
 
+/**
+ * Taux de commission applicable à un vendeur.
+ * Borné dans [COMMISSION_RATE_MIN, COMMISSION_RATE_MAX] pour éviter
+ * qu'une valeur corrompue / frauduleuse (0.9, 0.001, NaN) ne passe.
+ * Les bornes peuvent être ajustées dans CONFIG.VENDOR si la politique change.
+ */
 export function getCommissionRate(vendor) {
-    if (!vendor) return CONFIG.VENDOR.COMMISSION_RATE;
+    const defaultRate = CONFIG.VENDOR.COMMISSION_RATE;
+    if (!vendor) return defaultRate;
     const customRate = vendor.vendorInfo?.commissionRate;
-    if (typeof customRate === 'number' && customRate >= 0 && customRate <= 1) return customRate;
-    return CONFIG.VENDOR.COMMISSION_RATE;
+    if (typeof customRate !== 'number' || !Number.isFinite(customRate)) return defaultRate;
+    const min = CONFIG.VENDOR.COMMISSION_RATE_MIN;
+    const max = CONFIG.VENDOR.COMMISSION_RATE_MAX;
+    return Math.min(max, Math.max(min, customRate));
 }
 
 export function calculateVendorCommission(subtotal, vendor = null) {
@@ -324,10 +352,18 @@ export function canVendorSell(vendor) {
         && vendor.vendorInfo.contractStatus === CONTRACT_STATUS.ACCEPTED;
 }
 
-export function isProductPubliclyVisible(product) {
+/**
+ * Visibilité publique d'un produit.
+ * `vendor` est optionnel : si fourni (ex. données `vendorsPublic/{uid}`),
+ * un produit d'un vendeur suspendu/rejeté est masqué même si son statut
+ * produit est `approved`. Appelants côté boutique : passer le vendeur.
+ */
+export function isProductPubliclyVisible(product, vendor = null) {
     if (!product) return false;
     if (!isVendorProduct(product)) return true;
-    return product.status === PRODUCT_STATUS.APPROVED;
+    if (product.status !== PRODUCT_STATUS.APPROVED) return false;
+    if (vendor && !canVendorSell(vendor)) return false;
+    return true;
 }
 
 export function calculateStorageFee(units) {
@@ -439,4 +475,4 @@ export const SORT_OPTIONS = [
     { value: 'rating', label: 'sortRating' }
 ];
 
-console.log('✅ config.js chargé — v8.0.0 (Marketplace complet)');
+console.log('✅ config.js chargé — v8.0.1 (Marketplace complet, correctifs sécurité)');
