@@ -588,9 +588,6 @@ async function loadStats() {
 async function loadOrders() { await renderAdminOrders('adminOrdersList'); }
 async function loadReviews() { await renderAdminReviews('reviewsList', 'all'); }
 
-// ------------------------------------------------------------
-// FIN PARTIE 1/4 — la suite (loadProducts → …) commence en PARTIE 2/4
-// ------------------------------------------------------------
 // ============================================================
 // PRODUITS
 // ============================================================
@@ -1344,9 +1341,6 @@ function filterUsersList() {
     renderUsersList(filtered);
 }
 
-// ------------------------------------------------------------
-// FIN PARTIE 2/4 — la suite (vendeurs + retraits + blog + coupons + Speedaf) commence en PARTIE 3/4
-// ------------------------------------------------------------
 // ============================================================
 // 🆕 VENDEURS — loadVendors / filterVendorsList / renderVendorsList
 // ============================================================
@@ -2468,9 +2462,6 @@ async function handleConfirmPickup() {
     }
 }
 
-// ------------------------------------------------------------
-// FIN PARTIE 3/4 — la suite (alertes + charts + finances + simulateur + outils + attachAllRemainingEvents + initAdmin) commence en PARTIE 4/4
-// ------------------------------------------------------------
 // ============================================================
 // ALERTES BANNER
 // ============================================================
