@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="fr" dir="ltr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Vendeur | Smart Swi9a</title>
+    <meta name="robots" content="noindex, nofollow">
+    
+    <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <script type="importmap">
+    {
+        "imports": {
+            "firebase/app": "https://www.gstatic.com/firebasejs/11.0.0/firebase-app.js",
+            "firebase/auth": "https://www.gstatic.com/firebasejs/11.0.0/firebase-auth.js",
+            "firebase/firestore": "https://www.gstatic.com/firebasejs/11.0.0/firebase-firestore.js"
+        }
+    }
+    </script>
+    
+    <link rel="stylesheet" href="/style.css">
+    <link rel="stylesheet" href="/vendor-styles.css">
+    <script src="/translations.js"></script>
+</head>
+<body class="vendor-page">
+    
+    <!-- Overlay pour mobile -->
+    <div class="v-mobile-overlay" id="vOverlay"></div>
+
+    <main class="v-layout">
+        
+        <!-- SIDEBAR -->
+        <aside class="v-sidebar" id="vSidebar">
+            <div class="v-shop-header">
+                <h2 class="v-shop-name" id="vShopName">Chargement...</h2>
+                <span class="v-shop-status" id="vShopStatus">⏳ En attente</span>
+            </div>
+
+            <nav class="v-nav">
+                <button class="v-nav-link active" data-tab="overview">
+                    <span class="v-nav-icon">📊</span>
+                    <span class="v-nav-label">Vue d'ensemble</span>
+                </button>
+                <button class="v-nav-link" data-tab="products">
+                    <span class="v-nav-icon">📦</span>
+                    <span class="v-nav-label">Mes produits</span>
+                </button>
+                <button class="v-nav-link" data-tab="orders">
+                    <span class="v-nav-icon">📋</span>
+                    <span class="v-nav-label">Commandes</span>
+                    <span class="v-nav-badge" id="navOrdersBadge" style="display:none;">0</span>
+                </button>
+                <button class="v-nav-link" data-tab="wallet">
+                    <span class="v-nav-icon">💰</span>
+                    <span class="v-nav-label">Mon Wallet</span>
+                </button>
+                <button class="v-nav-link" data-tab="stock">
+                    <span class="v-nav-icon">📥</span>
+                    <span class="v-nav-label">Stock Fulfillment</span>
+                </button>
+            </nav>
+
+            <div class="v-sidebar-help">
+                <button class="v-nav-link" id="logoutBtn">
+                    <span class="v-nav-icon">🚪</span>
+                    <span class="v-nav-label">Déconnexion</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- CONTENU -->
+        <div class="v-content">
+            <header class="v-header">
+                <button class="v-mobile-toggle" id="vMobileToggle">☰</button>
+                <h1 class="v-page-title" id="vPageTitle">Vue d'ensemble</h1>
+            </header>
+
+            <div class="v-body">
+                <!-- Le contenu sera injecté ici par JS -->
+                <div id="vTabContent">
+                    <div style="text-align:center; padding:3rem;">
+                        <div class="spinner" style="margin:0 auto;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script type="module" src="/js/vendor-dashboard.js"></script>
+</body>
+</html>
