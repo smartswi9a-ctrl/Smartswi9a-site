@@ -1,7 +1,11 @@
 // js/ui.js
 // ============================================================
 // INTERFACE UTILISATEUR - SMART SWI9A
-// Version 8.0.0 — Marketplace (Redirection Vendeur)
+// Version 8.1.0 — Marketplace (correctifs E4/E10/E13/E14)
+//   - B0 : import 'resendVerificationForEmail' retiré (non exporté)
+//   - B1/B2 : normalizeProductId (favoris + avis compatibles IDs strings)
+//   - B3 : 'vendor' reconnu comme utilisateur "password" (changement mdp)
+//   - B4/B5 : escapeHTML productId fallback + guards boutons
 // ============================================================
 
 import { CONFIG, ROLES } from "./config.js";
@@ -15,7 +19,7 @@ import {
 } from "./store.js";
 import {
     getCurrentUser, setCurrentUser, loginUser, logoutUser, requestPasswordReset,
-    registerWithFirebase, resendVerificationEmail, resendVerificationForEmail,
+    registerWithFirebase, resendVerificationEmail,
     loginWithGoogle, loginWithFacebook,
     saveUserProfile, updateUserPassword, isAuthReady, authReadyPromise,
     checkEmailVerification
@@ -35,6 +39,21 @@ import {
     showToast, trapFocus, releaseFocusTrap, openModal, closeModal,
     confirmAction, openImageLightbox
 } from "./ui-core.js";
+
+// ============================================================
+// HELPERS LOCAUX
+// ============================================================
+/**
+ * Normalise un ID produit :
+ * - "42" (chaîne numérique) → 42 (compat favoris/reviews historiques)
+ * - "abc123" (auto-ID Firestore, produits vendeurs) → "abc123"
+ * - null/undefined/"" → null
+ */
+function normalizeProductId(id) {
+    if (id == null || id === '') return null;
+    const n = Number(id);
+    return Number.isFinite(n) && String(n) === String(id) ? n : String(id);
+}
 
 // ============================================================
 // ÉTAT LOCAL
@@ -712,7 +731,7 @@ async function handleLogin() {
 }
 
 // ============================================================
-// INSCRIPTION
+// INSCRIPTION CLIENT (B7 : min 6 conservé — aligné sur le HTML client actuel)
 // ============================================================
 async function handleRegister() {
     const lastName = document.getElementById('regLastName').value.trim();
@@ -785,6 +804,7 @@ function renderDashboard(user, pendingReviews = 0) {
         `
         : '';
 
+    // Lien vendeur : /vendor/dashboard.html (minuscule, dossier renommé étape 3)
     const vendorBanner = isVendor
         ? `
             <div style="background:linear-gradient(135deg,#6b46c1,#5a3aa3);border-radius:var(--radius-md);padding:1.2rem;margin-bottom:1.2rem;color:#fff;text-align:center;">
@@ -884,8 +904,11 @@ async function loadDashboardTab(tab, user) {
 }
 
 function renderFavorites(container, user) {
-    const favs = Array.isArray(user.favorites) ? user.favorites.map(Number).filter(Number.isFinite) : [];
-    const products = getProducts().filter(p => favs.includes(Number(p.id)));
+    // B1 : normalisation compatible IDs numériques (Smart Swi9a) + strings (vendeurs)
+    const favs = Array.isArray(user.favorites)
+        ? user.favorites.map(normalizeProductId).filter(f => f != null)
+        : [];
+    const products = getProducts().filter(p => favs.includes(normalizeProductId(p.id)));
 
     if (products.length === 0) {
         container.innerHTML = `<div style="text-align:center;padding:2rem;color:var(--text-muted);">❤️ ${t('noFavorites')}</div>`;
@@ -894,11 +917,11 @@ function renderFavorites(container, user) {
 
     let html = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:0.8rem;">`;
     products.forEach(p => {
-        const pid = Number(p.id);
-        if (!Number.isFinite(pid)) return;
+        const pid = normalizeProductId(p.id);
+        if (pid == null) return;
         html += `
             <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.5rem;text-align:center;cursor:pointer;" data-product-slug="${escapeHTML(p.slug || '')}">
-                <img src="${getProductImageUrl(p)}" style="width:100%;aspect-ratio:1;object-fit:contain;border-radius:8px;" loading="lazy">
+                <img src="${escapeHTML(getProductImageUrl(p))}" style="width:100%;aspect-ratio:1;object-fit:contain;border-radius:8px;" loading="lazy">
                 <div style="font-size:0.8rem;font-weight:600;margin-top:0.3rem;">${escapeHTML(getProductName(p))}</div>
                 <div style="font-size:0.85rem;color:var(--gold);">${Number(p.price) || 0} ${t('currency')}</div>
             </div>
@@ -937,8 +960,13 @@ async function renderMyReviews(container, user) {
         reviews.forEach(r => {
             const statusEmoji = r.status === 'approved' ? '🟢' : (r.status === 'rejected' ? '🔴' : '🟡');
             const statusLabel = r.status === 'approved' ? t('reviewPublished') : (r.status === 'rejected' ? t('reviewStatusRejected') : t('reviewPendingApproval'));
-            const product = getProducts().find(p => Number(p.id) === Number(r.productId));
-            const productName = product ? escapeHTML(getProductName(product)) : `#${r.productId}`;
+            // B2 : normalisation compatible IDs strings (produits vendeurs)
+            const targetPid = normalizeProductId(r.productId);
+            const product = getProducts().find(p => normalizeProductId(p.id) === targetPid);
+            // B4 : fallback échappé
+            const productName = product
+                ? escapeHTML(getProductName(product))
+                : `#${escapeHTML(String(r.productId ?? ''))}`;
             html += `
                 <div class="review-item" style="margin-bottom:0.8rem;">
                     <div style="font-size:0.78rem;color:var(--gold);font-weight:600;margin-bottom:0.3rem;">📦 ${productName}</div>
@@ -948,7 +976,7 @@ async function renderMyReviews(container, user) {
                     </div>
                     ${r.title ? `<div style="font-weight:600;font-size:0.9rem;margin-top:0.3rem;">${escapeHTML(r.title)}</div>` : ''}
                     <div style="font-size:0.85rem;color:var(--text-muted);margin:0.3rem 0;">${escapeHTML(r.comment || '')}</div>
-                    ${(r.photos && r.photos.length > 0) ? `<div class="review-photos">${r.photos.map(url => `<img src="${escapeHTML(url)}" alt="Photo" data-photo-url="${escapeHTML(url)}" style="cursor:zoom-in;">`).join('')}</div>` : ''}
+                    ${(Array.isArray(r.photos) && r.photos.length > 0) ? `<div class="review-photos">${r.photos.map(url => `<img src="${escapeHTML(url)}" alt="Photo" data-photo-url="${escapeHTML(url)}" style="cursor:zoom-in;">`).join('')}</div>` : ''}
                     <div style="font-size:0.7rem;color:var(--text-dim);">${formatDateTime(r.createdAt)}</div>
                 </div>
             `;
@@ -965,7 +993,12 @@ async function renderMyReviews(container, user) {
 }
 
 function renderSettingsForm(container, user) {
-    const isPasswordUser = !user.signupMethod || user.signupMethod === 'otp';
+    // B3 : inclure 'vendor' (email+mdp) et 'password'/'email' (futurs) — plus seulement 'otp'
+    const isPasswordUser = !user.signupMethod
+        || user.signupMethod === 'otp'
+        || user.signupMethod === 'vendor'
+        || user.signupMethod === 'password'
+        || user.signupMethod === 'email';
 
     container.innerHTML = `
         <div class="edit-profile-form">
@@ -997,46 +1030,52 @@ function renderSettingsForm(container, user) {
         </div>
     `;
 
-    document.getElementById('saveProfileBtn').addEventListener('click', async () => {
-        const name = document.getElementById('editName').value.trim();
-        const phone = document.getElementById('editPhone').value.trim();
-        const newPassword = document.getElementById('editNewPassword')?.value || '';
-        const confirmPassword = document.getElementById('editConfirmPassword')?.value || '';
-        const msgEl = document.getElementById('editProfileMsg');
+    const saveBtn = document.getElementById('saveProfileBtn');
+    if (saveBtn) {
+        saveBtn.addEventListener('click', async () => {
+            const name = document.getElementById('editName')?.value.trim() || '';
+            const phone = document.getElementById('editPhone')?.value.trim() || '';
+            const newPassword = document.getElementById('editNewPassword')?.value || '';
+            const confirmPassword = document.getElementById('editConfirmPassword')?.value || '';
+            const msgEl = document.getElementById('editProfileMsg');
 
-        if (newPassword && newPassword !== confirmPassword) {
-            if (msgEl) { msgEl.textContent = '⚠️ ' + t('passwordMismatch'); msgEl.style.color = 'var(--danger)'; }
-            return;
-        }
-        if (newPassword && newPassword.length < 6) {
-            if (msgEl) { msgEl.textContent = '⚠️ ' + t('passwordTooShort'); msgEl.style.color = 'var(--danger)'; }
-            return;
-        }
-
-        try {
-            const updates = {};
-            if (name && name !== user.name) updates.name = name;
-            if (phone !== user.phone) updates.phone = phone;
-
-            if (Object.keys(updates).length > 0) {
-                await saveUserProfile(user.uid, updates);
-                setCurrentUser({ ...user, ...updates });
+            if (newPassword && newPassword !== confirmPassword) {
+                if (msgEl) { msgEl.textContent = '⚠️ ' + t('passwordMismatch'); msgEl.style.color = 'var(--danger)'; }
+                return;
             }
-            if (newPassword) {
-                await updateUserPassword(newPassword);
+            if (newPassword && newPassword.length < 6) {
+                if (msgEl) { msgEl.textContent = '⚠️ ' + t('passwordTooShort'); msgEl.style.color = 'var(--danger)'; }
+                return;
             }
-            showToast('✅ ' + t('profileUpdated'));
-            if (msgEl) { msgEl.textContent = '✅ ' + t('profileUpdated'); msgEl.style.color = 'var(--success)'; }
-            await renderAccountContent();
-        } catch (e) {
-            console.error(e);
-            showToast('❌ ' + (e.message || t('error')));
-        }
-    });
 
-    document.getElementById('cancelEditBtn').addEventListener('click', () => {
-        renderAccountContent();
-    });
+            try {
+                const updates = {};
+                if (name && name !== user.name) updates.name = name;
+                if (phone !== user.phone) updates.phone = phone;
+
+                if (Object.keys(updates).length > 0) {
+                    await saveUserProfile(user.uid, updates);
+                    setCurrentUser({ ...user, ...updates });
+                }
+                if (newPassword) {
+                    await updateUserPassword(newPassword);
+                }
+                showToast('✅ ' + t('profileUpdated'));
+                if (msgEl) { msgEl.textContent = '✅ ' + t('profileUpdated'); msgEl.style.color = 'var(--success)'; }
+                await renderAccountContent();
+            } catch (e) {
+                console.error(e);
+                showToast('❌ ' + (e.message || t('error')));
+            }
+        });
+    }
+
+    const cancelBtn = document.getElementById('cancelEditBtn');
+    if (cancelBtn) {
+        cancelBtn.addEventListener('click', () => {
+            renderAccountContent();
+        });
+    }
 }
 
 // ============================================================
@@ -1135,4 +1174,4 @@ export function showAbandonedCartNotification() {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ ui.js chargé — v8.0.0 (Marketplace)');
+console.log('✅ ui.js chargé — v8.1.0 (Marketplace)');
