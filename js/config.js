@@ -6,6 +6,9 @@
 
 export const VIDEO_BASE_URL = "https://videos.smartswi9a.top/";
 
+// ============================================================
+// 🧪 MODE TEST / RÉEL
+// ============================================================
 export const APP_MODE = {
     current: "production",
     testBatchId: null
@@ -79,6 +82,10 @@ export const CONFIG = {
     }},
     SIGNUP_METHODS: { OTP: 'otp', GOOGLE: 'google', FACEBOOK: 'facebook' },
     BREAKPOINTS: { MOBILE_MAX: 480, TABLET_MIN: 481, TABLET_MAX: 1024, DESKTOP_MIN: 1025, LARGE_MIN: 1441 },
+    
+    // ============================================================
+    // MARKETPLACE / VENDEURS
+    // ============================================================
     VENDOR: {
         COMMISSION_RATE: 0.07,
         COMMISSION_RATE_MIN: 0.05,
@@ -109,6 +116,10 @@ export const CONFIG = {
         CONTRACT_MIN_SCROLL: 0.95,
         ALLOWED_CATEGORIES: []
     },
+    
+    // ============================================================
+    // LOGISTIQUE & SÉCURITÉ (Workers Cloudflare)
+    // ============================================================
     LOGISTICS: {
         PROVIDER: 'speedaf',
         PROVIDER_API_URL: 'https://speedaf.ma/api',
@@ -125,6 +136,10 @@ export const CONFIG = {
         ANALYTICS_WORKER_URL: 'https://worker-analytics.smartswi9a.workers.dev',
         CONTRACT_HASH_ALGO: 'SHA-256'
     },
+    
+    // ============================================================
+    // COMPTABILITÉ & STATISTIQUES
+    // ============================================================
     ACCOUNTING: {
         TVA_ENABLED: false, TVA_RATE: 0.20, CURRENCY: 'MAD', DECIMAL_PRECISION: 2,
         LEDGER_ENABLED: true, LEDGER_RETENTION_YEARS: 10, EXPORT_FORMATS: ['csv', 'pdf'],
@@ -172,6 +187,9 @@ export const REVIEW_STATUS = CONFIG.REVIEWS.STATUS;
 export const NOTIFICATION_TYPES = CONFIG.NOTIFICATIONS.TYPES;
 export const SIGNUP_METHODS = CONFIG.SIGNUP_METHODS;
 
+// ============================================================
+// STATUTS VENDEURS & MARKETPLACE
+// ============================================================
 export const VENDOR_STATUS = { PENDING: 'pending', APPROVED: 'approved', REJECTED: 'rejected', SUSPENDED: 'suspended' };
 export const VENDOR_SHIPPING_METHOD = { DROPOFF: 'dropoff', FULFILLMENT: 'fulfillment' };
 export const PRODUCT_STATUS = { PENDING: 'pending', APPROVED: 'approved', REJECTED: 'rejected' };
@@ -207,6 +225,7 @@ export function normalizeOrderStatus(status) {
     return STATUS_MIGRATION_MAP[status] || status;
 }
 
+// Mapping complet des anciennes catégories vers les nouvelles
 export const LEGACY_CATEGORY_MAP = {
     'electronics': 'smartphones', 'smartphone': 'smartphones', 'tablet': 'computers', 'watch': 'wearables',
     'accessory': 'tech-accessories', 'home': 'smart-home', 'fashion': 'fashion', 'baby-kids': 'toys',
@@ -257,6 +276,9 @@ export function isFullReturn(order) {
     return order.items.every(item => (returned[String(item.productId)] || 0) >= (Number(item.quantity) || 0));
 }
 
+// ============================================================
+// HELPERS MARKETPLACE (Calculs)
+// ============================================================
 export function isVendorProduct(product) {
     return !!(product && product.vendorId && product.vendorId !== 'smartswi9a');
 }
@@ -331,6 +353,9 @@ export function generateVendorLabelBarcode(prefix = 'CMD') {
 export const LANGUAGES = ['fr', 'ar', 'en'];
 export const DEFAULT_LANGUAGE = 'fr';
 
+// ============================================================
+// CATÉGORIES (23 PARENTS + ENFANTS)
+// ============================================================
 export const CATEGORY_GROUPS = [
     { id: 'smartphones', label: 'filterSmartphones', emoji: '📱', children: [{ id: 'smartphones-android', label: 'filterAndroid', emoji: '🤖' }, { id: 'smartphones-ios', label: 'filterIOS', emoji: '🍏' }, { id: 'smartphones-accessories', label: 'filterPhoneAccessories', emoji: '🔌' }]},
     { id: 'audio', label: 'filterAudio', emoji: '🎧', children: [{ id: 'audio-headphones', label: 'filterHeadphones', emoji: '🎧' }, { id: 'audio-earbuds', label: 'filterEarbuds', emoji: '🎵' }, { id: 'audio-speakers', label: 'filterSpeakers', emoji: '🔊' }]},
@@ -357,6 +382,9 @@ export const CATEGORY_GROUPS = [
     { id: 'office', label: 'filterOffice', emoji: '📄', children: [{ id: 'office-stationery', label: 'filterStationery', emoji: '✏️' }, { id: 'office-furniture', label: 'filterOfficeFurniture', emoji: '🪑' }, { id: 'office-electronics', label: 'filterOfficeElectronics', emoji: '🖨️' }]}
 ];
 
+// ============================================================
+// INDEX DES CATÉGORIES
+// ============================================================
 let _categoryIndexCache = null;
 function buildCategoryIndex() {
     if (_categoryIndexCache) return _categoryIndexCache;
@@ -410,3 +438,5 @@ export const SORT_OPTIONS = [
     { value: 'name-desc', label: 'sortNameDesc' },
     { value: 'rating', label: 'sortRating' }
 ];
+
+console.log('✅ config.js chargé — v8.0.0 (Marketplace complet)');
