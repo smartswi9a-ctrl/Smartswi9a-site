@@ -1,16 +1,7 @@
 // js/store.js
 // ============================================================
 // STORE CENTRALISÉ - SMART SWI9A
-// Version 1.2.0 — Fixes dette technique (dead code + appReady)
-// CHANGEMENTS v1.2.0 :
-// ✅ I3.1 — lang retiré du state (utils.currentLang = source unique)
-// ✅ I3.2 — appReadyPromise : resolveAppReady() propre + compat
-// ✅ I3.3 — perPage : CONFIG.PRODUCTS.PER_PAGE / CONFIG.BLOG.PER_PAGE
-// ✅ M3.x — Dead code supprimé (subscribe, listeners, initStore, etc.)
-// ⚠️ resetBlogFilters conservé (importé par blog.js — sera supprimé v2.0)
-// ============================================================
-// Dépend de : config.js
-// Rôle      : état global (lecture seule via getters)
+// Version 8.0.0 — Marketplace Compatible
 // ============================================================
 
 import { CONFIG } from './config.js';
@@ -29,10 +20,6 @@ let state = {
     // --- Blog ---
     blogPosts: [],
 
-    // --- Interface ---
-    // ✅ I3.1 : `lang` retiré (source unique = utils.currentLang)
-    // ✅ M3.x : `theme` retiré (mode clair unique, plus de toggle)
-
     // --- Filtres produits ---
     filters: {
         category: 'all',
@@ -48,11 +35,9 @@ let state = {
     blogFilters: {
         category: 'all',
         search: ''
-        // ✅ M3.x : `status` retiré (jamais utilisé dans blog.js — filtré côté Firestore)
     },
 
     // --- Pagination produits ---
-    // ✅ I3.3 : utilise CONFIG.PRODUCTS.PER_PAGE
     pagination: {
         currentPage: 1,
         perPage: CONFIG.PRODUCTS.PER_PAGE,
@@ -60,7 +45,6 @@ let state = {
     },
 
     // --- Pagination blog ---
-    // ✅ I3.3 : utilise CONFIG.BLOG.PER_PAGE
     blogPagination: {
         currentPage: 1,
         perPage: CONFIG.BLOG.PER_PAGE,
@@ -69,10 +53,7 @@ let state = {
 };
 
 // ============================================================
-// ✅ I3.2 — PROMESSE appReady (fix propre + compat)
-// ------------------------------------------------------------
-// Avant : window._appReadyResolve (pollution globale, pas de guard double-resolve)
-// Après : resolveAppReady() exporté + window._appReadyResolve en compat (app.js)
+// PROMESSE appReady
 // ============================================================
 let _resolveAppReady = null;
 
@@ -91,7 +72,6 @@ export const appReadyPromise = new Promise((resolve) => {
         resolve();
     };
 
-    // ✅ Compatibilité rétroactive avec app.js (qui utilise window._appReadyResolve)
     if (typeof window !== 'undefined') {
         window._appReadyResolve = () => {
             if (_resolveAppReady) {
@@ -103,11 +83,6 @@ export const appReadyPromise = new Promise((resolve) => {
     }
 });
 
-/**
- * Résout appReadyPromise (une seule fois).
- * Remplace `window._appReadyResolve()` en code nouveau.
- * Safe : idempotent, guard double-resolve.
- */
 export function resolveAppReady() {
     if (_resolveAppReady) {
         _resolveAppReady();
@@ -118,8 +93,6 @@ export function resolveAppReady() {
 
 // ============================================================
 // PROMESSE PRODUITS CHARGÉS
-// ------------------------------------------------------------
-// Utilisée par panier.js et product-detail.js pour attendre le chargement
 // ============================================================
 let productsLoadedPromise = null;
 
@@ -145,18 +118,12 @@ export function setBlogLoadedPromise(promise) {
 }
 
 // ============================================================
-// ✅ setState (INTERNE — non exporté)
-// ------------------------------------------------------------
-// Les mutations se font uniquement via les setters publics.
-// Cela empêche la modification accidentelle de l'état global.
+// setState (INTERNE)
 // ============================================================
 function setState(newState) {
     state = { ...state, ...newState };
 }
 
-// ============================================================
-// GET STATE (lecture globale en lecture seule)
-// ============================================================
 export function getState() {
     return state;
 }
@@ -195,17 +162,12 @@ export function setUser(user) {
 }
 
 // ============================================================
-// VILLES (LIVRAISON)
-// ✅ M3.x : getDeliveryData retiré → utiliser getState().deliveryData
+// VILLES
 // ============================================================
 export function setDeliveryData(data) {
     setState({ deliveryData: data });
 }
 
-// ============================================================
-// VILLE SÉLECTIONNÉE
-// ✅ M3.x : clearSelectedCity retiré → utiliser setSelectedCity(null)
-// ============================================================
 export function getSelectedCity() {
     return state.selectedCity;
 }
@@ -262,11 +224,6 @@ export function setBlogFilters(filters) {
     });
 }
 
-/**
- * ⚠️ Note : resetBlogFilters est conservé pour compatibilité
- * (importé par blog.js, mais non appelé actuellement).
- * Sera supprimé dans blog.js v2.0.
- */
 export function resetBlogFilters() {
     setState({
         blogFilters: {
@@ -302,4 +259,4 @@ export function setPagination(pagination) {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ store.js chargé — v1.2.0 (fixes dette + appReady propre)');
+console.log('✅ store.js chargé — v8.0.0 (Marketplace Compatible)');
