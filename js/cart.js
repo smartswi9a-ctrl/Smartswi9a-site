@@ -1,7 +1,7 @@
 // js/cart.js
 // ============================================================
 // PANIER ET COMMANDES - SMART SWI9A
-// Version 3.6.0 — Marketplace (N5 : vendorId par item + vendorIds)
+// Version 3.7.0 — Marketplace (N5 + IDs vendeurs Number/String)
 // ============================================================
 
 import {
@@ -19,6 +19,19 @@ import {
 } from "./store.js";
 import { getCurrentUser } from "./auth.js";
 import { showToast, confirmAction } from "./ui-core.js";
+
+// ============================================================
+// NORMALISATION D'ID PRODUIT
+// - "42" (chaîne numérique) → 42 (Number)
+// - "abc123" (auto-ID Firestore vendeur) → "abc123" (String)
+// - null/undefined/"" → null
+// Identique à products.js / reviews.js / product-detail.js / panier.js
+// ============================================================
+function normalizeProductId(id) {
+    if (id == null || id === '') return null;
+    const n = Number(id);
+    return Number.isFinite(n) && String(n) === String(id) ? n : String(id);
+}
 
 // ============================================================
 // ÉTAT LOCAL DU PANIER
@@ -52,7 +65,7 @@ function generateItemId(productId, variant) {
 }
 
 // ============================================================
-// CHARGER LE PANIER
+// CHARGER LE PANIER (patch A : IDs vendeurs préservés)
 // ============================================================
 export function loadCart() {
     try {
@@ -61,15 +74,17 @@ export function loadCart() {
 
         cart = cart.filter(item =>
             item &&
-            Number.isFinite(Number(item.productId)) &&
+            item.productId != null &&
+            item.productId !== '' &&
             Number.isFinite(Number(item.quantity)) &&
             Number(item.quantity) > 0
         ).map(item => {
-            const id = item.id || generateItemId(item.productId, item.variant);
+            const normalizedPid = normalizeProductId(item.productId);
+            const id = item.id || generateItemId(normalizedPid, item.variant);
             return {
                 ...item,
                 id: id,
-                productId: Number(item.productId),
+                productId: normalizedPid,
                 quantity: Math.max(1, Math.floor(Number(item.quantity))),
                 variant: item.variant || null
             };
@@ -148,17 +163,21 @@ async function loadCartFromFirestore() {
     }
 }
 
+// ============================================================
+// FUSION PANIER LOCAL + FIRESTORE (patch C)
+// ============================================================
 function mergeCarts(localCart, firestoreCart) {
     const merged = [...localCart];
     const products = getProducts();
 
     firestoreCart.forEach(fi => {
-        if (!fi || !fi.productId) return;
+        if (!fi || fi.productId == null) return;
         const itemId = fi.id || generateItemId(fi.productId, fi.variant);
         let qty = Number(fi.quantity) || 0;
         if (qty < 1) return;
 
-        const p = products.find(pp => Number(pp.id) === Number(fi.productId));
+        // Comparaison par String → compatible Number + String
+        const p = products.find(pp => String(pp.id) === String(fi.productId));
         if (p) {
             let maxStock = Number(p.stock) || 0;
             if (fi.variant) {
@@ -173,7 +192,8 @@ function mergeCarts(localCart, firestoreCart) {
         if (existingIdx > -1) {
             merged[existingIdx].quantity = Math.max(merged[existingIdx].quantity, qty);
         } else {
-            merged.push({ id: itemId, productId: Number(fi.productId), variant: fi.variant || null, quantity: qty });
+            const normalizedPid = normalizeProductId(fi.productId);
+            merged.push({ id: itemId, productId: normalizedPid, variant: fi.variant || null, quantity: qty });
         }
     });
     return merged;
@@ -254,7 +274,7 @@ export function updateCartBadge() {
 }
 
 // ============================================================
-// AJOUTER AU PANIER
+// AJOUTER AU PANIER (patch B)
 // ============================================================
 export async function addToCart(productId, variant = null) {
     const user = getCurrentUser();
@@ -264,9 +284,12 @@ export async function addToCart(productId, variant = null) {
         return;
     }
 
-    const pid = Number(productId);
+    // Accepter Number OU String, normaliser
+    const pid = normalizeProductId(productId);
+    if (pid == null) { showToast('⚠️ ' + t('productNotFound')); return; }
+
     const products = getProducts();
-    const product = products.find(p => Number(p.id) === pid);
+    const product = products.find(p => String(p.id) === String(pid));
 
     if (!product) { showToast('⚠️ ' + t('productNotFound')); return; }
 
@@ -313,7 +336,7 @@ export async function addToCart(productId, variant = null) {
 }
 
 // ============================================================
-// RETIRER / VIDER / QUANTITÉ
+// RETIRER / VIDER / QUANTITÉ (patch C pour updateCartQuantity)
 // ============================================================
 export function removeFromCart(itemId) {
     cart = cart.filter(i => i.id !== itemId);
@@ -335,7 +358,8 @@ export function updateCartQuantity(itemId, quantity) {
     if (!item) return;
 
     const products = getProducts();
-    const product = products.find(p => Number(p.id) === item.productId);
+    // Comparaison par String (patch C)
+    const product = products.find(p => String(p.id) === String(item.productId));
 
     let maxStock = Infinity;
     if (item.variant) {
@@ -363,12 +387,12 @@ export function updateCartQuantity(itemId, quantity) {
 }
 
 // ============================================================
-// CALCULS DU PANIER
+// CALCULS DU PANIER (patch C)
 // ============================================================
 export function getCartSubtotal() {
     const products = getProducts();
     return cart.reduce((sum, item) => {
-        const p = products.find(pp => Number(pp.id) === item.productId);
+        const p = products.find(pp => String(pp.id) === String(item.productId));
         if (!p) return sum;
         const price = item.variant ? Number(item.variant.price) : (Number(p.price) || 0);
         return sum + price * item.quantity;
@@ -383,7 +407,7 @@ export function getCartSavings() {
     const products = getProducts();
     return cart.reduce((sum, item) => {
         if (item.variant) return sum;
-        const p = products.find(pp => Number(pp.id) === item.productId);
+        const p = products.find(pp => String(pp.id) === String(item.productId));
         if (p && p.oldPrice && Number(p.oldPrice) > Number(p.price)) {
             return sum + (Number(p.oldPrice) - Number(p.price)) * item.quantity;
         }
@@ -413,7 +437,7 @@ export function getCartTotal(appliedCoupon = null) {
 }
 
 // ============================================================
-// REVALIDATION DES PRIX
+// REVALIDATION DES PRIX (patch C)
 // ============================================================
 export function revalidateCartPrices() {
     const products = getProducts();
@@ -421,7 +445,7 @@ export function revalidateCartPrices() {
     const changes = [];
 
     cart.forEach(item => {
-        const p = products.find(pp => Number(pp.id) === item.productId);
+        const p = products.find(pp => String(pp.id) === String(item.productId));
         if (!p) return;
 
         if (item.variant) {
@@ -466,7 +490,7 @@ export function calculateCouponDiscount(coupon, subtotal, deliveryFee) {
 }
 
 // ============================================================
-// ✅ CHECKOUT — Popup mobile (préserve le geste utilisateur)
+// CHECKOUT — Ouvre une fenêtre immédiatement (Fix Mobile)
 // ============================================================
 export async function checkout(cartItems, deliveryInfo, appliedCoupon = null, waWindow = null) {
     if (!cartItems || cartItems.length === 0) {
@@ -554,7 +578,7 @@ export async function checkout(cartItems, deliveryInfo, appliedCoupon = null, wa
 }
 
 // ============================================================
-// CRÉATION DE COMMANDE (avec vendorId sur chaque item + vendorIds)
+// CRÉATION DE COMMANDE (N5 : vendorId par item + vendorIds)
 // ============================================================
 export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
     const user = getCurrentUser();
@@ -601,8 +625,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                 const data = snap.data();
                 const qty = Math.max(1, Math.floor(Number(items[i].quantity) || 1));
 
-                // 🆕 N5-j : bloquer les produits vendeurs non approuvés
-                // (le panier a pu être rempli AVANT la suspension)
+                // N5-j : bloquer les produits vendeurs non approuvés
                 const productVendorId = String(data.vendorId || 'smartswi9a');
                 if (productVendorId !== 'smartswi9a') {
                     if (data.status && data.status !== 'approved') {
@@ -639,7 +662,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                 subtotal += unitPrice * qty;
                 discountableItems += qty;
 
-                // 🆕 N5-h : conserver vendorId sur chaque item pour la ventilation
+                // N5-h : conserver vendorId sur chaque item
                 validatedItems.push({
                     id: String(items[i].id),
                     productId: String(items[i].productId),
@@ -693,7 +716,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
             const orderRef = doc(collection(db, "orders"));
             const cancellableUntil = new Date(Date.now() + CONFIG.ORDERS.CANCELLABLE_HOURS * 3600 * 1000);
 
-            // 🆕 N5-i : dédupliquer les vendorIds (hors 'smartswi9a')
+            // N5-i : dédupliquer les vendorIds (hors 'smartswi9a')
             const vendorIdsSet = new Set();
             validatedItems.forEach(it => {
                 if (it.vendorId && it.vendorId !== 'smartswi9a') {
@@ -709,7 +732,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                 userName: String(user.name || ''),
                 userEmail: String(user.email || ''),
                 items: validatedItems,
-                vendorIds, // 🆕 N5-i
+                vendorIds,
                 status: ORDER_STATUS.PENDING,
                 paymentStatus: 'unpaid',
                 subtotal: Number(subtotal) || 0,
@@ -781,7 +804,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                     couponDiscount,
                     deliveryFee,
                     total,
-                    vendorIds // 🆕 N5-i : retourne aussi les vendorIds
+                    vendorIds
                 },
                 validatedItems
             };
@@ -931,4 +954,4 @@ export function checkAbandonedCart() {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ cart.js chargé — v3.6.0 (Marketplace + vendorIds)');
+console.log('✅ cart.js chargé — v3.7.0 (Marketplace + IDs vendeurs)');
