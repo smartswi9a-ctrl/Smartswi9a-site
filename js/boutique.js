@@ -1,10 +1,17 @@
 // js/boutique.js
 // ============================================================
 // PAGE BOUTIQUE PUBLIQUE VENDEUR - SMART SWI9A
-// Version 1.0.0 — Affiche uniquement les produits d'un vendeur
+// Version 1.1.0 — Correctifs E10/E13 :
+//   - lecture de vendorsPublic/{uid} (plus de fuite PII)
+//   - normalisation d'IDs produits (numériques ET strings Firestore)
+//   - limit(100) sur la query produits
+//   - null-guards, escapeHTML, meta OG dynamiques
+//   - ordre setupEventListeners avant applyCategoryFilter
 // ============================================================
 
-import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
+import {
+    doc, getDoc, collection, query, where, getDocs, limit
+} from "firebase/firestore";
 import { db } from "./firebase.js";
 import { CONFIG, VENDOR_STATUS, PRODUCT_STATUS, getCategoryById } from "./config.js";
 import {
@@ -12,6 +19,21 @@ import {
     getDiscountPercent, toDate
 } from "./utils.js";
 import { getCurrentUser } from "./auth.js";
+
+// ============================================================
+// HELPERS LOCAUX
+// ============================================================
+/**
+ * Normalise un ID produit :
+ * - "42" (chaîne numérique) → 42 (compat favoris/reviews historiques)
+ * - "abc123" (auto-ID Firestore) → "abc123" (produits vendeurs)
+ * - null/undefined/"" → null
+ */
+function normalizeProductId(id) {
+    if (id == null || id === '') return null;
+    const n = Number(id);
+    return Number.isFinite(n) && String(n) === String(id) ? n : String(id);
+}
 
 // ============================================================
 // ÉTAT LOCAL
@@ -22,6 +44,7 @@ let filteredProducts = [];
 let activeCategory = 'all';
 let currentPage = 1;
 const PRODUCTS_PER_PAGE = 12;
+const MAX_PRODUCTS_PER_VENDOR = 100;
 
 // ============================================================
 // INIT
@@ -36,24 +59,19 @@ async function initBoutique() {
     }
 
     try {
-        // 1. Charger le vendeur
-        const vendorSnap = await getDoc(doc(db, "users", vendorUid));
+        // 1. Lire la collection publique (aucune PII — cf. E10)
+        const vendorSnap = await getDoc(doc(db, "vendorsPublic", vendorUid));
         if (!vendorSnap.exists()) {
             showError('not_found');
             return;
         }
 
-        const vendorData = vendorSnap.data();
-        if (vendorData.role !== 'vendor') {
-            showError('not_found');
-            return;
-        }
+        const vendorPublic = vendorSnap.data() || {};
+        const status = vendorPublic.status;
 
-        const vendorInfo = vendorData.vendorInfo || {};
-
-        // 2. Vérifier le statut du vendeur
-        if (vendorInfo.status !== VENDOR_STATUS.APPROVED) {
-            if (vendorInfo.status === VENDOR_STATUS.SUSPENDED) {
+        // 2. Vérifier le statut (schéma : status ∈ pending/approved/rejected/suspended)
+        if (status !== VENDOR_STATUS.APPROVED) {
+            if (status === VENDOR_STATUS.SUSPENDED) {
                 showError('suspended');
             } else {
                 showError('not_found');
@@ -63,17 +81,18 @@ async function initBoutique() {
 
         currentVendor = {
             uid: vendorUid,
-            shopName: vendorInfo.shopName || vendorData.name || 'Boutique',
-            description: vendorInfo.description || '',
-            status: vendorInfo.status,
-            createdAt: toDate(vendorData.createdAt)
+            shopName: vendorPublic.shopName || 'Boutique',
+            description: vendorPublic.description || '',
+            status: status,
+            createdAt: toDate(vendorPublic.createdAt)
         };
 
-        // 3. Charger les produits approuvés du vendeur
+        // 3. Charger les produits approuvés du vendeur (max 100)
         const productsSnap = await getDocs(query(
             collection(db, "products"),
             where("vendorId", "==", vendorUid),
-            where("status", "==", PRODUCT_STATUS.APPROVED)
+            where("status", "==", PRODUCT_STATUS.APPROVED),
+            limit(MAX_PRODUCTS_PER_VENDOR)
         ));
 
         vendorProducts = productsSnap.docs.map(d => {
@@ -91,20 +110,13 @@ async function initBoutique() {
 
         // 4. Afficher
         renderBoutique();
+        setupEventListeners();       // B6 : avant applyCategoryFilter
         applyCategoryFilter('all');
-        setupEventListeners();
 
-        // SEO dynamique
-        document.title = `${currentVendor.shopName} | Smart Swi9a`;
-        const metaDesc = document.querySelector('meta[name="description"]');
-        if (metaDesc) {
-            metaDesc.setAttribute('content',
-                `Découvrez les ${vendorProducts.length} produits de la boutique ${currentVendor.shopName} sur Smart Swi9a. Livraison 24-72h, paiement à la livraison.`
-            );
-        }
+        // SEO dynamique (titre + meta OG/canonical)
+        updateBoutiqueMeta();
 
-        document.getElementById('boutiqueLoading').style.display = 'none';
-        document.getElementById('boutiqueContent').style.display = 'block';
+        toggleLoading(false);
 
     } catch (e) {
         console.error('❌ Erreur chargement boutique :', e);
@@ -113,68 +125,126 @@ async function initBoutique() {
 }
 
 // ============================================================
-// AFFICHAGE ERREUR
+// AFFICHAGE ERREUR / LOADING (null-safe)
 // ============================================================
+function toggleLoading(show) {
+    const loadingEl = document.getElementById('boutiqueLoading');
+    const contentEl = document.getElementById('boutiqueContent');
+    if (loadingEl) loadingEl.style.display = show ? '' : 'none';
+    if (contentEl) contentEl.style.display = show ? 'none' : 'block';
+}
+
 function showError(type) {
-    document.getElementById('boutiqueLoading').style.display = 'none';
+    toggleLoading(false);
 
     const errorEl = document.getElementById('boutiqueError');
     const titleEl = document.getElementById('boutiqueErrorTitle');
     const textEl = document.getElementById('boutiqueErrorText');
 
-    if (type === 'suspended') {
-        titleEl.textContent = t('boutiqueSuspended') || 'Boutique momentanément indisponible';
-        textEl.textContent = t('boutiqueSuspendedText') || 'Cette boutique n\'est pas disponible pour le moment. Réessayez plus tard.';
-    } else if (type === 'error') {
-        titleEl.textContent = t('error') || 'Erreur';
-        textEl.textContent = t('loadingError') || 'Impossible de charger la boutique.';
-    } else {
-        titleEl.textContent = t('boutiqueNotFound') || 'Boutique introuvable';
-        textEl.textContent = t('boutiqueNotFoundText') || 'Cette boutique n\'existe pas ou a été retirée.';
+    if (titleEl && textEl) {
+        if (type === 'suspended') {
+            titleEl.textContent = t('boutiqueSuspended') || 'Boutique momentanément indisponible';
+            textEl.textContent = t('boutiqueSuspendedText') || "Cette boutique n'est pas disponible pour le moment. Réessayez plus tard.";
+        } else if (type === 'error') {
+            titleEl.textContent = t('error') || 'Erreur';
+            textEl.textContent = t('loadingError') || 'Impossible de charger la boutique.';
+        } else {
+            titleEl.textContent = t('boutiqueNotFound') || 'Boutique introuvable';
+            textEl.textContent = t('boutiqueNotFoundText') || "Cette boutique n'existe pas ou a été retirée.";
+        }
     }
 
-    errorEl.style.display = 'block';
+    if (errorEl) errorEl.style.display = 'block';
+}
+
+// ============================================================
+// SEO DYNAMIQUE
+// ============================================================
+function updateBoutiqueMeta() {
+    const name = currentVendor.shopName;
+    const count = vendorProducts.length;
+    const description = `Découvrez les ${count} produits de la boutique ${name} sur Smart Swi9a. Livraison 24-72h, paiement à la livraison.`;
+    const url = `${CONFIG.SHOP.URL}/boutique.html?v=${encodeURIComponent(currentVendor.uid)}`;
+
+    document.title = `${name} | Smart Swi9a`;
+
+    setMeta('name', 'description', description.substring(0, 160));
+    setMeta('property', 'og:title', name);
+    setMeta('property', 'og:description', description.substring(0, 200));
+    setMeta('property', 'og:url', url);
+    setMeta('property', 'og:type', 'website');
+    setMeta('name', 'twitter:card', 'summary');
+    setMeta('name', 'twitter:title', name);
+
+    let canonical = document.querySelector('link[rel="canonical"]');
+    if (!canonical) {
+        canonical = document.createElement('link');
+        canonical.rel = 'canonical';
+        document.head.appendChild(canonical);
+    }
+    canonical.href = url;
+}
+
+function setMeta(attrName, attrValue, content) {
+    let el = document.querySelector(`meta[${attrName}="${attrValue}"]`);
+    if (!el) {
+        el = document.createElement('meta');
+        el.setAttribute(attrName, attrValue);
+        document.head.appendChild(el);
+    }
+    el.setAttribute('content', content || '');
 }
 
 // ============================================================
 // RENDER : EN-TÊTE
 // ============================================================
 function renderBoutique() {
-    document.getElementById('boutiqueName').textContent = currentVendor.shopName;
-    document.getElementById('boutiqueBreadcrumbCurrent').textContent = currentVendor.shopName;
+    const nameEl = document.getElementById('boutiqueName');
+    if (nameEl) nameEl.textContent = currentVendor.shopName;
 
-    const initial = currentVendor.shopName.charAt(0).toUpperCase();
-    document.getElementById('boutiqueAvatar').textContent = initial;
+    const breadcrumbEl = document.getElementById('boutiqueBreadcrumbCurrent');
+    if (breadcrumbEl) breadcrumbEl.textContent = currentVendor.shopName;
+
+    const avatarEl = document.getElementById('boutiqueAvatar');
+    if (avatarEl) {
+        const initial = (currentVendor.shopName || 'B').charAt(0).toUpperCase();
+        avatarEl.textContent = initial;
+    }
 
     const meta = document.getElementById('boutiqueMeta');
-    const productCount = vendorProducts.length;
+    if (meta) {
+        const productCount = vendorProducts.length;
+        const productsWithRating = vendorProducts.filter(p => p.ratingCount > 0);
+        let avgRating = null;
+        if (productsWithRating.length > 0) {
+            avgRating = (
+                productsWithRating.reduce((sum, p) => sum + p.ratingAvg, 0) / productsWithRating.length
+            ).toFixed(1);
+        }
 
-    const productsWithRating = vendorProducts.filter(p => p.ratingCount > 0);
-    let avgRating = null;
-    if (productsWithRating.length > 0) {
-        avgRating = (
-            productsWithRating.reduce((sum, p) => sum + p.ratingAvg, 0) / productsWithRating.length
-        ).toFixed(1);
+        let metaHtml = `
+            <span class="boutique-verified-badge">
+                ✅ ${t('boutiqueVerified') || 'Boutique vérifiée'}
+            </span>
+            <span class="boutique-meta-item">
+                📦 ${productCount} ${productCount > 1 ? (t('items') || 'produits') : (t('cartItemSingular') || 'produit')}
+            </span>
+        `;
+        if (avgRating) {
+            metaHtml += `<span class="boutique-meta-item">⭐ ${escapeHTML(String(avgRating))} / 5</span>`;
+        }
+        meta.innerHTML = metaHtml;
     }
-
-    let metaHtml = `
-        <span class="boutique-verified-badge">
-            ✅ ${t('boutiqueVerified') || 'Boutique vérifiée'}
-        </span>
-        <span class="boutique-meta-item">
-            📦 ${productCount} ${productCount > 1 ? (t('items') || 'produits') : (t('cartItemSingular') || 'produit')}
-        </span>
-    `;
-    if (avgRating) {
-        metaHtml += `<span class="boutique-meta-item">⭐ ${avgRating} / 5</span>`;
-    }
-    meta.innerHTML = metaHtml;
 
     const desc = document.getElementById('boutiqueDesc');
-    if (currentVendor.description) {
-        desc.textContent = currentVendor.description;
-    } else {
-        desc.style.display = 'none';
+    if (desc) {
+        if (currentVendor.description) {
+            desc.textContent = currentVendor.description;
+            desc.style.display = '';
+        } else {
+            desc.textContent = '';
+            desc.style.display = 'none';
+        }
     }
 
     renderFilters();
@@ -186,6 +256,13 @@ function renderBoutique() {
 function renderFilters() {
     const container = document.getElementById('boutiqueFilters');
     if (!container) return;
+
+    // B7 : pas de filtres si aucun produit
+    if (vendorProducts.length === 0) {
+        container.innerHTML = '';
+        container.style.display = 'none';
+        return;
+    }
 
     const categories = new Map();
 
@@ -207,8 +284,10 @@ function renderFilters() {
 
     if (categories.size <= 1) {
         container.style.display = 'none';
+        container.innerHTML = '';
         return;
     }
+    container.style.display = '';
 
     let html = `<button class="boutique-filter-btn active" data-category="all">
         🛍️ ${t('filterAll') || 'Tout'} (${vendorProducts.length})
@@ -216,8 +295,8 @@ function renderFilters() {
 
     [...categories.values()].forEach(cat => {
         html += `
-            <button class="boutique-filter-btn" data-category="${cat.id}">
-                ${cat.emoji} ${cat.label} (${cat.count})
+            <button class="boutique-filter-btn" data-category="${escapeHTML(cat.id)}">
+                ${cat.emoji} ${escapeHTML(cat.label)} (${cat.count})
             </button>
         `;
     });
@@ -273,16 +352,21 @@ function renderGrid() {
     const pageProducts = filteredProducts.slice(start, start + PRODUCTS_PER_PAGE);
 
     const user = getCurrentUser();
+    // B2 : normalisation compatible IDs numériques + strings
     const favs = Array.isArray(user?.favorites)
-        ? user.favorites.map(Number).filter(Number.isFinite)
+        ? user.favorites.map(normalizeProductId).filter(f => f != null)
         : [];
 
     let html = '';
     pageProducts.forEach(p => {
-        const pid = Number(p.id);
+        const pid = normalizeProductId(p.id);
+        if (pid == null) return;
+
         const isFav = favs.includes(pid);
         const name = escapeHTML(getProductName(p));
-        const img = getProductImageUrl(p);
+        const rawImg = getProductImageUrl(p);
+        const img = escapeHTML(typeof rawImg === 'string' ? rawImg : '');
+        const fallback = getFallbackImage(name).replace(/'/g, '%27');
         const price = p.price;
         const oldPrice = p.oldPrice;
         const stock = Number(p.stock) || 0;
@@ -298,15 +382,15 @@ function renderGrid() {
 
         const btnHtml = hasVariants
             ? `<button class="btn-choose-options" data-slug="${escapeHTML(p.slug || '')}" style="background:var(--gold);color:#fff;border:none;padding:0.3rem 0.7rem;border-radius:30px;font-size:0.7rem;font-weight:600;cursor:pointer;">⚙️ ${t('chooseOptions') || 'Choisir'}</button>`
-            : `<button class="btn-add-to-cart" data-id="${pid}">🛒 ${t('addToCart') || 'Ajouter'}</button>`;
+            : `<button class="btn-add-to-cart" data-id="${escapeHTML(String(pid))}">🛒 ${t('addToCart') || 'Ajouter'}</button>`;
 
         const avgRating = p.ratingCount > 0 ? p.ratingAvg : '--';
 
         html += `
-            <div class="product-card" data-id="${pid}" data-slug="${escapeHTML(p.slug || '')}">
+            <div class="product-card" data-id="${escapeHTML(String(pid))}" data-slug="${escapeHTML(p.slug || '')}">
                 <div class="product-img">
-                    <img src="${img}" alt="${name}" loading="lazy" onerror="this.onerror=null; this.src='${getFallbackImage(name)}'">
-                    <button class="favorite-btn ${isFav ? 'is-fav' : ''}" data-id="${pid}">${isFav ? '❤️' : '🤍'}</button>
+                    <img src="${img}" alt="${name}" loading="lazy" onerror="this.onerror=null; this.src='${fallback}'">
+                    <button class="favorite-btn ${isFav ? 'is-fav' : ''}" data-id="${escapeHTML(String(pid))}">${isFav ? '❤️' : '🤍'}</button>
                     ${variantBadge}
                     ${isOutOfStock ? `<span class="badge badge-hot">${t('outOfStock') || 'Épuisé'}</span>` : ''}
                     ${isPromo ? `<span class="badge badge-promo">-${discountPercent}%</span>` : ''}
@@ -314,7 +398,7 @@ function renderGrid() {
                 </div>
                 <div class="product-body">
                     <div class="p-name">${name}</div>
-                    <div class="p-stats">⭐ ${avgRating} <span style="color:var(--text-muted)">(${p.ratingCount || 0})</span></div>
+                    <div class="p-stats">⭐ ${escapeHTML(String(avgRating))} <span style="color:var(--text-muted)">(${p.ratingCount || 0})</span></div>
                     <div class="p-footer">
                         <div class="p-price">${price} ${t('currency') || 'MAD'} ${oldPrice ? `<small>${oldPrice} ${t('currency') || 'MAD'}</small>` : ''}</div>
                         ${btnHtml}
@@ -353,14 +437,14 @@ function attachGridEvents(grid) {
         btn.addEventListener('click', async (e) => {
             e.preventDefault();
             e.stopPropagation();
-            const id = parseInt(btn.dataset.id);
-            if (!isNaN(id)) {
-                try {
-                    const { addToCart } = await import('./cart.js');
-                    addToCart(id);
-                } catch (err) {
-                    console.warn('⚠️ addToCart error:', err);
-                }
+            // B2 : plus de parseInt — on passe l'ID brut (string OU number)
+            const id = normalizeProductId(btn.dataset.id);
+            if (id == null) return;
+            try {
+                const { addToCart } = await import('./cart.js');
+                addToCart(id);
+            } catch (err) {
+                console.warn('⚠️ addToCart error:', err);
             }
         });
     });
@@ -369,14 +453,13 @@ function attachGridEvents(grid) {
         btn.addEventListener('click', async (e) => {
             e.preventDefault();
             e.stopPropagation();
-            const id = parseInt(btn.dataset.id);
-            if (!isNaN(id)) {
-                try {
-                    const { toggleFavorite } = await import('./products.js');
-                    await toggleFavorite(id);
-                } catch (err) {
-                    console.warn('⚠️ toggleFavorite error:', err);
-                }
+            const id = normalizeProductId(btn.dataset.id);
+            if (id == null) return;
+            try {
+                const { toggleFavorite } = await import('./products.js');
+                await toggleFavorite(id);
+            } catch (err) {
+                console.warn('⚠️ toggleFavorite error:', err);
             }
         });
     });
@@ -444,4 +527,4 @@ if (document.readyState === 'loading') {
     initBoutique();
 }
 
-console.log('✅ boutique.js chargé — v1.0.0');
+console.log('✅ boutique.js chargé — v1.1.0');
