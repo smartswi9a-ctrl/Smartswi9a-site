@@ -366,26 +366,6 @@
             .alert-tooltip { display: none; }
         }
 
-        /* Modal de confirmation personnalisé */
-        #customConfirmModal {
-            position: fixed; inset: 0; background: rgba(0,0,0,0.6);
-            display: none; align-items: center; justify-content: center;
-            z-index: 99999; padding: 1rem;
-        }
-        #customConfirmModal.open { display: flex; }
-        #customConfirmModal .confirm-content {
-            background: var(--bg-card); border: 1px solid var(--border-gold);
-            border-radius: var(--radius-lg); padding: 2rem; max-width: 450px; width: 100%;
-            box-shadow: var(--shadow-lg); text-align: center;
-        }
-        #customConfirmModal h3 { font-family: var(--font-secondary); color: var(--gold); margin-bottom: 1rem; }
-        #customConfirmModal p { color: var(--text-muted); margin-bottom: 1.5rem; line-height: 1.6; }
-        #customConfirmModal .confirm-actions { display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap; }
-        #customConfirmModal button { padding: 0.7rem 1.5rem; border-radius: 30px; font-weight: 700; cursor: pointer; border: none; }
-        #customConfirmModal .confirm-cancel { background: transparent; color: var(--text-muted); border: 1px solid var(--border); }
-        #customConfirmModal .confirm-ok { background: var(--danger); color: #fff; }
-        #customConfirmModal .confirm-ok.primary { background: linear-gradient(135deg, var(--gold), #7d5a1d); }
-
         /* 🧪 MODE TEST */
         #modeChoiceScreen {
             min-height: 100vh; display: none; align-items: center; justify-content: center;
@@ -642,13 +622,14 @@
             <div id="adminOrdersList"><div class="admin-loading">⏳ Chargement...</div></div>
         </div>
 
-        <!-- 🆕 VENDEURS -->
+        <!-- VENDEURS -->
         <div class="admin-content" id="tab-vendors">
             <h3 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;">🏪 Gestion des Vendeurs</h3>
             <div class="admin-signup-filters" id="vendorStatusFilters">
                 <button class="active" data-vendor-filter="pending">⏳ En attente</button>
                 <button data-vendor-filter="approved">✅ Approuvés</button>
                 <button data-vendor-filter="suspended">🚫 Suspendus</button>
+                <button data-vendor-filter="rejected">❌ Rejetés</button>
                 <button data-vendor-filter="all">📊 Tous</button>
             </div>
             <div class="admin-search-bar">
@@ -671,7 +652,7 @@
                 <div class="admin-stat-card"><span class="stat-value" id="speedafStatPending">—</span><span class="stat-label">⏳ À expédier</span></div>
                 <div class="admin-stat-card"><span class="stat-value" id="speedafStatShipping">—</span><span class="stat-label">🚚 En cours</span></div>
                 <div class="admin-stat-card"><span class="stat-value" id="speedafStatDelivered">—</span><span class="stat-label">📦 Livrés</span></div>
-                <div class="admin-stat-card"><span class="stat-value" id="speedafStatStorage">—</span><span class="stat-label">🏬 Stockés</span></div>
+                <div class="admin-stat-card"><span class="stat-value" id="speedafStatStorage">—</span><span class="stat-label">🏬 Stockés (Max 10)</span></div>
             </div>
 
             <div class="admin-search-bar">
@@ -969,18 +950,29 @@
                     <button class="admin-btn-primary" id="calculateFinancesBtn" style="width:100%;">🧮 Lancer l'analyse</button>
                 </div>
                 <div id="financeResults" style="display:none;">
-                    <h4 style="color:var(--gold);margin:1.5rem 0 1rem;">📊 Totaux</h4>
+                    <h4 style="color:var(--gold);margin:1.5rem 0 1rem;">📊 Totaux globaux</h4>
                     <div class="admin-stats" style="margin-bottom:1rem;">
-                        <div class="admin-stat-card"><span class="stat-value" id="finTotalRevenue" style="color:var(--gold);">0 MAD</span><span class="stat-label">💰 CA</span></div>
-                        <div class="admin-stat-card"><span class="stat-value" id="finTotalInvestment">0 MAD</span><span class="stat-label">📦 Invest.</span></div>
-                        <div class="admin-stat-card"><span class="stat-value" id="finTotalLogistics">0 MAD</span><span class="stat-label">💸 Logistique</span></div>
-                        <div class="admin-stat-card"><span class="stat-value" id="finTotalGrossProfit">0 MAD</span><span class="stat-label">💵 Brut</span></div>
-                        <div class="admin-stat-card"><span class="stat-value" id="finTotalProfit" style="color:var(--success);">0 MAD</span><span class="stat-label">🏆 Net</span></div>
-                        <div class="admin-stat-card"><span class="stat-value" id="finTotalROI">0%</span><span class="stat-label">📈 ROI</span></div>
-                        <div class="admin-stat-card"><span class="stat-value" id="finBreakEven" style="color:var(--gold);">0</span><span class="stat-label">🎯 Point mort</span></div>
+                        <div class="admin-stat-card" style="border-color:var(--gold);">
+                            <span class="stat-value" id="finTotalRevenue" style="color:var(--gold);">0 MAD</span>
+                            <span class="stat-label">💰 CA Potentiel</span>
+                        </div>
+                        <div class="admin-stat-card"><span class="stat-value" id="finTotalInvestment" style="color:var(--text-muted);">0 MAD</span><span class="stat-label">📦 Investissement stock</span></div>
+                        <div class="admin-stat-card"><span class="stat-value" id="finTotalLogistics" style="color:var(--text-muted);">0 MAD</span><span class="stat-label">💸 Coût logistique</span></div>
+                        <div class="admin-stat-card" style="border-color:var(--info);"><span class="stat-value" id="finTotalGrossProfit" style="color:var(--info);">0 MAD</span><span class="stat-label">💵 Profit BRUT</span></div>
+                        <div class="admin-stat-card" style="border-color:var(--success);"><span class="stat-value" id="finTotalProfit" style="color:var(--success);">0 MAD</span><span class="stat-label">🏆 Profit NET (après pub)</span></div>
+                        <div class="admin-stat-card"><span class="stat-value" id="finTotalROI">0%</span><span class="stat-label">📈 ROI global</span></div>
+                        <div class="admin-stat-card" style="border-color:var(--gold);"><span class="stat-value" id="finBreakEven" style="color:var(--gold);">0</span><span class="stat-label">🎯 Point mort</span></div>
                     </div>
+
+                    <!-- ✅ H1 corrigé : 3 cards réintroduites pour calculateFinances() -->
+                    <div class="admin-stats" style="margin-bottom:1.5rem;">
+                        <div class="admin-stat-card"><span class="stat-value" id="finTotalProducts">0</span><span class="stat-label">📦 Produits sélectionnés</span></div>
+                        <div class="admin-stat-card"><span class="stat-value" id="finTotalUnits">0</span><span class="stat-label">📊 Unités en stock</span></div>
+                        <div class="admin-stat-card"><span class="stat-value" id="finStockSaleValue" style="color:var(--gold);">0 MAD</span><span class="stat-label">💎 Valeur stock (prix vente)</span></div>
+                    </div>
+
                     <div id="finRecommendations" style="margin-bottom:1.5rem;"></div>
-                    <h4 style="color:var(--gold);margin:1.5rem 0 1rem;">📦 Détail</h4>
+                    <h4 style="color:var(--gold);margin:1.5rem 0 1rem;">📦 Détail par produit</h4>
                     <div style="overflow-x:auto;background:var(--bg-card);border-radius:var(--radius-md);">
                         <table class="acc-table" style="min-width:1000px;">
                             <thead><tr>
@@ -994,13 +986,14 @@
             </div>
         </div>
 
-        <!-- 🆕 RETRAITS -->
+        <!-- RETRAITS -->
         <div class="admin-content" id="tab-wallets">
             <h3 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;">💸 Demandes de Virement</h3>
             <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:1rem;">Validez les retraits Wafacash des vendeurs après avoir effectué le virement.</p>
             <div class="admin-signup-filters" id="payoutStatusFilters">
                 <button class="active" data-payout-filter="pending">⏳ En attente</button>
                 <button data-payout-filter="paid">✅ Payés</button>
+                <button data-payout-filter="rejected">❌ Rejetés</button>
                 <button data-payout-filter="all">📊 Tous</button>
             </div>
             <div class="admin-search-bar">
