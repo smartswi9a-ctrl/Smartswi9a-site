@@ -1,7 +1,7 @@
 // js/cart.js
 // ============================================================
 // PANIER ET COMMANDES - SMART SWI9A
-// Version 3.5.2 — Fix popup mobile (Suppression modale)
+// Version 3.6.0 — Marketplace (N5 : vendorId par item + vendorIds)
 // ============================================================
 
 import {
@@ -466,7 +466,7 @@ export function calculateCouponDiscount(coupon, subtotal, deliveryFee) {
 }
 
 // ============================================================
-// ✅ CHECKOUT — Modale supprimée + waWindow supporté
+// ✅ CHECKOUT — Popup mobile (préserve le geste utilisateur)
 // ============================================================
 export async function checkout(cartItems, deliveryInfo, appliedCoupon = null, waWindow = null) {
     if (!cartItems || cartItems.length === 0) {
@@ -494,8 +494,6 @@ export async function checkout(cartItems, deliveryInfo, appliedCoupon = null, wa
         return { success: false, error: 'missing_fields' };
     }
 
-    // ❌ SUPPRESSION DE LA MODALE ICI (On passe direct à la création)
-
     const result = await createOrder(cartItems, deliveryInfo, appliedCoupon);
     if (!result.success) {
         showToast('❌ ' + (result.error || t('orderError')));
@@ -507,7 +505,6 @@ export async function checkout(cartItems, deliveryInfo, appliedCoupon = null, wa
     const msg = buildWhatsAppMessage(validatedItems, deliveryInfo, orderId, totals);
     const url = `https://wa.me/${CONFIG.SHOP.WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`;
 
-    // ✅ Emails en arrière-plan
     (async () => {
         try {
             const { sendOrderEmail } = await import('./orders.js');
@@ -522,6 +519,7 @@ export async function checkout(cartItems, deliveryInfo, appliedCoupon = null, wa
                 couponDiscount: totals.couponDiscount || 0,
                 deliveryFee: totals.deliveryFee,
                 total: totals.total,
+                vendorIds: totals.vendorIds || [],
                 deliveryAddress: {
                     name: deliveryInfo.name,
                     phone: deliveryInfo.phone,
@@ -546,7 +544,6 @@ export async function checkout(cartItems, deliveryInfo, appliedCoupon = null, wa
     clearCart();
     showToast('✅ ' + t('orderSent'));
 
-    // ✅ Redirection WhatsApp
     if (waWindow && !waWindow.closed) {
         waWindow.location.href = url;
     } else {
@@ -557,7 +554,7 @@ export async function checkout(cartItems, deliveryInfo, appliedCoupon = null, wa
 }
 
 // ============================================================
-// CRÉATION DE COMMANDE
+// CRÉATION DE COMMANDE (avec vendorId sur chaque item + vendorIds)
 // ============================================================
 export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
     const user = getCurrentUser();
@@ -604,6 +601,15 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                 const data = snap.data();
                 const qty = Math.max(1, Math.floor(Number(items[i].quantity) || 1));
 
+                // 🆕 N5-j : bloquer les produits vendeurs non approuvés
+                // (le panier a pu être rempli AVANT la suspension)
+                const productVendorId = String(data.vendorId || 'smartswi9a');
+                if (productVendorId !== 'smartswi9a') {
+                    if (data.status && data.status !== 'approved') {
+                        throw new Error(`Le produit "${data.nameFr || data.nameEn || 'inconnu'}" n'est plus disponible (vendeur suspendu ou produit retiré).`);
+                    }
+                }
+
                 let availableStock = 0;
                 let unitPrice = Number(data.price) || 0;
                 const itemVariant = items[i].variant;
@@ -632,9 +638,12 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
 
                 subtotal += unitPrice * qty;
                 discountableItems += qty;
+
+                // 🆕 N5-h : conserver vendorId sur chaque item pour la ventilation
                 validatedItems.push({
                     id: String(items[i].id),
                     productId: String(items[i].productId),
+                    vendorId: productVendorId,
                     variant: itemVariant || null,
                     quantity: Number(qty),
                     price: Number(unitPrice),
@@ -684,6 +693,15 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
             const orderRef = doc(collection(db, "orders"));
             const cancellableUntil = new Date(Date.now() + CONFIG.ORDERS.CANCELLABLE_HOURS * 3600 * 1000);
 
+            // 🆕 N5-i : dédupliquer les vendorIds (hors 'smartswi9a')
+            const vendorIdsSet = new Set();
+            validatedItems.forEach(it => {
+                if (it.vendorId && it.vendorId !== 'smartswi9a') {
+                    vendorIdsSet.add(it.vendorId);
+                }
+            });
+            const vendorIds = Array.from(vendorIdsSet);
+
             const orderData = {
                 _test: testMode,
                 _testBatch: testBatchId,
@@ -691,6 +709,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                 userName: String(user.name || ''),
                 userEmail: String(user.email || ''),
                 items: validatedItems,
+                vendorIds, // 🆕 N5-i
                 status: ORDER_STATUS.PENDING,
                 paymentStatus: 'unpaid',
                 subtotal: Number(subtotal) || 0,
@@ -753,7 +772,19 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
 
             transaction.set(notifRef, notifData);
 
-            return { orderId: orderRef.id, totals: { subtotal, discount, couponCode: appliedCoupon?.code || null, couponDiscount, deliveryFee, total }, validatedItems };
+            return {
+                orderId: orderRef.id,
+                totals: {
+                    subtotal,
+                    discount,
+                    couponCode: appliedCoupon?.code || null,
+                    couponDiscount,
+                    deliveryFee,
+                    total,
+                    vendorIds // 🆕 N5-i : retourne aussi les vendorIds
+                },
+                validatedItems
+            };
         });
 
         return { success: true, ...result };
@@ -900,4 +931,4 @@ export function checkAbandonedCart() {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ cart.js chargé — v3.5.2 (Fix popup mobile + modale supprimée)');
+console.log('✅ cart.js chargé — v3.6.0 (Marketplace + vendorIds)');
