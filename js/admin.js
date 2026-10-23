@@ -1,7 +1,16 @@
 // js/admin.js
 // ============================================================
 // PANNEAU ADMINISTRATION - SMART SWI9A
-// Version 10.0.0 — Marketplace (Vendeurs + Retraits)
+// Version 10.1.0 — Marketplace (correctifs Vendeurs + Retraits + N2 fix)
+//   - B1/B2 : approbation vendeur écrit users ET vendorsPublic (transaction)
+//   - B3 : refus d'approbation si contrat non signé (lecture contracts/)
+//   - B4 : tri vendeurs (pending → approved → rejeté/suspendu)
+//   - B5 : affichage contrat (signé / non signé / révoqué)
+//   - B6 : serverTimestamp pour les mises à jour statut vendeur
+//   - B8/B9 : payouts bornés et vendorId fallback
+//   - B10 : message d'erreur enrichi
+//   - B11 : null-guards sur les éléments critiques du login
+//   - N2 : lecture contracts/contract_<uid> + sync vendorInfo.contractStatus
 // ============================================================
 
 import { auth, db, storage } from "./firebase.js";
@@ -11,13 +20,14 @@ import {
 import {
     collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
     query, where, writeBatch, Timestamp, getCountFromServer,
-    orderBy, limit, increment, addDoc, deleteField, runTransaction
+    orderBy, limit, increment, addDoc, deleteField, runTransaction,
+    serverTimestamp
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import {
     ROLES, ORDER_STATUS, CATEGORIES, CATEGORY_GROUPS, CONFIG, normalizeOrderStatus,
     normalizeCategory, getCategoryById, APP_MODE, isTestMode,
-    VENDOR_STATUS, PAYOUT_STATUS, WALLET_TX_TYPE
+    VENDOR_STATUS, PAYOUT_STATUS, WALLET_TX_TYPE, CONTRACT_STATUS
 } from "./config.js";
 import {
     escapeHTML, slugify, getStoragePathFromUrl, isStorageUrl,
@@ -47,7 +57,12 @@ const COLLECTIONS_TO_SNAPSHOT = [
     "notifications",
     "speedaf_pickups",
     "users",
-    "blog"
+    "blog",
+    "vendorsPublic",
+    "wallets",
+    "contracts",
+    "payout_requests",
+    "wallet_transactions"
 ];
 
 // ============================================================
@@ -212,12 +227,18 @@ function initTestMode() {
 }
 
 function showModeChoiceScreen() {
-    document.getElementById('adminLoginBox').style.display = 'none';
-    document.getElementById('adminPanel').style.display = 'none';
-    document.getElementById('modeChoiceScreen').style.display = 'flex';
+    // B11 : null-guards
+    const loginBox = document.getElementById('adminLoginBox');
+    const panel = document.getElementById('adminPanel');
+    const choice = document.getElementById('modeChoiceScreen');
+    if (loginBox) loginBox.style.display = 'none';
+    if (panel) panel.style.display = 'none';
+    if (choice) choice.style.display = 'flex';
     document.body.style.paddingTop = '';
-    document.getElementById('chooseRealModeBtn').onclick = () => chooseMode('production');
-    document.getElementById('chooseTestModeBtn').onclick = () => chooseMode('test');
+    const realBtn = document.getElementById('chooseRealModeBtn');
+    const testBtn = document.getElementById('chooseTestModeBtn');
+    if (realBtn) realBtn.onclick = () => chooseMode('production');
+    if (testBtn) testBtn.onclick = () => chooseMode('test');
 }
 
 async function chooseMode(mode) {
@@ -228,8 +249,10 @@ async function chooseMode(mode) {
         );
         if (!ok) return;
         const btn = document.getElementById('chooseTestModeBtn');
-        btn.disabled = true;
-        btn.innerHTML = '<div style="font-size:1.5rem;font-weight:800;margin-bottom:0.3rem;">⏳ Snapshot...</div>';
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<div style="font-size:1.5rem;font-weight:800;margin-bottom:0.3rem;">⏳ Snapshot...</div>';
+        }
         await startTestBatch(btn);
     } else {
         APP_MODE.current = 'production';
@@ -347,19 +370,33 @@ function updateTestModeUI() {
 }
 
 function activateAdminPanel() {
-    document.getElementById('modeChoiceScreen').style.display = 'none';
-    document.getElementById('adminLoginBox').style.display = 'none';
-    document.getElementById('adminPanel').style.display = 'block';
-    if (currentAdmin) document.getElementById('adminUserEmail').textContent = currentAdmin.email;
+    // B11 : null-guards
+    const choice = document.getElementById('modeChoiceScreen');
+    const loginBox = document.getElementById('adminLoginBox');
+    const panel = document.getElementById('adminPanel');
+    if (choice) choice.style.display = 'none';
+    if (loginBox) loginBox.style.display = 'none';
+    if (panel) panel.style.display = 'block';
+    if (currentAdmin) {
+        const emailEl = document.getElementById('adminUserEmail');
+        if (emailEl) emailEl.textContent = currentAdmin.email;
+    }
     updateTestModeUI();
-    if (isTestMode()) { const endBtn = document.getElementById('endTestBtn'); if (endBtn) endBtn.onclick = endTestBatch; }
+    if (isTestMode()) {
+        const endBtn = document.getElementById('endTestBtn');
+        if (endBtn) endBtn.onclick = endTestBatch;
+    }
     loadStats(); loadAllData(); initAdminAlerts(); attachChartListeners();
 }
 
 function showLoginBox() {
-    document.getElementById('adminLoginBox').style.display = 'block';
-    document.getElementById('modeChoiceScreen').style.display = 'none';
-    document.getElementById('adminPanel').style.display = 'none';
+    // B11 : null-guards
+    const loginBox = document.getElementById('adminLoginBox');
+    const choice = document.getElementById('modeChoiceScreen');
+    const panel = document.getElementById('adminPanel');
+    if (loginBox) loginBox.style.display = 'block';
+    if (choice) choice.style.display = 'none';
+    if (panel) panel.style.display = 'none';
     const msgEl = document.getElementById('adminLoginMsg');
     if (msgEl) {
         const displayMsg = pendingLoginError || '';
@@ -431,7 +468,8 @@ function initAdmin() {
         } else {
             currentAdmin = null;
             showLoginBox();
-            document.getElementById('adminAlertBanner').style.display = 'none';
+            const banner = document.getElementById('adminAlertBanner');
+            if (banner) banner.style.display = 'none';
             if (alertInterval) clearInterval(alertInterval);
         }
     });
@@ -550,6 +588,9 @@ async function loadStats() {
 async function loadOrders() { await renderAdminOrders('adminOrdersList'); }
 async function loadReviews() { await renderAdminReviews('reviewsList', 'all'); }
 
+// ------------------------------------------------------------
+// FIN PARTIE 1/4 — la suite (loadProducts → …) commence en PARTIE 2/4
+// ------------------------------------------------------------
 // ============================================================
 // PRODUITS
 // ============================================================
@@ -641,7 +682,7 @@ function renderProductsList(products) {
 
     let html = filterIndicator;
     if (totalPages > 1) html += `<div style="text-align:center;font-size:0.8rem;color:var(--text-muted);margin-bottom:0.5rem;">${productsCurrentPage} / ${totalPages} — ${products.length}</div>`;
-    
+
     pageProducts.forEach(p => {
         const name = escapeHTML(p.nameFr || p.nameEn || 'Sans nom');
         const price = Number(p.price) || 0;
@@ -659,11 +700,17 @@ function renderProductsList(products) {
         const videoBadge = hasVideo ? `<span style="background:var(--gold);color:#fff;font-size:0.65rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;">🎥</span>` : '';
         const hasVariants = p.variants && p.variants.length > 0;
         const variantBadge = hasVariants ? `<span style="background:var(--info);color:#fff;font-size:0.65rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;">🎨</span>` : '';
+        const vendorBadge = p.vendorId && p.vendorId !== 'smartswi9a'
+            ? `<span style="background:#3498db;color:#fff;font-size:0.6rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;">🏪</span>`
+            : '';
+        const pendingBadge = p.status === 'pending_admin_approval'
+            ? `<span style="background:var(--warning);color:#fff;font-size:0.6rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;">⏳ À valider</span>`
+            : '';
 
         html += `
             <div class="admin-list-item" data-product-id="${p.id}">
                 <div class="admin-list-item-info">
-                    <strong>${name}${videoBadge}${variantBadge}${sku}</strong>
+                    <strong>${name}${videoBadge}${variantBadge}${vendorBadge}${pendingBadge}${sku}</strong>
                     <div style="font-size:0.8rem;color:var(--text-muted);margin-top:0.2rem;">📂 ${categoryLabel} · 💰 ${price} MAD ${isPromo ? `<small style="text-decoration:line-through;color:var(--text-dim);">${oldPrice}</small>` : ''} · <span style="color:${stockColor};font-weight:700;">${stockEmoji} ${stock}</span></div>
                 </div>
                 <div class="admin-list-item-actions">
@@ -674,7 +721,7 @@ function renderProductsList(products) {
             </div>
         `;
     });
-    
+
     if (totalPages > 1) {
         html += `<div style="display:flex;justify-content:center;gap:0.3rem;margin-top:1rem;flex-wrap:wrap;">`;
         html += `<button class="admin-btn-icon" data-page="prev" ${productsCurrentPage === 1 ? 'disabled' : ''}>‹</button>`;
@@ -727,6 +774,7 @@ function filterProductsList(resetPage = true) {
     if (resetPage) productsCurrentPage = 1;
     renderProductsList(filtered);
 }
+
 // ============================================================
 // RESTOCK & FORMULAIRE PRODUIT
 // ============================================================
@@ -813,7 +861,7 @@ function attachProductFormEvents() {
             if (!document.getElementById('productEditId').value) pSlug.value = slugify(pNameFr.value);
         });
     }
-    
+
     document.getElementById('generateSkuBtn')?.addEventListener('click', () => {
         const category = document.getElementById('pCategory').value;
         document.getElementById('pSku').value = generateUniqueSku(category);
@@ -854,7 +902,7 @@ function attachProductFormEvents() {
             });
         });
     }
-    
+
     document.getElementById('clearVideoBtn')?.addEventListener('click', () => {
         document.getElementById('pVideo').value = '';
         showToast('🗑️ Champ vidéo vidé');
@@ -870,7 +918,7 @@ function generateVariants() {
     const colorsRaw = document.getElementById('pColors').value.trim();
     const sizes = sizesRaw ? sizesRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
     const colors = colorsRaw ? colorsRaw.split(',').map(c => c.trim()).filter(Boolean) : [];
-    
+
     const existingValues = {};
     document.querySelectorAll('#variantsTable tbody tr').forEach(tr => {
         const key = `${tr.dataset.size || ''}__${tr.dataset.color || ''}`;
@@ -882,7 +930,7 @@ function generateVariants() {
 
     const container = document.getElementById('variantsContainer');
     const tbody = document.querySelector('#variantsTable tbody');
-    
+
     if (sizes.length === 0 && colors.length === 0) {
         container.style.display = 'none';
         tbody.innerHTML = '';
@@ -905,12 +953,12 @@ function generateVariants() {
         const existing = existingValues[key];
         const price = existing?.price ?? defaultPrice;
         const stock = existing?.stock ?? defaultStock;
-        
+
         const label = [combo.size, combo.color].filter(Boolean).join(' - ');
         const tr = document.createElement('tr');
         tr.dataset.size = combo.size;
         tr.dataset.color = combo.color;
-        
+
         tr.innerHTML = `
             <td style="font-weight:600;font-size:0.85rem;">${escapeHTML(label)}</td>
             <td><input type="number" class="var-price" value="${price}" min="0" max="100000" step="0.01" style="width:100%;padding:0.3rem;border:1px solid var(--border);border-radius:4px;text-align:center;"></td>
@@ -926,7 +974,7 @@ function resetProductForm() {
     ['pNameFr', 'pNameAr', 'pNameEn', 'pSlug', 'pSku', 'pPrice', 'pOldPrice', 'pPurchasePrice', 'pStock', 'pRating',
      'pDescFr', 'pDescAr', 'pDescEn', 'pFeaturesFr', 'pFeaturesAr', 'pFeaturesEn', 'pImg', 'pGallery', 'pVideo',
      'pWeight', 'pLength', 'pWidth', 'pHeight', 'pSizes', 'pColors'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
-        
+
     document.getElementById('pParentCategory').value = '';
     document.getElementById('pCategory').innerHTML = '<option value="">-- Choisir une sous-catégorie --</option>';
     document.getElementById('pIsNew').checked = false;
@@ -955,7 +1003,7 @@ async function editProduct(id) {
         document.getElementById('pNameEn').value = p.nameEn || '';
         document.getElementById('pSlug').value = p.slug || '';
         document.getElementById('pSku').value = p.sku || '';
-        
+
         const parentSelect = document.getElementById('pParentCategory');
         const childSelect = document.getElementById('pCategory');
         let foundParentId = '';
@@ -974,23 +1022,23 @@ async function editProduct(id) {
         const hasLogisticsFee = p.logisticsFee > 0;
         document.getElementById('pLogisticsFee').checked = hasLogisticsFee;
         document.getElementById('pPrice').value = hasLogisticsFee ? (Number(p.price) - Number(p.logisticsFee)) : (p.price || '');
-        
+
         document.getElementById('pOldPrice').value = p.oldPrice || '';
         document.getElementById('pPurchasePrice').value = p.purchasePrice || '';
         document.getElementById('pStock').value = p.stock || '';
         document.getElementById('pRating').value = p.ratingAvg || '';
         document.getElementById('pIsNew').checked = !!p.isNew;
         document.getElementById('pSizeGuide').checked = !!p.hasSizeGuide;
-        
+
         document.getElementById('pWeight').value = p.dimensions?.weight || '';
         document.getElementById('pLength').value = p.dimensions?.length || '';
         document.getElementById('pWidth').value = p.dimensions?.width || '';
         document.getElementById('pHeight').value = p.dimensions?.height || '';
-        
+
         const variantsContainer = document.getElementById('variantsContainer');
         const variantsTbody = document.querySelector('#variantsTable tbody');
         variantsTbody.innerHTML = '';
-        
+
         if (p.variants && p.variants.length > 0) {
             const sizes = [...new Set(p.variants.map(v => v.size).filter(Boolean))];
             const colors = [...new Set(p.variants.map(v => v.color).filter(Boolean))];
@@ -1024,7 +1072,7 @@ async function editProduct(id) {
         document.getElementById('pImg').value = p.img || '';
         document.getElementById('pGallery').value = (p.gallery || []).join(', ');
         document.getElementById('pVideo').value = p.video || '';
-        
+
         const ip = document.getElementById('pImgPreview');
         if (p.img && typeof p.img === 'string') { ip.src = p.img.startsWith('http') ? p.img : '/' + p.img; ip.style.display = 'block'; }
         else ip.style.display = 'none';
@@ -1153,7 +1201,7 @@ async function saveProduct() {
             productData.isSpeedafStored = false;
             productData.vendorId = 'smartswi9a'; // Admin crée pour Swi9a
             productData.status = 'approved';
-            if (!videoValue) delete productData.video; 
+            if (!videoValue) delete productData.video;
             await setDoc(doc(db, "products", newId), productData);
             showToast('✅ Produit créé');
         }
@@ -1217,10 +1265,13 @@ function renderUsersList(users) {
         const signupMethod = u.signupMethod || 'otp';
         const methodEmoji = getSignupMethodEmoji(signupMethod);
         const methodLabel = getSignupMethodLabel(signupMethod);
+        const roleBadge = role === 'vendor'
+            ? `<span style="background:var(--info);color:#fff;padding:0.15rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;">🏪 Vendeur</span>`
+            : '';
         html += `
             <div class="admin-list-item" data-user-id="${u.id}">
                 <div class="admin-list-item-info">
-                    <strong>${name}</strong>
+                    <strong>${name}</strong> ${roleBadge}
                     <div style="font-size:0.8rem;color:var(--text-muted);margin-top:0.2rem;">📧 ${email} ${phone ? `· 📞 ${phone}` : ''}</div>
                     <div style="font-size:0.75rem;color:var(--text-dim);margin-top:0.2rem;display:flex;gap:0.6rem;flex-wrap:wrap;">
                         <span>${methodEmoji} ${methodLabel}</span>
@@ -1293,17 +1344,57 @@ function filterUsersList() {
     renderUsersList(filtered);
 }
 
+// ------------------------------------------------------------
+// FIN PARTIE 2/4 — la suite (vendeurs + retraits + blog + coupons + Speedaf) commence en PARTIE 3/4
+// ------------------------------------------------------------
 // ============================================================
-// 🆕 VENDEURS (Nouveau)
+// 🆕 VENDEURS — loadVendors / filterVendorsList / renderVendorsList
 // ============================================================
+const VENDOR_STATUS_ORDER = {
+    [VENDOR_STATUS.PENDING]: 0,
+    [VENDOR_STATUS.APPROVED]: 1,
+    [VENDOR_STATUS.SUSPENDED]: 2,
+    [VENDOR_STATUS.REJECTED]: 3
+};
+
 async function loadVendors() {
     const container = document.getElementById('adminVendorsList');
     if (!container) return;
     container.innerHTML = `<div class="admin-loading">⏳ Chargement des vendeurs...</div>`;
     try {
-        const q = query(collection(db, "users"), where("role", "==", "vendor"));
+        const q = query(collection(db, "users"), where("role", "==", "vendor"), limit(500));
         const snap = await getDocs(q);
         cachedVendors = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+        // N2 : enrichir chaque vendeur avec le statut RÉEL du contrat (source de vérité = contracts/contract_<uid>)
+        // Lecture en parallèle, tolérante aux erreurs (collection absente, permission refusée, etc.)
+        const contractSnaps = await Promise.all(
+            cachedVendors.map(v =>
+                getDoc(doc(db, "contracts", `contract_${v.id}`))
+                    .then(s => ({ ok: true, exists: s.exists(), data: s.exists() ? s.data() : null }))
+                    .catch(() => ({ ok: false, exists: false, data: null }))
+            )
+        );
+        cachedVendors.forEach((v, i) => {
+            const r = contractSnaps[i];
+            v._contractExists = r.ok && r.exists;
+            v._contractStatus = r.ok && r.exists ? (r.data?.status || 'pending') : null;
+            v._contractVersion = r.ok && r.exists ? (r.data?.version || null) : null;
+        });
+
+        // B4 : tri par priorité d'action
+        cachedVendors.sort((a, b) => {
+            const sa = a.vendorInfo?.status || VENDOR_STATUS.PENDING;
+            const sb = b.vendorInfo?.status || VENDOR_STATUS.PENDING;
+            const oa = VENDOR_STATUS_ORDER[sa] ?? 99;
+            const ob = VENDOR_STATUS_ORDER[sb] ?? 99;
+            if (oa !== ob) return oa - ob;
+            // au sein d'un statut : plus récents en premier
+            const da = toDate(a.createdAt)?.getTime() || 0;
+            const db_ = toDate(b.createdAt)?.getTime() || 0;
+            return db_ - da;
+        });
+
         filterVendorsList();
     } catch (e) {
         console.error(e);
@@ -1351,16 +1442,35 @@ function renderVendorsList(vendors) {
         const shippingMethod = v.vendorInfo?.shippingMethod === 'dropoff' ? '📤 Drop-off' : '📥 Fulfillment';
         const createdAt = toDate(v.createdAt)?.toLocaleDateString('fr-FR') || '—';
 
+        // N2 : statut CONTRAT réel (contracts/ en priorité, fallback legacy)
+        const contractStatus = v._contractStatus || v.vendorInfo?.contractStatus || 'pending';
+        const canApprove = contractStatus === 'accepted';
+
         let statusBadge = '';
         if (status === 'pending') statusBadge = `<span style="background:var(--warning-bg);color:var(--warning);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">⏳ En attente</span>`;
         else if (status === 'approved') statusBadge = `<span style="background:var(--success-bg);color:var(--success);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">✅ Approuvé</span>`;
         else if (status === 'rejected') statusBadge = `<span style="background:var(--danger-bg);color:var(--danger);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">❌ Rejeté</span>`;
         else if (status === 'suspended') statusBadge = `<span style="background:var(--danger-bg);color:var(--danger);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">🚫 Suspendu</span>`;
 
+        // B5 : badge contrat — utilise la source de vérité contracts/
+        let contractBadge = '';
+        if (contractStatus === 'accepted') {
+            const ver = v._contractVersion ? ` (v${escapeHTML(v._contractVersion)})` : '';
+            contractBadge = `<span style="background:var(--success-bg);color:var(--success);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;">📜 Contrat signé${ver}</span>`;
+        } else if (contractStatus === 'revoked') {
+            contractBadge = `<span style="background:var(--danger-bg);color:var(--danger);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;">📜 Contrat révoqué</span>`;
+        } else if (!v._contractExists) {
+            contractBadge = `<span style="background:var(--warning-bg);color:var(--warning);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;">📜 Aucun contrat</span>`;
+        } else {
+            contractBadge = `<span style="background:var(--warning-bg);color:var(--warning);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;">📜 Contrat non signé</span>`;
+        }
+
         let actionsHtml = '';
         if (status === 'pending') {
+            const approveDisabledAttr = canApprove ? '' : 'disabled title="Le contrat doit être signé (statut accepted) avant approbation"';
+            const approveStyle = canApprove ? '' : 'opacity:0.5;cursor:not-allowed;';
             actionsHtml = `
-                <button class="admin-btn-approve" data-action="vendor-approve" data-id="${v.id}">✅ Approuver</button>
+                <button class="admin-btn-approve" data-action="vendor-approve" data-id="${v.id}" ${approveDisabledAttr} style="${approveStyle}">✅ Approuver</button>
                 <button class="admin-btn-icon admin-btn-danger" data-action="vendor-reject" data-id="${v.id}">❌ Rejeter</button>
             `;
         } else if (status === 'approved') {
@@ -1368,8 +1478,10 @@ function renderVendorsList(vendors) {
                 <button class="admin-btn-icon admin-btn-danger" data-action="vendor-suspend" data-id="${v.id}">🚫 Suspendre</button>
             `;
         } else if (status === 'suspended' || status === 'rejected') {
+            const approveDisabledAttr = canApprove ? '' : 'disabled title="Le contrat doit être signé (statut accepted) avant approbation"';
+            const approveStyle = canApprove ? '' : 'opacity:0.5;cursor:not-allowed;';
             actionsHtml = `
-                <button class="admin-btn-approve" data-action="vendor-approve" data-id="${v.id}">✅ Réactiver</button>
+                <button class="admin-btn-approve" data-action="vendor-approve" data-id="${v.id}" ${approveDisabledAttr} style="${approveStyle}">✅ Réactiver</button>
             `;
         }
 
@@ -1379,6 +1491,7 @@ function renderVendorsList(vendors) {
                     <div>
                         <strong style="color:var(--gold); font-size:1rem;">🏪 ${shopName}</strong>
                         <span style="margin-left:0.5rem;">${statusBadge}</span>
+                        <span style="margin-left:0.5rem;">${contractBadge}</span>
                     </div>
                     <div style="font-size:0.8rem; color:var(--text-dim);">Inscrit le ${createdAt}</div>
                 </div>
@@ -1395,42 +1508,100 @@ function renderVendorsList(vendors) {
 
     container.innerHTML = html;
 
-    container.querySelectorAll('[data-action="vendor-approve"]').forEach(btn => btn.addEventListener('click', () => handleVendorAction(btn.dataset.id, 'approved')));
-    container.querySelectorAll('[data-action="vendor-reject"]').forEach(btn => btn.addEventListener('click', () => handleVendorAction(btn.dataset.id, 'rejected')));
-    container.querySelectorAll('[data-action="vendor-suspend"]').forEach(btn => btn.addEventListener('click', () => handleVendorAction(btn.dataset.id, 'suspended')));
+    container.querySelectorAll('[data-action="vendor-approve"]').forEach(btn => {
+        if (btn.disabled) return;
+        btn.addEventListener('click', () => handleVendorAction(btn.dataset.id, VENDOR_STATUS.APPROVED));
+    });
+    container.querySelectorAll('[data-action="vendor-reject"]').forEach(btn => btn.addEventListener('click', () => handleVendorAction(btn.dataset.id, VENDOR_STATUS.REJECTED)));
+    container.querySelectorAll('[data-action="vendor-suspend"]').forEach(btn => btn.addEventListener('click', () => handleVendorAction(btn.dataset.id, VENDOR_STATUS.SUSPENDED)));
 }
 
 async function handleVendorAction(vendorId, newStatus) {
     const labels = { approved: 'approuver', rejected: 'rejeter', suspended: 'suspendre' };
     const confirmed = await confirmAction(`Voulez-vous vraiment ${labels[newStatus]} ce vendeur ?`, {
-        title: '⚠️ Confirmation', confirmText: 'Oui', cancelText: 'Annuler', variant: 'danger'
+        title: '⚠️ Confirmation', confirmText: 'Oui', cancelText: 'Annuler', variant: newStatus === 'approved' ? 'primary' : 'danger'
     });
     if (!confirmed) return;
 
     try {
-        await updateDoc(doc(db, "users", vendorId), {
-            "vendorInfo.status": newStatus,
-            "vendorInfo.updatedAt": Timestamp.now()
+        // N2 : dans la transaction, relire le CONTRAT (source de vérité) et sync vendorInfo.contractStatus
+        await runTransaction(db, async (tx) => {
+            const userRef = doc(db, "users", vendorId);
+            const userSnap = await tx.get(userRef);
+            if (!userSnap.exists()) throw new Error("Utilisateur vendeur introuvable.");
+
+            const data = userSnap.data();
+            const vendorInfo = data.vendorInfo || {};
+
+            let contractOk = false;
+            let contractStatusValue = null;
+
+            if (newStatus === VENDOR_STATUS.APPROVED) {
+                const contractRef = doc(db, "contracts", `contract_${vendorId}`);
+                const contractSnap = await tx.get(contractRef);
+                if (contractSnap.exists()) {
+                    contractStatusValue = contractSnap.data()?.status || 'pending';
+                    contractOk = contractStatusValue === 'accepted';
+                } else {
+                    // Fallback legacy (contrat antérieur à la collection contracts/)
+                    contractOk = vendorInfo.contractStatus === 'accepted';
+                    contractStatusValue = contractOk ? 'accepted' : 'pending';
+                }
+                if (!contractOk) {
+                    throw new Error(`Contrat non signé (statut "${contractStatusValue}"). Approbation refusée — demandez au vendeur de signer.`);
+                }
+            }
+
+            // 1) users/{uid} — mise à jour du statut vendeur
+            const userUpdate = {
+                "vendorInfo.status": newStatus,
+                "vendorInfo.updatedAt": serverTimestamp()
+            };
+            // N2 : on ne force contractStatus = accepted QU'À l'approbation, et seulement après vérif
+            if (newStatus === VENDOR_STATUS.APPROVED) {
+                userUpdate["vendorInfo.contractStatus"] = 'accepted';
+            }
+            tx.update(userRef, userUpdate);
+
+            // 2) vendorsPublic/{uid} — collection publique (cf. E10)
+            const publicRef = doc(db, "vendorsPublic", vendorId);
+            const shopName = vendorInfo.shopName || data.name || 'Boutique';
+            const city = vendorInfo.city || '';
+            tx.set(publicRef, {
+                shopName: String(shopName).slice(0, 60),
+                status: newStatus,
+                city: String(city).slice(0, 80),
+                updatedAt: serverTimestamp()
+            }, { merge: true });
         });
-        showToast(`✅ Vendeur ${newStatus === 'approved' ? 'approuvé' : (newStatus === 'rejected' ? 'rejeté' : 'suspendu')}`);
+
+        const verb = newStatus === VENDOR_STATUS.APPROVED ? 'approuvé'
+            : newStatus === VENDOR_STATUS.REJECTED ? 'rejeté'
+            : 'suspendu';
+        showToast(`✅ Vendeur ${verb}`);
         await loadVendors();
     } catch (e) {
-        showToast('❌ Erreur : ' + e.message);
+        console.error('❌ handleVendorAction:', e);
+        showToast('❌ ' + (e.message || 'Erreur'));
     }
 }
 
 // ============================================================
-// 🆕 RETRAITS / PAYOUTS (Nouveau)
+// 🆕 RETRAITS / PAYOUTS (collection : payout_requests — cf. N6)
 // ============================================================
 async function loadPayouts() {
     const container = document.getElementById('payoutsList');
     if (!container) return;
     container.innerHTML = `<div class="admin-loading">⏳ Chargement des demandes...</div>`;
     try {
-        const q = query(collection(db, "payout_requests"));
+        // B8 : orderBy + limit
+        const q = query(
+            collection(db, "payout_requests"),
+            orderBy("requestedAt", "desc"),
+            limit(200)
+        );
         const snap = await getDocs(q);
         cachedPayouts = snap.docs.map(d => ({ id: d.id, ...d.data(), requestedAt: toDate(d.data().requestedAt) }));
-        // Trier par date décroissante
         cachedPayouts.sort((a, b) => (b.requestedAt?.getTime() || 0) - (a.requestedAt?.getTime() || 0));
         filterPayoutsList();
     } catch (e) {
@@ -1452,7 +1623,8 @@ function filterPayoutsList() {
         filtered = filtered.filter(p => {
             const name = (p.vendorName || '').toLowerCase();
             const phone = (p.phone || '').toLowerCase();
-            return name.includes(search) || phone.includes(search);
+            const vid = (p.vendorId || '').toLowerCase();
+            return name.includes(search) || phone.includes(search) || vid.includes(search);
         });
     }
 
@@ -1469,7 +1641,10 @@ function renderPayoutsList(payouts) {
 
     let html = '';
     payouts.forEach(p => {
-        const vendorName = escapeHTML(p.vendorName || 'Inconnu');
+        // B9 : fallback si vendorName absent
+        const vendorName = p.vendorName
+            ? escapeHTML(p.vendorName)
+            : (p.vendorId ? `Vendeur ${String(p.vendorId).slice(0, 8)}…` : 'Inconnu');
         const amount = Number(p.amount) || 0;
         const method = escapeHTML(p.method || 'Wafacash');
         const phone = escapeHTML(p.phone || '');
@@ -1536,25 +1711,25 @@ async function handlePayoutPaid(payoutId, vendorId, amount) {
             if (!walletSnap.exists()) throw new Error("Wallet introuvable");
 
             const wallet = walletSnap.data();
-            if (Number(wallet.availableBalance) < amount) throw new Error("Solde insuffisant (erreur critique)");
+            // B10 : message enrichi
+            if (Number(wallet.availableBalance) < amount) {
+                throw new Error(`Solde insuffisant : disponible ${Number(wallet.availableBalance) || 0} MAD, demandé ${amount} MAD.`);
+            }
 
-            // 1. Déduire du wallet
             transaction.update(walletRef, {
                 availableBalance: increment(-amount),
                 totalWithdrawn: increment(amount)
             });
 
-            // 2. Mettre à jour la demande
             transaction.update(payoutRef, {
                 status: 'paid',
                 paidAt: Timestamp.now()
             });
 
-            // 3. Créer la transaction dans le journal
             const txRef = doc(collection(db, "wallet_transactions"));
             transaction.set(txRef, {
                 vendorId: vendorId,
-                type: 'payout',
+                type: WALLET_TX_TYPE?.PAYOUT || 'payout',
                 amount: -amount,
                 status: "completed",
                 description: `Retrait payé (admin)`,
@@ -1566,7 +1741,7 @@ async function handlePayoutPaid(payoutId, vendorId, amount) {
         await loadPayouts();
     } catch (e) {
         console.error(e);
-        showToast('❌ Erreur : ' + e.message);
+        showToast('❌ ' + (e.message || 'Erreur'));
     }
 }
 
@@ -1618,7 +1793,7 @@ function renderBlogListAdmin(posts) {
     const start = (blogCurrentPage - 1) * BLOG_PER_PAGE;
     const pagePosts = posts.slice(start, start + BLOG_PER_PAGE);
     let html = '';
-    
+
     pagePosts.forEach(post => {
         const title = escapeHTML(post.title || 'Sans titre');
         const categoryLabel = escapeHTML(tBlogCategory(post.category || 'general'));
@@ -1650,10 +1825,10 @@ function renderBlogListAdmin(posts) {
     }
 
     container.innerHTML = html;
-    
+
     container.querySelectorAll('[data-action="edit-post"]').forEach(btn => btn.addEventListener('click', () => editBlogPost(btn.dataset.id)));
     container.querySelectorAll('[data-action="delete-post"]').forEach(btn => btn.addEventListener('click', () => deleteBlogPost(btn.dataset.id)));
-    
+
     container.querySelectorAll('[data-blog-page]').forEach(btn => {
         btn.addEventListener('click', () => {
             const val = btn.dataset.blogPage;
@@ -1883,7 +2058,7 @@ function renderCouponsList(coupons) {
         else { statusLabel = '✅ Actif'; statusClass = 'coupon-status-active'; }
 
         let valueLabel = type === 'percentage' ? `-${value}%` : (type === 'fixed' ? `-${value} MAD` : 'Livraison offerte');
-        
+
         let progressHtml = '';
         if (maxUses > 0) {
             const percent = Math.min(100, (usedCount / maxUses) * 100);
@@ -2015,7 +2190,7 @@ async function saveCoupon() {
     if (type === 'percentage' && valueRaw > 100) { showToast('⚠️ Un pourcentage ne peut dépasser 100%'); return; }
 
     const deterministicId = code.replace(/[^A-Z0-9]/g, '_');
-    
+
     try {
         const existingDoc = await getDoc(doc(db, "coupons", deterministicId));
         if (existingDoc.exists() && existingDoc.id !== editId) {
@@ -2090,12 +2265,12 @@ function filterCouponsList() {
 }
 
 // ============================================================
-// SPEEDAF TAB
+// SPEEDAF — COMPLET (résout N1)
 // ============================================================
 async function loadSpeedafTab() {
     const container = document.getElementById('adminSpeedafList');
     if (!container) return;
-    container.innerHTML = `<div class="admin-loading">⏳ Chargement...</div>`;
+    container.innerHTML = `<div class="admin-loading">⏳ Chargement des commandes Speedaf...</div>`;
     try {
         const q = query(collection(db, "orders"), orderBy("createdAt", "desc"), limit(100));
         const snap = await getDocs(q);
@@ -2106,7 +2281,8 @@ async function loadSpeedafTab() {
         updateSpeedafStats();
         renderSpeedafList();
     } catch (e) {
-        container.innerHTML = `<div class="admin-empty" style="color:var(--danger);">Erreur</div>`;
+        console.error('❌ Erreur chargement Speedaf :', e);
+        container.innerHTML = `<div class="admin-empty" style="color:var(--danger);">Erreur de chargement.</div>`;
     }
 }
 
@@ -2124,7 +2300,7 @@ function updateSpeedafStats() {
     const elS = document.getElementById('speedafStatShipping');
     const elD = document.getElementById('speedafStatDelivered');
     const elSt = document.getElementById('speedafStatStorage');
-    
+
     if (elP) elP.textContent = pending;
     if (elS) elS.textContent = shipping;
     if (elD) elD.textContent = delivered;
@@ -2162,10 +2338,10 @@ function renderSpeedafList() {
         const status = normalizeOrderStatus(order.status);
         const dateStr = order.createdAt ? order.createdAt.toLocaleDateString('fr-FR') : '—';
         const idShort = order.id.slice(0, 8).toUpperCase();
-        const cityStr = getCityName({ 
-            name: order.deliveryAddress?.cityAr || order.deliveryAddress?.city, 
-            nameFr: order.deliveryAddress?.cityFr, 
-            nameAr: order.deliveryAddress?.cityAr 
+        const cityStr = getCityName({
+            name: order.deliveryAddress?.cityAr || order.deliveryAddress?.city,
+            nameFr: order.deliveryAddress?.cityFr,
+            nameAr: order.deliveryAddress?.cityAr
         });
 
         let statusBadge = '';
@@ -2176,12 +2352,12 @@ function renderSpeedafList() {
         else if (status === 'returned') statusBadge = '↩️ Retourné';
         else if (status === 'cancelled') statusBadge = '❌ Annulé';
 
-        const trackingHtml = order.speedafTracking 
-            ? `<div style="font-size:0.8rem; color:var(--gold); margin-top:0.2rem;">🔗 <strong>Suivi:</strong> ${escapeHTML(order.speedafTracking)}</div>` 
+        const trackingHtml = order.speedafTracking
+            ? `<div style="font-size:0.8rem; color:var(--gold); margin-top:0.2rem;">🔗 <strong>Suivi:</strong> ${escapeHTML(order.speedafTracking)}</div>`
             : '';
 
-        const printBtn = order.speedafLabelUrl 
-            ? `<a href="${escapeHTML(order.speedafLabelUrl)}" target="_blank" class="admin-btn-primary" style="padding:0.4rem 0.8rem; font-size:0.75rem; text-decoration:none; margin-left:0.3rem;">🖨️ Étiquette</a>` 
+        const printBtn = order.speedafLabelUrl
+            ? `<a href="${escapeHTML(order.speedafLabelUrl)}" target="_blank" class="admin-btn-primary" style="padding:0.4rem 0.8rem; font-size:0.75rem; text-decoration:none; margin-left:0.3rem;">🖨️ Étiquette</a>`
             : '';
 
         const syncBtn = order.speedafTracking && ['shipping', 'confirmed'].includes(status)
@@ -2192,7 +2368,7 @@ function renderSpeedafList() {
             <div class="admin-list-item" style="flex-direction:column; align-items:stretch; padding:1rem;">
                 <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.5rem;">
                     <div>
-                        <strong style="color:var(--gold); font-size:1rem;">#${idShort}</strong> 
+                        <strong style="color:var(--gold); font-size:1rem;">#${idShort}</strong>
                         <span style="margin-left:0.5rem; font-size:0.85rem; color:var(--text-muted);">${dateStr}</span>
                         <span style="margin-left:0.5rem; font-size:0.8rem; font-weight:700;">${statusBadge}</span>
                     </div>
@@ -2240,13 +2416,13 @@ async function handleSyncAllSpeedaf() {
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Synchronisation...'; }
     isSyncingAllSpeedaf = true;
 
-    const ordersToSync = speedafOrdersCache.filter(o => 
+    const ordersToSync = speedafOrdersCache.filter(o =>
         o.speedafTracking && ['shipping', 'confirmed'].includes(normalizeOrderStatus(o.status))
     );
 
     if (ordersToSync.length === 0) {
         showToast('ℹ️ Aucune commande en cours à synchroniser.');
-        if (btn) { btn.disabled = false; btn.textContent = '🔄 Synchroniser'; }
+        if (btn) { btn.disabled = false; btn.textContent = '🔄 Synchroniser les statuts'; }
         isSyncingAllSpeedaf = false;
         return;
     }
@@ -2259,10 +2435,10 @@ async function handleSyncAllSpeedaf() {
         } catch (e) { errorCount++; }
     }
 
-    showToast(`✅ ${updatedCount} mise(s) à jour. ${errorCount > 0 ? errorCount + ' erreur(s).' : ''}`);
+    showToast(`✅ ${updatedCount} commande(s) mise(s) à jour. ${errorCount > 0 ? errorCount + ' erreur(s).' : ''}`);
     await loadSpeedafTab();
-    
-    if (btn) { btn.disabled = false; btn.textContent = '🔄 Synchroniser'; }
+
+    if (btn) { btn.disabled = false; btn.textContent = '🔄 Synchroniser les statuts'; }
     isSyncingAllSpeedaf = false;
 }
 
@@ -2283,15 +2459,18 @@ async function handleConfirmPickup() {
             status: isTestMode() ? 'test_mode' : 'pending_manual',
             createdAt: Timestamp.now()
         });
-        showToast(isTestMode() ? '🧪 [TEST] Demande enregistrée' : '✅ Demande enregistrée');
+        showToast(isTestMode() ? '🧪 [TEST] Demande enregistrée (rollback à la fin)' : '✅ Demande enregistrée (à confirmer avec Speedaf)');
         document.getElementById('pickupModal').classList.remove('open');
     } catch (e) {
         showToast('❌ Erreur : ' + e.message);
     } finally {
-        btn.disabled = false; btn.textContent = '🚀 Envoyer';
+        btn.disabled = false; btn.textContent = '🚀 Envoyer la demande';
     }
 }
 
+// ------------------------------------------------------------
+// FIN PARTIE 3/4 — la suite (alertes + charts + finances + simulateur + outils + attachAllRemainingEvents + initAdmin) commence en PARTIE 4/4
+// ------------------------------------------------------------
 // ============================================================
 // ALERTES BANNER
 // ============================================================
@@ -2332,7 +2511,7 @@ async function refreshAdminAlerts() {
 
         const stockOutNames = [];
         const stockLowNames = [];
-        
+
         if (cachedProducts.length > 0) {
             cachedProducts.forEach(p => {
                 const name = p.nameFr || p.nameEn || 'Sans nom';
@@ -2377,17 +2556,18 @@ async function refreshAdminAlerts() {
         }
 
         banner.style.display = hasAlerts ? 'block' : 'none';
-    } catch (e) {}
+    } catch (e) { console.warn('⚠️ Alertes :', e); }
 }
 
 // ============================================================
-// CHART & COMPTABILITÉ (Rappel)
+// CHART REVENUS
 // ============================================================
 function attachChartListeners() {
     if (chartListenersAttached) return;
     chartListenersAttached = true;
     const buttons = document.querySelectorAll('.chart-period-btn');
     if (buttons.length === 0) return;
+
     buttons.forEach(btn => {
         btn.addEventListener('click', async () => {
             document.querySelectorAll('.chart-period-btn').forEach(b => b.classList.remove('active'));
@@ -2401,6 +2581,7 @@ function attachChartListeners() {
 async function renderRevenueChart(period = 7, preloadedOrders = null) {
     const canvas = document.getElementById('revenueChart');
     if (!canvas || typeof window.Chart === 'undefined') return;
+
     try {
         const now = new Date();
         const startDate = new Date(now);
@@ -2442,9 +2623,51 @@ async function renderRevenueChart(period = 7, preloadedOrders = null) {
     } catch (e) { console.error(e); }
 }
 
-async function loadPurchases() { /* ... */ }
-async function loadExpenses() { /* ... */ }
-async function loadTransactions() { /* ... */ }
+// ============================================================
+// COMPTABILITÉ — CHARGEMENT
+// ============================================================
+async function loadPurchases() {
+    try {
+        const snap = await getDocs(query(collection(db, "purchases"), orderBy("date", "desc"), limit(500)));
+        cachedPurchases = snap.docs.map(d => ({ id: d.id, ...d.data(), date: toDate(d.data().date) }));
+    } catch (err) {
+        try {
+            const snap = await getDocs(collection(db, "purchases"));
+            cachedPurchases = snap.docs.map(d => ({ id: d.id, ...d.data(), date: toDate(d.data().date) }));
+            cachedPurchases.sort((a, b) => safeDate(b.date) - safeDate(a.date));
+        } catch (err2) { cachedPurchases = []; }
+    }
+    return cachedPurchases;
+}
+
+async function loadExpenses() {
+    try {
+        const snap = await getDocs(query(collection(db, "expenses"), orderBy("date", "desc"), limit(500)));
+        cachedExpenses = snap.docs.map(d => ({ id: d.id, ...d.data(), date: toDate(d.data().date) }));
+    } catch (err) {
+        try {
+            const snap = await getDocs(collection(db, "expenses"));
+            cachedExpenses = snap.docs.map(d => ({ id: d.id, ...d.data(), date: toDate(d.data().date) }));
+            cachedExpenses.sort((a, b) => safeDate(b.date) - safeDate(a.date));
+        } catch (err2) { cachedExpenses = []; }
+    }
+    return cachedExpenses;
+}
+
+async function loadTransactions() {
+    try {
+        const snap = await getDocs(query(collection(db, "transactions"), orderBy("date", "desc"), limit(500)));
+        cachedTransactions = snap.docs.map(d => ({ id: d.id, ...d.data(), date: toDate(d.data().date) }));
+    } catch (err) {
+        try {
+            const snap = await getDocs(collection(db, "transactions"));
+            cachedTransactions = snap.docs.map(d => ({ id: d.id, ...d.data(), date: toDate(d.data().date) }));
+            cachedTransactions.sort((a, b) => safeDate(b.date) - safeDate(a.date));
+        } catch (err2) { cachedTransactions = []; }
+    }
+    return cachedTransactions;
+}
+
 async function loadFinancesTab() {
     if (!cachedProducts || cachedProducts.length === 0) await loadProducts();
     const periodEl = document.getElementById('accPeriod');
@@ -2465,6 +2688,7 @@ async function refreshAccOverview() {
     const kpis = document.getElementById('accKPIs');
     const waterfall = document.getElementById('accWaterfall');
     if (!kpis || !waterfall) return;
+
     kpis.innerHTML = '<div class="admin-loading">⏳ Calcul...</div>';
     waterfall.innerHTML = '<div class="admin-loading">⏳ Calcul...</div>';
 
@@ -2517,10 +2741,10 @@ async function refreshAccOverview() {
         });
 
         transactionsSnap.forEach(d => {
-            const t = d.data();
-            if (!isInRange(toDate(t.date), start, end)) return;
-            if (t.type === 'income') extraIncome += Number(t.amount) || 0;
-            else otherExpenses += Number(t.amount) || 0;
+            const t_ = d.data();
+            if (!isInRange(toDate(t_.date), start, end)) return;
+            if (t_.type === 'income') extraIncome += Number(t_.amount) || 0;
+            else otherExpenses += Number(t_.amount) || 0;
         });
 
         const grossProfit = revenue - cogs;
@@ -2528,14 +2752,14 @@ async function refreshAccOverview() {
         const margin = revenue > 0 ? (netProfit / revenue) * 100 : 0;
 
         kpis.innerHTML = `
-            <div class="admin-stat-card"><span class="stat-value" style="color:var(--success);">${formatMAD(revenue)}</span><span class="stat-label">💰 CA</span></div>
+            <div class="admin-stat-card"><span class="stat-value" style="color:var(--success);">${formatMAD(revenue)}</span><span class="stat-label">💰 Chiffre d'affaires</span></div>
             <div class="admin-stat-card"><span class="stat-value" style="color:var(--danger);">${formatMAD(cogs)}</span><span class="stat-label">📦 COGS</span></div>
-            <div class="admin-stat-card"><span class="stat-value" style="color:var(--danger);">${formatMAD(shippingCost)}</span><span class="stat-label">🚚 Livraison</span></div>
-            <div class="admin-stat-card"><span class="stat-value" style="color:var(--danger);">${formatMAD(adSpend)}</span><span class="stat-label">📢 Pub</span></div>
-            <div class="admin-stat-card"><span class="stat-value" style="color:var(--danger);">${formatMAD(otherExpenses)}</span><span class="stat-label">📉 Autres dép.</span></div>
-            <div class="admin-stat-card"><span class="stat-value" style="color:var(--info);">${formatMAD(extraIncome)}</span><span class="stat-label">💸 Autres rev.</span></div>
-            <div class="admin-stat-card" style="border-color:var(--gold);"><span class="stat-value" style="color:var(--gold);">${formatMAD(netProfit)}</span><span class="stat-label">🏆 Bénéfice</span></div>
-            <div class="admin-stat-card"><span class="stat-value">${margin.toFixed(1)}%</span><span class="stat-label">📊 Marge</span></div>
+            <div class="admin-stat-card"><span class="stat-value" style="color:var(--danger);">${formatMAD(shippingCost)}</span><span class="stat-label">🚚 Frais livraison</span></div>
+            <div class="admin-stat-card"><span class="stat-value" style="color:var(--danger);">${formatMAD(adSpend)}</span><span class="stat-label">📢 Publicité</span></div>
+            <div class="admin-stat-card"><span class="stat-value" style="color:var(--danger);">${formatMAD(otherExpenses)}</span><span class="stat-label">📉 Autres dépenses</span></div>
+            <div class="admin-stat-card"><span class="stat-value" style="color:var(--info);">${formatMAD(extraIncome)}</span><span class="stat-label">💸 Autres revenus</span></div>
+            <div class="admin-stat-card" style="border-color:var(--gold);"><span class="stat-value" style="color:var(--gold);">${formatMAD(netProfit)}</span><span class="stat-label">🏆 Bénéfice NET</span></div>
+            <div class="admin-stat-card"><span class="stat-value">${margin.toFixed(1)}%</span><span class="stat-label">📊 Marge nette</span></div>
         `;
 
         waterfall.innerHTML = `
@@ -2553,6 +2777,7 @@ async function refreshAccOverview() {
 
         await renderRevenueChart(currentChartPeriod, ordersSnap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (e) {
+        console.error('❌ refreshAccOverview:', e);
         kpis.innerHTML = `<div class="admin-empty" style="color:var(--danger);">Erreur</div>`;
         waterfall.innerHTML = '';
     }
@@ -2573,32 +2798,681 @@ function updateReportDates() {
     }
 }
 
-async function saveNewPurchase() { /* ... */ }
-async function renderPurchasesList() { /* ... */ }
-async function saveNewExpense() { /* ... */ }
-async function renderExpensesList() { /* ... */ }
-async function saveNewTransaction() { /* ... */ }
-async function renderTransactionsList() { /* ... */ }
-async function generateReport() { /* ... */ }
-function downloadCSV(csvContent, fileName) { /* ... */ }
-function exportReportCSV() { /* ... */ }
-async function exportOrdersCSV() { /* ... */ }
-async function exportProductsCSV() { /* ... */ }
+// ============================================================
+// ACHATS / DÉPENSES / TRANSACTIONS — CRUD
+// ============================================================
+async function saveNewPurchase() {
+    const productId = document.getElementById('purProductId').value;
+    const qty = parseInt(document.getElementById('purQty').value);
+    const unitPrice = parseFloat(document.getElementById('purUnitPrice').value);
+    const shippingCost = parseFloat(document.getElementById('purShippingCost').value) || 0;
+    const supplier = document.getElementById('purSupplier').value.trim();
+    const dateVal = document.getElementById('purDate').value;
+    const note = document.getElementById('purNote').value.trim();
+
+    if (!productId) { showToast('⚠️ Sélectionnez un produit'); return; }
+    if (!qty || qty < 1) { showToast('⚠️ Quantité invalide'); return; }
+    if (isNaN(unitPrice) || unitPrice < 0) { showToast('⚠️ Prix invalide'); return; }
+    if (!dateVal) { showToast('⚠️ Date invalide'); return; }
+
+    const btn = document.getElementById('addPurchaseBtn');
+    btn.disabled = true; btn.textContent = '⏳...';
+
+    try {
+        const totalCost = (qty * unitPrice) + shippingCost;
+        const product = cachedProducts.find(p => p.id === productId);
+
+        await addDoc(collection(db, "purchases"), {
+            productId, productName: product?.nameFr || 'Inconnu',
+            quantity: qty, unitPrice, shippingCost, totalCost,
+            supplier, date: Timestamp.fromDate(new Date(dateVal)), note,
+            createdAt: Timestamp.now()
+        });
+
+        if (product) {
+            await updateDoc(doc(db, "products", productId), {
+                stock: increment(qty),
+                purchasePrice: unitPrice,
+                updatedAt: Timestamp.now()
+            });
+        }
+
+        showToast('✅ Achat enregistré et stock mis à jour');
+        document.getElementById('purQty').value = '';
+        document.getElementById('purUnitPrice').value = '';
+        document.getElementById('purShippingCost').value = '0';
+        document.getElementById('purNote').value = '';
+
+        await loadPurchases();
+        await loadProducts(true);
+        await renderPurchasesList();
+    } catch (e) {
+        showToast('❌ ' + e.message);
+    } finally {
+        btn.disabled = false; btn.textContent = '💾 Enregistrer l\'achat';
+    }
+}
+
+async function renderPurchasesList() {
+    const container = document.getElementById('purchasesList');
+    if (!container) return;
+    container.innerHTML = `<div class="admin-loading">⏳ Chargement...</div>`;
+    await loadPurchases();
+
+    if (cachedPurchases.length === 0) {
+        container.innerHTML = `<div class="admin-empty">Aucun achat enregistré.</div>`;
+        return;
+    }
+
+    let html = `<table class="acc-table"><thead><tr><th>Date</th><th>Produit</th><th>Qté</th><th>Prix Unit.</th><th>Livraison</th><th>Total</th><th>Fournisseur</th></tr></thead><tbody>`;
+    cachedPurchases.forEach(p => {
+        html += `<tr>
+            <td>${p.date ? p.date.toLocaleDateString('fr-FR') : '—'}</td>
+            <td><strong>${escapeHTML(p.productName)}</strong></td>
+            <td>${p.quantity}</td>
+            <td>${formatMAD(p.unitPrice)}</td>
+            <td>${formatMAD(p.shippingCost)}</td>
+            <td style="font-weight:700;color:var(--danger);">${formatMAD(p.totalCost)}</td>
+            <td>${escapeHTML(p.supplier || '—')}</td>
+        </tr>`;
+    });
+    html += `</tbody></table>`;
+    container.innerHTML = html;
+}
+
+async function saveNewExpense() {
+    const category = document.getElementById('expCategory').value;
+    const amount = parseFloat(document.getElementById('expAmount').value);
+    const dateVal = document.getElementById('expDate').value;
+    const description = document.getElementById('expDescription').value.trim();
+
+    if (isNaN(amount) || amount <= 0) { showToast('⚠️ Montant invalide'); return; }
+    if (!dateVal) { showToast('⚠️ Date invalide'); return; }
+    if (!description) { showToast('⚠️ Description requise'); return; }
+
+    const btn = document.getElementById('addExpenseBtn');
+    btn.disabled = true; btn.textContent = '⏳...';
+
+    try {
+        await addDoc(collection(db, "expenses"), {
+            category, amount, description,
+            date: Timestamp.fromDate(new Date(dateVal)),
+            createdAt: Timestamp.now()
+        });
+        showToast('✅ Dépense enregistrée');
+        document.getElementById('expAmount').value = '';
+        document.getElementById('expDescription').value = '';
+        await loadExpenses();
+        await renderExpensesList();
+    } catch (e) {
+        showToast('❌ ' + e.message);
+    } finally {
+        btn.disabled = false; btn.textContent = '💾 Enregistrer la dépense';
+    }
+}
+
+async function renderExpensesList() {
+    const container = document.getElementById('expensesList');
+    if (!container) return;
+    container.innerHTML = `<div class="admin-loading">⏳ Chargement...</div>`;
+    await loadExpenses();
+
+    if (cachedExpenses.length === 0) {
+        container.innerHTML = `<div class="admin-empty">Aucune dépense enregistrée.</div>`;
+        return;
+    }
+
+    let html = `<table class="acc-table"><thead><tr><th>Date</th><th>Catégorie</th><th>Description</th><th>Montant</th></tr></thead><tbody>`;
+    cachedExpenses.forEach(e => {
+        html += `<tr>
+            <td>${e.date ? e.date.toLocaleDateString('fr-FR') : '—'}</td>
+            <td>${escapeHTML(e.category)}</td>
+            <td>${escapeHTML(e.description)}</td>
+            <td style="font-weight:700;color:var(--danger);">${formatMAD(e.amount)}</td>
+        </tr>`;
+    });
+    html += `</tbody></table>`;
+    container.innerHTML = html;
+}
+
+async function saveNewTransaction() {
+    const type = document.getElementById('transType').value;
+    const amount = parseFloat(document.getElementById('transAmount').value);
+    const dateVal = document.getElementById('transDate').value;
+    const description = document.getElementById('transDescription').value.trim();
+
+    if (isNaN(amount) || amount <= 0) { showToast('⚠️ Montant invalide'); return; }
+    if (!dateVal) { showToast('⚠️ Date invalide'); return; }
+    if (!description) { showToast('⚠️ Description requise'); return; }
+
+    const btn = document.getElementById('addTransactionBtn');
+    btn.disabled = true; btn.textContent = '⏳...';
+
+    try {
+        await addDoc(collection(db, "transactions"), {
+            type, amount, description,
+            date: Timestamp.fromDate(new Date(dateVal)),
+            createdAt: Timestamp.now()
+        });
+        showToast('✅ Transaction enregistrée');
+        document.getElementById('transAmount').value = '';
+        document.getElementById('transDescription').value = '';
+        await loadTransactions();
+        await renderTransactionsList();
+    } catch (e) {
+        showToast('❌ ' + e.message);
+    } finally {
+        btn.disabled = false; btn.textContent = '💾 Enregistrer';
+    }
+}
+
+async function renderTransactionsList() {
+    const container = document.getElementById('transactionsList');
+    if (!container) return;
+    container.innerHTML = `<div class="admin-loading">⏳ Chargement...</div>`;
+    await loadTransactions();
+
+    const search = document.getElementById('transSearch')?.value.toLowerCase() || '';
+    const filterType = document.getElementById('transFilterType')?.value || 'all';
+
+    let filtered = cachedTransactions;
+    if (filterType !== 'all') filtered = filtered.filter(t => t.type === filterType);
+    if (search) filtered = filtered.filter(t => (t.description || '').toLowerCase().includes(search));
+
+    if (filtered.length === 0) {
+        container.innerHTML = `<div class="admin-empty">Aucune transaction trouvée.</div>`;
+        return;
+    }
+
+    let html = `<table class="acc-table"><thead><tr><th>Date</th><th>Type</th><th>Description</th><th>Montant</th></tr></thead><tbody>`;
+    filtered.forEach(t => {
+        const isIncome = t.type === 'income';
+        html += `<tr>
+            <td>${t.date ? t.date.toLocaleDateString('fr-FR') : '—'}</td>
+            <td><span style="color:${isIncome ? 'var(--success)' : 'var(--danger)'};font-weight:700;">${isIncome ? '💰 Revenu' : '📉 Dépense'}</span></td>
+            <td>${escapeHTML(t.description)}</td>
+            <td style="font-weight:700;color:${isIncome ? 'var(--success)' : 'var(--danger)'};">${isIncome ? '+' : '-'} ${formatMAD(t.amount)}</td>
+        </tr>`;
+    });
+    html += `</tbody></table>`;
+    container.innerHTML = html;
+}
 
 // ============================================================
-// SIMULATEUR (Rappel)
+// RAPPORTS
 // ============================================================
-function renderFinanceProductSelection() { /* ... */ }
-function attachSimulatorListeners() { /* ... */ }
-function calculateFinances() { /* ... */ }
+async function generateReport() {
+    const startVal = document.getElementById('reportStart').value;
+    const endVal = document.getElementById('reportEnd').value;
+    const container = document.getElementById('reportContent');
+    if (!startVal || !endVal) { showToast('⚠️ Sélectionnez une période'); return; }
+    if (!container) return;
+
+    container.innerHTML = `<div class="admin-loading">⏳ Génération du rapport...</div>`;
+
+    try {
+        const start = new Date(startVal); start.setHours(0,0,0,0);
+        const end = new Date(endVal); end.setHours(23,59,59,999);
+
+        const [ordersSnap, expensesSnap, purchasesSnap] = await Promise.all([
+            getDocs(query(collection(db, "orders"), where("createdAt", ">=", Timestamp.fromDate(start)), where("createdAt", "<=", Timestamp.fromDate(end)))),
+            getDocs(query(collection(db, "expenses"), where("date", ">=", Timestamp.fromDate(start)), where("date", "<=", Timestamp.fromDate(end)))),
+            getDocs(query(collection(db, "purchases"), where("date", ">=", Timestamp.fromDate(start)), where("date", "<=", Timestamp.fromDate(end))))
+        ]);
+
+        let revenue = 0, ordersCount = 0;
+        ordersSnap.forEach(d => {
+            const o = d.data();
+            if (normalizeOrderStatus(o.status) === 'delivered') { revenue += Number(o.total) || 0; ordersCount++; }
+        });
+
+        let expenses = 0;
+        expensesSnap.forEach(d => expenses += Number(d.data().amount) || 0);
+        let purchases = 0;
+        purchasesSnap.forEach(d => purchases += Number(d.data().totalCost) || 0);
+
+        const net = revenue - expenses - purchases;
+        const margin = revenue > 0 ? (net / revenue) * 100 : 0;
+
+        container.innerHTML = `
+            <div class="admin-form" style="margin-top:1rem;">
+                <h3>📈 Rapport du ${start.toLocaleDateString('fr-FR')} au ${end.toLocaleDateString('fr-FR')}</h3>
+                <table class="acc-table" style="margin-top:1rem;">
+                    <tr><td>📦 Commandes livrées</td><td style="text-align:right;font-weight:700;">${ordersCount}</td></tr>
+                    <tr><td>💰 Chiffre d'affaires</td><td style="text-align:right;color:var(--success);font-weight:700;">${formatMAD(revenue)}</td></tr>
+                    <tr><td>📉 Dépenses</td><td style="text-align:right;color:var(--danger);">-${formatMAD(expenses)}</td></tr>
+                    <tr><td>📦 Achats</td><td style="text-align:right;color:var(--danger);">-${formatMAD(purchases)}</td></tr>
+                    <tr style="font-weight:800;background:var(--bg-surface);border-top:2px solid var(--gold);">
+                        <td>🏆 Résultat NET</td>
+                        <td style="text-align:right;color:${net >= 0 ? 'var(--success)' : 'var(--danger)'};">${formatMAD(net)}</td>
+                    </tr>
+                    <tr><td>📊 Marge nette</td><td style="text-align:right;">${margin.toFixed(1)}%</td></tr>
+                </table>
+            </div>
+        `;
+    } catch (e) {
+        container.innerHTML = `<div class="admin-empty" style="color:var(--danger);">${e.message}</div>`;
+    }
+}
+
+function downloadCSV(csvContent, fileName) {
+    const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", fileName);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+
+function exportReportCSV() {
+    const table = document.querySelector('#reportContent table');
+    if (!table) { showToast('⚠️ Générez d\'abord un rapport'); return; }
+    let csv = "";
+    table.querySelectorAll('tr').forEach(row => {
+        const cols = Array.from(row.querySelectorAll('td, th')).map(c => `"${c.innerText.replace(/"/g, '""')}"`).join(',');
+        csv += cols + "\n";
+    });
+    downloadCSV(csv, `rapport_${new Date().toISOString().split('T')[0]}.csv`);
+    showToast('✅ Export CSV généré');
+}
+
+async function exportOrdersCSV() {
+    try {
+        showToast('⏳ Chargement des commandes...');
+        const snap = await getDocs(query(collection(db, "orders"), orderBy("createdAt", "desc")));
+        let csv = "ID,Date,Nom,Telephone,Ville,Adresse,Statut,Total\n";
+        snap.forEach(d => {
+            const o = d.data();
+            const date = toDate(o.createdAt)?.toLocaleDateString('fr-FR') || '';
+            const addr = o.deliveryAddress || {};
+            csv += `"${d.id.slice(0,8).toUpperCase()}","${date}","${addr.name||''}","${addr.phone||''}","${addr.city||''}","${addr.address||''}","${o.status}","${o.total}"\n`;
+        });
+        downloadCSV(csv, `commandes_${new Date().toISOString().split('T')[0]}.csv`);
+        showToast('✅ Export CSV généré');
+    } catch (e) { showToast('❌ ' + e.message); }
+}
+
+async function exportProductsCSV() {
+    try {
+        showToast('⏳ Chargement...');
+        const snap = await getDocs(collection(db, "products"));
+        let csv = "Nom,SKU,Slug,Categorie,Prix,Base_Price,Cout_Achat,Stock,VendorId,Status\n";
+        snap.forEach(d => {
+            const p = d.data();
+            csv += `"${p.nameFr||''}","${p.sku||''}","${p.slug||''}","${p.category||''}","${p.price||0}","${p.basePrice||p.price||0}","${p.purchasePrice||0}","${p.stock||0}","${p.vendorId||''}","${p.status||''}"\n`;
+        });
+        downloadCSV(csv, `inventaire_${new Date().toISOString().split('T')[0]}.csv`);
+        showToast('✅ Export CSV généré');
+    } catch (e) { showToast('❌ ' + e.message); }
+}
 
 // ============================================================
-// TOOLS — MIGRATIONS (Rappel)
+// SIMULATEUR
 // ============================================================
-async function handleMigrateCities() { /* ... */ }
-async function handleMigrateLegacyCategories() { /* ... */ }
-async function handleMigrateSku() { /* ... */ }
-async function loadCollectionsStatus() { /* ... */ }
+function renderFinanceProductSelection() {
+    const container = document.getElementById('financeProductSelector');
+    if (!container) return;
+
+    if (!cachedProducts || cachedProducts.length === 0) {
+        container.innerHTML = `<p style="text-align:center;color:var(--text-muted);font-size:0.85rem;padding:1rem;">Chargement des produits...</p>`;
+        return;
+    }
+
+    let html = '';
+    cachedProducts.forEach(p => {
+        const name = p.nameFr || p.nameEn || 'Sans nom';
+        const buyPrice = Number(p.purchasePrice) || 0;
+        const salePrice = Number(p.basePrice || p.price) || 0;
+        const stock = Number(p.stock) || 0;
+
+        html += `
+            <label style="display:flex;align-items:center;gap:0.6rem;padding:0.5rem;border-bottom:1px solid var(--border);cursor:pointer;">
+                <input type="checkbox" class="fin-product-checkbox" value="${p.id}" data-buy="${buyPrice}" data-sale="${salePrice}" data-stock="${stock}" style="width:auto;margin:0;">
+                <div style="flex:1;">
+                    <strong style="font-size:0.85rem;color:var(--text);">${escapeHTML(name)}</strong>
+                    <div style="font-size:0.75rem;color:var(--text-muted);">Achat: ${buyPrice} MAD · Vente: ${salePrice} MAD · Stock: ${stock}</div>
+                </div>
+            </label>
+        `;
+    });
+    container.innerHTML = html;
+}
+
+function attachSimulatorListeners() {
+    if (simulatorListenersAttached) return;
+    simulatorListenersAttached = true;
+
+    document.getElementById('finSelectAll')?.addEventListener('click', () => {
+        document.querySelectorAll('.fin-product-checkbox').forEach(cb => cb.checked = true);
+    });
+    document.getElementById('finSelectNone')?.addEventListener('click', () => {
+        document.querySelectorAll('.fin-product-checkbox').forEach(cb => cb.checked = false);
+    });
+    document.getElementById('finSelectProfitable')?.addEventListener('click', () => {
+        document.querySelectorAll('.fin-product-checkbox').forEach(cb => {
+            const buy = parseFloat(cb.dataset.buy) || 0;
+            const sale = parseFloat(cb.dataset.sale) || 0;
+            cb.checked = sale > buy;
+        });
+    });
+    document.getElementById('finSelectTop5')?.addEventListener('click', () => {
+        const checkboxes = Array.from(document.querySelectorAll('.fin-product-checkbox'));
+        checkboxes.forEach(cb => cb.checked = false);
+        const sorted = checkboxes.sort((a, b) => {
+            const marginA = (parseFloat(a.dataset.sale) || 0) - (parseFloat(a.dataset.buy) || 0);
+            const marginB = (parseFloat(b.dataset.sale) || 0) - (parseFloat(b.dataset.buy) || 0);
+            return marginB - marginA;
+        });
+        sorted.slice(0, 5).forEach(cb => cb.checked = true);
+    });
+
+    document.getElementById('finReturnRate')?.addEventListener('input', (e) => {
+        const el = document.getElementById('finReturnRateValue');
+        if (el) el.textContent = e.target.value + '%';
+    });
+
+    document.getElementById('calculateFinancesBtn')?.addEventListener('click', calculateFinances);
+}
+
+function calculateFinances() {
+    const adSpend = parseFloat(document.getElementById('finAdSpend').value) || 0;
+    const packaging = parseFloat(document.getElementById('finPackaging').value) || 0;
+    const returnShipping = parseFloat(document.getElementById('finReturnShipping').value) || 0;
+    const safetyMargin = parseFloat(document.getElementById('finSafetyMargin').value) || 0;
+    const returnRate = parseFloat(document.getElementById('finReturnRate').value) || 0;
+
+    const selected = [];
+    document.querySelectorAll('.fin-product-checkbox:checked').forEach(cb => {
+        selected.push({
+            id: cb.value,
+            buy: parseFloat(cb.dataset.buy) || 0,
+            sale: parseFloat(cb.dataset.sale) || 0,
+            stock: parseFloat(cb.dataset.stock) || 0
+        });
+    });
+
+    if (selected.length === 0) { showToast('⚠️ Sélectionnez au moins un produit'); return; }
+
+    const logisticsCost = packaging + (returnRate / 100) * (returnShipping + packaging);
+
+    let totalRevenue = 0, totalInvestment = 0, totalLogistics = 0, totalGrossProfit = 0, totalUnits = 0;
+    const results = [];
+
+    selected.forEach(p => {
+        const finalSalePrice = p.sale + 5;
+        const spdDeliveryCost = 35;
+        const marginNetUnit = finalSalePrice - p.buy - spdDeliveryCost - logisticsCost;
+        const cpaMax = Math.max(0, marginNetUnit * (1 - safetyMargin / 100));
+        const profitTotal = marginNetUnit * p.stock;
+        const roi = p.buy > 0 ? (marginNetUnit / p.buy) * 100 : 0;
+
+        totalRevenue += finalSalePrice * p.stock;
+        totalInvestment += p.buy * p.stock;
+        totalLogistics += (spdDeliveryCost + logisticsCost) * p.stock;
+        totalGrossProfit += profitTotal;
+        totalUnits += p.stock;
+
+        results.push({ ...p, marginNetUnit, cpaMax, profitTotal, roi });
+    });
+
+    const netProfit = totalGrossProfit - adSpend;
+    const globalRoi = totalInvestment > 0 ? (totalGrossProfit / totalInvestment) * 100 : 0;
+    const breakEven = adSpend > 0 && totalGrossProfit > 0 && totalUnits > 0
+        ? Math.ceil(adSpend / (totalGrossProfit / totalUnits))
+        : 0;
+
+    document.getElementById('financesResults').style.display = 'block';
+    document.getElementById('finTotalRevenue').textContent = formatMAD(totalRevenue);
+    document.getElementById('finTotalInvestment').textContent = formatMAD(totalInvestment);
+    document.getElementById('finTotalLogistics').textContent = formatMAD(totalLogistics);
+    document.getElementById('finTotalGrossProfit').textContent = formatMAD(totalGrossProfit);
+    document.getElementById('finTotalProfit').textContent = formatMAD(netProfit);
+    document.getElementById('finTotalProfit').style.color = netProfit >= 0 ? 'var(--success)' : 'var(--danger)';
+
+    document.getElementById('finTotalROI').textContent = `${globalRoi.toFixed(1)}%`;
+    document.getElementById('finTotalROI').style.color = globalRoi > 0 ? 'var(--success)' : 'var(--danger)';
+
+    document.getElementById('finBreakEven').textContent = `${breakEven} colis`;
+    document.getElementById('finTotalProducts').textContent = selected.length;
+    document.getElementById('finTotalUnits').textContent = totalUnits;
+    document.getElementById('finStockSaleValue').textContent = formatMAD(totalRevenue);
+
+    let recHtml = '';
+    if (netProfit < 0) {
+        recHtml = `<div style="background:var(--danger-bg);border:1px solid var(--danger);padding:1rem;border-radius:var(--radius-sm);color:var(--danger);margin-bottom:1rem;"><strong>⚠️ Attention :</strong> Votre budget pub dépasse votre profit brut.</div>`;
+    } else if (globalRoi < 50) {
+        recHtml = `<div style="background:var(--warning-bg);border:1px solid var(--warning);padding:1rem;border-radius:var(--radius-sm);color:var(--warning);margin-bottom:1rem;"><strong>💡 Conseil :</strong> ROI de ${globalRoi.toFixed(1)}%. Objectif : 100%+</div>`;
+    } else {
+        recHtml = `<div style="background:var(--success-bg);border:1px solid var(--success);padding:1rem;border-radius:var(--radius-sm);color:var(--success);margin-bottom:1rem;"><strong>✅ Excellente rentabilité :</strong> ROI de ${globalRoi.toFixed(1)}%.</div>`;
+    }
+    document.getElementById('finRecommendations').innerHTML = recHtml;
+
+    const tbody = document.getElementById('financesTableBody');
+    let rows = '';
+    results.forEach(r => {
+        const p = cachedProducts.find(pp => pp.id === r.id);
+        const name = p ? (p.nameFr || p.nameEn) : 'Inconnu';
+        const verdict = r.marginNetUnit > 0 ? '✅ Rentable' : '❌ Non rentable';
+        rows += `<tr>
+            <td>${escapeHTML(name)}</td>
+            <td style="text-align:center;">${r.buy} MAD</td>
+            <td style="text-align:center;">${r.sale + 5} MAD</td>
+            <td style="text-align:center;font-weight:700;color:${r.marginNetUnit>0?'var(--success)':'var(--danger)'};">${r.marginNetUnit.toFixed(2)} MAD</td>
+            <td style="text-align:center;">${r.cpaMax.toFixed(2)} MAD</td>
+            <td style="text-align:center;">${r.stock}</td>
+            <td style="text-align:center;font-weight:700;">${r.profitTotal.toFixed(2)} MAD</td>
+            <td style="text-align:center;">${r.roi.toFixed(1)}%</td>
+            <td style="text-align:center;">${verdict}</td>
+        </tr>`;
+    });
+    tbody.innerHTML = rows;
+}
+
+// ============================================================
+// OUTILS — MIGRATIONS
+// ============================================================
+async function handleMigrateCities() {
+    const btn = document.getElementById('migrateCitiesBtn');
+    const logEl = document.getElementById('migrationLog');
+    const log = (msg, isErr = false) => { if (!logEl) return; logEl.classList.add('active'); const span = document.createElement('div'); if (isErr) span.className = 'error'; span.textContent = msg; logEl.appendChild(span); logEl.scrollTop = logEl.scrollHeight; };
+    if (logEl) logEl.innerHTML = '';
+    btn.disabled = true;
+    if (!auth.currentUser) { log('❌ Login requis', true); btn.disabled = false; return; }
+
+    let cities;
+    try {
+        const res = await fetch('/villes.json');
+        cities = await res.json();
+        log(`✅ ${cities.length} villes chargées`);
+    } catch (e) { log(`❌ ${e.message}`, true); btn.disabled = false; return; }
+
+    const existingSnap = await getDocs(collection(db, "cities"));
+    if (!existingSnap.empty) {
+        const confirmed = await confirmAction(`La collection "cities" contient ${existingSnap.size} documents. Ils seront SUPPRIMÉS et remplacés par les ${cities.length} villes de villes.json. Continuer ?`, { title: '⚠️ Migration villes', confirmText: 'Remplacer', cancelText: 'Annuler', variant: 'danger' });
+        if (!confirmed) { btn.disabled = false; return; }
+
+        log(`⏳ Suppression des anciennes villes...`);
+        const oldDocs = existingSnap.docs;
+        for (let i = 0; i < oldDocs.length; i += 400) {
+            const batch = writeBatch(db);
+            oldDocs.slice(i, i + 400).forEach(d => batch.delete(d.ref));
+            await batch.commit();
+        }
+    }
+
+    const BATCH = 400;
+    let processed = 0;
+    for (let i = 0; i < cities.length; i += BATCH) {
+        const batch = writeBatch(db);
+        const chunk = cities.slice(i, i + BATCH);
+        for (const city of chunk) {
+            if (!city.id || (!city.name && !city.nameAr)) continue;
+            const ref = doc(db, "cities", String(city.id));
+            batch.set(ref, {
+                id: Number(city.id),
+                key: String(city.key || '').toLowerCase().trim(),
+                name: String(city.nameAr || city.name || '').trim(),
+                nameAr: String(city.nameAr || city.name || '').trim(),
+                nameFr: String(city.nameFr || city.name || '').trim(),
+                nameEn: String(city.nameEn || city.nameFr || city.name || '').trim(),
+                price: Number(city.price) || 30,
+                delay: String(city.delay || '48h').trim()
+            });
+        }
+        try {
+            await batch.commit();
+            processed += chunk.length;
+            log(`  ✓ ${processed}/${cities.length}`);
+        } catch (e) { log(`❌ batch ${i} : ${e.message}`, true); btn.disabled = false; return; }
+    }
+    log(`\n🎉 Migration OK — ${cities.length} villes`);
+    btn.disabled = false;
+    btn.textContent = '✅ Terminé';
+    loadCollectionsStatus();
+    loadStats();
+    showToast('🎉 Villes migrées');
+}
+
+async function handleMigrateLegacyCategories() {
+    const btn = document.getElementById('migrateLegacyCategoriesBtn');
+    const logEl = document.getElementById('legacyMigrationLog');
+    const log = (msg, isErr = false) => {
+        if (!logEl) return;
+        logEl.classList.add('active');
+        const span = document.createElement('div');
+        if (isErr) span.className = 'error';
+        span.textContent = msg;
+        logEl.appendChild(span);
+        logEl.scrollTop = logEl.scrollHeight;
+    };
+
+    if (logEl) logEl.innerHTML = '';
+    btn.disabled = true;
+
+    if (!auth.currentUser) { log('❌ Login requis', true); btn.disabled = false; return; }
+
+    try {
+        const snap = await getDocs(collection(db, "products"));
+        let updatedCount = 0;
+        let batch = writeBatch(db);
+        let batchCount = 0;
+
+        for (const docSnap of snap.docs) {
+            const p = docSnap.data();
+            const oldCat = p.category;
+            if (!oldCat) continue;
+
+            const newCat = normalizeCategory(oldCat);
+
+            if (newCat !== oldCat) {
+                batch.update(docSnap.ref, { category: newCat });
+                updatedCount++;
+                batchCount++;
+                log(`🔄 ${p.nameFr || docSnap.id} : ${oldCat} ➔ ${newCat}`);
+
+                if (batchCount === 400) {
+                    await batch.commit();
+                    log(`💾 Lot de 400 produits sauvegardé...`);
+                    batchCount = 0;
+                    batch = writeBatch(db);
+                }
+            }
+        }
+
+        if (batchCount > 0) await batch.commit();
+
+        if (updatedCount === 0) {
+            log(`\n✅ Aucun produit à migrer.`);
+        } else {
+            log(`\n🎉 Migration terminée ! ${updatedCount} produit(s) mis à jour.`);
+            showToast(`✅ ${updatedCount} produits migrés`);
+        }
+    } catch (e) {
+        log(`❌ Erreur : ${e.message}`, true);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+async function handleMigrateSku() {
+    const btn = document.getElementById('migrateSkuBtn');
+    const logEl = document.getElementById('skuMigrationLog');
+    const log = (msg, isErr = false) => {
+        if (!logEl) return;
+        logEl.classList.add('active');
+        const span = document.createElement('div');
+        if (isErr) span.className = 'error';
+        span.textContent = msg;
+        logEl.appendChild(span);
+        logEl.scrollTop = logEl.scrollHeight;
+    };
+
+    if (logEl) logEl.innerHTML = '';
+    btn.disabled = true;
+    log('⏳ Recherche des produits sans SKU...');
+
+    try {
+        const snap = await getDocs(collection(db, "products"));
+        let updatedCount = 0;
+        let batch = writeBatch(db);
+        let batchCount = 0;
+
+        for (const docSnap of snap.docs) {
+            const p = docSnap.data();
+            if (!p.sku) {
+                const newSku = `SW-LEGACY-${String(docSnap.id).slice(-4)}`;
+                batch.update(docSnap.ref, { sku: newSku });
+                updatedCount++;
+                batchCount++;
+                log(`🔄 ${p.nameFr || docSnap.id} ➔ ${newSku}`);
+
+                if (batchCount === 400) {
+                    await batch.commit();
+                    batchCount = 0;
+                    batch = writeBatch(db);
+                }
+            }
+        }
+
+        if (batchCount > 0) await batch.commit();
+
+        if (updatedCount === 0) {
+            log(`\n✅ Tous les produits ont déjà un SKU.`);
+        } else {
+            log(`\n🎉 ${updatedCount} produit(s) mis à jour avec un SKU.`);
+            showToast(`✅ ${updatedCount} SKU générés`);
+            await loadProducts(true);
+        }
+    } catch (e) {
+        log(`❌ Erreur : ${e.message}`, true);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+async function loadCollectionsStatus() {
+    const cols = ['products', 'orders', 'users', 'reviews', 'cities', 'blog', 'coupons'];
+    const ids = { products: 'countProducts', orders: 'countOrders', users: 'countUsers', reviews: 'countReviews', cities: 'countCities', blog: 'countBlog', coupons: 'countCoupons' };
+    for (const col of cols) {
+        const el = document.getElementById(ids[col]);
+        if (el) el.textContent = '⏳';
+    }
+    for (const col of cols) {
+        const el = document.getElementById(ids[col]);
+        if (!el) continue;
+        try {
+            const snap = await getCountFromServer(collection(db, col));
+            el.textContent = `${snap.data().count}`;
+            el.style.color = snap.data().count > 0 ? 'var(--success)' : 'var(--text-muted)';
+        } catch (e) {
+            el.textContent = '❌';
+            el.style.color = 'var(--danger)';
+        }
+    }
+}
 
 // ============================================================
 // ATTACH ALL REMAINING EVENTS
@@ -2606,13 +3480,21 @@ async function loadCollectionsStatus() { /* ... */ }
 function attachAllRemainingEvents() {
     attachProductFormEvents();
 
+    // Produits
     document.getElementById('productSearchAdmin')?.addEventListener('input', () => { tempStockFilter = null; productsCurrentPage = 1; filterProductsList(); });
     document.getElementById('productCategoryFilter')?.addEventListener('change', () => { tempStockFilter = null; productsCurrentPage = 1; filterProductsList(); });
-    document.getElementById('userSearchAdmin')?.addEventListener('input', filterUsersList);
-    document.getElementById('blogSearchAdmin')?.addEventListener('input', () => { blogCurrentPage = 1; filterBlogList(); });
-    document.getElementById('couponSearchAdmin')?.addEventListener('input', filterCouponsList);
 
-    // ✅ NOUVEAUX EVENTS VENDEURS
+    // Clients
+    document.getElementById('userSearchAdmin')?.addEventListener('input', filterUsersList);
+    document.querySelectorAll('[data-signup-filter]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('[data-signup-filter]').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            filterUsersList();
+        });
+    });
+
+    // 🆕 Vendeurs (N1-c)
     document.getElementById('vendorSearchAdmin')?.addEventListener('input', filterVendorsList);
     document.querySelectorAll('[data-vendor-filter]').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -2622,7 +3504,7 @@ function attachAllRemainingEvents() {
         });
     });
 
-    // ✅ NOUVEAUX EVENTS RETRAITS
+    // 🆕 Retraits (N1-c)
     document.getElementById('payoutSearchAdmin')?.addEventListener('input', filterPayoutsList);
     document.querySelectorAll('[data-payout-filter]').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -2632,18 +3514,16 @@ function attachAllRemainingEvents() {
         });
     });
 
-    document.querySelectorAll('[data-signup-filter]').forEach(btn => {
-        btn.addEventListener('click', () => {
-            document.querySelectorAll('[data-signup-filter]').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            filterUsersList();
-        });
-    });
+    // Blog
+    document.getElementById('blogSearchAdmin')?.addEventListener('input', () => { blogCurrentPage = 1; filterBlogList(); });
 
+    // Coupons
+    document.getElementById('couponSearchAdmin')?.addEventListener('input', filterCouponsList);
+
+    // Speedaf
     document.getElementById('speedafSearchAdmin')?.addEventListener('input', renderSpeedafList);
     document.getElementById('speedafStatusFilter')?.addEventListener('change', renderSpeedafList);
     document.getElementById('syncAllSpeedafBtn')?.addEventListener('click', handleSyncAllSpeedaf);
-    
     document.getElementById('pickupSpeedafBtn')?.addEventListener('click', () => {
         document.getElementById('pickupDate').valueAsDate = new Date();
         document.getElementById('pickupModal').classList.add('open');
@@ -2651,11 +3531,13 @@ function attachAllRemainingEvents() {
     document.getElementById('closePickupModalBtn')?.addEventListener('click', () => document.getElementById('pickupModal').classList.remove('open'));
     document.getElementById('confirmPickupBtn')?.addEventListener('click', handleConfirmPickup);
 
+    // Outils
     document.getElementById('migrateCitiesBtn')?.addEventListener('click', handleMigrateCities);
     document.getElementById('migrateLegacyCategoriesBtn')?.addEventListener('click', handleMigrateLegacyCategories);
     document.getElementById('migrateSkuBtn')?.addEventListener('click', handleMigrateSku);
     document.getElementById('refreshCollectionsBtn')?.addEventListener('click', loadCollectionsStatus);
 
+    // Comptabilité
     document.getElementById('accRefreshBtn')?.addEventListener('click', refreshAccOverview);
     document.getElementById('accPeriod')?.addEventListener('change', (e) => {
         const startEl = document.getElementById('accStart');
@@ -2684,6 +3566,7 @@ function attachAllRemainingEvents() {
     document.getElementById('transFilterType')?.addEventListener('change', renderTransactionsList);
     document.getElementById('reportType')?.addEventListener('change', updateReportDates);
 
+    // Valeurs par défaut des dates
     ['purDate', 'expDate', 'transDate'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.valueAsDate = new Date();
@@ -2697,4 +3580,4 @@ function attachAllRemainingEvents() {
 // DÉMARRAGE
 // ============================================================
 initAdmin();
-console.log('✅ admin.js chargé — v10.0.0 (Marketplace + Vendeurs + Retraits)');
+console.log('✅ admin.js chargé — v10.1.0 (Marketplace + N2 contractStatus fix)');
