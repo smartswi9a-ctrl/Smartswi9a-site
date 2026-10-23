@@ -1,19 +1,10 @@
 // js/ui.js
 // ============================================================
 // INTERFACE UTILISATEUR - SMART SWI9A
-// Version 3.1.1 — Fix : boutons "Renvoyer/Vérifier" si non connecté
-// ============================================================
-// CHANGEMENTS v3.1.1 :
-// ✅ FIX MOYEN — resendBtn : si !getCurrentUser(), affiche un
-//    message informatif (l'email a déjà été renvoyé par loginUser())
-//    au lieu d'échouer silencieusement.
-// ✅ FIX MOYEN — checkBtn : si !getCurrentUser(), affiche un
-//    message demandant de se reconnecter (checkEmailVerification
-//    exige un user connecté).
-// ✅ (Repris v3.1.0) — C10.1, C10.2, C10.3, I10.1→I10.5, M10.1→M10.8
+// Version 8.0.0 — Marketplace (Redirection Vendeur)
 // ============================================================
 
-import { CONFIG } from "./config.js";
+import { CONFIG, ROLES } from "./config.js";
 import {
     t, escapeHTML, getProductName, getProductImageUrl, getFallbackImage,
     safeGetItem, safeSetItem, formatDateTime, toDate,
@@ -50,7 +41,6 @@ import {
 // ============================================================
 let pendingVerificationEmail = null;
 
-// Guards
 let _globalUIListenersAttached = false;
 let _cookieConsentInitialized = false;
 let _accountRenderId = 0;
@@ -58,17 +48,11 @@ let _accountRenderId = 0;
 let _abandonedCartNotifEl = null;
 let _reviewReminderShownThisSession = false;
 
-// ✅ M10.8 : cache pendingReviews (TTL 60s)
 const PENDING_REVIEWS_CACHE_TTL = 60000;
-let _pendingReviewsCache = {
-    count: 0,
-    timestamp: 0,
-    userId: null
-};
+let _pendingReviewsCache = { count: 0, timestamp: 0, userId: null };
 
 export function invalidatePendingReviewsCache() {
     _pendingReviewsCache = { count: 0, timestamp: 0, userId: null };
-    console.log('🔄 [ui.js] Cache pendingReviews invalidé');
 }
 
 async function getPendingReviewCount(force = false) {
@@ -76,9 +60,7 @@ async function getPendingReviewCount(force = false) {
     if (!user) return 0;
 
     const now = Date.now();
-    const cacheValid = !force
-        && _pendingReviewsCache.userId === user.uid
-        && (now - _pendingReviewsCache.timestamp) < PENDING_REVIEWS_CACHE_TTL;
+    const cacheValid = !force && _pendingReviewsCache.userId === user.uid && (now - _pendingReviewsCache.timestamp) < PENDING_REVIEWS_CACHE_TTL;
 
     if (cacheValid) return _pendingReviewsCache.count;
 
@@ -88,12 +70,10 @@ async function getPendingReviewCount(force = false) {
         _pendingReviewsCache = { count, timestamp: now, userId: user.uid };
         return count;
     } catch (e) {
-        console.warn('⚠️ Erreur getPendingReviewCount :', e);
         return _pendingReviewsCache.count;
     }
 }
 
-// ✅ Helper waitForElement
 async function waitForElement(selector, timeout = 3000) {
     const start = Date.now();
     while (Date.now() - start < timeout) {
@@ -223,7 +203,6 @@ function attachGlobalUIEvents() {
         updateAccountButton();
     });
 
-    // ✅ C10.1 : Auto-check au focus de l'onglet (user revient après avoir cliqué sur l'email)
     window.addEventListener('focus', async () => {
         const user = getCurrentUser();
         if (user && user.needsVerification) {
@@ -235,7 +214,6 @@ function attachGlobalUIEvents() {
         }
     });
 
-    // ✅ C10.1 : Auto-check toutes les 30s si modal compte ouverte ET non vérifié
     setInterval(async () => {
         const modal = document.getElementById('accountModal');
         if (!modal || !modal.classList.contains('open')) return;
@@ -258,18 +236,15 @@ async function refreshOrdersTabBadge() {
     const badge = ordersTabBtn.querySelector('.orders-tab-badge');
 
     if (count > 0) {
-        if (badge) {
-            badge.textContent = `⭐${count}`;
-        } else {
+        if (badge) badge.textContent = `⭐${count}`;
+        else {
             const span = document.createElement('span');
             span.className = 'orders-tab-badge';
             span.style.cssText = 'background:var(--gold);color:#fff;font-size:0.65rem;padding:0.1rem 0.45rem;border-radius:30px;margin-left:0.3rem;font-weight:700;';
             span.textContent = `⭐${count}`;
             ordersTabBtn.appendChild(span);
         }
-    } else if (badge) {
-        badge.remove();
-    }
+    } else if (badge) badge.remove();
 }
 
 // ============================================================
@@ -336,8 +311,7 @@ export function updateAccountButton() {
     const btn = document.getElementById('accountBtn');
     const mobileBtn = document.getElementById('mobileAccountBtn');
 
-    let displayText;
-    let fullDisplay;
+    let displayText, fullDisplay;
 
     if (user) {
         const firstName = (user.firstName || '').trim();
@@ -368,7 +342,7 @@ export function updateAccountButton() {
 }
 
 // ============================================================
-// ✅ C10.1 : RENDU DU CONTENU (needsVerification compatible)
+// RENDU DU CONTENU
 // ============================================================
 export async function renderAccountContent() {
     const container = document.getElementById('accountContent');
@@ -377,9 +351,6 @@ export async function renderAccountContent() {
     const thisRequest = ++_accountRenderId;
     const user = getCurrentUser();
 
-    // ============================================
-    // CAS 1 : Pas connecté
-    // ============================================
     if (!user) {
         if (pendingVerificationEmail) {
             container.innerHTML = renderVerifyEmailView(pendingVerificationEmail, false);
@@ -391,28 +362,18 @@ export async function renderAccountContent() {
         return;
     }
 
-    // ============================================
-    // ✅ C10.1 : CAS 2 : Connecté MAIS needsVerification
-    // (juste après inscription, ou user qui n'a pas cliqué sur le lien)
-    // ============================================
     if (user.needsVerification === true || user.emailVerified === false) {
         container.innerHTML = renderVerifyEmailView(user.email, true);
         attachVerifyEmailEvents();
         return;
     }
 
-    // ============================================
-    // CAS 3 : Connecté et vérifié → dashboard
-    // ============================================
     const activeTabBtn = document.querySelector('#accountContent .tab-btn.active');
     const activeTabName = activeTabBtn?.dataset?.tab || 'dashboard';
 
     const pendingReviews = await getPendingReviewCount();
 
-    if (thisRequest !== _accountRenderId) {
-        console.log('ℹ️ renderAccountContent : rendu abandonné (nouvelle requête)');
-        return;
-    }
+    if (thisRequest !== _accountRenderId) return;
 
     container.innerHTML = renderDashboard(user, pendingReviews);
     attachDashboardEvents(user);
@@ -429,7 +390,7 @@ export async function renderAccountContent() {
 }
 
 // ============================================================
-// ÉCRAN DE VÉRIFICATION EMAIL (user connecté OU pas)
+// ÉCRAN DE VÉRIFICATION EMAIL
 // ============================================================
 function renderVerifyEmailView(email, isConnected = false) {
     return `
@@ -480,21 +441,6 @@ function renderVerifyEmailView(email, isConnected = false) {
     `;
 }
 
-// ============================================================
-// ✅ C10.1 + FIX v3.1.1 : ÉVÉNEMENTS VÉRIFICATION EMAIL
-// ------------------------------------------------------------
-// Le bouton "Renvoyer" et "Vérifier maintenant" ne fonctionnent
-// QUE si l'utilisateur est connecté.
-// Or après un login bloqué (email non vérifié), l'utilisateur est
-// signOut → getCurrentUser() === null.
-// Dans ce cas :
-//   - resendVerificationEmail() échoue (requires auth.currentUser)
-//   - checkEmailVerification() échoue aussi (requires auth.currentUser)
-//
-// → On affiche un message informatif au lieu d'échouer silencieusement.
-//   L'email de vérification a DÉJÀ été renvoyé par loginUser() lors
-//   de la dernière tentative.
-// ============================================================
 function attachVerifyEmailEvents() {
     const resendBtn = document.getElementById('resendVerifBtn');
     const checkBtn = document.getElementById('checkVerifBtn');
@@ -510,7 +456,6 @@ function attachVerifyEmailEvents() {
 
             const currentUser = getCurrentUser();
 
-            // ✅ FIX v3.1.1 : pas connecté → message informatif
             if (!currentUser) {
                 if (msgEl) {
                     msgEl.textContent = 'ℹ️ Un nouveau lien vous a déjà été envoyé automatiquement lors de votre dernière tentative de connexion. Vérifiez votre boîte mail (et vos spams).';
@@ -521,7 +466,6 @@ function attachVerifyEmailEvents() {
                 return;
             }
 
-            // Connecté → resend classique
             const ok = await resendVerificationEmail();
 
             if (msgEl) {
@@ -543,7 +487,6 @@ function attachVerifyEmailEvents() {
         checkBtn.addEventListener('click', async () => {
             const currentUser = getCurrentUser();
 
-            // ✅ FIX v3.1.1 : pas connecté → message informatif
             if (!currentUser) {
                 if (msgEl) {
                     msgEl.textContent = 'ℹ️ Si vous avez cliqué sur le lien reçu par email, votre adresse est vérifiée. Reconnectez-vous avec votre email et mot de passe.';
@@ -750,7 +693,6 @@ async function handleLogin() {
     const result = await loginUser(email, password);
 
     if (!result.success && result.reason === 'email_not_verified') {
-        // ✅ C10.1 : l'email a été renvoyé automatiquement par loginUser
         pendingVerificationEmail = result.email || email;
         showToast('📧 ' + t('verifyEmailResent'));
         renderAccountContent();
@@ -797,8 +739,6 @@ async function handleRegister() {
     const result = await registerWithFirebase(fullName, email, phone, dob, password);
 
     if (result.success) {
-        // ✅ C10.1 : user reste connecté avec needsVerification
-        // → renderAccountContent affichera la vue verify
         showToast('📧 ' + t('verifyEmailSent'));
         await renderAccountContent();
         return;
@@ -824,11 +764,13 @@ async function handleForgot() {
 // DASHBOARD
 // ============================================================
 function renderDashboard(user, pendingReviews = 0) {
+    const isVendor = user.role === ROLES.VENDOR;
+
     const ordersBadge = pendingReviews > 0
         ? `<span class="orders-tab-badge" style="background:var(--gold);color:#fff;font-size:0.65rem;padding:0.1rem 0.45rem;border-radius:30px;margin-left:0.3rem;font-weight:700;">⭐${pendingReviews}</span>`
         : '';
 
-    const reminderBanner = pendingReviews > 0
+    const reminderBanner = pendingReviews > 0 && !isVendor
         ? `
             <div class="review-reminder-banner" style="background:linear-gradient(135deg,rgba(165,123,46,0.12),rgba(165,123,46,0.04));border:1px solid var(--border-gold);border-radius:var(--radius-md);padding:0.9rem 1rem;margin-bottom:1rem;display:flex;align-items:center;gap:0.7rem;flex-wrap:wrap;">
                 <span style="font-size:1.8rem;">⭐</span>
@@ -843,6 +785,19 @@ function renderDashboard(user, pendingReviews = 0) {
         `
         : '';
 
+    const vendorBanner = isVendor
+        ? `
+            <div style="background:linear-gradient(135deg,#6b46c1,#5a3aa3);border-radius:var(--radius-md);padding:1.2rem;margin-bottom:1.2rem;color:#fff;text-align:center;">
+                <div style="font-size:2rem;margin-bottom:0.5rem;">🏪</div>
+                <h3 style="margin:0 0 0.5rem 0;font-size:1.1rem;">Espace Vendeur</h3>
+                <p style="font-size:0.85rem;opacity:0.9;margin-bottom:1rem;">Gérez vos produits, commandes et wallet.</p>
+                <a href="/vendor/dashboard.html" style="display:inline-flex;align-items:center;gap:0.4rem;background:#fff;color:#6b46c1;padding:0.7rem 1.5rem;border-radius:30px;font-weight:800;text-decoration:none;font-size:0.9rem;">
+                    Accéder à mon espace →
+                </a>
+            </div>
+        `
+        : '';
+
     return `
         <div style="text-align:center;padding:0.5rem 0 1rem;">
             <div style="font-size:1.1rem;font-weight:700;color:var(--gold);">
@@ -853,6 +808,7 @@ function renderDashboard(user, pendingReviews = 0) {
             </div>
         </div>
 
+        ${vendorBanner}
         ${reminderBanner}
 
         <div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:1rem;border-bottom:1px solid var(--border);padding-bottom:0.5rem;">
@@ -1179,4 +1135,4 @@ export function showAbandonedCartNotification() {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ ui.js chargé — v3.1.1 (fix resend/check buttons si non connecté)');
+console.log('✅ ui.js chargé — v8.0.0 (Marketplace)');
