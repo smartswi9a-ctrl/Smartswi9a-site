@@ -1,19 +1,18 @@
 // js/vendor-dashboard.js
 // ============================================================
 // LOGIQUE DU DASHBOARD VENDEUR - SMART SWI9A
-// Version 2.0.0 — N6/N7/N8 (Retrait, Reprise signature, Produits/Commandes/Stock)
+// Version 2.0.1 — N6/N7/N8 + module contrat partagé (N10)
 // ============================================================
 
 import {
     doc, getDoc, collection, query, where, getDocs, limit,
-    addDoc, serverTimestamp, updateDoc, deleteDoc, writeBatch
+    addDoc, serverTimestamp, updateDoc, deleteDoc
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { db, storage } from "./firebase.js";
 import {
     getCurrentUser,
     logoutUser,
-    getUserProfile,
     initAuthListener,
     authReadyPromise,
     resendVerificationEmail
@@ -28,107 +27,7 @@ import {
 } from "./config.js";
 import { showToast, confirmAction } from "./ui-core.js";
 import { signVendorContract, computeContractTextHash } from "./vendor-contract.js";
-
-// ============================================================
-// TEXTES DU CONTRAT (identiques à vendor-signup.js)
-// ⚠️ TODO étape 6 : extraire ce bloc dans un module commun
-//    `js/vendor-contract-text.js` pour éviter la duplication.
-// ============================================================
-const CONTRACT_TEXTS = {
-    fr: `CONTRAT DE PARTENARIAT VENDEUR — SMART SWI9A
-Version ${CONFIG.VENDOR.CONTRACT_VERSION}
-
-Article 1 — Objet
-Le présent contrat encadre la mise en vente de produits par le Vendeur sur la plateforme Smart Swi9a (smartswi9a.top), marketplace marocaine d'appareils connectés et de produits pour la maison.
-
-Article 2 — Inscription et vérification
-Le Vendeur s'engage à fournir des informations exactes (nom de boutique, téléphone, ville, ICE ou CIN). Toute fausse déclaration entraîne la suspension immédiate du compte.
-
-Article 3 — Commission
-Smart Swi9a prélève une commission de 7 % sur le montant hors livraison de chaque vente. Cette commission peut être ajustée entre 5 % et 15 % avec l'accord écrit du Vendeur.
-
-Article 4 — Expédition
-Le Vendeur choisit le dépôt en agence (drop-off) ou la logistique Smart Swi9a (fulfillment). Les délais de dépôt sont de 72 heures (nouveaux comptes) ou 48 heures (comptes matures). Tout retard peut entraîner une suspension.
-
-Article 5 — Paiement
-Les gains sont crédités sur le portefeuille vendeur et deviennent disponibles 7 jours après livraison confirmée (15 jours pour les produits Smart Swi9a). Le retrait minimum est de 200 MAD.
-
-Article 6 — Retours
-En cas de retour, des frais de 20 MAD sont prélevés par colis retourné. Les retours répétés peuvent entraîner une révision du statut du Vendeur.
-
-Article 7 — Résiliation
-Chaque partie peut résilier ce contrat à tout moment. Les commandes en cours restent soumises aux présentes conditions.
-
-Article 8 — Loi applicable
-Le présent contrat est régi par le droit marocain. Tout litige relève des tribunaux de Casablanca.
-
-Article 9 — Signature électronique
-La signature électronique vaut acceptation pleine et entière. L'IP, le user-agent, la date serveur et un hash SHA-256 du présent document sont enregistrés à titre de preuve.
-
-En signant, le Vendeur reconnaît avoir lu et compris l'intégralité du présent contrat.`,
-    ar: `عقد شراكة البائع — سمارت سويقة
-الإصدار ${CONFIG.VENDOR.CONTRACT_VERSION}
-
-المادة 1 — الموضوع
-ينظم هذا العقد عرض البائع لمنتجاته للبيع على منصة سمارت سويقة (smartswi9a.top)، وهي سوق مغربية للأجهزة المتصلة ومنتجات المنزل.
-
-المادة 2 — التسجيل والتحقق
-يلتزم البائع بتقديم معلومات صحيحة (اسم المتجر، الهاتف، المدينة، ICE أو CIN). أي تصريح كاذب يؤدي إلى تعليق الحساب فوراً.
-
-المادة 3 — العمولة
-تقتطع سمارت سويقة عمولة قدرها 7% على مبلغ كل عملية بيع دون احتساب التوصيل. يمكن تعديل هذه العمولة بين 5% و15% بموافقة كتابية من البائع.
-
-المادة 4 — الشحن
-يختار البائع الإيداع في الوكالة (drop-off) أو لوجستيك سمارت سويقة (fulfillment). مهل الإيداع هي 72 ساعة (الحسابات الجديدة) أو 48 ساعة (الحسابات الناضجة). أي تأخير قد يؤدي إلى تعليق الحساب.
-
-المادة 5 — الدفع
-تُضاف الأرباح إلى محفظة البائع وتصبح متاحة بعد 7 أيام من تأكيد التسليم (15 يوماً لمنتجات سمارت سويقة). الحد الأدنى للسحب هو 200 درهم.
-
-المادة 6 — الإرجاع
-في حالة الإرجاع، تُخصم رسوم قدرها 20 درهماً لكل طرد مُرجع. الإرجاعات المتكررة قد تؤدي إلى مراجعة وضع البائع.
-
-المادة 7 — الإنهاء
-يمكن لأي طرف إنهاء هذا العقد في أي وقت. تبقى الطلبات الجارية خاضعة لهذه الشروط.
-
-المادة 8 — القانون المطبق
-يخضع هذا العقد للقانون المغربي. يختص القضاء في الدار البيضاء بأي نزاع.
-
-المادة 9 — التوقيع الإلكتروني
-التوقيع الإلكتروني يعتبر قبولاً تاماً وصريحاً. يتم تسجيل عنوان IP، ووكيل المستخدم، وتاريخ الخادم، وبصمة SHA-256 لهذا المستند كدليل.
-
-بالتوقيع، يقر البائع بأنه قرأ وفهم كامل هذا العقد.`,
-    en: `VENDOR PARTNERSHIP AGREEMENT — SMART SWI9A
-Version ${CONFIG.VENDOR.CONTRACT_VERSION}
-
-Article 1 — Purpose
-This agreement governs the listing and sale of products by the Vendor on Smart Swi9a (smartswi9a.top), a Moroccan marketplace for connected devices and home products.
-
-Article 2 — Registration and verification
-The Vendor agrees to provide accurate information (shop name, phone, city, ICE or CIN). Any false statement results in immediate account suspension.
-
-Article 3 — Commission
-Smart Swi9a charges a 7% commission on the delivery-excluded amount of each sale. This commission may be adjusted between 5% and 15% with the Vendor's written consent.
-
-Article 4 — Shipping
-The Vendor chooses agency drop-off or Smart Swi9a fulfillment. Drop-off deadlines are 72 hours (new accounts) or 48 hours (mature accounts). Any delay may result in suspension.
-
-Article 5 — Payment
-Earnings are credited to the vendor wallet and become available 7 days after confirmed delivery (15 days for Smart Swi9a products). Minimum withdrawal is 200 MAD.
-
-Article 6 — Returns
-In case of return, a 20 MAD fee is charged per returned parcel. Repeated returns may lead to a review of the Vendor's status.
-
-Article 7 — Termination
-Either party may terminate this agreement at any time. Pending orders remain subject to these terms.
-
-Article 8 — Governing law
-This agreement is governed by Moroccan law. Any dispute falls under the jurisdiction of the courts of Casablanca.
-
-Article 9 — Electronic signature
-The electronic signature constitutes full acceptance. The IP, user-agent, server date, and a SHA-256 hash of this document are recorded as evidence.
-
-By signing, the Vendor acknowledges having read and understood this entire agreement.`
-};
+import { getContractText } from "./vendor-contract-text.js";
 
 // ============================================================
 // ÉTAT MODULE
@@ -268,7 +167,6 @@ function buildBanners(profile) {
             actionLabel: tr('vendor.banner.resend', 'Renvoyer')
         });
     }
-    // N7 : reprise de signature
     if (params.get('contractFailed') === '1' && contractStatus !== CONTRACT_STATUS.ACCEPTED) {
         banners.push({
             type: 'danger',
@@ -310,7 +208,7 @@ function buildBanners(profile) {
 }
 
 // ============================================================
-// SIDEBAR / STATUT
+// SIDEBAR
 // ============================================================
 function updateSidebarUI(profile) {
     const shopNameEl = document.getElementById('vShopName');
@@ -365,7 +263,6 @@ async function loadVendorData(uid) {
 
 // ============================================================
 // INJECTION DES MODALES (N6, N7, N8)
-// — Injectées dynamiquement, aucune modif de dashboard.html requise
 // ============================================================
 function injectModals() {
     if (document.getElementById('vModalsRoot')) return;
@@ -637,7 +534,6 @@ async function submitProduct() {
     btn.textContent = '⏳ Upload...';
 
     try {
-        // 1. Upload image vers vendors/{uid}/products/
         const ts = Date.now();
         const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
         const storageRef = ref(storage, `vendors/${currentUserUid}/products/${ts}_${safeName}`);
@@ -646,7 +542,6 @@ async function submitProduct() {
 
         btn.textContent = '⏳ Enregistrement...';
 
-        // 2. Créer le doc product
         const slug = generateSlug(nameFr) + '-' + ts.toString(36).slice(-4);
         const productData = {
             nameFr,
@@ -716,7 +611,6 @@ async function deleteVendorProduct(productId) {
         const snap = await getDoc(docRef);
         if (snap.exists()) {
             const data = snap.data();
-            // Supprimer l'image Storage si applicable
             if (data.img && /firebasestorage\.googleapis\.com/.test(data.img)) {
                 try {
                     const m = data.img.match(/\/o\/([^?]+)/);
@@ -751,7 +645,8 @@ async function openContractModal() {
     if (!modal) return;
 
     const lang = getCurrentLanguage();
-    const text = CONTRACT_TEXTS[lang] || CONTRACT_TEXTS[DEFAULT_LANGUAGE];
+    // N10 : texte interpolé depuis vendor-contract-text.js (source unique)
+    const text = getContractText(lang);
     _contractLang = lang;
 
     const textEl = document.getElementById('vContractText');
@@ -838,15 +733,14 @@ async function submitContractSignature() {
     btn.disabled = true;
     btn.textContent = '⏳ Signature...';
 
-    const lang = _contractLang;
-    const text = CONTRACT_TEXTS[lang] || CONTRACT_TEXTS[DEFAULT_LANGUAGE];
+    // N10 : texte interpolé depuis le module partagé
+    const text = getContractText(_contractLang);
 
     try {
         await signVendorContract(currentUserUid, text, {
             textHash: _contractTextHash,
-            language: lang
+            language: _contractLang
         });
-        // Synchroniser vendorInfo.contractStatus dans users/{uid}
         await updateDoc(doc(db, "users", currentUserUid), {
             "vendorInfo.contractStatus": CONTRACT_STATUS.ACCEPTED,
             "vendorInfo.contractUpdatedAt": serverTimestamp()
@@ -855,12 +749,10 @@ async function submitContractSignature() {
         showToast('✅ Contrat signé avec succès !');
         closeContractModal();
 
-        // Recharger le profil
         const loaded = await loadVendorData(currentUserUid);
         currentVendor = loaded.profile;
         currentWallet = loaded.wallet;
 
-        // Re-render la bannière + le tab courant
         const banners = buildBanners(currentVendor);
         renderBanners(banners);
         attachBannerActions(createBannerHandlers());
@@ -933,9 +825,7 @@ async function renderProducts(container) {
         return;
     }
 
-    if (!cachedProducts.length) {
-        await loadVendorProducts();
-    }
+    if (!cachedProducts.length) await loadVendorProducts();
 
     const newBtnHtml = `
         <div style="display:flex;justify-content:flex-end;margin-bottom:1rem;">
@@ -1216,24 +1106,21 @@ function createBannerHandlers() {
 }
 
 // ============================================================
-// ATTACHE LES LISTENERS DES MODALES INJECTÉES
+// ATTACHE LES LISTENERS DES MODALES
 // ============================================================
 function attachModalListeners() {
-    // Retrait (N6)
     document.getElementById('closeWithdrawModal')?.addEventListener('click', closeWithdrawModal);
     document.getElementById('vWithdrawModal')?.addEventListener('click', (e) => {
         if (e.target.id === 'vWithdrawModal') closeWithdrawModal();
     });
     document.getElementById('vWithdrawSubmitBtn')?.addEventListener('click', submitWithdrawal);
 
-    // Produit (N8-a)
     document.getElementById('closeProductModal')?.addEventListener('click', closeProductModal);
     document.getElementById('vProductModal')?.addEventListener('click', (e) => {
         if (e.target.id === 'vProductModal') closeProductModal();
     });
     document.getElementById('vProdSubmitBtn')?.addEventListener('click', submitProduct);
 
-    // Contrat (N7)
     document.getElementById('closeContractModal')?.addEventListener('click', closeContractModal);
     document.getElementById('vContractModal')?.addEventListener('click', (e) => {
         if (e.target.id === 'vContractModal') closeContractModal();
@@ -1287,20 +1174,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     currentVendor = loaded.profile;
     currentWallet = loaded.wallet;
 
-    // Injecter les modales (avant d'attacher les listeners)
     injectModals();
     attachModalListeners();
 
-    // Sidebar + navigation
     updateSidebarUI(currentVendor);
     setupNavigation();
 
-    // Bannières + actions
     const banners = buildBanners(currentVendor);
     renderBanners(banners);
     attachBannerActions(createBannerHandlers());
 
-    // Onglet par défaut
     setActiveTab('overview');
     await renderTab('overview');
 });
