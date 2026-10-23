@@ -1,16 +1,7 @@
 // js/whatsapp.js
 // ============================================================
 // COMMANDE VIA WHATSAPP - SMART SWI9A
-// Version 2.0.1 — Fix : suppression code mort openWhatsApp() (require ESM)
-// ============================================================
-// CHANGEMENTS v2.0.1 :
-// ✅ FIX MINEUR — suppression de openWhatsApp() qui contenait un
-//    `require()` (incompatible ESM) et n'était de toute façon
-//    JAMAIS appelée (seule openWhatsAppWithToast() l'était).
-//    → Code plus propre, pas de risque de crash si un jour appelée.
-// ✅ (Repris v2.0.0) — I17.1, I17.2, M17.1, M17.2, M17.3
-// ============================================================
-// Dépend de : config, utils, store
+// Version 2.1.0 — Marketplace (IDs vendeurs Number/String)
 // ============================================================
 
 import { CONFIG } from "./config.js";
@@ -23,10 +14,20 @@ import { getProducts } from "./store.js";
 const WHATSAPP_MAX_LENGTH = 4096;
 
 // ============================================================
+// NORMALISATION D'ID PRODUIT
+// - "42" (chaîne numérique) → 42 (Number)
+// - "abc123" (auto-ID Firestore vendeur) → "abc123" (String)
+// - null/undefined/"" → null
+// Identique à products.js / cart.js / panier.js / reviews.js
+// ============================================================
+function normalizeProductId(id) {
+    if (id == null || id === '') return null;
+    const n = Number(id);
+    return Number.isFinite(n) && String(n) === String(id) ? n : String(id);
+}
+
+// ============================================================
 // ✅ M17.1 : Troncature propre du message
-// ------------------------------------------------------------
-// WhatsApp limite les messages à 4096 chars.
-// On coupe au mot le plus proche + indicateur.
 // ============================================================
 function truncateMessage(msg) {
     if (!msg || msg.length <= WHATSAPP_MAX_LENGTH) return msg;
@@ -40,11 +41,7 @@ function truncateMessage(msg) {
 }
 
 // ============================================================
-// ✅ M17.3 : OUVRIR WHATSAPP + TOAST (version async)
-// ------------------------------------------------------------
-// Utilise import dynamique pour éviter le cycle avec ui-core
-// ✅ FIX v2.0.1 : c'est la SEULE fonction d'ouverture WhatsApp
-//    (l'ancienne openWhatsApp() avec require() a été supprimée)
+// ✅ M17.3 : OUVRIR WHATSAPP + TOAST
 // ============================================================
 async function openWhatsAppWithToast(message, successMsg = null) {
     const phone = String(CONFIG.SHOP.WHATSAPP_NUMBER).replace(/\D/g, '');
@@ -55,13 +52,11 @@ async function openWhatsAppWithToast(message, successMsg = null) {
     const win = window.open(url, '_blank', 'noopener,noreferrer');
 
     if (!win || win.closed || typeof win.closed === 'undefined') {
-        // Popup bloquée → redirection même onglet
         console.warn('⚠️ Popup bloquée, fallback même onglet');
         window.location.href = url;
         return false;
     }
 
-    // Toast confirmation
     try {
         const { showToast } = await import("./ui-core.js");
         showToast(successMsg || '📱 WhatsApp ouvert — envoyez le message !', 2500);
@@ -83,18 +78,20 @@ function formatVariantLabel(variant) {
 
 // ============================================================
 // ✅ I17.1 : COMMANDER UN PRODUIT VIA WHATSAPP (avec variant)
-// ------------------------------------------------------------
-// Usage :
-//   - Depuis events.js (bouton .btn-secondary[data-product-id])
-//     → orderViaWhatsApp(productId)              [sans variant]
-//   - Depuis product-detail.js (handler local)
-//     → géré directement (pas d'appel ici)
-//   - Depuis autre code
-//     → orderViaWhatsApp(productId, { size, color, price })
 // ============================================================
 export async function orderViaWhatsApp(productId, variant = null) {
+    const pid = normalizeProductId(productId);
+    if (pid == null) {
+        try {
+            const { showToast } = await import("./ui-core.js");
+            showToast('❌ ' + t('productNotFound'));
+        } catch (e) { /* ignore */ }
+        return;
+    }
+
     const products = getProducts();
-    const product = products.find(p => Number(p.id) === Number(productId));
+    // Comparaison par String (patch W1)
+    const product = products.find(p => String(p.id) === String(pid));
 
     if (!product) {
         console.warn('⚠️ Produit introuvable :', productId);
@@ -107,7 +104,6 @@ export async function orderViaWhatsApp(productId, variant = null) {
 
     const name = getProductName(product);
 
-    // ✅ I17.1 : prix selon variant
     const price = variant && Number(variant.price) > 0
         ? Number(variant.price)
         : Number(product.price) || 0;
@@ -118,17 +114,13 @@ export async function orderViaWhatsApp(productId, variant = null) {
 
     const isPromo = oldPrice > price;
 
-    // URL produit
     const url = `${CONFIG.SHOP.URL}/produit?slug=${encodeURIComponent(product.slug || '')}`;
 
-    // Variant text
     const variantLabel = formatVariantLabel(variant);
 
-    // Construction du message
     let msg = `🛒 *${t('waNewOrder')}*\n\n`;
     msg += `📦 *${t('waProduct')} :* ${name}\n`;
 
-    // ✅ I17.1 : ligne variante si applicable
     if (variantLabel) {
         msg += `🎨 ${t('comboSize') || 'Taille/Couleur'} : *${variantLabel}*\n`;
     }
@@ -144,7 +136,6 @@ export async function orderViaWhatsApp(productId, variant = null) {
     msg += `🏙️ ${t('waCity')} : \n\n`;
     msg += `${t('waThanks')}`;
 
-    // ✅ Envoi avec toast
     await openWhatsAppWithToast(msg, '📱 WhatsApp ouvert — complétez vos infos !');
 }
 
@@ -160,8 +151,12 @@ export async function contactSupport(message = '') {
 // PARTAGER UN PRODUIT (sans numéro spécifique)
 // ============================================================
 export function shareProductOnWhatsApp(productId) {
+    const pid = normalizeProductId(productId);
+    if (pid == null) return;
+
     const products = getProducts();
-    const product = products.find(p => Number(p.id) === Number(productId));
+    // Comparaison par String (patch W2)
+    const product = products.find(p => String(p.id) === String(pid));
     if (!product) return;
 
     const name = getProductName(product);
@@ -187,4 +182,4 @@ export function shareProductOnWhatsApp(productId) {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ whatsapp.js chargé — v2.0.1 (suppression openWhatsApp() dead code)');
+console.log('✅ whatsapp.js chargé — v2.1.0 (Marketplace + IDs vendeurs)');
