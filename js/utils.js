@@ -1,7 +1,7 @@
 // js/utils.js
 // ============================================================
 // UTILITAIRES - SMART SWI9A
-// Version 1.4.2 — Fix TDZ cycle config.js ↔ utils.js + Nettoyage
+// Version 8.0.0 — Marketplace + Nouveaux Statuts
 // ============================================================
 
 import {
@@ -17,13 +17,10 @@ import {
 } from './config.js';
 
 // ============================================================
-// ✅ FIX v1.4.2 — LANGUE (évite le ReferenceError au chargement)
+// LANGUE (évite le ReferenceError au chargement)
 // ============================================================
 let currentLang = 'fr';
 
-// ============================================================
-// DÉTECTION DEV (pour warnings i18n)
-// ============================================================
 function isDevMode() {
     if (typeof window === 'undefined') return false;
     return window.location.hostname === 'localhost'
@@ -36,17 +33,13 @@ function isDevMode() {
 // ============================================================
 export function t(key) {
     const translations = window.translations || {};
-
     const langValue = translations[currentLang]?.[key];
     if (langValue !== undefined && langValue !== null) return langValue;
 
     const defaultVal = translations[DEFAULT_LANGUAGE]?.[key];
     if (defaultVal !== undefined && defaultVal !== null) return defaultVal;
 
-    if (isDevMode()) {
-        console.warn(`⚠️ [i18n] Clé manquante : "${key}" (lang: ${currentLang})`);
-    }
-
+    if (isDevMode()) console.warn(`⚠️ [i18n] Clé manquante : "${key}" (lang: ${currentLang})`);
     return key;
 }
 
@@ -68,13 +61,8 @@ export function setLang(lang) {
     }
 }
 
-export function getLang() {
-    return currentLang;
-}
-
-export function getCurrency() {
-    return CURRENCY_SUFFIX[currentLang] || 'MAD';
-}
+export function getLang() { return currentLang; }
+export function getCurrency() { return CURRENCY_SUFFIX[currentLang] || 'MAD'; }
 
 // ============================================================
 // SÉCURITÉ - Échappement HTML (anti-XSS)
@@ -82,13 +70,7 @@ export function getCurrency() {
 export function escapeHTML(str) {
     if (str === null || str === undefined) return '';
     return String(str).replace(/[&<>"']/g, function(m) {
-        const map = {
-            '&': '&amp;',
-            '<': '&lt;',
-            '>': '&gt;',
-            '"': '&quot;',
-            "'": '&#39;'
-        };
+        const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
         return map[m];
     });
 }
@@ -97,31 +79,17 @@ export function escapeHTML(str) {
 // LOCALSTORAGE SÉCURISÉ
 // ============================================================
 export function safeSetItem(key, value) {
-    try {
-        localStorage.setItem(key, JSON.stringify(value));
-        return true;
-    } catch (e) {
-        console.warn('⚠️ localStorage indisponible:', e);
-        return false;
-    }
+    try { localStorage.setItem(key, JSON.stringify(value)); return true; }
+    catch (e) { console.warn('⚠️ localStorage indisponible:', e); return false; }
 }
 
 export function safeGetItem(key, fallback = null) {
-    try {
-        const data = localStorage.getItem(key);
-        return data ? JSON.parse(data) : fallback;
-    } catch (e) {
-        console.warn('⚠️ Erreur lecture localStorage:', e);
-        return fallback;
-    }
+    try { const data = localStorage.getItem(key); return data ? JSON.parse(data) : fallback; }
+    catch (e) { console.warn('⚠️ Erreur lecture localStorage:', e); return fallback; }
 }
 
 export function safeRemoveItem(key) {
-    try {
-        localStorage.removeItem(key);
-    } catch (e) {
-        console.warn('⚠️ Erreur suppression localStorage:', e);
-    }
+    try { localStorage.removeItem(key); } catch (e) {}
 }
 
 // ============================================================
@@ -148,42 +116,32 @@ export function getProductFeatures(p) {
 export function getProductImageUrl(p) {
     const fallback = getFallbackImage(getProductName(p));
     if (!p || !p.img || p.img === '') return fallback;
-
     const img = String(p.img).trim();
     if (!img) return fallback;
-
     if (img.startsWith('//')) return fallback;
     if (/^https?:\/\//.test(img)) return img;
     if (img.startsWith('/')) return img;
-
     return '/' + img;
 }
 
 // ============================================================
-// IMAGE FALLBACK (SVG inline fiable)
+// IMAGE FALLBACK
 // ============================================================
 export function getFallbackImage(name) {
-    const safe = String(name || 'Produit')
-        .substring(0, 30)
-        .replace(/[<>&"'`\\]/g, '')
-        .trim() || 'Produit';
-
+    const safe = String(name || 'Produit').substring(0, 30).replace(/[<>&"'`\\]/g, '').trim() || 'Produit';
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400"><rect fill="#f8f6f2" width="400" height="400"/><path fill="#a57b2e" d="M200 50 L240 150 L340 150 L260 210 L290 310 L200 250 L110 310 L140 210 L60 150 L160 150 Z"/><text x="200" y="360" text-anchor="middle" fill="#1a1a2e" font-family="sans-serif" font-size="14">${safe}</text></svg>`;
-
     return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 
 // ============================================================
-// HELPERS DE CALCUL (anti division par zéro)
+// HELPERS DE CALCUL
 // ============================================================
 export function safePercent(value, total, decimals = 0) {
     const v = Number(value) || 0;
     const t = Number(total) || 0;
     if (t <= 0) return 0;
     const result = (v / t) * 100;
-    return decimals > 0
-        ? Number(result.toFixed(decimals))
-        : Math.round(result);
+    return decimals > 0 ? Number(result.toFixed(decimals)) : Math.round(result);
 }
 
 export function getDiscountPercent(oldPrice, price) {
@@ -209,10 +167,7 @@ export function getStoragePathFromUrl(url) {
         const decoded = decodeURIComponent(url);
         const match = decoded.match(/\/o\/([^?]+)/);
         return match && match[1] ? match[1] : null;
-    } catch (e) {
-        console.warn('⚠️ getStoragePathFromUrl :', url, e);
-        return null;
-    }
+    } catch (e) { return null; }
 }
 
 export function isStorageUrl(url) {
@@ -235,9 +190,7 @@ export function formatDate(dateStr) {
         if (!date) return '';
         const locale = currentLang === 'ar' ? 'ar-MA' : (currentLang === 'en' ? 'en-GB' : 'fr-FR');
         return date.toLocaleDateString(locale);
-    } catch (e) {
-        return '';
-    }
+    } catch (e) { return ''; }
 }
 
 export function formatDateTime(dateStr) {
@@ -247,9 +200,7 @@ export function formatDateTime(dateStr) {
         if (!date) return '';
         const locale = currentLang === 'ar' ? 'ar-MA' : (currentLang === 'en' ? 'en-GB' : 'fr-FR');
         return date.toLocaleDateString(locale) + ' ' + date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
-    } catch (e) {
-        return '';
-    }
+    } catch (e) { return ''; }
 }
 
 // ============================================================
@@ -257,15 +208,10 @@ export function formatDateTime(dateStr) {
 // ============================================================
 export function toDate(value) {
     if (!value) return null;
-
     if (typeof value.toDate === 'function') {
-        try { return value.toDate(); } catch (e) { /* continue */ }
+        try { return value.toDate(); } catch (e) { }
     }
-
-    if (value instanceof Date) {
-        return isNaN(value.getTime()) ? null : value;
-    }
-
+    if (value instanceof Date) return isNaN(value.getTime()) ? null : value;
     if (typeof value === 'number') {
         const ms = value >= 1e12 ? value : value * 1000;
         const d = new Date(ms);
@@ -275,18 +221,14 @@ export function toDate(value) {
             const alt = value >= 1e12 ? value * 1000 : value;
             const altD = new Date(alt);
             const altYear = altD.getFullYear();
-            if (!isNaN(altD.getTime()) && altYear >= 2000 && altYear <= 2100) {
-                return altD;
-            }
+            if (!isNaN(altD.getTime()) && altYear >= 2000 && altYear <= 2100) return altD;
         }
         return d;
     }
-
     if (typeof value === 'object' && typeof value.seconds === 'number') {
         const d = new Date(value.seconds * 1000);
         return isNaN(d.getTime()) ? null : d;
     }
-
     if (typeof value === 'string') {
         const frMatch = value.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
         if (frMatch) {
@@ -298,12 +240,11 @@ export function toDate(value) {
         const d = new Date(value);
         return isNaN(d.getTime()) ? null : d;
     }
-
     return null;
 }
 
 // ============================================================
-// COMMANDES - Statuts
+// COMMANDES - Statuts (Clients)
 // ============================================================
 export function getOrderStatusEmoji(status) {
     const normalized = normalizeOrderStatus(status);
@@ -346,51 +287,28 @@ export function getOrderStatusLabel(status) {
     return t(key);
 }
 
-// ============================================================
-// Timeline
-// ============================================================
 export function getOrderTimelineSteps(status) {
     const normalized = normalizeOrderStatus(status);
-
     const steps = [
         { id: 'pending',   label: 'timelinePending',   emoji: '⏳' },
         { id: 'confirmed', label: 'timelineConfirmed', emoji: '✅' },
         { id: 'shipping',  label: 'timelineShipping',  emoji: '🚚' },
         { id: 'delivered', label: 'timelineDelivered', emoji: '📦' }
     ];
-
     if (normalized === ORDER_STATUS.RETURNED) {
         steps.push({ id: 'returned', label: 'timelineReturned', emoji: '↩️' });
     }
-
-    const statusIndex = {
-        [ORDER_STATUS.PENDING]:   0,
-        [ORDER_STATUS.CONFIRMED]: 1,
-        [ORDER_STATUS.SHIPPING]:  2,
-        [ORDER_STATUS.DELIVERED]: 3,
-        [ORDER_STATUS.RETURNED]:  4
-    };
-
+    const statusIndex = { [ORDER_STATUS.PENDING]: 0, [ORDER_STATUS.CONFIRMED]: 1, [ORDER_STATUS.SHIPPING]: 2, [ORDER_STATUS.DELIVERED]: 3, [ORDER_STATUS.RETURNED]: 4 };
     const currentIndex = statusIndex[normalized] ?? -1;
-
-    return steps.map((step, idx) => ({
-        ...step,
-        done: idx <= currentIndex,
-        current: idx === currentIndex,
-        active: idx <= currentIndex
-    }));
+    return steps.map((step, idx) => ({ ...step, done: idx <= currentIndex, current: idx === currentIndex, active: idx <= currentIndex }));
 }
 
 export function isOrderCancellable(order) {
     if (!order) return false;
     const status = normalizeOrderStatus(order.status);
     if (status !== ORDER_STATUS.PENDING) return false;
-
     const cancellableUntilDate = toDate(order.cancellableUntil);
-    if (cancellableUntilDate) {
-        return Date.now() < cancellableUntilDate.getTime();
-    }
-
+    if (cancellableUntilDate) return Date.now() < cancellableUntilDate.getTime();
     const createdDate = toDate(order.createdAt);
     if (!createdDate) return false;
     const hoursElapsed = (Date.now() - createdDate.getTime()) / (1000 * 60 * 60);
@@ -401,19 +319,16 @@ export function getTimeRemainingForCancellation(order) {
     if (!order) return null;
     const status = normalizeOrderStatus(order.status);
     if (status !== ORDER_STATUS.PENDING) return null;
-
     const cancellableUntilDate = toDate(order.cancellableUntil);
     if (cancellableUntilDate) {
         const remaining = cancellableUntilDate.getTime() - Date.now();
         return remaining > 0 ? remaining : null;
     }
-
     const createdDate = toDate(order.createdAt);
     if (!createdDate) return null;
     const cancellableUntil = createdDate.getTime() + (CONFIG.ORDERS.CANCELLABLE_HOURS * 60 * 60 * 1000);
     const remaining = cancellableUntil - Date.now();
-    if (remaining <= 0) return null;
-    return remaining;
+    return remaining > 0 ? remaining : null;
 }
 
 export function formatTimeRemaining(ms) {
@@ -429,50 +344,26 @@ export function formatTimeRemaining(ms) {
 // HELPERS RETOUR
 // ============================================================
 export function getReturnSummary(order) {
-    if (!order || !order.items) {
-        return {
-            totalOrdered: 0,
-            totalReturned: 0,
-            summary: '0/0',
-            isFullReturn: false,
-            hasPartialReturn: false,
-            hasAnyReturn: false
-        };
-    }
-
+    if (!order || !order.items) return { totalOrdered: 0, totalReturned: 0, summary: '0/0', isFullReturn: false, hasPartialReturn: false, hasAnyReturn: false };
     const returned = getReturnedQuantities(order);
-    let totalOrdered = 0;
-    let totalReturned = 0;
-
+    let totalOrdered = 0, totalReturned = 0;
     order.items.forEach(item => {
         const pid = String(item.productId);
-        const qty = Number(item.quantity) || 0;
-        const ret = returned[pid] || 0;
-        totalOrdered += qty;
-        totalReturned += ret;
+        totalOrdered += Number(item.quantity) || 0;
+        totalReturned += returned[pid] || 0;
     });
-
-    const isFullReturn = totalOrdered > 0 && totalReturned >= totalOrdered;
-    const hasPartialReturn = totalReturned > 0 && totalReturned < totalOrdered;
-    const hasAnyReturn = totalReturned > 0;
-
     return {
-        totalOrdered,
-        totalReturned,
-        summary: `${totalReturned}/${totalOrdered}`,
-        isFullReturn,
-        hasPartialReturn,
-        hasAnyReturn
+        totalOrdered, totalReturned, summary: `${totalReturned}/${totalOrdered}`,
+        isFullReturn: totalOrdered > 0 && totalReturned >= totalOrdered,
+        hasPartialReturn: totalReturned > 0 && totalReturned < totalOrdered,
+        hasAnyReturn: totalReturned > 0
     };
 }
 
 export function getReturnBadgeText(order) {
     const summary = getReturnSummary(order);
     if (!summary.hasAnyReturn) return '';
-
-    if (summary.isFullReturn) {
-        return `↩️ ${t('returnBadgeFull') || 'Retour total'}`;
-    }
+    if (summary.isFullReturn) return `↩️ ${t('returnBadgeFull') || 'Retour total'}`;
     return `↩️ ${t('returnBadgePartial') || 'Retour'} ${summary.summary}`;
 }
 
@@ -480,20 +371,12 @@ export function getReturnBadgeText(order) {
 // AVIS - Statuts
 // ============================================================
 export function getReviewStatusEmoji(status) {
-    const emojis = {
-        [REVIEW_STATUS.PENDING]: '🟡',
-        [REVIEW_STATUS.APPROVED]: '🟢',
-        [REVIEW_STATUS.REJECTED]: '🔴'
-    };
+    const emojis = { [REVIEW_STATUS.PENDING]: '🟡', [REVIEW_STATUS.APPROVED]: '🟢', [REVIEW_STATUS.REJECTED]: '🔴' };
     return emojis[status] || '⚪';
 }
 
 export function getReviewStatusLabel(status) {
-    const labels = {
-        [REVIEW_STATUS.PENDING]: 'reviewStatusPending',
-        [REVIEW_STATUS.APPROVED]: 'reviewStatusApproved',
-        [REVIEW_STATUS.REJECTED]: 'reviewStatusRejected'
-    };
+    const labels = { [REVIEW_STATUS.PENDING]: 'reviewStatusPending', [REVIEW_STATUS.APPROVED]: 'reviewStatusApproved', [REVIEW_STATUS.REJECTED]: 'reviewStatusRejected' };
     return t(labels[status] || 'reviewStatusUnknown');
 }
 
@@ -505,7 +388,82 @@ export function renderStars(rating) {
 }
 
 // ============================================================
-// RETRY RÉSEAU (résilience)
+// ✅ NOUVEAU : VENDEUR & MARKETPLACE - Statuts
+// ============================================================
+export function getVendorOrderStatusEmoji(status) {
+    const emojis = {
+        'pending': '⏳',
+        'awaiting_dropoff': '🏷️',
+        'overdue': '⏰',
+        'dropoff_received': '📥',
+        'preparing': '📦',
+        'shipped': '🚚',
+        'delivered': '✅',
+        'returned': '↩️',
+        'cancelled': '❌'
+    };
+    return emojis[status] || '❓';
+}
+
+export function getVendorOrderStatusLabel(status) {
+    const labels = {
+        'pending': 'En attente',
+        'awaiting_dropoff': 'À déposer',
+        'overdue': 'En retard',
+        'dropoff_received': 'Déposé',
+        'preparing': 'Préparation',
+        'shipped': 'Expédiée',
+        'delivered': 'Livrée',
+        'returned': 'Retournée',
+        'cancelled': 'Annulée'
+    };
+    return t(labels[status]) || labels[status] || 'Inconnu';
+}
+
+export function getFulfillmentStatusEmoji(status) {
+    const emojis = {
+        'pending_admin_approval': '⏳',
+        'approved': '✅',
+        'label_sent': '🏷️',
+        'in_transit': '🚚',
+        'received_by_speedaf': '📥',
+        'active_stock': '📦',
+        'depleted': '🪫',
+        'rejected': '❌',
+        'cancelled': '🚫',
+        'overdue_not_shipped': '⏰'
+    };
+    return emojis[status] || '❓';
+}
+
+export function getFulfillmentStatusLabel(status) {
+    const labels = {
+        'pending_admin_approval': 'En attente validation',
+        'approved': 'Approuvé',
+        'label_sent': 'Étiquette envoyée',
+        'in_transit': 'En transit',
+        'received_by_speedaf': 'Reçu par Speedaf',
+        'active_stock': 'En stock',
+        'depleted': 'Épuisé',
+        'rejected': 'Refusé',
+        'cancelled': 'Annulé',
+        'overdue_not_shipped': 'Non déposé'
+    };
+    return t(labels[status]) || labels[status] || 'Inconnu';
+}
+
+export function getProductStatusEmoji(status) {
+    const emojis = { 'pending': '🟡', 'approved': '🟢', 'rejected': '🔴' };
+    return emojis[status] || '⚪';
+}
+
+export function getProductStatusLabel(status) {
+    const labels = { 'pending': 'En attente', 'approved': 'Approuvé', 'rejected': 'Refusé' };
+    return t(labels[status]) || labels[status] || 'Inconnu';
+}
+
+// ============================================================
+// RETRY RÉSEAU
 // ============================================================
 export async function fetchWithRetry(url, options = {}, retries = 3, delay = 1000) {
     let attempt = 0;
@@ -513,7 +471,6 @@ export async function fetchWithRetry(url, options = {}, retries = 3, delay = 100
         try {
             const response = await fetch(url, options);
             if (response.ok) return response;
-
             const isNonRetryable = response.status >= 400 && response.status < 500;
             const err = new Error(`HTTP ${response.status}`);
             err.status = response.status;
@@ -522,7 +479,6 @@ export async function fetchWithRetry(url, options = {}, retries = 3, delay = 100
         } catch (error) {
             attempt++;
             if (attempt === retries || error.nonRetryable) throw error;
-            console.warn(`⚠️ Tentative ${attempt}/${retries} pour ${url} échouée`);
             await new Promise(resolve => setTimeout(resolve, delay));
             delay *= 2;
         }
@@ -530,24 +486,14 @@ export async function fetchWithRetry(url, options = {}, retries = 3, delay = 100
 }
 
 export async function firestoreWithRetry(fn, retries = 3, delay = 1000) {
-    const NON_RETRYABLE_CODES = [
-        'permission-denied',
-        'unauthenticated',
-        'invalid-argument',
-        'not-found',
-        'already-exists',
-        'failed-precondition'
-    ];
-
+    const NON_RETRYABLE_CODES = ['permission-denied', 'unauthenticated', 'invalid-argument', 'not-found', 'already-exists', 'failed-precondition'];
     let attempt = 0;
     while (attempt < retries) {
-        try {
-            return await fn();
-        } catch (error) {
+        try { return await fn(); }
+        catch (error) {
             attempt++;
             const isNonRetryable = NON_RETRYABLE_CODES.includes(error?.code);
             if (attempt === retries || isNonRetryable) throw error;
-            console.warn(`⚠️ Tentative Firestore ${attempt}/${retries} échouée (${error?.code || 'unknown'})`);
             await new Promise(resolve => setTimeout(resolve, delay));
             delay *= 2;
         }
@@ -557,24 +503,10 @@ export async function firestoreWithRetry(fn, retries = 3, delay = 1000) {
 // ============================================================
 // DEVICE
 // ============================================================
-export function isMobile() {
-    return window.innerWidth <= CONFIG.BREAKPOINTS.MOBILE_MAX;
-}
-
-export function isTablet() {
-    return window.innerWidth >= CONFIG.BREAKPOINTS.TABLET_MIN
-        && window.innerWidth <= CONFIG.BREAKPOINTS.TABLET_MAX;
-}
-
-export function isDesktop() {
-    return window.innerWidth >= CONFIG.BREAKPOINTS.DESKTOP_MIN;
-}
-
-export function getDevice() {
-    if (isMobile()) return 'mobile';
-    if (isTablet()) return 'tablet';
-    return 'desktop';
-}
+export function isMobile() { return window.innerWidth <= CONFIG.BREAKPOINTS.MOBILE_MAX; }
+export function isTablet() { return window.innerWidth >= CONFIG.BREAKPOINTS.TABLET_MIN && window.innerWidth <= CONFIG.BREAKPOINTS.TABLET_MAX; }
+export function isDesktop() { return window.innerWidth >= CONFIG.BREAKPOINTS.DESKTOP_MIN; }
+export function getDevice() { if (isMobile()) return 'mobile'; if (isTablet()) return 'tablet'; return 'desktop'; }
 
 // ============================================================
 // DEBOUNCE / THROTTLE
@@ -583,80 +515,37 @@ export function debounce(fn, delay = 300) {
     let timer = null;
     const debounced = function(...args) {
         if (timer) clearTimeout(timer);
-        timer = setTimeout(() => {
-            timer = null;
-            fn.apply(this, args);
-        }, delay);
+        timer = setTimeout(() => { timer = null; fn.apply(this, args); }, delay);
     };
-    debounced.cancel = () => {
-        if (timer) {
-            clearTimeout(timer);
-            timer = null;
-        }
-    };
+    debounced.cancel = () => { if (timer) { clearTimeout(timer); timer = null; } };
     return debounced;
 }
 
 export function throttle(fn, limit = 200) {
-    let inThrottle = false;
-    let timer = null;
+    let inThrottle = false, timer = null;
     const throttled = function(...args) {
         if (!inThrottle) {
             fn.apply(this, args);
             inThrottle = true;
-            timer = setTimeout(() => {
-                inThrottle = false;
-                timer = null;
-            }, limit);
+            timer = setTimeout(() => { inThrottle = false; timer = null; }, limit);
         }
     };
-    throttled.cancel = () => {
-        if (timer) {
-            clearTimeout(timer);
-            timer = null;
-        }
-        inThrottle = false;
-    };
+    throttled.cancel = () => { if (timer) { clearTimeout(timer); timer = null; } inThrottle = false; };
     return throttled;
 }
 
 // ============================================================
-// PARSING
+// PARSING & VALIDATION
 // ============================================================
-export function toInt(value, fallback = 0) {
-    const n = parseInt(value, 10);
-    return isNaN(n) ? fallback : n;
-}
-
-export function toFloat(value, fallback = 0) {
-    const n = parseFloat(value);
-    return isNaN(n) ? fallback : n;
-}
-
-export function generateId() {
-    return Date.now().toString(36) + Math.random().toString(36).substring(2);
-}
+export function toInt(value, fallback = 0) { const n = parseInt(value, 10); return isNaN(n) ? fallback : n; }
+export function toFloat(value, fallback = 0) { const n = parseFloat(value); return isNaN(n) ? fallback : n; }
+export function generateId() { return Date.now().toString(36) + Math.random().toString(36).substring(2); }
+export function isValidEmail(email) { if (!email || typeof email !== 'string') return false; return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()); }
+export function isValidPhone(phone) { if (!phone || typeof phone !== 'string') return false; const cleaned = phone.replace(/[\s\-\.\(\)]/g, ''); return /^(\+212|0)[5-7]\d{8}$/.test(cleaned); }
+export function isValidPassword(password) { return password && password.length >= 6; }
 
 // ============================================================
-// VALIDATION
-// ============================================================
-export function isValidEmail(email) {
-    if (!email || typeof email !== 'string') return false;
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
-}
-
-export function isValidPhone(phone) {
-    if (!phone || typeof phone !== 'string') return false;
-    const cleaned = phone.replace(/[\s\-\.\(\)]/g, '');
-    return /^(\+212|0)[5-7]\d{8}$/.test(cleaned);
-}
-
-export function isValidPassword(password) {
-    return password && password.length >= 6;
-}
-
-// ============================================================
-// INIT LANGUE (au chargement)
+// INIT LANGUE
 // ============================================================
 export function initLang() {
     const saved = safeGetItem(CONFIG.STORAGE_KEYS.LANG);
@@ -665,13 +554,10 @@ export function initLang() {
     const browserLang = (navigator.language || '').split('-')[0].toLowerCase();
 
     let lang = DEFAULT_LANGUAGE;
-    if (urlLang && LANGUAGES.includes(urlLang)) {
-        lang = urlLang;
-    } else if (saved && LANGUAGES.includes(saved)) {
-        lang = saved;
-    } else if (browserLang && LANGUAGES.includes(browserLang)) {
-        lang = browserLang;
-    }
+    if (urlLang && LANGUAGES.includes(urlLang)) lang = urlLang;
+    else if (saved && LANGUAGES.includes(saved)) lang = saved;
+    else if (browserLang && LANGUAGES.includes(browserLang)) lang = browserLang;
+    
     setLang(lang);
     return lang;
 }
@@ -686,12 +572,8 @@ export async function loadCities(force = false) {
 
     if (!force) {
         const cached = safeGetItem(CACHE_KEY);
-        if (cached &&
-            cached.version === CACHE_VERSION &&
-            cached.timestamp &&
-            (Date.now() - cached.timestamp < 86400000)) {
+        if (cached && cached.version === CACHE_VERSION && cached.timestamp && (Date.now() - cached.timestamp < 86400000)) {
             setDeliveryData(cached.data);
-            console.log(`✅ ${cached.data.length} villes depuis le cache`);
             return cached.data;
         }
     }
@@ -699,46 +581,24 @@ export async function loadCities(force = false) {
     try {
         const { collection, getDocs } = await import("firebase/firestore");
         const { db } = await import("./firebase.js");
-
         const snap = await getDocs(collection(db, "cities"));
-
         if (!snap.empty) {
             const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
             data.sort((a, b) => Number(a.id) - Number(b.id));
-
             setDeliveryData(data);
-            safeSetItem(CACHE_KEY, {
-                data,
-                timestamp: Date.now(),
-                version: CACHE_VERSION
-            });
-            console.log(`✅ ${data.length} villes chargées depuis Firestore`);
+            safeSetItem(CACHE_KEY, { data, timestamp: Date.now(), version: CACHE_VERSION });
             return data;
         }
-
-        console.warn('⚠️ Collection "cities" vide dans Firestore, fallback JSON');
-    } catch (e) {
-        console.error('❌ Erreur Firestore cities :', e);
-    }
+    } catch (e) { console.error('❌ Erreur Firestore cities :', e); }
 
     try {
-        console.log('⏳ Fallback : chargement depuis villes.json...');
         const res = await fetchWithRetry('/villes.json');
         const data = await res.json();
-        if (!Array.isArray(data)) {
-            throw new Error('villes.json mal formaté');
-        }
-
+        if (!Array.isArray(data)) throw new Error('villes.json mal formaté');
         setDeliveryData(data);
-        safeSetItem(CACHE_KEY, {
-            data,
-            timestamp: Date.now(),
-            version: CACHE_VERSION
-        });
-        console.warn(`⚠️ ${data.length} villes chargées depuis JSON (fallback)`);
+        safeSetItem(CACHE_KEY, { data, timestamp: Date.now(), version: CACHE_VERSION });
         return data;
     } catch (e) {
-        console.error('❌ Erreur fallback JSON :', e);
         setDeliveryData([]);
         return [];
     }
@@ -748,35 +608,21 @@ export async function loadCities(force = false) {
 // SLUGIFY
 // ============================================================
 export function slugify(text) {
-    return String(text)
-        .toLowerCase()
-        .trim()
-        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^a-z0-9\s-]/g, '')
-        .replace(/\s+/g, '-')
-        .replace(/-+/g, '-');
+    return String(text).toLowerCase().trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-');
 }
 
 // ============================================================
-// HELPERS VILLES (Ta liste complète conservée)
+// HELPERS VILLES
 // ============================================================
-const CITY_LOWERCASE_WORDS = new Set([
-    'de', 'du', 'des', 'la', 'le', 'les', 'et', 'sur',
-    'el', 'ben', 'bni', 'oulad', 'sidi', 'ain', 'bir', 'dar',
-    'souk', 'kasba', 'jorf', 'bou', 'aïn'
-]);
+const CITY_LOWERCASE_WORDS = new Set(['de', 'du', 'des', 'la', 'le', 'les', 'et', 'sur', 'el', 'ben', 'bni', 'oulad', 'sidi', 'ain', 'bir', 'dar', 'souk', 'kasba', 'jorf', 'bou', 'aïn']);
 
 function smartTitleCase(str) {
     if (!str) return '';
-    return String(str)
-        .toLowerCase()
-        .split(/\s+/)
-        .map((word, idx) => {
-            if (!word) return '';
-            if (idx > 0 && CITY_LOWERCASE_WORDS.has(word)) return word;
-            return word.charAt(0).toUpperCase() + word.slice(1);
-        })
-        .join(' ');
+    return String(str).toLowerCase().split(/\s+/).map((word, idx) => {
+        if (!word) return '';
+        if (idx > 0 && CITY_LOWERCASE_WORDS.has(word)) return word;
+        return word.charAt(0).toUpperCase() + word.slice(1);
+    }).join(' ');
 }
 
 const CITY_FR_OVERRIDES = {
@@ -859,11 +705,7 @@ const CITY_FR_OVERRIDES = {
 export function getCityName(city) {
     if (!city) return '';
     const lang = getLang();
-
-    if (lang === 'ar') {
-        return city.nameAr || city.name || city.key || '';
-    }
-
+    if (lang === 'ar') return city.nameAr || city.name || city.key || '';
     if (lang === 'fr') {
         if (city.nameFr) return city.nameFr;
         const key = String(city.key || '').toLowerCase().trim();
@@ -871,30 +713,22 @@ export function getCityName(city) {
         if (key) return smartTitleCase(key);
         return city.name || '';
     }
-
     if (lang === 'en') {
         if (city.nameEn) return city.nameEn;
         const key = String(city.key || '').toLowerCase().trim();
         if (key) return smartTitleCase(key);
         return city.name || '';
     }
-
     return city.name || '';
 }
 
 export function getCityNameAll(city) {
     if (!city) return [];
-    return [
-        city.nameFr,
-        city.nameEn,
-        city.nameAr || city.name,
-        city.key,
-        smartTitleCase(city.key || '')
-    ].filter(Boolean).map(s => String(s).toLowerCase());
+    return [city.nameFr, city.nameEn, city.nameAr || city.name, city.key, smartTitleCase(city.key || '')].filter(Boolean).map(s => String(s).toLowerCase());
 }
 
 // ============================================================
-// Helpers Blog
+// HELPERS BLOG
 // ============================================================
 export function estimateReadTime(text) {
     if (!text) return 1;
@@ -910,33 +744,24 @@ export function truncate(text, maxLength = 150) {
 }
 
 // ============================================================
-// Helpers Signup Method
+// HELPERS SIGNUP
 // ============================================================
 export function getSignupMethodLabel(method) {
-    const labels = {
-        'otp': 'signupMethodOtp',
-        'google': 'signupMethodGoogle',
-        'facebook': 'signupMethodFacebook'
-    };
+    const labels = { 'otp': 'signupMethodOtp', 'google': 'signupMethodGoogle', 'facebook': 'signupMethodFacebook' };
     return t(labels[method] || 'signupMethodOtp');
 }
 
 export function getSignupMethodEmoji(method) {
-    const emojis = {
-        'otp': '🔐',
-        'google': '🔵',
-        'facebook': '📘'
-    };
+    const emojis = { 'otp': '🔐', 'google': '🔵', 'facebook': '📘' };
     return emojis[method] || '🔐';
 }
 
 // ============================================================
-// Détection Type de Page
+// DÉTECTION PAGE & FORMAT EMAIL/PHONE
 // ============================================================
 export function getCurrentPage() {
     let path = window.location.pathname.replace(/\.html$/, '').replace(/\/$/, '');
     if (path === '') path = '/';
-
     if (path === '/') return 'home';
     if (path === '/produit') return 'product';
     if (path === '/blog') return 'blog';
@@ -946,9 +771,6 @@ export function getCurrentPage() {
     return 'unknown';
 }
 
-// ============================================================
-// Format Email / Phone
-// ============================================================
 export function cleanEmail(email) {
     if (!email) return '';
     return String(email).trim().toLowerCase();
@@ -962,4 +784,4 @@ export function cleanPhone(phone) {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ utils.js chargé — v1.4.2 (fix TDZ cycle config↔utils)');
+console.log('✅ utils.js chargé — v8.0.0 (Marketplace)');
