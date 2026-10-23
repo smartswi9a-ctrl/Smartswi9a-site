@@ -1,7 +1,11 @@
 // js/reviews.js
 // ============================================================
 // AVIS CLIENTS - SMART SWI9A
-// Version 2.0.1 — Fix : Transaction Firestore (Reads before Writes)
+// Version 2.1.0 — Fix IDs strings vendeurs (P1-a)
+//   - normalizeProductId : supporte IDs Firestore auto (produits vendeurs)
+//   - reviewId déterministe : review_<uid>_<normalizedPid>
+//   - loadReviews / canUserReviewProduct / updateProductRating adaptés
+//   - Comparaisons via String() pour mixed types
 // ============================================================
 
 import {
@@ -21,6 +25,19 @@ import { getProductById } from "./products.js";
 import { showToast, confirmAction, openImageLightbox } from "./ui-core.js";
 
 // ============================================================
+// NORMALISATION D'ID PRODUIT
+// - "42" (chaîne numérique) → 42 (Number) — compat favoris/avis historiques
+// - "abc123" (auto-ID Firestore vendeur) → "abc123" (String)
+// - null/undefined/"" → null
+// Doit rester IDENTIQUE à la version de products.js / product-detail.js / boutique.js
+// ============================================================
+function normalizeProductId(id) {
+    if (id == null || id === '') return null;
+    const n = Number(id);
+    return Number.isFinite(n) && String(n) === String(id) ? n : String(id);
+}
+
+// ============================================================
 // CONSTANTE : Nombre max de témoignages en vedette
 // ============================================================
 const MAX_FEATURED_REVIEWS = 3;
@@ -29,18 +46,21 @@ const MAX_FEATURED_REVIEWS = 3;
 // CHARGER LES AVIS D'UN PRODUIT (public)
 // ============================================================
 export async function loadReviews(productId, onlyApproved = true) {
+    const pid = normalizeProductId(productId);
+    if (pid == null) return [];
+
     try {
         let q;
         if (onlyApproved) {
             q = query(
                 collection(db, "reviews"),
-                where("productId", "==", Number(productId)),
+                where("productId", "==", pid),
                 where("status", "==", REVIEW_STATUS.APPROVED)
             );
         } else {
             q = query(
                 collection(db, "reviews"),
-                where("productId", "==", Number(productId))
+                where("productId", "==", pid)
             );
         }
 
@@ -75,11 +95,11 @@ export async function loadAllReviews(statusFilter = null) {
                 collection(db, "reviews"),
                 where("status", "==", statusFilter),
                 orderBy("createdAt", "desc"),
-                limit(100) // ✅ Limite pour éviter de télécharger des milliers d'avis
+                limit(100)
             );
         } else {
             q = query(
-                collection(db, "reviews"), 
+                collection(db, "reviews"),
                 orderBy("createdAt", "desc"),
                 limit(100)
             );
@@ -107,15 +127,17 @@ export async function canUserReviewProduct(productId) {
     const user = getCurrentUser();
     if (!user) return { canReview: false, reason: 'not_logged' };
 
-    // ✅ ID déterministe pour vérifier s'il a déjà reviewé
-    const reviewId = `review_${user.uid}_${Number(productId)}`;
+    const pid = normalizeProductId(productId);
+    if (pid == null) return { canReview: false, reason: 'invalid_product' };
+
+    // ID déterministe (support IDs Number ET String)
+    const reviewId = `review_${user.uid}_${pid}`;
     const reviewSnap = await getDoc(doc(db, "reviews", reviewId));
     if (reviewSnap.exists()) {
         return { canReview: false, reason: 'already_reviewed' };
     }
 
     try {
-        // ✅ Requête optimisée : ne cherche que les commandes livrées
         const ordersQ = query(
             collection(db, "orders"),
             where("userId", "==", user.uid),
@@ -123,9 +145,10 @@ export async function canUserReviewProduct(productId) {
             limit(20)
         );
         const ordersSnap = await getDocs(ordersQ);
+        const targetStr = String(pid);
         const hasReceived = ordersSnap.docs.some(d => {
             const order = d.data();
-            return order.items?.some(it => Number(it.productId) === Number(productId));
+            return order.items?.some(it => String(it.productId) === targetStr);
         });
 
         if (!hasReceived) {
@@ -145,7 +168,9 @@ export async function createReview(productId, { rating, title, comment, photoFil
     const user = getCurrentUser();
     if (!user) throw new Error(t('loginRequired'));
 
-    const pid = Number(productId);
+    const pid = normalizeProductId(productId);
+    if (pid == null) throw new Error(t('productNotFound'));
+
     const product = getProductById(pid);
     if (!product) throw new Error(t('productNotFound'));
 
@@ -179,7 +204,7 @@ export async function createReview(productId, { rating, title, comment, photoFil
 
     const reviewId = `review_${user.uid}_${pid}`;
     const reviewData = {
-        productId: pid,
+        productId: pid,                                  // Number (Smart) ou String (vendeur)
         productSlug: product.slug || '',
         userId: user.uid,
         userName: user.name || user.email || 'Anonyme',
@@ -195,7 +220,6 @@ export async function createReview(productId, { rating, title, comment, photoFil
         createdAt: Timestamp.now()
     };
 
-    // ✅ setDoc avec ID déterministe (évite les doublons en cas de double-clic)
     await setDoc(doc(db, "reviews", reviewId), reviewData);
     console.log('✅ Avis créé :', reviewId);
 
@@ -210,19 +234,16 @@ export async function createReview(productId, { rating, title, comment, photoFil
 
 // ============================================================
 // AJOUTER / RETIRER UN AVIS DES TÉMOIGNAGES (ADMIN)
-// ✅ FIX : Lecture du comptage AVANT la transaction
 // ============================================================
 export async function toggleFeaturedReview(reviewId) {
     try {
-        // 1. Vérifier d'abord le nombre d'avis en vedette (HORS TRANSACTION)
         const featuredQ = query(
             collection(db, "reviews"),
             where("status", "==", REVIEW_STATUS.APPROVED),
             where("featured", "==", true)
         );
         const featuredSnap = await getDocs(featuredQ);
-        
-        // 2. Lancer la transaction
+
         return await runTransaction(db, async (transaction) => {
             const reviewRef = doc(db, "reviews", reviewId);
             const reviewSnap = await transaction.get(reviewRef);
@@ -236,11 +257,9 @@ export async function toggleFeaturedReview(reviewId) {
             const isCurrentlyFeatured = review.featured === true;
 
             if (isCurrentlyFeatured) {
-                // Retirer des vedettes
                 transaction.update(reviewRef, { featured: false });
                 return { success: true, featured: false };
             } else {
-                // Ajouter aux vedettes (on vérifie la limite calculée plus haut)
                 if (featuredSnap.size >= MAX_FEATURED_REVIEWS) {
                     return { success: false, error: `Maximum ${MAX_FEATURED_REVIEWS} avis. Désactivez-en un d'abord.`, maxReached: true };
                 }
@@ -270,7 +289,6 @@ export async function approveReview(reviewId) {
             approvedAt: Timestamp.now()
         });
 
-        // Mise à jour avec retry
         await updateProductRatingWithRetry(review.productId);
 
         try {
@@ -351,10 +369,13 @@ export async function deleteReview(reviewId) {
 // RECALCULER LA MOYENNE D'UN PRODUIT
 // ============================================================
 export async function updateProductRating(productId) {
+    const pid = normalizeProductId(productId);
+    if (pid == null) return null;
+
     try {
         const q = query(
             collection(db, "reviews"),
-            where("productId", "==", Number(productId)),
+            where("productId", "==", pid),
             where("status", "==", REVIEW_STATUS.APPROVED)
         );
         const snap = await getDocs(q);
@@ -365,11 +386,11 @@ export async function updateProductRating(productId) {
             ? Number((reviews.reduce((s, r) => s + (r.rating || 0), 0) / ratingCount).toFixed(1))
             : 0;
 
-        const productRef = doc(db, "products", String(productId));
+        const productRef = doc(db, "products", String(pid));
         const productSnap = await getDoc(productRef);
-        
+
         if (!productSnap.exists()) {
-            console.warn(`⚠️ Produit ${productId} introuvable, rating non mis à jour`);
+            console.warn(`⚠️ Produit ${pid} introuvable, rating non mis à jour`);
             return null;
         }
 
@@ -403,7 +424,6 @@ export async function toggleLike(reviewId) {
     const reviewRef = doc(db, "reviews", reviewId);
 
     return await runTransaction(db, async (transaction) => {
-        // --- LECTURE ---
         const snap = await transaction.get(reviewRef);
         if (!snap.exists()) throw new Error(t('loadError'));
 
@@ -411,7 +431,6 @@ export async function toggleLike(reviewId) {
         const likes = review.likes || [];
         const hasLiked = likes.includes(user.uid);
 
-        // --- ÉCRITURES ---
         if (hasLiked) {
             transaction.update(reviewRef, {
                 likes: arrayRemove(user.uid),
@@ -438,10 +457,8 @@ export async function renderAdminReviews(containerId = 'reviewsList', statusFilt
     container.innerHTML = `<div style="text-align:center;padding:1rem;color:var(--text-muted);">⏳ ${t('loadingReviews')}</div>`;
 
     try {
-        // ✅ 1. Charger uniquement les avis du filtre sélectionné
         const filteredReviews = await loadAllReviews(statusFilter);
 
-        // ✅ 2. Récupérer les compteurs globaux (très rapide, 1 lecture/1000 docs)
         const [pendingCount, approvedCount, rejectedCount, featuredCount, totalCount] = await Promise.allSettled([
             getCountFromServer(query(collection(db, "reviews"), where("status", "==", "pending"))),
             getCountFromServer(query(collection(db, "reviews"), where("status", "==", "approved"))),
@@ -600,4 +617,4 @@ export async function renderAdminReviews(containerId = 'reviewsList', statusFilt
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ reviews.js chargé — v2.0.1 (Fix Transaction Firestore)');
+console.log('✅ reviews.js chargé — v2.1.0 (Fix IDs strings vendeurs)');
