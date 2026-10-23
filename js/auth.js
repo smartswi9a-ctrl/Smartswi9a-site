@@ -1,7 +1,7 @@
 // js/auth.js
 // ============================================================
 // AUTHENTIFICATION - SMART SWI9A
-// Version 3.3.0 — Marketplace + Vendor Signup (correctifs E8/E9/E14)
+// Version 3.3.1 — Marketplace + Vendor Signup + Règles v4.1.0
 // ============================================================
 
 import {
@@ -199,6 +199,7 @@ export async function registerWithFirebase(name, email, phone, dob, password) {
         const firstName = parts[0] || '';
         const lastName = parts.slice(1).join(' ') || '';
 
+        // Conforme à la règle users.create (v4.1.0)
         const profile = {
             name: name.trim(),
             firstName,
@@ -253,8 +254,7 @@ export async function registerWithFirebase(name, email, phone, dob, password) {
 // INSCRIPTION VENDEUR
 // Correctifs B1..B5 + B9 : validations renforcées, signupMethod VENDOR,
 // contractStatus PENDING, serverTimestamp pour le wallet.
-// ⚠️ Les champs role/status/contractStatus/commissionRate/delayCount
-//    écrits ici DOIVENT être validés par les règles Firestore (étape 9).
+// Conforme à la règle users.create + wallets.create (v4.1.0).
 // ============================================================
 export async function registerVendorWithFirebase(vendorData, password) {
     console.log('🏪 Inscription Vendeur pour :', vendorData?.email);
@@ -304,8 +304,7 @@ export async function registerVendorWithFirebase(vendorData, password) {
         const uid = user.uid;
 
         // 2. Préparer le profil vendeur
-        // ⚠️ role / status / contractStatus / commissionRate / delayCount
-        //    DOIVENT être imposés par les règles Firestore (E8).
+        // Conforme aux règles users.create (v4.1.0)
         const profile = {
             name: shopName,
             email: cleanEmail(vendorData.email),
@@ -334,8 +333,8 @@ export async function registerVendorWithFirebase(vendorData, password) {
             throw new Error("Impossible d'enregistrer le profil vendeur.");
         }
 
-        // 4. Initialiser le Wallet (B3 : montants à 0 — les règles imposent
-        //    cette contrainte à la création, cf. étape 9).
+        // 4. Initialiser le Wallet (B3 : montants à 0)
+        // Conforme à la règle wallets.create (v4.1.0)
         try {
             await setDoc(doc(db, "wallets", uid), {
                 vendorId: uid,
@@ -428,6 +427,7 @@ export async function checkEmailVerification() {
         const verified = auth.currentUser?.emailVerified || false;
 
         if (verified && user.uid) {
+            // Conforme à users.update (whitelist inclut emailVerified)
             await saveUserProfile(user.uid, { emailVerified: true });
             const currentUser = getCurrentUser();
             if (currentUser) {
@@ -461,6 +461,7 @@ export async function loginWithGoogle() {
 
         if (!profile) {
             isNewUser = true;
+            // Conforme à users.create (signupMethod dans la liste)
             profile = {
                 name: user.displayName || (user.email ? user.email.split('@')[0] : 'Utilisateur'),
                 firstName: (user.displayName || '').split(' ')[0] || '',
@@ -508,6 +509,7 @@ export async function loginWithFacebook() {
 
         if (!profile) {
             isNewUser = true;
+            // Conforme à users.create
             profile = {
                 name: user.displayName || (user.email ? user.email.split('@')[0] : 'Utilisateur'),
                 firstName: (user.displayName || '').split(' ')[0] || '',
@@ -572,6 +574,7 @@ export async function loginUser(email, password) {
 
         let profile = await getUserProfile(uid);
         if (!profile) {
+            // Fallback sécurisé : création du profil minimal si manquant
             profile = {
                 name: email.split('@')[0],
                 email: cleanEmail(email),
@@ -759,7 +762,7 @@ export function isUserAdmin() {
 /**
  * Version sécurisée : relit le rôle depuis Firestore.
  * Les règles Firestore protègent ce champ (users/{uid}.role non modifiable
- * par le propriétaire — étape 9).
+ * par le propriétaire — étape 2 validée).
  */
 export async function isUserAdminVerified() {
     const cached = getCurrentUser();
@@ -793,4 +796,4 @@ export function restoreSession() {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ auth.js chargé — v3.3.0 (Marketplace)');
+console.log('✅ auth.js chargé — v3.3.1 (Marketplace + Règles v4.1.0)');
