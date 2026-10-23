@@ -4,90 +4,160 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Devenir Vendeur | Smart Swi9a</title>
+    <meta name="description" content="Rejoignez la marketplace Smart Swi9a et vendez vos produits partout au Maroc.">
     <meta name="robots" content="noindex, nofollow">
     <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
-    
+
+    <!-- Perf : Firebase est chargé depuis gstatic -->
+    <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    
+
+    <!-- ⚠️ E4 : importmap COMPLET — storage inclus (utilisé par js/firebase.js) -->
     <script type="importmap">
     {
         "imports": {
             "firebase/app": "https://www.gstatic.com/firebasejs/11.0.0/firebase-app.js",
             "firebase/auth": "https://www.gstatic.com/firebasejs/11.0.0/firebase-auth.js",
-            "firebase/firestore": "https://www.gstatic.com/firebasejs/11.0.0/firebase-firestore.js"
+            "firebase/firestore": "https://www.gstatic.com/firebasejs/11.0.0/firebase-firestore.js",
+            "firebase/storage": "https://www.gstatic.com/firebasejs/11.0.0/firebase-storage.js"
         }
     }
     </script>
-    
+
     <link rel="stylesheet" href="/style.css">
+    <!-- ⚠️ E2 : vendor-styles.css manquant aujourd'hui — sera livré à l'étape 4.
+         Le <style> ci-dessous ne le remplace pas, il fournit des règles
+         critiques de secours (modale cachée, honeypot) qui doivent fonctionner
+         même si le CSS dédié est absent. -->
     <link rel="stylesheet" href="/vendor-styles.css">
+
+    <!-- Règles de secours (indépendantes de vendor-styles.css) -->
+    <style>
+        /* Fallback E2 : la modale NE DOIT JAMAIS apparaître sans .open */
+        #contractModal:not(.open) { display: none !important; }
+        #contractModal.open {
+            display: flex !important;
+            align-items: center;
+            justify-content: center;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, .55);
+        }
+        /* Honeypot invisible pour les humains, visible pour les bots */
+        #vWebsite {
+            position: absolute !important;
+            left: -9999px !important;
+            top: -9999px !important;
+            width: 1px !important;
+            height: 1px !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+        }
+        /* Focus visible sur la zone scrollable du contrat */
+        #contractText:focus-visible { outline: 2px solid var(--gold, #b8860b); outline-offset: -2px; }
+        /* Fallback minimal de la case à cocher si vendor-styles.css est absent */
+        .v-checkbox { display: inline-flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 14px; cursor: pointer; }
+    </style>
+
     <script src="/translations.js"></script>
 </head>
 <body class="vendor-page">
-    
+
+    <noscript>
+        <div style="background:#fff3cd;border:1px solid #ffeeba;color:#856404;padding:12px;text-align:center;font-family:system-ui,sans-serif;">
+            ⚠️ JavaScript est requis pour créer un compte vendeur sur Smart Swi9a. Merci de l'activer dans votre navigateur.
+        </div>
+    </noscript>
+
     <nav id="navbar" style="background:#fff; border-bottom:1px solid #ddd; padding:1rem; text-align:center;">
         <a href="/" style="font-family:var(--font-secondary);font-size:1.5rem;font-weight:800;color:var(--gold);text-decoration:none;">SMART SWI9A</a>
     </nav>
 
     <main class="container" style="padding: 2rem 1rem; max-width: 800px; margin: 0 auto;">
-        
+
         <div style="text-align: center; margin-bottom: 2rem;">
             <h1 class="v-page-title" style="font-size:2rem;">🚀 Devenir Vendeur</h1>
             <p style="color:var(--text-muted);">Rejoignez la marketplace et vendez vos produits partout au Maroc.</p>
         </div>
 
-        <form id="vendorSignupForm" class="vendor-form">
-            
+        <!-- novalidate N'EST PAS ajouté : on veut le double contrôle HTML5 + JS -->
+        <form id="vendorSignupForm" class="vendor-form" method="post" action="#" autocomplete="on">
+
+            <!-- Honeypot anti-bot (E14) — ne pas toucher au style, il doit rester invisible -->
+            <input type="text"
+                   id="vWebsite"
+                   name="vWebsite"
+                   tabindex="-1"
+                   autocomplete="off"
+                   aria-hidden="true"
+                   value="">
+
             <!-- Section 1 : Infos Boutique -->
             <div class="vendor-card">
                 <h2 class="vendor-card-title" style="margin-bottom:1rem;">🏪 Informations sur la boutique</h2>
-                
+
                 <div class="v-field">
-                    <label class="v-label">Nom de la boutique *</label>
-                    <input type="text" id="vShopName" class="v-input" required placeholder="Ex: Boutique Tech Casablanca">
+                    <label class="v-label" for="vShopName">Nom de la boutique *</label>
+                    <input type="text" id="vShopName" name="vShopName" class="v-input" required
+                           minlength="2" maxlength="60"
+                           autocomplete="organization"
+                           placeholder="Ex: Boutique Tech Casablanca">
                 </div>
-                
+
                 <div class="v-form-row">
                     <div class="v-field">
-                        <label class="v-label">Email professionnel *</label>
-                        <input type="email" id="vEmail" class="v-input" required placeholder="contact@boutique.com">
+                        <label class="v-label" for="vEmail">Email professionnel *</label>
+                        <input type="email" id="vEmail" name="vEmail" class="v-input" required
+                               autocomplete="email" inputmode="email"
+                               placeholder="contact@boutique.com">
                     </div>
                     <div class="v-field">
-                        <label class="v-label">Mot de passe *</label>
-                        <input type="password" id="vPassword" class="v-input" required minlength="6" placeholder="Min. 6 caractères">
+                        <label class="v-label" for="vPassword">Mot de passe *</label>
+                        <input type="password" id="vPassword" name="vPassword" class="v-input" required
+                               minlength="8" maxlength="128"
+                               autocomplete="new-password"
+                               placeholder="Min. 8 caractères (lettres + chiffres)">
                     </div>
                 </div>
-                
+
                 <div class="v-form-row">
                     <div class="v-field">
-                        <label class="v-label">Téléphone (WhatsApp) *</label>
-                        <input type="tel" id="vPhone" class="v-input" required placeholder="06XXXXXXXX">
+                        <label class="v-label" for="vPhone">Téléphone (WhatsApp) *</label>
+                        <input type="tel" id="vPhone" name="vPhone" class="v-input" required
+                               autocomplete="tel" inputmode="tel"
+                               placeholder="06XXXXXXXX ou +2126XXXXXXXX">
                     </div>
                     <div class="v-field">
-                        <label class="v-label">Ville *</label>
-                        <input type="text" id="vCity" class="v-input" required placeholder="Ex: Casablanca">
+                        <label class="v-label" for="vCity">Ville *</label>
+                        <input type="text" id="vCity" name="vCity" class="v-input" required
+                               minlength="2" maxlength="80"
+                               autocomplete="address-level2"
+                               placeholder="Ex: Casablanca">
                     </div>
                 </div>
 
                 <div class="v-field">
-                    <label class="v-label">ICE / CIN *</label>
-                    <input type="text" id="vIceCin" class="v-input" required placeholder="Numéro d'identification">
-                    <span class="v-hint">ICE pour les entreprises, CIN pour les indépendants.</span>
+                    <label class="v-label" for="vIceCin">ICE / CIN *</label>
+                    <input type="text" id="vIceCin" name="vIceCin" class="v-input" required
+                           minlength="6" maxlength="15"
+                           autocomplete="off"
+                           placeholder="Numéro d'identification (ICE ou CIN)">
+                    <span class="v-hint">ICE pour les entreprises (15 chiffres), CIN pour les indépendants.</span>
                 </div>
             </div>
 
             <!-- Section 2 : Mode de livraison -->
             <div class="vendor-card">
                 <h2 class="vendor-card-title" style="margin-bottom:1rem;">🚚 Mode de livraison</h2>
-                <div class="v-choice-group">
-                    <label class="v-choice selected" id="choice-dropoff">
+                <div class="v-choice-group" role="radiogroup" aria-label="Mode de livraison">
+                    <label class="v-choice selected" id="choice-dropoff" tabindex="0" role="radio" aria-checked="true">
                         <input type="radio" name="vShipping" value="dropoff" checked hidden>
                         <div class="v-choice-title">📤 Drop-off</div>
                         <div class="v-choice-desc">Vous préparez et déposez le colis chez Speedaf. (72h max).</div>
                     </label>
-                    
-                    <label class="v-choice" id="choice-fulfillment">
+
+                    <label class="v-choice" id="choice-fulfillment" tabindex="0" role="radio" aria-checked="false">
                         <input type="radio" name="vShipping" value="fulfillment" hidden>
                         <div class="v-choice-title">📥 Fulfillment</div>
                         <div class="v-choice-desc">Vous envoyez votre stock chez Speedaf. On gère la livraison. (Frais de stockage).</div>
@@ -116,39 +186,54 @@
         </form>
     </main>
 
-    <!-- MODALE CONTRAT -->
-    <div class="modal-overlay" id="contractModal" style="z-index:9999;">
+    <!-- MODALE CONTRAT (E11 / E2) -->
+    <div class="modal-overlay"
+         id="contractModal"
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="contractModalTitle"
+         style="z-index:9999;">
         <div class="modal" style="max-width:800px; padding:0; display:flex; flex-direction:column; height:90vh;">
-            
+
             <div style="padding:1.5rem; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center;">
-                <h2 style="font-family:var(--font-secondary); color:var(--gold); margin:0;">Contrat de Partenariat</h2>
-                <button type="button" id="btnCloseContract" style="background:none; border:none; font-size:1.5rem; cursor:pointer;">✕</button>
+                <h2 id="contractModalTitle" style="font-family:var(--font-secondary); color:var(--gold); margin:0;">Contrat de Partenariat</h2>
+                <button type="button"
+                        id="btnCloseContract"
+                        aria-label="Fermer le contrat"
+                        title="Fermer"
+                        style="background:none; border:none; font-size:1.5rem; cursor:pointer;">✕</button>
             </div>
 
-            <!-- Zone de texte scrollable -->
-            <div id="contractText" style="flex:1; overflow-y:auto; padding:2rem; font-size:0.9rem; line-height:1.7; color:#444;">
-                
-                <!-- ⚠️ INSÉREZ ICI LE TEXTE INTÉGRAL DES CGV VENDEURS (Vague 1) ⚠️ -->
-                <h3>CONTRAT DE PARTENARIAT COMMERCIAL — VENDEUR TIERS SMART SWI9A</h3>
-                <p><strong>Version 1.0.0 — En vigueur à compter de la date d'acceptation électronique</strong></p>
-                
-                <p>Le présent contrat (ci-après « le Contrat ») est conclu entre :</p>
-                <p><strong>SMART SWI9A SARL</strong> (ci-après « SMART SWI9A » ou « la Plateforme »), société de droit marocain...</p>
-                
-                <br>
-                <p style="color:red; font-weight:bold; text-align:center;">⚠️ (COLLEZ ICI TOUT LE TEXTE DES CGV VENDEURS GÉNÉRÉ À LA VAGUE 1) ⚠️</p>
-                <br>
-
-                <p>En cochant la case ci-dessous et en cliquant sur le bouton « Signer le contrat », le Vendeur :</p>
-                <p>✅ Déclare avoir lu et compris l'intégralité du présent Contrat ;<br>
-                ✅ Accepte sans réserve l'ensemble de ses clauses ;<br>
-                ✅ Reconnaît la valeur juridique de sa signature électronique conformément à la Loi 53-05 ;<br>
-                ✅ Consent à l'enregistrement de son adresse IP et de son User-Agent.</p>
+            <!-- Zone de texte scrollable — le contenu réel est injecté par
+                 vendor-signup.js (texte versionné par langue) afin que le hash
+                 porte EXACTEMENT sur ce qui est affiché (E5).
+                 Le fallback ci-dessous n'apparaît que si le JS échoue. -->
+            <div id="contractText"
+                 tabindex="0"
+                 style="flex:1; overflow-y:auto; padding:2rem; font-size:0.9rem; line-height:1.7; color:#444;">
+                <noscript>
+                    <p style="color:#856404; background:#fff3cd; border:1px solid #ffeeba; padding:12px; border-radius:6px;">
+                        ⚠️ JavaScript est requis pour afficher et signer le contrat. Activez-le et rechargez la page.
+                    </p>
+                </noscript>
             </div>
 
             <div style="padding:1.5rem; border-top:1px solid #eee; background:#fafafa; text-align:center;">
-                <p id="scrollHint" style="font-size:0.8rem; color:var(--text-muted); margin-bottom:1rem;">Faites défiler pour lire l'intégralité du contrat.</p>
-                <button type="button" id="btnAcceptContract" class="v-btn v-btn-primary" disabled style="opacity:0.5; width:100%;">
+                <p id="scrollHint" aria-live="polite" style="font-size:0.8rem; color:var(--text-muted); margin-bottom:0.75rem;">
+                    Faites défiler pour lire l'intégralité du contrat.
+                </p>
+
+                <!-- Case à cocher (E11) — JS la repère par id pour ne pas dupliquer -->
+                <label class="v-checkbox" for="contractCheckbox">
+                    <input type="checkbox" id="contractCheckbox" name="contractCheckbox" autocomplete="off">
+                    <span>J'ai lu et j'accepte le contrat dans son intégralité</span>
+                </label>
+
+                <button type="button"
+                        id="btnAcceptContract"
+                        class="v-btn v-btn-primary"
+                        disabled
+                        style="opacity:0.5; width:100%; margin-top:0.75rem;">
                     ✍️ J'accepte les conditions et je signe électroniquement
                 </button>
             </div>
