@@ -1,7 +1,7 @@
 // translations.js
 // ============================================================
 // TRADUCTIONS - SMART SWI9A (FR / AR / EN)
-// Version 3.0.0 — Traductions des 23 catégories et sous-catégories
+// Version 8.0.0 — Marketplace + Boutique
 // ============================================================
 
 window.translations = {
@@ -60,10 +60,20 @@ window.translations = {
         filterInStock: "En stock",
         filterPromos: "En promo",
         filterReset: "Réinitialiser",
+        refresh: "Nouveautés",
+        trendingBadge: "🔥 Populaire",
 
-        // ============================================================
-        // ✅ NOUVELLES CATÉGORIES (23 Parents)
-        // ============================================================
+        // ✅ NOUVELLES CLÉS VENDEURS / BOUTIQUE
+        vendorSoldBy: "Vendu par",
+        vendorSmartSwi9a: "Smart Swi9a",
+        boutiqueVerified: "Boutique vérifiée",
+        boutiqueNotFound: "Boutique introuvable",
+        boutiqueNotFoundText: "Cette boutique n'existe pas ou a été retirée.",
+        boutiqueSuspended: "Boutique momentanément indisponible",
+        boutiqueSuspendedText: "Cette boutique n'est pas disponible pour le moment. Réessayez plus tard.",
+        boutiqueNoProducts: "Aucun produit dans cette catégorie",
+
+        // CATÉGORIES PARENTS
         filterSmartphones: "Smartphones",
         filterAudio: "Audio",
         filterComputers: "Informatique",
@@ -88,105 +98,77 @@ window.translations = {
         filterPets: "Animaux",
         filterOffice: "Bureau",
 
-        // ============================================================
-        // ✅ SOUS-CATÉGORIES
-        // ============================================================
-        // Smartphones
+        // SOUS-CATÉGORIES
         filterAndroid: "Android",
         filterIOS: "iPhone",
         filterPhoneAccessories: "Accessoires",
-        // Audio
         filterHeadphones: "Casques",
         filterEarbuds: "Écouteurs",
         filterSpeakers: "Enceintes",
-        // Computers
         filterLaptops: "Ordinateurs portables",
         filterDesktops: "Ordinateurs de bureau",
         filterPcAccessories: "Périphériques",
-        // Wearables
         filterSmartwatches: "Montres connectées",
         filterFitness: "Bracelets sportifs",
-        // Tech Accessories
         filterChargers: "Chargeurs",
         filterCables: "Câbles",
         filterPowerbanks: "Batteries externes",
-        // Cameras
         filterDslr: "Reflex",
         filterActionCameras: "Caméras d'action",
         filterDrones: "Drones",
-        // Smart Home
         filterSmartLighting: "Éclairage connecté",
         filterSmartSecurity: "Sécurité",
         filterSmartSpeakers: "Enceintes connectées",
-        // Kitchen
         filterKitchenAppliances: "Petit électroménager",
         filterCookware: "Ustensiles",
         filterCoffeeMachines: "Machines à café",
-        // Furniture
         filterChairs: "Chaises & Fauteuils",
         filterTables: "Tables",
         filterStorage: "Rangement",
-        // Decoration
         filterLamps: "Lampes",
         filterPlants: "Plantes",
         filterArt: "Tableaux & Art",
-        // Fashion
         filterMen: "Homme",
         filterWomen: "Femme",
         filterShoes: "Chaussures",
         filterBags: "Sacs",
-        // Beauty
         filterMakeup: "Maquillage",
         filterSkincare: "Soins visage",
         filterFragrances: "Parfums",
-        // Haircare
         filterHairDryers: "Sèche-cheveux",
         filterHairStylers: "Lisseurs & Boucleurs",
         filterHairProducts: "Produits",
-        // Auto
         filterAutoInterior: "Intérieur",
         filterAutoExterior: "Extérieur",
         filterAutoTools: "Outils auto",
-        // Car Electronics
         filterDashcams: "Dashcams",
         filterGps: "GPS",
         filterCarAudio: "Audio voiture",
-        // Tools
         filterHandTools: "Outils à main",
         filterToolBoxes: "Boîtes à outils",
         filterGardenTools: "Jardinage",
-        // Power Tools
         filterDrills: "Perceuses",
         filterSaws: "Scies",
         filterSanders: "Ponceuses",
-        // Security
         filterSecurityCameras: "Caméras de surveillance",
         filterSmartLocks: "Serrures connectées",
         filterAlarms: "Alarmes",
-        // Sports
         filterFitnessGear: "Fitness",
         filterFootball: "Football",
         filterOutdoor: "Plein air",
-        // Games
         filterConsoles: "Consoles",
         filterControllers: "Manettes",
         filterVideoGames: "Jeux vidéo",
-        // Toys
         filterRcToys: "Télécommandés",
         filterEducationalToys: "Éducatifs",
         filterDolls: "Poupées & Figurines",
-        // Pets
         filterPetFood: "Nourriture",
         filterPetToys: "Jouets",
         filterPetAccessories: "Accessoires",
-        // Office
         filterStationery: "Papeterie",
         filterOfficeFurniture: "Mobilier de bureau",
         filterOfficeElectronics: "Électronique de bureau",
 
-        // ============================================================
-        // RESTE DU SITE (Inchangé)
-        // ============================================================
         reviewBadgeVerified: "✅ Achat vérifié",
         reviewRating: "Note",
         reviewDate: "Date",
@@ -454,32 +436,6 @@ window.translations = {
         blogCatGadgets: "Gadgets",
         blogCatActualites: "Actualités",
         blogCatGeneral: "Général",
-
-        blogAdminTitle: "Gestion du blog",
-        blogAdminAdd: "➕ Nouvel article",
-        blogAdminEdit: "✏️ Modifier l'article",
-        blogAdminFormTitle: "Titre *",
-        blogAdminFormSlug: "Slug (URL) *",
-        blogAdminFormCategory: "Catégorie *",
-        blogAdminFormExcerpt: "Résumé (extrait)",
-        blogAdminFormContent: "Contenu de l'article *",
-        blogAdminFormImage: "Image de couverture",
-        blogAdminFormImageUrl: "URL de l'image",
-        blogAdminFormImageFile: "Ou uploader une image",
-        blogAdminFormStatus: "Statut",
-        blogAdminFormStatusDraft: "📝 Brouillon",
-        blogAdminFormStatusPublished: "✅ Publié",
-        blogAdminFormAuthor: "Auteur",
-        blogAdminFormTags: "Tags (séparés par virgule)",
-        blogAdminFormSave: "💾 Enregistrer l'article",
-        blogAdminFormCancel: "❌ Annuler la modification",
-        blogAdminListTitle: "📝 Liste des articles",
-        blogAdminSearchPlaceholder: "🔍 Rechercher un article...",
-        blogAdminEmpty: "Aucun article pour le moment",
-        blogAdminDeleteConfirm: "Supprimer définitivement cet article ? L'image associée sera aussi supprimée.",
-        blogAdminSaved: "✅ Article enregistré",
-        blogAdminDeleted: "🗑️ Article supprimé",
-        blogAdminUpdated: "✅ Article mis à jour",
 
         avisTag: "Ils nous font confiance",
         avisTitle: "Avis clients",
@@ -764,8 +720,20 @@ window.translations = {
         filterInStock: "متوفر",
         filterPromos: "عروض",
         filterReset: "إعادة تعيين",
+        refresh: "جديد",
+        trendingBadge: "🔥 رائج",
 
-        // ✅ NOUVELLES CATÉGORIES (23 Parents)
+        // ✅ NOUVELLES CLÉS VENDEURS / BOUTIQUE
+        vendorSoldBy: "يُباع بواسطة",
+        vendorSmartSwi9a: "سمارت سويقة",
+        boutiqueVerified: "متجر موثّق",
+        boutiqueNotFound: "المتجر غير موجود",
+        boutiqueNotFoundText: "هذا المتجر غير موجود أو تمت إزالته.",
+        boutiqueSuspended: "المتجر غير متاح مؤقتًا",
+        boutiqueSuspendedText: "هذا المتجر غير متاح حاليًا. يرجى المحاولة لاحقًا.",
+        boutiqueNoProducts: "لا توجد منتجات في هذه الفئة",
+
+        // CATÉGORIES
         filterSmartphones: "هواتف ذكية",
         filterAudio: "صوتيات",
         filterComputers: "حواسيب",
@@ -790,7 +758,6 @@ window.translations = {
         filterPets: "حيوانات أليفة",
         filterOffice: "مكتب",
 
-        // ✅ SOUS-CATÉGORIES
         filterAndroid: "أندرويد",
         filterIOS: "آيفون",
         filterPhoneAccessories: "إكسسوارات الهاتف",
@@ -861,7 +828,6 @@ window.translations = {
         filterOfficeFurniture: "أثاث مكتبي",
         filterOfficeElectronics: "إلكترونيات مكتبية",
 
-        // RESTE DU SITE
         reviewBadgeVerified: "✅ شراء موثق",
         reviewRating: "التقييم",
         reviewDate: "التاريخ",
@@ -1130,32 +1096,6 @@ window.translations = {
         blogCatActualites: "أخبار",
         blogCatGeneral: "عام",
 
-        blogAdminTitle: "إدارة المدونة",
-        blogAdminAdd: "➕ مقال جديد",
-        blogAdminEdit: "✏️ تعديل المقال",
-        blogAdminFormTitle: "العنوان *",
-        blogAdminFormSlug: "الرابط (Slug) *",
-        blogAdminFormCategory: "الفئة *",
-        blogAdminFormExcerpt: "المقتطف",
-        blogAdminFormContent: "محتوى المقال *",
-        blogAdminFormImage: "صورة الغلاف",
-        blogAdminFormImageUrl: "رابط الصورة",
-        blogAdminFormImageFile: "أو تحميل صورة",
-        blogAdminFormStatus: "الحالة",
-        blogAdminFormStatusDraft: "📝 مسودة",
-        blogAdminFormStatusPublished: "✅ منشور",
-        blogAdminFormAuthor: "الكاتب",
-        blogAdminFormTags: "الوسوم (مفصولة بفواصل)",
-        blogAdminFormSave: "💾 حفظ المقال",
-        blogAdminFormCancel: "❌ إلغاء التعديل",
-        blogAdminListTitle: "📝 قائمة المقالات",
-        blogAdminSearchPlaceholder: "🔍 ابحث عن مقال...",
-        blogAdminEmpty: "لا توجد مقالات حالياً",
-        blogAdminDeleteConfirm: "حذف هذا المقال نهائياً؟ سيتم حذف الصورة أيضاً.",
-        blogAdminSaved: "✅ تم حفظ المقال",
-        blogAdminDeleted: "🗑️ تم حذف المقال",
-        blogAdminUpdated: "✅ تم تحديث المقال",
-
         avisTag: "يثقون بنا",
         avisTitle: "آراء العملاء",
         avisSub: "اكتشف ما يقوله عملاؤنا عن سمارت سويقة",
@@ -1202,7 +1142,7 @@ window.translations = {
         feature4title: "دعم 7/7",
         feature4desc: "فريقنا متاح على واتساب.",
         feature5title: "منتجات أصلية",
-        feature5desc: "نقدم فقط منتجات تقنية معتمدة.",
+        feature5Desc: "نقدم فقط منتجات تقنية معتمدة.",
         feature6title: "أسعار تنافسية",
         feature6desc: "أفضل الأسعار في المغرب مع عروض حصرية.",
 
@@ -1439,8 +1379,20 @@ window.translations = {
         filterInStock: "In stock",
         filterPromos: "On sale",
         filterReset: "Reset",
+        refresh: "Refresh",
+        trendingBadge: "🔥 Trending",
 
-        // ✅ NOUVELLES CATÉGORIES (23 Parents)
+        // ✅ NOUVELLES CLÉS VENDEURS / BOUTIQUE
+        vendorSoldBy: "Sold by",
+        vendorSmartSwi9a: "Smart Swi9a",
+        boutiqueVerified: "Verified shop",
+        boutiqueNotFound: "Shop not found",
+        boutiqueNotFoundText: "This shop does not exist or has been removed.",
+        boutiqueSuspended: "Shop temporarily unavailable",
+        boutiqueSuspendedText: "This shop is not available right now. Please try again later.",
+        boutiqueNoProducts: "No products in this category",
+
+        // CATÉGORIES
         filterSmartphones: "Smartphones",
         filterAudio: "Audio",
         filterComputers: "Computers",
@@ -1465,7 +1417,6 @@ window.translations = {
         filterPets: "Pets",
         filterOffice: "Office",
 
-        // ✅ SOUS-CATÉGORIES
         filterAndroid: "Android",
         filterIOS: "iPhone",
         filterPhoneAccessories: "Accessories",
@@ -1536,7 +1487,6 @@ window.translations = {
         filterOfficeFurniture: "Office Furniture",
         filterOfficeElectronics: "Office Electronics",
 
-        // RESTE DU SITE
         reviewBadgeVerified: "✅ Verified purchase",
         reviewRating: "Rating",
         reviewDate: "Date",
@@ -1805,32 +1755,6 @@ window.translations = {
         blogCatActualites: "News",
         blogCatGeneral: "General",
 
-        blogAdminTitle: "Blog management",
-        blogAdminAdd: "➕ New article",
-        blogAdminEdit: "✏️ Edit article",
-        blogAdminFormTitle: "Title *",
-        blogAdminFormSlug: "Slug (URL) *",
-        blogAdminFormCategory: "Category *",
-        blogAdminFormExcerpt: "Excerpt",
-        blogAdminFormContent: "Article content *",
-        blogAdminFormImage: "Cover image",
-        blogAdminFormImageUrl: "Image URL",
-        blogAdminFormImageFile: "Or upload an image",
-        blogAdminFormStatus: "Status",
-        blogAdminFormStatusDraft: "📝 Draft",
-        blogAdminFormStatusPublished: "✅ Published",
-        blogAdminFormAuthor: "Author",
-        blogAdminFormTags: "Tags (comma-separated)",
-        blogAdminFormSave: "💾 Save article",
-        blogAdminFormCancel: "❌ Cancel edit",
-        blogAdminListTitle: "📝 Articles list",
-        blogAdminSearchPlaceholder: "🔍 Search an article...",
-        blogAdminEmpty: "No articles yet",
-        blogAdminDeleteConfirm: "Permanently delete this article? Associated image will also be deleted.",
-        blogAdminSaved: "✅ Article saved",
-        blogAdminDeleted: "🗑️ Article deleted",
-        blogAdminUpdated: "✅ Article updated",
-
         avisTag: "They trust us",
         avisTitle: "Customer reviews",
         avisSub: "See what our customers say about Smart Swi9a",
@@ -1879,7 +1803,6 @@ window.translations = {
         feature5title: "Authentic products",
         feature5desc: "We only offer certified tech products.",
         feature6title: "Competitive prices",
-        feature6Desc: "Best prices in Morocco with exclusive deals.",
         feature6desc: "Best prices in Morocco with exclusive deals.",
 
         aboutTag: "Our story",
@@ -2061,4 +1984,4 @@ window.translations = {
     }
 };
 
-console.log('✅ translations.js chargé — Version 3.0.0 (23 catégories traduites)');
+console.log('✅ translations.js chargé — v8.0.0 (Marketplace + Boutique)');
