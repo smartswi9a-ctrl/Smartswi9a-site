@@ -1,15 +1,7 @@
 // js/events.js
 // ============================================================
 // DÉLÉGATION D'ÉVÉNEMENTS GLOBALE - SMART SWI9A
-// Version 2.1.0 — Fix clic catégories + reset complet
-// ============================================================
-// CHANGEMENTS v2.1.0 :
-// ✅ FIX #4 — products:filter : closest('[data-category]')
-//             (clic sur emoji/texte fonctionne maintenant)
-// ✅ FIX #16 — products:filter-reset : reset complet (chips + checkboxes + ligne sous-cat)
-// ✅ FIX — products:filter / filter-reset : pas de double render
-//           (products.js.setCategory/clearAllFilters gèrent déjà le render)
-// ✅ (Repris v2.0.0) — I14.1, I14.2, I14.4, I14.6, I14.7, M14.1
+// Version 8.0.0 — Marketplace Compatible
 // ============================================================
 
 import { t, setLang, getLang } from "./utils.js";
@@ -42,20 +34,13 @@ const eventHandlers = {
         clearCart();
     },
 
-    // ============================================================
-    // ✅ FIX #4 : products:filter avec closest (emoji/texte cliquables)
-    // ============================================================
     'products:filter': async (e) => {
-        // ⚠️ e.target peut être le <span> emoji ou le texte à l'intérieur
-        // → On cherche le bouton [data-category] le plus proche
         const btn = e.target.closest('[data-category]');
         if (!btn) return;
         const category = btn.dataset.category;
         if (!category) return;
 
         const { setCategory } = await import("./products.js");
-        // ✅ setCategory() dans products.js appelle déjà renderCategoryFilters()
-        // → pas de double render ici
         await setCategory(category);
     },
 
@@ -82,32 +67,18 @@ const eventHandlers = {
         setPromos(e.target.checked);
     },
 
-    // ============================================================
-    // ✅ FIX #16 : products:filter-reset (reset complet)
-    // ------------------------------------------------------------
-    // AVANT : clearAllFilters() + renderCategoryFilters() → double render
-    // APRÈS :
-    //   1. Reset les checkboxes AVANT le render
-    //   2. clearAllFilters() (qui re-render les chips et la grille)
-    //   3. La ligne sous-catégorie disparaît car activeCat='all'
-    // ============================================================
     'products:filter-reset': async () => {
-        // 1. Reset checkboxes (avant render)
         const checkStock = document.getElementById('filterInStock');
         const checkPromos = document.getElementById('filterPromos');
         if (checkStock) checkStock.checked = false;
         if (checkPromos) checkPromos.checked = false;
 
-        // 2. Reset search input
         const searchInput = document.getElementById('productSearch');
         if (searchInput) searchInput.value = '';
 
-        // 3. Reset sort
         const sortSelect = document.getElementById('sortSelect');
         if (sortSelect) sortSelect.value = 'default';
 
-        // 4. clearAllFilters() → resetFilters() + renderProducts() + renderCategoryFilters()
-        //    → la ligne sous-catégorie disparaît automatiquement (activeCat='all')
         const { clearAllFilters } = await import("./products.js");
         clearAllFilters();
 
@@ -158,9 +129,6 @@ const eventHandlers = {
         searchBlog(query);
     },
 
-    // ============================================================
-    // LANG CHANGE (spinner + titre produit sync)
-    // ============================================================
     'lang:change': async (e) => {
         const lang = e.target.value;
         if (!lang) return;
@@ -418,9 +386,9 @@ export function attachEvents() {
             }
         }
 
-        // Carte produit (navigation)
+        // ✅ Carte produit (navigation) — Ajout de !e.target.closest('a') pour ignorer les badges vendeurs
         const card = e.target.closest('.product-card');
-        if (card && !e.target.closest('button')) {
+        if (card && !e.target.closest('button') && !e.target.closest('a')) {
             const slug = card.dataset.slug;
             const id = parseInt(card.dataset.id);
             if (slug) {
@@ -511,10 +479,10 @@ export function attachEvents() {
         }
     });
 
-    console.log('✅ events.js : événements attachés (v2.1.0)');
+    console.log('✅ events.js : événements attachés (v8.0.0)');
 }
 
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ events.js chargé — v2.1.0 (clic catégories + reset complet)');
+console.log('✅ events.js chargé — v8.0.0 (Marketplace Compatible)');
