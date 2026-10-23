@@ -13,7 +13,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
-    <!-- ⚠️ E4 : importmap COMPLET — storage inclus (utilisé par js/firebase.js) -->
+    <!-- Importmap complet — storage inclus (utilisé par js/firebase.js) -->
     <script type="importmap">
     {
         "imports": {
@@ -26,15 +26,11 @@
     </script>
 
     <link rel="stylesheet" href="/style.css">
-    <!-- ⚠️ E2 : vendor-styles.css manquant aujourd'hui — sera livré à l'étape 4.
-         Le <style> ci-dessous ne le remplace pas, il fournit des règles
-         critiques de secours (modale cachée, honeypot) qui doivent fonctionner
-         même si le CSS dédié est absent. -->
     <link rel="stylesheet" href="/vendor-styles.css">
 
-    <!-- Règles de secours (indépendantes de vendor-styles.css) -->
+    <!-- Fallback critique (indépendant de vendor-styles.css) -->
     <style>
-        /* Fallback E2 : la modale NE DOIT JAMAIS apparaître sans .open */
+        /* La modale NE DOIT JAMAIS apparaître sans .open */
         #contractModal:not(.open) { display: none !important; }
         #contractModal.open {
             display: flex !important;
@@ -55,9 +51,10 @@
             pointer-events: none !important;
         }
         /* Focus visible sur la zone scrollable du contrat */
-        #contractText:focus-visible { outline: 2px solid var(--gold, #b8860b); outline-offset: -2px; }
-        /* Fallback minimal de la case à cocher si vendor-styles.css est absent */
-        .v-checkbox { display: inline-flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 14px; cursor: pointer; }
+        #contractText:focus-visible {
+            outline: 2px solid var(--gold, #b8860b);
+            outline-offset: -2px;
+        }
     </style>
 
     <script src="/translations.js"></script>
@@ -81,10 +78,9 @@
             <p style="color:var(--text-muted);">Rejoignez la marketplace et vendez vos produits partout au Maroc.</p>
         </div>
 
-        <!-- novalidate N'EST PAS ajouté : on veut le double contrôle HTML5 + JS -->
         <form id="vendorSignupForm" class="vendor-form" method="post" action="#" autocomplete="on">
 
-            <!-- Honeypot anti-bot (E14) — ne pas toucher au style, il doit rester invisible -->
+            <!-- Honeypot anti-bot — ne pas toucher au style, il doit rester invisible -->
             <input type="text"
                    id="vWebsite"
                    name="vWebsite"
@@ -174,7 +170,8 @@
                 <button type="button" id="btnOpenContract" class="v-btn v-btn-secondary v-btn-block">
                     📄 Lire et signer les CGV
                 </button>
-                <div id="contractStatus" style="margin-top:1rem; font-size:0.9rem; font-weight:700; color:var(--danger); text-align:center;">
+                <!-- H-i1 : aria-live pour lecteurs d'écran -->
+                <div id="contractStatus" role="status" aria-live="polite" style="margin-top:1rem; font-size:0.9rem; font-weight:700; color:var(--danger); text-align:center;">
                     ⏳ En attente de signature
                 </div>
             </div>
@@ -186,12 +183,13 @@
         </form>
     </main>
 
-    <!-- MODALE CONTRAT (E11 / E2) -->
+    <!-- MODALE CONTRAT -->
     <div class="modal-overlay"
          id="contractModal"
          role="dialog"
          aria-modal="true"
          aria-labelledby="contractModalTitle"
+         aria-describedby="contractText"
          style="z-index:9999;">
         <div class="modal" style="max-width:800px; padding:0; display:flex; flex-direction:column; height:90vh;">
 
@@ -204,10 +202,7 @@
                         style="background:none; border:none; font-size:1.5rem; cursor:pointer;">✕</button>
             </div>
 
-            <!-- Zone de texte scrollable — le contenu réel est injecté par
-                 vendor-signup.js (texte versionné par langue) afin que le hash
-                 porte EXACTEMENT sur ce qui est affiché (E5).
-                 Le fallback ci-dessous n'apparaît que si le JS échoue. -->
+            <!-- Le contenu réel est injecté par vendor-signup.js (texte versionné par langue) -->
             <div id="contractText"
                  tabindex="0"
                  style="flex:1; overflow-y:auto; padding:2rem; font-size:0.9rem; line-height:1.7; color:#444;">
@@ -223,7 +218,6 @@
                     Faites défiler pour lire l'intégralité du contrat.
                 </p>
 
-                <!-- Case à cocher (E11) — JS la repère par id pour ne pas dupliquer -->
                 <label class="v-checkbox" for="contractCheckbox">
                     <input type="checkbox" id="contractCheckbox" name="contractCheckbox" autocomplete="off">
                     <span>J'ai lu et j'accepte le contrat dans son intégralité</span>
