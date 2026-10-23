@@ -1,7 +1,7 @@
 // js/orders.js
 // ============================================================
 // GESTION DES COMMANDES - SMART SWI9A
-// Version 6.0.1 — Fix parsing JSON (Gestion erreurs HTML 500/530)
+// Version 6.0.1 — Fix robustesse JSON (évite le crash si Speedaf renvoie du HTML)
 // ============================================================
 
 import {
@@ -333,8 +333,7 @@ function cleanMoroccanPhone(phone) {
 }
 
 // ============================================================
-// 🚀 SPEEDAF — CREATE ORDER (Guard mode test)
-// ⚠️ NE PAS MODIFIER : blInsure: "0", poids en KG, goodsType IT02
+// 🚀 SPEEDAF — CREATE ORDER
 // ============================================================
 export async function sendToSpeedafAPI(order) {
     // 🧪 MODE TEST : ZÉRO appel réseau
@@ -426,15 +425,21 @@ export async function sendToSpeedafAPI(order) {
             body: JSON.stringify(payload)
         });
 
-        // ✅ FIX 6.0.1 : Vérification du Content-Type pour éviter le crash si Cloudflare renvoie du HTML
+        // ✅ NOUVEAU : Vérification du type de réponse avant de parser
         const contentType = response.headers.get("content-type");
-        if (!contentType || !contentType.includes("application/json")) {
-            const htmlError = await response.text();
-            console.error("❌ Réponse NON-JSON reçue de Cloudflare :", htmlError.substring(0, 500));
-            throw new Error(`Le serveur a renvoyé une erreur (Code ${response.status}). Vérifiez les logs du Worker.`);
+        let data;
+        
+        if (contentType && contentType.includes("application/json")) {
+            data = await response.json();
+        } else {
+            const errorHtml = await response.text();
+            console.error("❌ Réponse non-JSON reçue (Cloudflare/Speedaf) :", errorHtml.substring(0, 500));
+            return {
+                success: false,
+                error: `Erreur serveur (${response.status}). Le Worker n'a pas pu joindre Speedaf. Vérifiez l'URL de production.`
+            };
         }
 
-        const data = await response.json();
         console.log('📨 Speedaf create response:', JSON.stringify(data, null, 2));
 
         if (data.success && data.data && data.data.billCode) {
@@ -445,7 +450,6 @@ export async function sendToSpeedafAPI(order) {
             };
         }
 
-        // ✅ Extraction propre du message d'erreur
         let errorMsg = "Erreur inconnue";
         if (data.error) {
             if (typeof data.error === 'string') errorMsg = data.error;
@@ -490,6 +494,12 @@ export async function cancelSpeedafShipment(trackingNumber) {
                 }]
             })
         });
+        
+        const contentType = response.headers.get("content-type");
+        if (!contentType || !contentType.includes("application/json")) {
+            return false;
+        }
+        
         const data = await response.json();
         const cancelResult = data?.data?.[0];
         if (cancelResult && cancelResult.success === true) {
@@ -503,7 +513,6 @@ export async function cancelSpeedafShipment(trackingNumber) {
 
 // ============================================================
 // 🚀 SPEEDAF — SYNC STATUS
-// ✅ Délègue à updateOrderStatus (Auto-Pay activé)
 // ============================================================
 export async function syncSpeedafStatus(orderId) {
     if (isTestMode()) {
@@ -524,6 +533,11 @@ export async function syncSpeedafStatus(orderId) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ data: { mailNoList: [order.speedafTracking] } })
         });
+
+        const contentType = response.headers.get("content-type");
+        if (!contentType || !contentType.includes("application/json")) {
+            return { success: false, error: "Réponse invalide du serveur (non-JSON)" };
+        }
 
         const data = await response.json();
         const tracks = data?.data?.[0]?.tracks || [];
@@ -626,7 +640,6 @@ async function restoreStockInTransaction(transaction, order, productSnaps, produ
 
 // ============================================================
 // UPDATE ORDER STATUS
-// ✅ Auto-Pay COD sur delivered + double notification
 // ============================================================
 export async function updateOrderStatus(orderId, newStatus) {
     try {
@@ -690,7 +703,6 @@ export async function updateOrderStatus(orderId, newStatus) {
                 couponRestored: order.couponRestored || false
             };
 
-            // ✅ Auto-Pay COD quand livré
             if (normalizedStatus === ORDER_STATUS.DELIVERED) {
                 updatePayload.paymentStatus = 'paid';
                 updatePayload.paidAt = Timestamp.now();
@@ -733,7 +745,6 @@ export async function updateOrderStatus(orderId, newStatus) {
             }
         }
 
-        // ✅ Notifications livraison (delivered + review_request)
         if (normalizedStatus === ORDER_STATUS.DELIVERED && orderForEmail.userId) {
             try {
                 const { createNotification } = await import("./notifications.js");
@@ -858,7 +869,6 @@ export async function renderAdminOrders(containerId = 'ordersList') {
             ? `<span style="font-size:0.7rem;color:var(--success);font-weight:700;">📦 Stock déduit</span>`
             : `<span style="font-size:0.7rem;color:var(--warning);font-weight:700;">⏳ Stock non déduit</span>`;
 
-        // ✅ Bouton paiement
         const isPaid = order.paymentStatus === 'paid';
         const paymentBtnStyle = isPaid
             ? 'background:rgba(46,204,113,0.15);color:var(--success);border:1px solid var(--success);'
@@ -1491,4 +1501,4 @@ export async function openOrderDetails(orderId, isAdmin = false) {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ orders.js chargé — v6.0.1 (Fix parsing JSON HTML)');
+console.log('✅ orders.js chargé — v6.0.1 (Fix robustesse JSON)');
