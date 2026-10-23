@@ -1,8 +1,7 @@
 // js/orders.js
 // ============================================================
 // GESTION DES COMMANDES - SMART SWI9A
-// Version 6.0.0 — Timeline 4 étapes + Auto-Sync Speedaf
-//                 + Auto-Pay COD + Bouton Payé/Non Payé
+// Version 6.0.1 — Fix parsing JSON (Gestion erreurs HTML 500/530)
 // ============================================================
 
 import {
@@ -427,6 +426,14 @@ export async function sendToSpeedafAPI(order) {
             body: JSON.stringify(payload)
         });
 
+        // ✅ FIX 6.0.1 : Vérification du Content-Type pour éviter le crash si Cloudflare renvoie du HTML
+        const contentType = response.headers.get("content-type");
+        if (!contentType || !contentType.includes("application/json")) {
+            const htmlError = await response.text();
+            console.error("❌ Réponse NON-JSON reçue de Cloudflare :", htmlError.substring(0, 500));
+            throw new Error(`Le serveur a renvoyé une erreur (Code ${response.status}). Vérifiez les logs du Worker.`);
+        }
+
         const data = await response.json();
         console.log('📨 Speedaf create response:', JSON.stringify(data, null, 2));
 
@@ -438,6 +445,7 @@ export async function sendToSpeedafAPI(order) {
             };
         }
 
+        // ✅ Extraction propre du message d'erreur
         let errorMsg = "Erreur inconnue";
         if (data.error) {
             if (typeof data.error === 'string') errorMsg = data.error;
@@ -495,7 +503,7 @@ export async function cancelSpeedafShipment(trackingNumber) {
 
 // ============================================================
 // 🚀 SPEEDAF — SYNC STATUS
-// ✅ NOUVEAU : délègue à updateOrderStatus (Auto-Pay activé)
+// ✅ Délègue à updateOrderStatus (Auto-Pay activé)
 // ============================================================
 export async function syncSpeedafStatus(orderId) {
     if (isTestMode()) {
@@ -539,7 +547,6 @@ export async function syncSpeedafStatus(orderId) {
             return { success: true, updated: false, currentStatus: latest.actionName || action };
         }
 
-        // ✅ Délègue à updateOrderStatus (qui gère auto-pay + email + notif)
         const updResult = await updateOrderStatus(orderId, newStatus);
         if (!updResult.success) {
             return { success: false, error: updResult.error || 'Erreur updateOrderStatus' };
@@ -619,7 +626,7 @@ async function restoreStockInTransaction(transaction, order, productSnaps, produ
 
 // ============================================================
 // UPDATE ORDER STATUS
-// ✅ NOUVEAU : Auto-Pay COD sur delivered + double notification
+// ✅ Auto-Pay COD sur delivered + double notification
 // ============================================================
 export async function updateOrderStatus(orderId, newStatus) {
     try {
@@ -789,7 +796,7 @@ async function deleteOrderCompletely(orderId) {
 }
 
 // ============================================================
-// ✅ NOUVEAU : BASCULER LE STATUT DE PAIEMENT (admin)
+// BASCULER LE STATUT DE PAIEMENT (admin)
 // ============================================================
 export async function updatePaymentStatus(orderId, newStatus) {
     try {
@@ -811,7 +818,6 @@ export async function updatePaymentStatus(orderId, newStatus) {
 
 // ============================================================
 // ADMIN : RENDRE LES COMMANDES
-// ✅ NOUVEAU : Bouton Payé / Non Payé
 // ============================================================
 export async function renderAdminOrders(containerId = 'ordersList') {
     const container = document.getElementById(containerId);
@@ -945,7 +951,6 @@ export async function renderAdminOrders(containerId = 'ordersList') {
         });
     });
 
-    // ✅ Bouton Payé/Non Payé
     container.querySelectorAll('[data-action="toggle-payment"]').forEach(btn => {
         btn.addEventListener('click', async () => {
             const orderId = btn.dataset.id;
@@ -1230,20 +1235,13 @@ async function processReturnTransaction(order, returnsToProcess) {
 }
 
 // ============================================================
-// ✅ NOUVEAU : SYNC AUTOMATIQUE EN ARRIÈRE-PLAN (Throttle 5 min)
+// SYNC AUTOMATIQUE EN ARRIÈRE-PLAN (Throttle 5 min)
 // ============================================================
 const AUTO_SYNC_THROTTLE_MS = 5 * 60 * 1000;
 const AUTO_SYNC_STORAGE_PREFIX = 'swi9a_sync_';
 
 let _autoSyncInProgress = false;
 
-/**
- * Synchronise en arrière-plan les commandes actives avec Speedaf.
- * Throttle : 1 appel max par commande toutes les 5 minutes (via localStorage).
- *
- * @param {Array} orders - Liste des commandes à vérifier
- * @param {Function|null} onComplete - Callback appelé si ≥1 commande mise à jour
- */
 export async function autoSyncActiveOrders(orders, onComplete = null) {
     if (isTestMode()) {
         console.log('🧪 [TEST] autoSyncActiveOrders désactivé en mode test');
@@ -1328,7 +1326,6 @@ export async function renderUserOrders(containerId = 'tabContent') {
             return;
         }
 
-        // ✅ Auto-sync en arrière-plan (throttled) — re-render si updates
         autoSyncActiveOrders(orders, () => {
             const c = document.getElementById(containerId);
             if (c) renderUserOrders(containerId);
@@ -1361,7 +1358,6 @@ export async function renderUserOrders(containerId = 'tabContent') {
                    </a>`
                 : '';
 
-            // ✅ Timeline 4 étapes (done ✓, current emoji, future emoji)
             const timelineSteps = getOrderTimelineSteps(status);
             const timelineHtml = `
                 <div class="order-timeline" style="margin:1rem 0; padding:0.8rem 0.3rem;">
@@ -1495,4 +1491,4 @@ export async function openOrderDetails(orderId, isAdmin = false) {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ orders.js chargé — v6.0.0 (Timeline + Auto-Sync + Auto-Pay + Paiement)');
+console.log('✅ orders.js chargé — v6.0.1 (Fix parsing JSON HTML)');
