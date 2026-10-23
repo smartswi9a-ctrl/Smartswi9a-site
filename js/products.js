@@ -1,18 +1,7 @@
 // js/products.js
 // ============================================================
 // GESTION DES PRODUITS - SMART SWI9A
-// Version 3.5.0 — Scroll buttons catégories (desktop)
-//                 + Compatible RTL + Auto-hide sur mobile
-// ============================================================
-// CHANGEMENTS v3.5.0 :
-// ✨ NOUVEAU — Boutons < / > transparents sur les 2 bandes catégories
-//             (parents + sous-catégories) style .banner-nav
-// ✨ NOUVEAU — Scroll smooth de 300px par clic
-// ✨ NOUVEAU — Boutons auto-masqués sur mobile et si pas de débordement
-// ✨ NOUVEAU — Boutons grisés aux extrémités (disabled)
-// 🔒 INCHANGÉ — Toute la logique existante (filtres, tri, produits,
-//              favoris, stats, navigation)
-// 🔒 INCHANGÉ — restoreScrollPosition() pour compatibilité RTL
+// Version 8.0.0 — Marketplace (Badges Vendeurs + Analytics)
 // ============================================================
 
 import {
@@ -20,17 +9,14 @@ import {
 } from "firebase/firestore";
 import { db } from "./firebase.js";
 import {
-    CONFIG, CATEGORIES, SORT_OPTIONS,
-    CATEGORY_GROUPS,
-    productMatchesCategory,
-    getCategoryById,
-    normalizeCategory
+    CONFIG, CATEGORIES, SORT_OPTIONS, CATEGORY_GROUPS,
+    productMatchesCategory, getCategoryById, normalizeCategory,
+    getProductOwner
 } from "./config.js";
 import {
     t, escapeHTML, getProductName, getProductDesc, getProductImageUrl,
     getFallbackImage, getLang, fetchWithRetry, firestoreWithRetry,
-    getDiscountPercent,
-    toDate
+    getDiscountPercent, toDate
 } from "./utils.js";
 import {
     getProducts, setProducts, getFilters, setFilters, resetFilters,
@@ -40,6 +26,7 @@ import {
     getCurrentUser, saveUserProfile, setCurrentUser
 } from "./auth.js";
 import { showToast } from "./ui-core.js";
+import { preloadVendorNames, getProductVendorLabelSync } from "./vendor-attribution.js";
 
 // ============================================================
 // CACHE STATS AVIS
@@ -49,8 +36,6 @@ const STATS_CACHE_TTL = 60 * 1000;
 const STATS_CACHE_MAX = 100;
 
 let _renderRequestId = 0;
-
-// Mémorisation de l'état précédent pour détecter les changements
 let _lastRenderedParentId = null;
 let _lastRenderedLang = null;
 
@@ -65,10 +50,7 @@ if (typeof document !== 'undefined') {
 }
 
 // ============================================================
-// ✅ CSS INJECTION (une seule fois)
-// ------------------------------------------------------------
-// Style des boutons scroll catégories — identique aux .banner-nav
-// des carrousels promo/nouveautés pour cohérence visuelle.
+// CSS INJECTION (inchangé)
 // ============================================================
 const CATEGORIES_SCROLL_CSS_ID = 'categories-scroll-css';
 
@@ -79,128 +61,52 @@ function injectCategoriesScrollCSS() {
     const style = document.createElement('style');
     style.id = CATEGORIES_SCROLL_CSS_ID;
     style.textContent = `
-        /* Wrapper relatif autour de chaque bande */
-        .categories-scroll-wrapper {
-            position: relative;
-            width: 100%;
-        }
-
-        /* Boutons scroll gauche / droite (style banner-nav) */
+        .categories-scroll-wrapper { position: relative; width: 100%; }
         .categories-scroll-btn {
-            position: absolute;
-            top: 50%;
-            transform: translateY(-50%);
-            width: 34px;
-            height: 34px;
-            border-radius: 50%;
+            position: absolute; top: 50%; transform: translateY(-50%);
+            width: 34px; height: 34px; border-radius: 50%;
             background: rgba(var(--gold-rgb, 212, 163, 75), 0.15);
             border: 1px solid var(--border-gold, rgba(180, 130, 40, 0.4));
-            color: var(--gold, #a57b2e);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            z-index: 10;
-            transition: all 0.2s ease;
-            font-size: 1.2rem;
-            font-weight: 700;
-            line-height: 1;
-            padding: 0;
-            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
-            backdrop-filter: blur(4px);
-            -webkit-backdrop-filter: blur(4px);
+            color: var(--gold, #a57b2e); display: flex; align-items: center; justify-content: center;
+            cursor: pointer; z-index: 10; transition: all 0.2s ease; font-size: 1.2rem;
+            font-weight: 700; line-height: 1; padding: 0; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+            backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
         }
         .categories-scroll-btn:hover:not(:disabled) {
-            background: var(--gold, #a57b2e);
-            color: #ffffff;
-            transform: translateY(-50%) scale(1.08);
+            background: var(--gold, #a57b2e); color: #ffffff; transform: translateY(-50%) scale(1.08);
             box-shadow: 0 4px 12px rgba(165, 123, 46, 0.35);
         }
-        .categories-scroll-btn:disabled {
-            opacity: 0.35;
-            cursor: not-allowed;
-            pointer-events: none;
-        }
-        .categories-scroll-btn.prev {
-            left: 4px;
-        }
-        .categories-scroll-btn.next {
-            right: 4px;
-        }
-
-        /* RTL : inverser les positions */
-        [dir="rtl"] .categories-scroll-btn.prev {
-            left: auto;
-            right: 4px;
-        }
-        [dir="rtl"] .categories-scroll-btn.next {
-            right: auto;
-            left: 4px;
-        }
-
-        /* Légère marge pour éviter que les items collent aux boutons */
-        .categories-scroll-wrapper .categories-scroll-row {
-            padding-left: 0;
-            padding-right: 0;
-        }
-
-        /* Masquer sur mobile/tablette tactile (swipe natif) */
-        @media (max-width: 900px), (hover: none) {
-            .categories-scroll-btn {
-                display: none !important;
-            }
-        }
-
-        /* Sous-catégories : boutons un peu plus petits */
-        #subFiltersCategories .categories-scroll-btn {
-            width: 28px;
-            height: 28px;
-            font-size: 1rem;
-        }
+        .categories-scroll-btn:disabled { opacity: 0.35; cursor: not-allowed; pointer-events: none; }
+        .categories-scroll-btn.prev { left: 4px; }
+        .categories-scroll-btn.next { right: 4px; }
+        [dir="rtl"] .categories-scroll-btn.prev { left: auto; right: 4px; }
+        [dir="rtl"] .categories-scroll-btn.next { right: auto; left: 4px; }
+        .categories-scroll-wrapper .categories-scroll-row { padding-left: 0; padding-right: 0; }
+        @media (max-width: 900px), (hover: none) { .categories-scroll-btn { display: none !important; } }
+        #subFiltersCategories .categories-scroll-btn { width: 28px; height: 28px; font-size: 1rem; }
     `;
     document.head.appendChild(style);
 }
 
 // ============================================================
-// ✅ SCROLL BUTTONS — LOGIC
+// SCROLL BUTTONS (inchangé)
 // ============================================================
 const SCROLL_STEP = 300;
 let _globalScrollListenersAttached = false;
 
-/**
- * Attache les listeners de click sur les boutons d'un wrapper.
- * Guard : ne pas attacher 2× au même wrapper.
- */
 function attachScrollButtons(wrapper) {
     if (!wrapper || wrapper._scrollBtnsAttached) return;
     wrapper._scrollBtnsAttached = true;
-
     const row = wrapper.querySelector('.categories-scroll-row');
     const prevBtn = wrapper.querySelector('.categories-scroll-btn.prev');
     const nextBtn = wrapper.querySelector('.categories-scroll-btn.next');
     if (!row || !prevBtn || !nextBtn) return;
 
-    prevBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        row.scrollBy({ left: -SCROLL_STEP, behavior: 'smooth' });
-    });
-
-    nextBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        row.scrollBy({ left: SCROLL_STEP, behavior: 'smooth' });
-    });
-
-    // Première mise à jour de visibilité (après layout)
+    prevBtn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); row.scrollBy({ left: -SCROLL_STEP, behavior: 'smooth' }); });
+    nextBtn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); row.scrollBy({ left: SCROLL_STEP, behavior: 'smooth' }); });
     requestAnimationFrame(() => updateScrollBtnVisibility(wrapper));
 }
 
-/**
- * Met à jour l'état disabled / display des boutons d'un wrapper.
- * - Cache si le contenu ne déborde pas
- * - Grise ‹ au début / › à la fin (adapté RTL)
- */
 function updateScrollBtnVisibility(wrapper) {
     if (!wrapper) return;
     const row = wrapper.querySelector('.categories-scroll-row');
@@ -209,43 +115,24 @@ function updateScrollBtnVisibility(wrapper) {
     if (!row || !prevBtn || !nextBtn) return;
 
     const maxScroll = row.scrollWidth - row.clientWidth;
-
-    // Aucun débordement → cacher les 2 boutons
-    if (maxScroll <= 5) {
-        prevBtn.style.display = 'none';
-        nextBtn.style.display = 'none';
-        return;
-    }
-    prevBtn.style.display = '';
-    nextBtn.style.display = '';
+    if (maxScroll <= 5) { prevBtn.style.display = 'none'; nextBtn.style.display = 'none'; return; }
+    prevBtn.style.display = ''; nextBtn.style.display = '';
 
     const isRtl = document.documentElement.dir === 'rtl';
     const sl = row.scrollLeft;
-
-    // En LTR : scrollLeft va de 0 → +maxScroll
-    // En RTL : scrollLeft va de 0 → -maxScroll
     if (isRtl) {
-        prevBtn.disabled = sl <= -maxScroll + 5;  // ‹ désactivé quand au bout à gauche
-        nextBtn.disabled = sl >= -5;               // › désactivé quand au début
+        prevBtn.disabled = sl <= -maxScroll + 5;
+        nextBtn.disabled = sl >= -5;
     } else {
-        prevBtn.disabled = sl <= 5;                // ‹ désactivé quand au début
-        nextBtn.disabled = sl >= maxScroll - 5;    // › désactivé quand au bout à droite
+        prevBtn.disabled = sl <= 5;
+        nextBtn.disabled = sl >= maxScroll - 5;
     }
 }
 
-/**
- * Attache UNE SEULE FOIS les listeners globaux (resize + scroll délégué)
- * pour mettre à jour tous les boutons de toutes les bandes.
- */
 function ensureGlobalScrollListeners() {
     if (_globalScrollListenersAttached) return;
     _globalScrollListenersAttached = true;
-
-    window.addEventListener('resize', () => {
-        document.querySelectorAll('.categories-scroll-wrapper').forEach(updateScrollBtnVisibility);
-    }, { passive: true });
-
-    // Scroll délégué (capture pour catch les scroll events des éléments scrollables)
+    window.addEventListener('resize', () => { document.querySelectorAll('.categories-scroll-wrapper').forEach(updateScrollBtnVisibility); }, { passive: true });
     document.addEventListener('scroll', (e) => {
         const row = e.target;
         if (row && row.classList && row.classList.contains('categories-scroll-row')) {
@@ -255,26 +142,13 @@ function ensureGlobalScrollListeners() {
     }, { passive: true, capture: true });
 }
 
-// ============================================================
-// HELPERS SCROLL — Fix RTL existant (préservé tel quel)
-// ============================================================
 function restoreScrollPosition(row, savedValue, shouldReset) {
     if (!row) return;
-
-    if (shouldReset || savedValue === 0) {
-        row.scrollLeft = 0;
-        return;
-    }
-
-    // Tentative immédiate
+    if (shouldReset || savedValue === 0) { row.scrollLeft = 0; return; }
     row.scrollLeft = savedValue;
-
-    // 2ᵉ tentative après layout (fix Safari/iOS RTL)
     requestAnimationFrame(() => {
         if (!row.isConnected) return;
-        if (Math.abs(row.scrollLeft - savedValue) > 1) {
-            row.scrollLeft = savedValue;
-        }
+        if (Math.abs(row.scrollLeft - savedValue) > 1) row.scrollLeft = savedValue;
     });
 }
 
@@ -283,14 +157,15 @@ function restoreScrollPosition(row, savedValue, shouldReset) {
 // ============================================================
 export async function loadProductsFromFirestore() {
     try {
-        console.log('⏳ Chargement des produits depuis Firestore...');
-        const snapshot = await firestoreWithRetry(async () => {
-            return await getDocs(collection(db, "products"));
-        });
+        const snapshot = await firestoreWithRetry(async () => await getDocs(collection(db, "products")));
 
         const products = [];
         snapshot.forEach(doc => {
             const data = doc.data();
+            
+            // ✅ Vendeurs : on n'affiche que si le produit est approuvé
+            if (data.vendorId && data.vendorId !== 'smartswi9a' && data.status !== 'approved') return;
+
             products.push({
                 id: doc.id,
                 ...data,
@@ -303,7 +178,6 @@ export async function loadProductsFromFirestore() {
             });
         });
 
-        console.log(`✅ ${products.length} produits chargés depuis Firestore.`);
         setProducts(products);
         return products;
     } catch (e) {
@@ -314,14 +188,11 @@ export async function loadProductsFromFirestore() {
 
 export async function loadProductsFromJSON() {
     try {
-        console.log('⏳ Chargement des produits depuis produits.json...');
         const res = await fetchWithRetry('/produits.json');
         const data = await res.json();
-        console.log(`✅ ${data.length} produits chargés depuis JSON.`);
         setProducts(data);
         return data;
     } catch (e) {
-        console.error('❌ Erreur chargement JSON :', e);
         setProducts([]);
         return [];
     }
@@ -332,15 +203,13 @@ export async function loadAllProducts() {
 }
 
 // ============================================================
-// FILTRAGE ET TRI
+// FILTRAGE ET TRI (inchangé)
 // ============================================================
 export function getFilteredProducts() {
     const products = getProducts();
     const filters = getFilters();
     const user = getCurrentUser();
-    const favs = Array.isArray(user?.favorites)
-        ? user.favorites.map(Number).filter(Number.isFinite)
-        : [];
+    const favs = Array.isArray(user?.favorites) ? user.favorites.map(Number).filter(Number.isFinite) : [];
 
     let list = [...products];
 
@@ -360,12 +229,7 @@ export function getFilteredProducts() {
     }
 
     if (filters.inStock) {
-        list = list.filter(p => {
-            if (Array.isArray(p.variants) && p.variants.length > 0) {
-                return p.variants.some(v => (Number(v.stock) || 0) > 0);
-            }
-            return (Number(p.stock) || 0) > 0;
-        });
+        list = list.filter(p => Array.isArray(p.variants) && p.variants.length > 0 ? p.variants.some(v => (Number(v.stock) || 0) > 0) : (Number(p.stock) || 0) > 0);
     }
 
     if (filters.promos) {
@@ -376,21 +240,11 @@ export function getFilteredProducts() {
     if (filters.priceMax < 99999) list = list.filter(p => p.price <= filters.priceMax);
 
     switch (filters.sort) {
-        case 'price-asc':
-            list.sort((a, b) => a.price - b.price);
-            break;
-        case 'price-desc':
-            list.sort((a, b) => b.price - a.price);
-            break;
-        case 'name-asc':
-            list.sort((a, b) => getProductName(a).localeCompare(getProductName(b), getLang()));
-            break;
-        case 'name-desc':
-            list.sort((a, b) => getProductName(b).localeCompare(getProductName(a), getLang()));
-            break;
-        case 'rating':
-            list.sort((a, b) => (b.ratingAvg || 0) - (a.ratingAvg || 0));
-            break;
+        case 'price-asc': list.sort((a, b) => a.price - b.price); break;
+        case 'price-desc': list.sort((a, b) => b.price - a.price); break;
+        case 'name-asc': list.sort((a, b) => getProductName(a).localeCompare(getProductName(b), getLang())); break;
+        case 'name-desc': list.sort((a, b) => getProductName(b).localeCompare(getProductName(a), getLang())); break;
+        case 'rating': list.sort((a, b) => (b.ratingAvg || 0) - (a.ratingAvg || 0)); break;
         default:
             list.sort((a, b) => {
                 const da = toDate(a.createdAt)?.getTime() || 0;
@@ -398,13 +252,9 @@ export function getFilteredProducts() {
                 return dbb - da;
             });
     }
-
     return list;
 }
 
-// ============================================================
-// PAGINATION
-// ============================================================
 export function getPaginatedProducts() {
     const filtered = getFilteredProducts();
     const pagination = getPagination();
@@ -427,7 +277,7 @@ export function goToPage(page) {
 }
 
 // ============================================================
-// SETTERS DE FILTRES
+// SETTERS DE FILTRES (inchangé)
 // ============================================================
 export function setCategory(category) {
     setFilters({ category });
@@ -436,35 +286,11 @@ export function setCategory(category) {
     renderCategoryFilters();
 }
 
-export function setSort(sort) {
-    setFilters({ sort });
-    setPagination({ currentPage: 1 });
-    renderProducts();
-}
-
-export function setSearch(search) {
-    setFilters({ search });
-    setPagination({ currentPage: 1 });
-    renderProducts();
-}
-
-export function setInStock(inStock) {
-    setFilters({ inStock });
-    setPagination({ currentPage: 1 });
-    renderProducts();
-}
-
-export function setPromos(promos) {
-    setFilters({ promos });
-    setPagination({ currentPage: 1 });
-    renderProducts();
-}
-
-export function setPriceRange(min, max) {
-    setFilters({ priceMin: min, priceMax: max });
-    setPagination({ currentPage: 1 });
-    renderProducts();
-}
+export function setSort(sort) { setFilters({ sort }); setPagination({ currentPage: 1 }); renderProducts(); }
+export function setSearch(search) { setFilters({ search }); setPagination({ currentPage: 1 }); renderProducts(); }
+export function setInStock(inStock) { setFilters({ inStock }); setPagination({ currentPage: 1 }); renderProducts(); }
+export function setPromos(promos) { setFilters({ promos }); setPagination({ currentPage: 1 }); renderProducts(); }
+export function setPriceRange(min, max) { setFilters({ priceMin: min, priceMax: max }); setPagination({ currentPage: 1 }); renderProducts(); }
 
 export function clearAllFilters() {
     resetFilters();
@@ -474,55 +300,21 @@ export function clearAllFilters() {
 }
 
 // ============================================================
-// RECHERCHE
+// HELPERS PRODUITS
 // ============================================================
-export function getProductBySlug(slug) {
-    if (!slug) return null;
-    return getProducts().find(p => p.slug === slug) || null;
-}
+export function getProductBySlug(slug) { return !slug ? null : getProducts().find(p => p.slug === slug) || null; }
+export function getProductById(id) { return !id ? null : getProducts().find(p => String(p.id) === String(id)) || null; }
 
-export function getProductById(id) {
-    if (!id) return null;
-    return getProducts().find(p => String(p.id) === String(id)) || null;
-}
-
-// ============================================================
-// NOUVEAUTÉS & PROMOS
-// ============================================================
 export function getNewProducts(limit = 10, onlyInStock = true) {
     let products = getProducts().filter(p => p.isNew === true);
-
-    if (onlyInStock) {
-        products = products.filter(p => {
-            if (Array.isArray(p.variants) && p.variants.length > 0) {
-                return p.variants.some(v => (Number(v.stock) || 0) > 0);
-            }
-            return (Number(p.stock) || 0) > 0;
-        });
-    }
-
-    products.sort((a, b) => {
-        const da = toDate(a.createdAt)?.getTime() || 0;
-        const dbb = toDate(b.createdAt)?.getTime() || 0;
-        return dbb - da;
-    });
+    if (onlyInStock) products = products.filter(p => Array.isArray(p.variants) && p.variants.length > 0 ? p.variants.some(v => (Number(v.stock) || 0) > 0) : (Number(p.stock) || 0) > 0);
+    products.sort((a, b) => (toDate(b.createdAt)?.getTime() || 0) - (toDate(a.createdAt)?.getTime() || 0));
     return products.slice(0, limit);
 }
 
 export function getPromoProducts(onlyInStock = true) {
-    let products = getProducts().filter(p =>
-        p.oldPrice && Number(p.oldPrice) > Number(p.price)
-    );
-
-    if (onlyInStock) {
-        products = products.filter(p => {
-            if (Array.isArray(p.variants) && p.variants.length > 0) {
-                return p.variants.some(v => (Number(v.stock) || 0) > 0);
-            }
-            return (Number(p.stock) || 0) > 0;
-        });
-    }
-
+    let products = getProducts().filter(p => p.oldPrice && Number(p.oldPrice) > Number(p.price));
+    if (onlyInStock) products = products.filter(p => Array.isArray(p.variants) && p.variants.length > 0 ? p.variants.some(v => (Number(v.stock) || 0) > 0) : (Number(p.stock) || 0) > 0);
     return products.sort((a, b) => {
         const da = a.oldPrice > 0 ? (a.oldPrice - a.price) / a.oldPrice : 0;
         const dbb = b.oldPrice > 0 ? (b.oldPrice - b.price) / b.oldPrice : 0;
@@ -530,16 +322,8 @@ export function getPromoProducts(onlyInStock = true) {
     });
 }
 
-// ============================================================
-// STATS DES AVIS (avec cache)
-// ============================================================
 export async function getProductStatsBatch(productIds) {
     if (!Array.isArray(productIds) || productIds.length === 0) return {};
-
-    if (productIds.length > 30) {
-        console.warn(`⚠️ getProductStatsBatch: ${productIds.length} IDs fournis (max 30 Firestore 'in') — troncature`);
-    }
-
     const ids = productIds.slice(0, 30).map(Number).filter(Number.isFinite);
     if (ids.length === 0) return {};
 
@@ -549,21 +333,14 @@ export async function getProductStatsBatch(productIds) {
 
     ids.forEach(pid => {
         const cached = _statsCache.get(pid);
-        if (cached && (now - cached.timestamp) < STATS_CACHE_TTL) {
-            result[pid] = cached.stats;
-        } else {
-            toFetch.push(pid);
-        }
+        if (cached && (now - cached.timestamp) < STATS_CACHE_TTL) result[pid] = cached.stats;
+        else toFetch.push(pid);
     });
 
     if (toFetch.length === 0) return result;
 
     try {
-        const q = query(
-            collection(db, "reviews"),
-            where("productId", "in", toFetch),
-            where("status", "==", "approved")
-        );
+        const q = query(collection(db, "reviews"), where("productId", "in", toFetch), where("status", "==", "approved"));
         const snap = await getDocs(q);
 
         const ratings = {};
@@ -579,27 +356,20 @@ export async function getProductStatsBatch(productIds) {
 
         toFetch.forEach(pid => {
             const stat = ratings[pid];
-            const stats = stat.count > 0
-                ? { avg: (stat.sum / stat.count).toFixed(1), count: stat.count }
-                : { avg: null, count: 0 };
+            const stats = stat.count > 0 ? { avg: (stat.sum / stat.count).toFixed(1), count: stat.count } : { avg: null, count: 0 };
             result[pid] = stats;
-
             if (_statsCache.size >= STATS_CACHE_MAX) {
                 const firstKey = _statsCache.keys().next().value;
                 if (firstKey !== undefined) _statsCache.delete(firstKey);
             }
             _statsCache.set(pid, { stats, timestamp: now });
         });
-
         return result;
-    } catch (e) {
-        console.warn('⚠️ Erreur getProductStatsBatch :', e);
-        return result;
-    }
+    } catch (e) { return result; }
 }
 
 // ============================================================
-// RENDU DE LA GRILLE
+// RENDU DE LA GRILLE (Avec Badge Vendeur)
 // ============================================================
 export async function renderProducts() {
     const grid = document.getElementById('productsGrid');
@@ -607,19 +377,14 @@ export async function renderProducts() {
 
     const thisRequest = ++_renderRequestId;
 
-    grid.innerHTML = `
-        <div style="grid-column:1/-1;text-align:center;padding:3rem 1rem;">
-            <div class="spinner" style="margin:0 auto;"></div>
-        </div>
-    `;
-
+    grid.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:3rem 1rem;"><div class="spinner" style="margin:0 auto;"></div></div>`;
     const paginationEl = document.getElementById('paginationContainer');
     if (paginationEl) paginationEl.innerHTML = '';
 
+    await preloadVendorNames(); // Charger les noms des boutiques
+
     const user = getCurrentUser();
-    const favs = Array.isArray(user?.favorites)
-        ? user.favorites.map(Number).filter(Number.isFinite)
-        : [];
+    const favs = Array.isArray(user?.favorites) ? user.favorites.map(Number).filter(Number.isFinite) : [];
 
     const pageProducts = getPaginatedProducts();
     const totalPages = getTotalPages();
@@ -636,12 +401,7 @@ export async function renderProducts() {
         if (filters.category === 'favorites') emptyMessage = t('noFavorites');
         else if (filters.category !== 'all') emptyMessage = t('noProductsInCategory');
 
-        grid.innerHTML = `
-            <div style="text-align:center;padding:3rem 1rem;color:var(--text-muted);grid-column:1/-1;font-size:0.95rem;">
-                <div style="font-size:3rem;margin-bottom:1rem;line-height:1;">🔍</div>
-                <p style="margin:0;">${emptyMessage}</p>
-            </div>
-        `;
+        grid.innerHTML = `<div style="text-align:center;padding:3rem 1rem;color:var(--text-muted);grid-column:1/-1;font-size:0.95rem;"><div style="font-size:3rem;margin-bottom:1rem;">🔍</div><p style="margin:0;">${emptyMessage}</p></div>`;
         return;
     }
 
@@ -661,25 +421,27 @@ export async function renderProducts() {
         const isNew = p.isNew || false;
         const discountPercent = getDiscountPercent(oldPrice, price);
 
-        const hasVariants = Array.isArray(p.variants) && p.variants.length > 0;
-        const optionsBadge = hasVariants
-            ? `<span class="badge" style="background:var(--info);color:#fff;font-size:0.6rem;padding:0.15rem 0.4rem;border-radius:30px;position:absolute;top:0.5rem;right:0.5rem;z-index:2;">⚙️ Options</span>`
-            : '';
+        // ✅ ATTRIBUTION VENDEUR
+        const vendorInfo = getProductVendorLabelSync(p);
+        const vendorOwner = p.vendorId && p.vendorId !== 'smartswi9a' ? p.vendorId : null;
+        
+        const vendorBadgeHtml = vendorInfo.type === 'smart'
+            ? `<div style="font-size:0.68rem;color:var(--gold);font-weight:700;margin-top:0.2rem;">✅ ${t('vendorSmartSwi9a') || 'Smart Swi9a'}</div>`
+            : `<a href="/boutique.html?v=${encodeURIComponent(vendorOwner || '')}" style="font-size:0.68rem;color:#6b46c1;font-weight:700;text-decoration:none;display:block;margin-top:0.2rem;background:rgba(107,70,193,0.1);padding:2px 6px;border-radius:4px;width:max-content;" onclick="event.stopPropagation();">🏪 ${escapeHTML(vendorInfo.name)}</a>`;
 
+        const hasVariants = Array.isArray(p.variants) && p.variants.length > 0;
+        const optionsBadge = hasVariants ? `<span class="badge" style="background:var(--info);color:#fff;font-size:0.6rem;padding:0.15rem 0.4rem;border-radius:30px;position:absolute;top:0.5rem;right:0.5rem;z-index:2;">⚙️ Options</span>` : '';
         const r = stats[pid] || { avg: null, count: 0 };
         const hasReviews = r.count > 0;
         const avgRating = hasReviews ? r.avg : '--';
         const reviewCount = r.count || 0;
-
         const favAriaLabel = isFav ? t('favRemoved') : t('favAdded');
 
         const btnHtml = hasVariants
-            ? `<button class="btn-choose-options" data-slug="${escapeHTML(p.slug || '')}" style="background:var(--gold);color:#fff;border:none;padding:0.3rem 0.7rem;border-radius:30px;font-size:0.7rem;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:0.3rem;">⚙️ ${t('chooseOptions') || 'Choisir les options'}</button>`
+            ? `<button class="btn-choose-options" data-slug="${escapeHTML(p.slug || '')}" style="background:var(--gold);color:#fff;border:none;padding:0.3rem 0.7rem;border-radius:30px;font-size:0.7rem;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:0.3rem;">⚙️ ${t('chooseOptions') || 'Choisir'}</button>`
             : `<button class="btn-add-to-cart" data-id="${pid}">🛒 ${t('addToCart')}</button>`;
 
-        const isOutOfStock = hasVariants
-            ? !p.variants.some(v => (Number(v.stock) || 0) > 0)
-            : stock === 0;
+        const isOutOfStock = hasVariants ? !p.variants.some(v => (Number(v.stock) || 0) > 0) : stock === 0;
 
         html += `
             <div class="product-card" data-id="${pid}" data-slug="${escapeHTML(p.slug || '')}">
@@ -693,6 +455,7 @@ export async function renderProducts() {
                 </div>
                 <div class="product-body">
                     <div class="p-name">${name}</div>
+                    ${vendorBadgeHtml}
                     <div class="p-desc">${desc}</div>
                     <div class="p-stats">⭐ ${avgRating} <span style="color:var(--text-muted)">(${reviewCount})</span></div>
                     <div class="p-footer">
@@ -711,9 +474,7 @@ export async function renderProducts() {
             e.preventDefault();
             e.stopPropagation();
             const slug = btn.dataset.slug;
-            if (slug) {
-                window.location.href = `/produit?slug=${encodeURIComponent(slug)}`;
-            }
+            if (slug) window.location.href = `/produit?slug=${encodeURIComponent(slug)}`;
         });
     });
 
@@ -730,29 +491,22 @@ export async function renderProducts() {
 }
 
 // ============================================================
-// ✅ RENDU DES CATÉGORIES (avec scroll buttons)
-// ------------------------------------------------------------
-// FIX RTL : scroll restauré (parents) / reset si parent change
-// FIX v3.5.0 : wrappers + boutons < / > sur les 2 bandes
+// RENDU DES CATÉGORIES (inchangé)
 // ============================================================
 export function renderCategoryFilters() {
     const mainContainer = document.getElementById('filtersCategories');
     if (!mainContainer) return;
 
-    // ✅ Injecter le CSS une seule fois
     injectCategoriesScrollCSS();
     ensureGlobalScrollListeners();
 
     const filters = getFilters();
     const activeCat = filters.category || 'all';
     const activeCatObj = getCategoryById(activeCat);
-
     const activeParentId = activeCatObj?.parentId || (activeCatObj?.isParent ? activeCatObj.id : null);
 
-    // ✅ Sauvegarder les scrolls AVANT mutation DOM
     const oldParentRow = mainContainer.querySelector('.categories-scroll-row');
     const savedParentScroll = oldParentRow ? oldParentRow.scrollLeft : 0;
-
     const oldChildContainer = document.getElementById('subFiltersCategories');
     const oldChildRow = oldChildContainer?.querySelector('.categories-scroll-row');
     const savedChildScroll = oldChildRow ? oldChildRow.scrollLeft : 0;
@@ -762,63 +516,28 @@ export function renderCategoryFilters() {
     const parentChanged = _lastRenderedParentId !== activeParentId;
     const shouldResetChildScroll = parentChanged || langChanged;
 
-    // ============================================
-    // BANDE 1 : PARENTS (avec wrapper + boutons)
-    // ============================================
     let parentItemsHtml = '';
+    parentItemsHtml += `<button class="category-scroll-item ${activeCat === 'all' ? 'active' : ''}" data-action="products:filter" data-category="all"><div class="category-scroll-img" style="background:var(--bg-surface);font-size:1.8rem;">🛍️</div><span class="category-scroll-label">${t('filterAll')}</span></button>`;
+    parentItemsHtml += `<button class="category-scroll-item ${activeCat === 'favorites' ? 'active' : ''}" data-action="products:filter" data-category="favorites"><div class="category-scroll-img" style="background:var(--bg-surface);font-size:1.8rem;">❤️</div><span class="category-scroll-label">${t('filterFavorites')}</span></button>`;
 
-    // Bouton "Tout"
-    parentItemsHtml += `
-        <button class="category-scroll-item ${activeCat === 'all' ? 'active' : ''}" data-action="products:filter" data-category="all">
-            <div class="category-scroll-img" style="background:var(--bg-surface);font-size:1.8rem;">🛍️</div>
-            <span class="category-scroll-label">${t('filterAll')}</span>
-        </button>
-    `;
-
-    // Bouton "Favoris"
-    parentItemsHtml += `
-        <button class="category-scroll-item ${activeCat === 'favorites' ? 'active' : ''}" data-action="products:filter" data-category="favorites">
-            <div class="category-scroll-img" style="background:var(--bg-surface);font-size:1.8rem;">❤️</div>
-            <span class="category-scroll-label">${t('filterFavorites')}</span>
-        </button>
-    `;
-
-    // 23 catégories parents
     CATEGORY_GROUPS.forEach(group => {
         const isActive = activeCat === group.id || activeParentId === group.id;
         const imgPath = `/assets/${group.id}.webp`;
         parentItemsHtml += `
             <button class="category-scroll-item ${isActive ? 'active' : ''}" data-action="products:filter" data-category="${group.id}">
-                <div class="category-scroll-img">
-                    <img src="${imgPath}" alt="${t(group.label)}" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                    <div class="category-scroll-fallback" style="display:none;">${group.emoji}</div>
-                </div>
+                <div class="category-scroll-img"><img src="${imgPath}" alt="${t(group.label)}" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"><div class="category-scroll-fallback" style="display:none;">${group.emoji}</div></div>
                 <span class="category-scroll-label">${t(group.label)}</span>
             </button>
         `;
     });
 
-    mainContainer.innerHTML = `
-        <div class="categories-scroll-wrapper" id="parentScrollWrapper">
-            <button class="categories-scroll-btn prev" data-scroll-btn="parent" aria-label="Précédent">‹</button>
-            <div class="categories-scroll-row" id="parentScrollRow">
-                ${parentItemsHtml}
-            </div>
-            <button class="categories-scroll-btn next" data-scroll-btn="parent" aria-label="Suivant">›</button>
-        </div>
-    `;
+    mainContainer.innerHTML = `<div class="categories-scroll-wrapper" id="parentScrollWrapper"><button class="categories-scroll-btn prev" data-scroll-btn="parent" aria-label="Précédent">‹</button><div class="categories-scroll-row" id="parentScrollRow">${parentItemsHtml}</div><button class="categories-scroll-btn next" data-scroll-btn="parent" aria-label="Suivant">›</button></div>`;
 
-    // ✅ Restauration du scroll parents (LTR + RTL)
     const newParentRow = document.getElementById('parentScrollRow');
     restoreScrollPosition(newParentRow, savedParentScroll, langChanged);
-
-    // ✅ Attach scroll buttons sur la bande parents
     const parentWrapper = document.getElementById('parentScrollWrapper');
     if (parentWrapper) attachScrollButtons(parentWrapper);
 
-    // ============================================
-    // BANDE 2 : ENFANTS (avec wrapper + boutons)
-    // ============================================
     let childContainer = document.getElementById('subFiltersCategories');
     if (!childContainer) {
         childContainer = document.createElement('div');
@@ -831,47 +550,24 @@ export function renderCategoryFilters() {
         const parentGroup = CATEGORY_GROUPS.find(g => g.id === activeParentId);
         if (parentGroup && parentGroup.children.length > 0) {
             let childItemsHtml = '';
-
-            // Bouton "Tout [Parent]"
-            childItemsHtml += `
-                <button class="category-scroll-item child-item ${activeCat === parentGroup.id ? 'active' : ''}" data-action="products:filter" data-category="${parentGroup.id}">
-                    <div class="category-scroll-img" style="border-style:dashed; border-color:var(--gold);">
-                        <span style="font-size:1.5rem;color:var(--gold);">↳</span>
-                    </div>
-                    <span class="category-scroll-label" style="color:var(--gold);">Tout</span>
-                </button>
-            `;
+            childItemsHtml += `<button class="category-scroll-item child-item ${activeCat === parentGroup.id ? 'active' : ''}" data-action="products:filter" data-category="${parentGroup.id}"><div class="category-scroll-img" style="border-style:dashed; border-color:var(--gold);"><span style="font-size:1.5rem;color:var(--gold);">↳</span></div><span class="category-scroll-label" style="color:var(--gold);">Tout</span></button>`;
 
             parentGroup.children.forEach(child => {
                 const isActive = activeCat === child.id;
                 const imgPath = `/assets/${child.id}.webp`;
                 childItemsHtml += `
                     <button class="category-scroll-item child-item ${isActive ? 'active' : ''}" data-action="products:filter" data-category="${child.id}">
-                        <div class="category-scroll-img">
-                            <img src="${imgPath}" alt="${t(child.label)}" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                            <div class="category-scroll-fallback" style="display:none;">${child.emoji}</div>
-                        </div>
+                        <div class="category-scroll-img"><img src="${imgPath}" alt="${t(child.label)}" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"><div class="category-scroll-fallback" style="display:none;">${child.emoji}</div></div>
                         <span class="category-scroll-label">${t(child.label)}</span>
                     </button>
                 `;
             });
 
-            childContainer.innerHTML = `
-                <div class="categories-scroll-wrapper" id="childScrollWrapper">
-                    <button class="categories-scroll-btn prev" data-scroll-btn="child" aria-label="Précédent">‹</button>
-                    <div class="categories-scroll-row sub-row" id="childScrollRow">
-                        ${childItemsHtml}
-                    </div>
-                    <button class="categories-scroll-btn next" data-scroll-btn="child" aria-label="Suivant">›</button>
-                </div>
-            `;
+            childContainer.innerHTML = `<div class="categories-scroll-wrapper" id="childScrollWrapper"><button class="categories-scroll-btn prev" data-scroll-btn="child" aria-label="Précédent">‹</button><div class="categories-scroll-row sub-row" id="childScrollRow">${childItemsHtml}</div><button class="categories-scroll-btn next" data-scroll-btn="child" aria-label="Suivant">›</button></div>`;
             childContainer.style.display = 'block';
 
-            // ✅ Restauration du scroll enfants (LTR + RTL)
             const newChildRow = document.getElementById('childScrollRow');
             restoreScrollPosition(newChildRow, savedChildScroll, shouldResetChildScroll);
-
-            // ✅ Attach scroll buttons sur la bande enfants
             const childWrapper = document.getElementById('childScrollWrapper');
             if (childWrapper) attachScrollButtons(childWrapper);
         } else {
@@ -882,15 +578,10 @@ export function renderCategoryFilters() {
         childContainer.style.display = 'none';
         childContainer.innerHTML = '';
     }
-
-    // ✅ Mémoriser l'état pour la prochaine comparaison
     _lastRenderedParentId = activeParentId;
     _lastRenderedLang = currentLang;
 }
 
-// ============================================================
-// RENDU DU SELECT DE TRI
-// ============================================================
 export function renderSortOptions() {
     const select = document.getElementById('sortSelect');
     if (!select) return;
@@ -898,22 +589,14 @@ export function renderSortOptions() {
 
     const currentValue = select.value || 'default';
     let html = '';
-    SORT_OPTIONS.forEach(opt => {
-        html += `<option value="${opt.value}">${t(opt.label)}</option>`;
-    });
+    SORT_OPTIONS.forEach(opt => { html += `<option value="${opt.value}">${t(opt.label)}</option>`; });
     select.innerHTML = html;
 
-    if ([...select.options].some(o => o.value === currentValue)) {
-        select.value = currentValue;
-    }
+    if ([...select.options].some(o => o.value === currentValue)) select.value = currentValue;
 }
 
-// ============================================================
-// TOGGLE FAVORI (arrayUnion/arrayRemove — atomique)
-// ============================================================
 export async function toggleFavorite(productId) {
     const user = getCurrentUser();
-
     if (!user || !user.uid) {
         showToast('🔒 ' + t('loginRequired'));
         document.dispatchEvent(new CustomEvent('open-account'));
@@ -921,14 +604,9 @@ export async function toggleFavorite(productId) {
     }
 
     const pid = Number(productId);
-    if (!Number.isFinite(pid)) {
-        console.warn('⚠️ toggleFavorite : ID invalide', productId);
-        return;
-    }
+    if (!Number.isFinite(pid)) return;
 
-    const currentFavs = Array.isArray(user.favorites)
-        ? user.favorites.map(Number).filter(Number.isFinite)
-        : [];
+    const currentFavs = Array.isArray(user.favorites) ? user.favorites.map(Number).filter(Number.isFinite) : [];
     const isAdding = !currentFavs.includes(pid);
 
     try {
@@ -936,32 +614,19 @@ export async function toggleFavorite(productId) {
             favorites: isAdding ? arrayUnion(pid) : arrayRemove(pid)
         });
 
-        const newFavs = isAdding
-            ? [...new Set([...currentFavs, pid])]
-            : currentFavs.filter(id => id !== pid);
-
+        const newFavs = isAdding ? [...new Set([...currentFavs, pid])] : currentFavs.filter(id => id !== pid);
         setCurrentUser({ ...user, favorites: newFavs });
-
         showToast(isAdding ? '❤️ ' + t('favAdded') : '💔 ' + t('favRemoved'));
 
-        if (document.getElementById('productsGrid')) {
-            await renderProducts();
-        }
+        if (document.getElementById('productsGrid')) await renderProducts();
     } catch (e) {
-        console.error('❌ toggleFavorite :', e);
         showToast('❌ ' + t('error'));
     }
 }
 
-// ============================================================
-// NAVIGATION VERS PAGE PRODUIT
-// ============================================================
 export function openProductPage(slug) {
     if (!slug) return;
     window.location.href = `/produit?slug=${encodeURIComponent(slug)}`;
 }
 
-// ============================================================
-// LOG
-// ============================================================
-console.log('✅ products.js chargé — v3.5.0 (scroll buttons catégories)');
+console.log('✅ products.js chargé — v8.0.0 (Marketplace)');
