@@ -1,7 +1,7 @@
 // js/products.js
 // ============================================================
 // GESTION DES PRODUITS - SMART SWI9A
-// Version 8.0.0 — Marketplace (Badges Vendeurs + Analytics)
+// Version 8.1.0 — Marketplace (correctifs E10/E13/IDs strings)
 // ============================================================
 
 import {
@@ -26,7 +26,11 @@ import {
     getCurrentUser, saveUserProfile, setCurrentUser
 } from "./auth.js";
 import { showToast } from "./ui-core.js";
-import { preloadVendorNames, getProductVendorLabelSync } from "./vendor-attribution.js";
+// B1 : import de la version ciblée (vendorsPublic), plus de preloadVendorNames
+import {
+    preloadVendorsForProducts,
+    getProductVendorLabelSync
+} from "./vendor-attribution.js";
 
 // ============================================================
 // CACHE STATS AVIS
@@ -38,6 +42,17 @@ const STATS_CACHE_MAX = 100;
 let _renderRequestId = 0;
 let _lastRenderedParentId = null;
 let _lastRenderedLang = null;
+
+// ============================================================
+// NORMALISATION D'ID PRODUIT
+// Préserve les IDs numériques (compat favoris/reviews existants)
+// et accepte les IDs Firestore alphanumériques (produits vendeurs).
+// ============================================================
+function normalizeProductId(id) {
+    if (id == null || id === '') return null;
+    const n = Number(id);
+    return Number.isFinite(n) && String(n) === String(id) ? n : String(id);
+}
 
 if (typeof document !== 'undefined') {
     document.addEventListener('review-submitted', (e) => {
@@ -159,14 +174,14 @@ export async function loadProductsFromFirestore() {
     try {
         const snapshot = await firestoreWithRetry(async () => await getDocs(collection(db, "products")));
 
-        const products = [];
+        const raw = [];
         snapshot.forEach(doc => {
             const data = doc.data();
-            
-            // ✅ Vendeurs : on n'affiche que si le produit est approuvé
+
+            // Filtre 1 : seuls les produits vendeurs APPROUVÉS
             if (data.vendorId && data.vendorId !== 'smartswi9a' && data.status !== 'approved') return;
 
-            products.push({
+            raw.push({
                 id: doc.id,
                 ...data,
                 price: Number(data.price) || 0,
@@ -177,6 +192,23 @@ export async function loadProductsFromFirestore() {
                 ratingCount: Number(data.ratingCount) || 0
             });
         });
+
+        // Filtre 2 (B2) : exclure les produits des vendeurs suspendus/rejetés.
+        // On lit uniquement `vendorsPublic` (aucune PII) via le helper ciblé.
+        let products = raw;
+        try {
+            await preloadVendorsForProducts(raw);
+            products = raw.filter(p => {
+                const label = getProductVendorLabelSync(p);
+                if (label.type === 'smart') return true;
+                // On garde si le statut n'est pas explicitement bloquant
+                // (unknown → optimiste, pour ne pas tout masquer si la
+                // pré-lecture a échoué partiellement).
+                return label.status !== 'suspended' && label.status !== 'rejected';
+            });
+        } catch (e) {
+            console.warn('⚠️ [products] Préchargement vendeurs indisponible, filtrage vendeurs ignoré :', e?.code || e);
+        }
 
         setProducts(products);
         return products;
@@ -203,18 +235,22 @@ export async function loadAllProducts() {
 }
 
 // ============================================================
-// FILTRAGE ET TRI (inchangé)
+// FILTRAGE ET TRI
 // ============================================================
 export function getFilteredProducts() {
     const products = getProducts();
     const filters = getFilters();
     const user = getCurrentUser();
-    const favs = Array.isArray(user?.favorites) ? user.favorites.map(Number).filter(Number.isFinite) : [];
+
+    // B7 : normalisation compatible IDs numériques + strings
+    const favs = Array.isArray(user?.favorites)
+        ? user.favorites.map(normalizeProductId).filter(f => f != null)
+        : [];
 
     let list = [...products];
 
     if (filters.category === 'favorites') {
-        list = list.filter(p => favs.includes(Number(p.id)));
+        list = list.filter(p => favs.includes(normalizeProductId(p.id)));
     } else if (filters.category && filters.category !== 'all') {
         list = list.filter(p => productMatchesCategory(p, filters.category));
     }
@@ -303,7 +339,11 @@ export function clearAllFilters() {
 // HELPERS PRODUITS
 // ============================================================
 export function getProductBySlug(slug) { return !slug ? null : getProducts().find(p => p.slug === slug) || null; }
-export function getProductById(id) { return !id ? null : getProducts().find(p => String(p.id) === String(id)) || null; }
+export function getProductById(id) {
+    if (id == null) return null;
+    const target = normalizeProductId(id);
+    return getProducts().find(p => normalizeProductId(p.id) === target) || null;
+}
 
 export function getNewProducts(limit = 10, onlyInStock = true) {
     let products = getProducts().filter(p => p.isNew === true);
@@ -324,7 +364,13 @@ export function getPromoProducts(onlyInStock = true) {
 
 export async function getProductStatsBatch(productIds) {
     if (!Array.isArray(productIds) || productIds.length === 0) return {};
-    const ids = productIds.slice(0, 30).map(Number).filter(Number.isFinite);
+    // Limite Firestore "in" = 30.
+    // Les IDs non numériques (produits vendeurs) sont ignorés côté stats
+    // tant que le schéma `reviews.productId` reste numérique — voir impacts.
+    const ids = productIds
+        .map(Number)
+        .filter(Number.isFinite)
+        .slice(0, 30);
     if (ids.length === 0) return {};
 
     const now = Date.now();
@@ -348,7 +394,10 @@ export async function getProductStatsBatch(productIds) {
 
         snap.forEach(doc => {
             const r = doc.data();
+            // B6 : garde explicite (évite la collision null → 0)
+            if (r.productId == null) return;
             const pid = Number(r.productId);
+            if (!Number.isFinite(pid)) return;
             if (!ratings[pid]) return;
             ratings[pid].sum += Number(r.rating) || 0;
             ratings[pid].count++;
@@ -381,14 +430,22 @@ export async function renderProducts() {
     const paginationEl = document.getElementById('paginationContainer');
     if (paginationEl) paginationEl.innerHTML = '';
 
-    await preloadVendorNames(); // Charger les noms des boutiques
+    // B1/B5 : plus d'appel bloquant à preloadVendorNames().
+    // Les vendeurs ont été préchargés au loadProductsFromFirestore().
+    // Un préchargement ciblé défensif reste possible en cas d'échec
+    // du premier (no-op si déjà en cache).
 
     const user = getCurrentUser();
-    const favs = Array.isArray(user?.favorites) ? user.favorites.map(Number).filter(Number.isFinite) : [];
+    const favs = Array.isArray(user?.favorites)
+        ? user.favorites.map(normalizeProductId).filter(f => f != null)
+        : [];
 
     const pageProducts = getPaginatedProducts();
     const totalPages = getTotalPages();
     const currentPage = getPagination().currentPage;
+
+    // Préchargement défensif des vendeurs de la page courante.
+    try { await preloadVendorsForProducts(pageProducts); } catch (_) { /* ignore */ }
 
     const productIds = pageProducts.map(p => Number(p.id)).filter(Number.isFinite);
     const stats = await getProductStatsBatch(productIds);
@@ -407,8 +464,9 @@ export async function renderProducts() {
 
     let html = '';
     pageProducts.forEach(p => {
-        const pid = Number(p.id);
-        if (!Number.isFinite(pid)) return;
+        // B3 : normalisation compatible IDs Firestore alphanumériques
+        const pid = normalizeProductId(p.id);
+        if (pid == null) return;
 
         const isFav = favs.includes(pid);
         const name = escapeHTML(getProductName(p));
@@ -424,14 +482,20 @@ export async function renderProducts() {
         // ✅ ATTRIBUTION VENDEUR
         const vendorInfo = getProductVendorLabelSync(p);
         const vendorOwner = p.vendorId && p.vendorId !== 'smartswi9a' ? p.vendorId : null;
-        
-        const vendorBadgeHtml = vendorInfo.type === 'smart'
-            ? `<div style="font-size:0.68rem;color:var(--gold);font-weight:700;margin-top:0.2rem;">✅ ${t('vendorSmartSwi9a') || 'Smart Swi9a'}</div>`
-            : `<a href="/boutique.html?v=${encodeURIComponent(vendorOwner || '')}" style="font-size:0.68rem;color:#6b46c1;font-weight:700;text-decoration:none;display:block;margin-top:0.2rem;background:rgba(107,70,193,0.1);padding:2px 6px;border-radius:4px;width:max-content;" onclick="event.stopPropagation();">🏪 ${escapeHTML(vendorInfo.name)}</a>`;
+
+        // B4 : pas de lien boutique si l'ID vendeur est absent
+        let vendorBadgeHtml;
+        if (vendorInfo.type === 'smart') {
+            vendorBadgeHtml = `<div style="font-size:0.68rem;color:var(--gold);font-weight:700;margin-top:0.2rem;">✅ ${t('vendorSmartSwi9a') || 'Smart Swi9a'}</div>`;
+        } else if (vendorOwner) {
+            vendorBadgeHtml = `<a href="/boutique.html?v=${encodeURIComponent(vendorOwner)}" style="font-size:0.68rem;color:#6b46c1;font-weight:700;text-decoration:none;display:block;margin-top:0.2rem;background:rgba(107,70,193,0.1);padding:2px 6px;border-radius:4px;width:max-content;" onclick="event.stopPropagation();">🏪 ${escapeHTML(vendorInfo.name)}</a>`;
+        } else {
+            vendorBadgeHtml = `<div style="font-size:0.68rem;color:#6b46c1;font-weight:700;margin-top:0.2rem;">🏪 ${escapeHTML(vendorInfo.name)}</div>`;
+        }
 
         const hasVariants = Array.isArray(p.variants) && p.variants.length > 0;
         const optionsBadge = hasVariants ? `<span class="badge" style="background:var(--info);color:#fff;font-size:0.6rem;padding:0.15rem 0.4rem;border-radius:30px;position:absolute;top:0.5rem;right:0.5rem;z-index:2;">⚙️ Options</span>` : '';
-        const r = stats[pid] || { avg: null, count: 0 };
+        const r = (typeof pid === 'number' ? stats[pid] : null) || { avg: null, count: 0 };
         const hasReviews = r.count > 0;
         const avgRating = hasReviews ? r.avg : '--';
         const reviewCount = r.count || 0;
@@ -439,15 +503,17 @@ export async function renderProducts() {
 
         const btnHtml = hasVariants
             ? `<button class="btn-choose-options" data-slug="${escapeHTML(p.slug || '')}" style="background:var(--gold);color:#fff;border:none;padding:0.3rem 0.7rem;border-radius:30px;font-size:0.7rem;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:0.3rem;">⚙️ ${t('chooseOptions') || 'Choisir'}</button>`
-            : `<button class="btn-add-to-cart" data-id="${pid}">🛒 ${t('addToCart')}</button>`;
+            : `<button class="btn-add-to-cart" data-id="${escapeHTML(String(pid))}">🛒 ${t('addToCart')}</button>`;
 
-        const isOutOfStock = hasVariants ? !p.variants.some(v => (Number(v.stock) || 0) > 0) : stock === 0;
+        const isOutOfStock = hasVariants
+            ? !p.variants.some(v => (Number(v.stock) || 0) > 0)
+            : stock === 0;
 
         html += `
-            <div class="product-card" data-id="${pid}" data-slug="${escapeHTML(p.slug || '')}">
+            <div class="product-card" data-id="${escapeHTML(String(pid))}" data-slug="${escapeHTML(p.slug || '')}">
                 <div class="product-img">
                     <img src="${img}" alt="${name}" loading="lazy" onerror="this.onerror=null; this.src='${getFallbackImage(name)}'">
-                    <button class="favorite-btn ${isFav ? 'is-fav' : ''}" data-id="${pid}" aria-label="${favAriaLabel}">${isFav ? '❤️' : '🤍'}</button>
+                    <button class="favorite-btn ${isFav ? 'is-fav' : ''}" data-id="${escapeHTML(String(pid))}" aria-label="${favAriaLabel}">${isFav ? '❤️' : '🤍'}</button>
                     ${optionsBadge}
                     ${isOutOfStock ? `<span class="badge badge-hot">${t('outOfStock')}</span>` : ''}
                     ${isPromo ? `<span class="badge badge-promo">-${discountPercent}%</span>` : ''}
@@ -603,18 +669,27 @@ export async function toggleFavorite(productId) {
         return;
     }
 
-    const pid = Number(productId);
-    if (!Number.isFinite(pid)) return;
+    // B8 : normalisation compatible IDs numériques + strings
+    const pid = normalizeProductId(productId);
+    if (pid == null) return;
 
-    const currentFavs = Array.isArray(user.favorites) ? user.favorites.map(Number).filter(Number.isFinite) : [];
+    const currentFavs = Array.isArray(user.favorites)
+        ? user.favorites.map(normalizeProductId).filter(f => f != null)
+        : [];
     const isAdding = !currentFavs.includes(pid);
+
+    // Si l'ID est string (Firestore auto-ID), on stocke la string ;
+    // si numérique, on stocke le nombre — cohérent avec l'existant.
+    const storedValue = pid;
 
     try {
         await updateDoc(doc(db, "users", user.uid), {
-            favorites: isAdding ? arrayUnion(pid) : arrayRemove(pid)
+            favorites: isAdding ? arrayUnion(storedValue) : arrayRemove(storedValue)
         });
 
-        const newFavs = isAdding ? [...new Set([...currentFavs, pid])] : currentFavs.filter(id => id !== pid);
+        const newFavs = isAdding
+            ? [...new Set([...currentFavs, pid])]
+            : currentFavs.filter(id => id !== pid);
         setCurrentUser({ ...user, favorites: newFavs });
         showToast(isAdding ? '❤️ ' + t('favAdded') : '💔 ' + t('favRemoved'));
 
@@ -629,4 +704,4 @@ export function openProductPage(slug) {
     window.location.href = `/produit?slug=${encodeURIComponent(slug)}`;
 }
 
-console.log('✅ products.js chargé — v8.0.0 (Marketplace)');
+console.log('✅ products.js chargé — v8.1.0 (Marketplace)');
