@@ -1,7 +1,7 @@
 // js/events.js
 // ============================================================
 // DÉLÉGATION D'ÉVÉNEMENTS GLOBALE - SMART SWI9A
-// Version 8.0.0 — Marketplace Compatible
+// Version 8.1.0 — Marketplace (IDs vendeurs Number/String)
 // ============================================================
 
 import { t, setLang, getLang } from "./utils.js";
@@ -343,7 +343,7 @@ export function attachEvents() {
 
         // ============ FALLBACK DÉLÉGATIONS ============
 
-        // Pagination produits
+        // Pagination produits (IDs toujours numériques → parseInt OK)
         const pageBtn = e.target.closest('.pagination-btn:not(.disabled)');
         if (pageBtn && pageBtn.dataset.page) {
             const page = parseInt(pageBtn.dataset.page);
@@ -354,56 +354,60 @@ export function attachEvents() {
         }
 
         // Bouton "Ajouter au panier" (produits sans variantes)
+        // E1 : ne plus parseInt() — addToCart normalise lui-même
         const addBtn = e.target.closest('.btn-add-to-cart, .btn-product-add');
         if (addBtn && !addBtn.closest('[data-action]')) {
             e.preventDefault();
-            const id = parseInt(addBtn.dataset.id || addBtn.dataset.productId);
-            if (!isNaN(id)) {
-                import("./cart.js").then(m => m.addToCart(id));
+            const rawId = addBtn.dataset.id || addBtn.dataset.productId;
+            if (rawId != null && rawId !== '') {
+                import("./cart.js").then(m => m.addToCart(rawId));
                 return;
             }
         }
 
         // Bouton favoris
+        // E2 : ne plus parseInt()
         const favBtn = e.target.closest('.favorite-btn');
         if (favBtn && !favBtn.closest('[data-action]')) {
             e.stopPropagation();
-            const id = parseInt(favBtn.dataset.id);
-            if (!isNaN(id)) {
-                import("./products.js").then(m => m.toggleFavorite(id));
+            const rawId = favBtn.dataset.id;
+            if (rawId != null && rawId !== '') {
+                import("./products.js").then(m => m.toggleFavorite(rawId));
                 return;
             }
         }
 
         // Bouton "Commander via WhatsApp" (page produit)
+        // E3 : ne plus parseInt()
         const waBtn = e.target.closest('.btn-secondary[data-product-id]');
         if (waBtn && !waBtn.closest('[data-action]')) {
             e.preventDefault();
-            const id = parseInt(waBtn.dataset.productId);
-            if (!isNaN(id)) {
-                import("./whatsapp.js").then(m => m.orderViaWhatsApp(id));
+            const rawId = waBtn.dataset.productId;
+            if (rawId != null && rawId !== '') {
+                import("./whatsapp.js").then(m => m.orderViaWhatsApp(rawId));
                 return;
             }
         }
 
-        // ✅ Carte produit (navigation) — Ajout de !e.target.closest('a') pour ignorer les badges vendeurs
+        // ✅ Carte produit (navigation)
+        // E4 : ne plus parseInt() pour le fallback ID
         const card = e.target.closest('.product-card');
         if (card && !e.target.closest('button') && !e.target.closest('a')) {
             const slug = card.dataset.slug;
-            const id = parseInt(card.dataset.id);
+            const rawId = card.dataset.id;
             if (slug) {
                 import("./products.js").then(m => m.openProductPage(slug));
                 return;
-            } else if (!isNaN(id)) {
+            } else if (rawId != null && rawId !== '') {
                 import("./products.js").then(m => {
-                    const p = m.getProductById(id);
+                    const p = m.getProductById(rawId);
                     if (p && p.slug) m.openProductPage(p.slug);
                 });
                 return;
             }
         }
 
-        // Carte blog (ouverture modal)
+        // Carte blog (ouverture modal) — postId est déjà une string Firestore
         const blogCard = e.target.closest('.blog-card');
         if (blogCard && !e.target.closest('button, a')) {
             const postId = blogCard.dataset.id;
@@ -479,10 +483,10 @@ export function attachEvents() {
         }
     });
 
-    console.log('✅ events.js : événements attachés (v8.0.0)');
+    console.log('✅ events.js : événements attachés (v8.1.0)');
 }
 
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ events.js chargé — v8.0.0 (Marketplace Compatible)');
+console.log('✅ events.js chargé — v8.1.0 (Marketplace + IDs vendeurs)');
