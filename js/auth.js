@@ -1,19 +1,7 @@
 // js/auth.js
 // ============================================================
 // AUTHENTIFICATION - SMART SWI9A
-// Version 3.0.0 — Fix C10.1 (ne plus signOut après signup)
-// ============================================================
-// CHANGEMENTS v3.0.0 :
-// ✅ C10.1 — registerWithFirebase : garde connecté (needsVerification)
-// ✅ C10.1 — initAuthListener : garde non-vérifiés (pas de signOut forcé)
-// ✅ Login : signOut conservé si non vérifié (sécurité)
-// ✅ checkEmailVerification() : sync le store
-// ✅ resendVerificationEmail() : marche maintenant (user connecté)
-// ✅ Reset idle timer au logout
-// ============================================================
-// ⚠️ RÈGLE : Email vérifié requis AVANT login (via password).
-//    Exception : après signup, user reste connecté avec needsVerification=true.
-//    ui.js affiche la vue verify et permet de renvoyer l'email.
+// Version 3.2.0 — Marketplace + Vendor Signup
 // ============================================================
 
 import {
@@ -31,7 +19,7 @@ import {
 } from "firebase/auth";
 import { doc, setDoc, getDoc, Timestamp } from "firebase/firestore";
 import { auth, db } from "./firebase.js";
-import { CONFIG, SIGNUP_METHODS } from "./config.js";
+import { CONFIG, SIGNUP_METHODS, ROLES, VENDOR_STATUS, CONTRACT_STATUS } from "./config.js";
 import {
     t, safeGetItem, safeSetItem, safeRemoveItem,
     isValidEmail, cleanEmail
@@ -42,9 +30,6 @@ import { showToast } from "./ui-core.js";
 // ============================================================
 // ÉTAT GLOBAL
 // ============================================================
-let pendingRegistration = null;
-let pendingPassword = null;
-
 let authReady = false;
 let authReadyResolve;
 
@@ -74,7 +59,6 @@ export function setCurrentUser(user) {
     setUser(user);
     if (user) {
         safeSetItem(CONFIG.STORAGE_KEYS.USER, user);
-        // ✅ Ne démarrer le timer que si l'utilisateur est vérifié
         if (user.emailVerified !== false && !user.needsVerification) {
             startIdleTimer();
         }
@@ -162,18 +146,11 @@ function getAuthErrorMessage(error, context = 'generic') {
 }
 
 // ============================================================
-// ✅ C10.1 : INSCRIPTION FIREBASE
-// ------------------------------------------------------------
-// CHANGEMENT MAJEUR : on NE FAIT PLUS signOut après inscription.
-// L'utilisateur reste connecté mais marqué needsVerification=true.
-// → ui.js affiche la vue verify et permet de renvoyer l'email.
-// → L'idle timer n'est PAS démarré tant que non vérifié.
-// → Les features critiques (dashboard) affichent la vue verify.
+// INSCRIPTION CLIENT
 // ============================================================
 export async function registerWithFirebase(name, email, phone, dob, password) {
-    console.log('📝 Inscription Firebase pour :', email);
+    console.log('📝 Inscription Client pour :', email);
 
-    // Validations
     if (!email || !isValidEmail(email)) {
         showToast('⚠️ Email invalide');
         return { success: false, error: 'invalid_email' };
@@ -188,12 +165,10 @@ export async function registerWithFirebase(name, email, phone, dob, password) {
     }
 
     try {
-        // 1. Créer le compte dans Firebase Auth
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         const user = userCredential.user;
         const uid = user.uid;
 
-        // 2. Préparer le profil
         const parts = name.trim().split(' ');
         const firstName = parts[0] || '';
         const lastName = parts.slice(1).join(' ') || '';
@@ -205,7 +180,7 @@ export async function registerWithFirebase(name, email, phone, dob, password) {
             email: cleanEmail(email),
             phone: phone || '',
             dob: dob || '',
-            role: 'user',
+            role: ROLES.USER,
             signupMethod: SIGNUP_METHODS.OTP,
             emailVerified: false,
             addresses: [],
@@ -214,21 +189,17 @@ export async function registerWithFirebase(name, email, phone, dob, password) {
             createdAt: Timestamp.now()
         };
 
-        // 3. Sauvegarder dans Firestore
         await saveUserProfile(uid, profile);
 
-        // 4. Envoyer l'email de vérification
         try {
             await sendEmailVerification(user, {
                 url: `${CONFIG.SHOP.URL}/`,
                 handleCodeInApp: false
             });
-            console.log('📧 Email de vérification envoyé');
         } catch (e) {
             console.warn('⚠️ Erreur envoi email vérif :', e);
         }
 
-        // 5. ✅ C10.1 : GARDER CONNECTÉ avec needsVerification
         setCurrentUser({
             uid,
             email: cleanEmail(email),
@@ -236,7 +207,6 @@ export async function registerWithFirebase(name, email, phone, dob, password) {
             needsVerification: true,
             ...profile
         });
-        console.log('✅ Inscription Firebase réussie — email de vérification envoyé (user connecté)');
 
         return {
             success: true,
@@ -254,14 +224,96 @@ export async function registerWithFirebase(name, email, phone, dob, password) {
 }
 
 // ============================================================
-// RENVOYER L'EMAIL DE VÉRIFICATION (utilisateur connecté)
-// ------------------------------------------------------------
-// ✅ C10.1 : fonctionne maintenant car le user reste connecté
+// ✅ NOUVEAU : INSCRIPTION VENDEUR
+// ============================================================
+export async function registerVendorWithFirebase(vendorData, password) {
+    console.log('🏪 Inscription Vendeur pour :', vendorData.email);
+
+    if (!vendorData.email || !isValidEmail(vendorData.email)) {
+        throw new Error("Email invalide");
+    }
+    if (!password || password.length < 6) {
+        throw new Error("Mot de passe trop faible (min 6 caractères)");
+    }
+
+    try {
+        // 1. Créer le compte dans Firebase Auth
+        const userCredential = await createUserWithEmailAndPassword(auth, vendorData.email, password);
+        const user = userCredential.user;
+        const uid = user.uid;
+
+        // 2. Préparer le profil vendeur
+        const profile = {
+            name: vendorData.shopName,
+            email: cleanEmail(vendorData.email),
+            phone: vendorData.phone,
+            role: ROLES.VENDOR,
+            signupMethod: SIGNUP_METHODS.OTP,
+            emailVerified: false,
+            createdAt: Timestamp.now(),
+            vendorInfo: {
+                shopName: vendorData.shopName,
+                iceCin: vendorData.iceCin,
+                city: vendorData.city,
+                shippingMethod: vendorData.shippingMethod, // dropoff ou fulfillment
+                status: VENDOR_STATUS.PENDING,
+                contractStatus: CONTRACT_STATUS.ACCEPTED, // Le contrat a été signé juste avant
+                delayCount: 0,
+                commissionRate: CONFIG.VENDOR.COMMISSION_RATE
+            }
+        };
+
+        // 3. Enregistrer le profil dans Firestore
+        await saveUserProfile(uid, profile);
+
+        // 4. Initialisation du Wallet Vendeur (CRUCIAL)
+        await setDoc(doc(db, "wallets", uid), {
+            vendorId: uid,
+            pendingBalance: 0,
+            availableBalance: 0,
+            totalEarnings: 0,
+            totalWithdrawn: 0,
+            negativeBalance: 0,
+            createdAt: Timestamp.now(),
+            lastUpdated: Timestamp.now()
+        });
+
+        console.log('✅ Wallet initialisé pour le vendeur :', uid);
+
+        // 5. Envoi email de vérification
+        try {
+            await sendEmailVerification(user, {
+                url: `${CONFIG.SHOP.URL}/`,
+                handleCodeInApp: false
+            });
+        } catch (e) {
+            console.warn('⚠️ Erreur envoi email vérif :', e);
+        }
+
+        // 6. Connexion locale
+        setCurrentUser({
+            uid,
+            email: cleanEmail(vendorData.email),
+            emailVerified: false,
+            needsVerification: true,
+            ...profile
+        });
+
+        return { success: true, uid, needsVerification: true };
+
+    } catch (error) {
+        console.error('❌ Erreur inscription vendeur :', error);
+        throw error;
+    }
+}
+
+// ============================================================
+// RENVOYER L'EMAIL DE VÉRIFICATION
 // ============================================================
 export async function resendVerificationEmail() {
     const user = auth.currentUser;
     if (!user) {
-        showToast('⚠️ Aucun utilisateur connecté — connectez-vous pour renvoyer l\'email');
+        showToast('⚠️ Aucun utilisateur connecté');
         return false;
     }
 
@@ -289,43 +341,7 @@ export async function resendVerificationEmail() {
 }
 
 // ============================================================
-// RENVOYER LE LIEN POUR UN EMAIL NON CONNECTÉ
-// ------------------------------------------------------------
-// Utilisé par loginUser quand l'email n'est pas vérifié :
-// on signIn temporairement pour envoyer, puis signOut.
-// ============================================================
-export async function resendVerificationForEmail(email, password) {
-    try {
-        const userCredential = await signInWithEmailAndPassword(auth, email, password);
-        const user = userCredential.user;
-
-        if (user.emailVerified) {
-            await signOut(auth);
-            return { success: false, reason: 'already_verified' };
-        }
-
-        await sendEmailVerification(user, {
-            url: `${CONFIG.SHOP.URL}/`,
-            handleCodeInApp: false
-        });
-
-        await signOut(auth);
-        setUser(null);
-        safeRemoveItem(CONFIG.STORAGE_KEYS.USER);
-
-        console.log('📧 Lien de vérification renvoyé pour :', email);
-        return { success: true };
-
-    } catch (error) {
-        console.error('❌ Erreur renvoi pour email :', error);
-        return { success: false, error: error.code };
-    }
-}
-
-// ============================================================
 // VÉRIFIER SI L'EMAIL EST CONFIRMÉ
-// ------------------------------------------------------------
-// Recharge le user Firebase + met à jour le store si vérifié.
 // ============================================================
 export async function checkEmailVerification() {
     const user = auth.currentUser;
@@ -343,7 +359,6 @@ export async function checkEmailVerification() {
                 currentUser.needsVerification = false;
                 setCurrentUser(currentUser);
             }
-            // Vérifié → démarrer le timer idle
             startIdleTimer();
         }
         return verified;
@@ -354,7 +369,7 @@ export async function checkEmailVerification() {
 }
 
 // ============================================================
-// GOOGLE SIGN-IN (toujours vérifié)
+// GOOGLE & FACEBOOK SIGN-IN
 // ============================================================
 export async function loginWithGoogle() {
     const provider = new GoogleAuthProvider();
@@ -378,7 +393,7 @@ export async function loginWithGoogle() {
                 phone: '',
                 dob: '',
                 photoURL: user.photoURL || '',
-                role: 'user',
+                role: ROLES.USER,
                 signupMethod: SIGNUP_METHODS.GOOGLE,
                 emailVerified: true,
                 addresses: [],
@@ -387,7 +402,6 @@ export async function loginWithGoogle() {
                 createdAt: Timestamp.now()
             };
             await saveUserProfile(uid, profile);
-            console.log('✅ Nouveau compte Google :', uid);
         }
 
         setCurrentUser({ uid, email: user.email, ...profile, emailVerified: true, needsVerification: false });
@@ -403,9 +417,6 @@ export async function loginWithGoogle() {
     }
 }
 
-// ============================================================
-// FACEBOOK SIGN-IN (toujours vérifié)
-// ============================================================
 export async function loginWithFacebook() {
     const provider = new FacebookAuthProvider();
     provider.addScope('email');
@@ -429,7 +440,7 @@ export async function loginWithFacebook() {
                 phone: '',
                 dob: '',
                 photoURL: user.photoURL || '',
-                role: 'user',
+                role: ROLES.USER,
                 signupMethod: SIGNUP_METHODS.FACEBOOK,
                 emailVerified: true,
                 addresses: [],
@@ -438,7 +449,6 @@ export async function loginWithFacebook() {
                 createdAt: Timestamp.now()
             };
             await saveUserProfile(uid, profile);
-            console.log('✅ Nouveau compte Facebook :', uid);
         }
 
         setCurrentUser({ uid, email: user.email, ...profile, emailVerified: true, needsVerification: false });
@@ -455,11 +465,7 @@ export async function loginWithFacebook() {
 }
 
 // ============================================================
-// CONNEXION (avec vérification email OBLIGATOIRE)
-// ------------------------------------------------------------
-// Comportement conservé : si email non vérifié → signOut + return
-// email_not_verified (l'utilisateur doit cliquer sur le lien reçu
-// par email). C'est le SEUL cas où on signOut un utilisateur valide.
+// CONNEXION
 // ============================================================
 export async function loginUser(email, password) {
     try {
@@ -467,20 +473,15 @@ export async function loginUser(email, password) {
         const firebaseUser = userCredential.user;
         const uid = firebaseUser.uid;
 
-        // ✅ VÉRIFICATION EMAIL OBLIGATOIRE
         if (!firebaseUser.emailVerified) {
             console.log('⛔ Email non vérifié — connexion bloquée');
 
-            // Renvoyer l'email automatiquement
             try {
                 await sendEmailVerification(firebaseUser, {
                     url: `${CONFIG.SHOP.URL}/`,
                     handleCodeInApp: false
                 });
-                console.log('📧 Nouveau lien de vérification renvoyé');
-            } catch (e) {
-                console.warn('⚠️ Impossible de renvoyer le lien :', e);
-            }
+            } catch (e) { }
 
             await signOut(auth);
             setUser(null);
@@ -493,13 +494,12 @@ export async function loginUser(email, password) {
             };
         }
 
-        // ✅ Email vérifié → connexion autorisée
         let profile = await getUserProfile(uid);
         if (!profile) {
             profile = {
                 name: email.split('@')[0],
                 email: cleanEmail(email),
-                role: 'user',
+                role: ROLES.USER,
                 signupMethod: SIGNUP_METHODS.OTP,
                 emailVerified: true,
                 favorites: [],
@@ -547,7 +547,7 @@ export async function logoutUser() {
 }
 
 // ============================================================
-// MOT DE PASSE OUBLIÉ
+// MOT DE PASSE OUBLIÉ & CHANGEMENT
 // ============================================================
 export async function requestPasswordReset(email) {
     try {
@@ -560,9 +560,6 @@ export async function requestPasswordReset(email) {
     }
 }
 
-// ============================================================
-// CHANGER LE MOT DE PASSE
-// ============================================================
 export async function updateUserPassword(newPassword) {
     const user = auth.currentUser;
     if (!user) throw new Error('Aucun utilisateur connecté');
@@ -570,12 +567,7 @@ export async function updateUserPassword(newPassword) {
 }
 
 // ============================================================
-// ✅ C10.1 : LISTENER D'AUTHENTIFICATION
-// ------------------------------------------------------------
-// CHANGEMENT : on NE SIGNOUT PLUS les non-vérifiés.
-// → L'utilisateur reste connecté avec needsVerification=true.
-// → ui.js affiche la vue verify et permet de renvoyer l'email.
-// → L'idle timer ne démarre PAS tant que non vérifié.
+// LISTENER D'AUTHENTIFICATION
 // ============================================================
 export function initAuthListener() {
     onAuthStateChanged(auth, async (user) => {
@@ -584,9 +576,6 @@ export function initAuthListener() {
             const needsVerification = isPasswordProvider && !user.emailVerified;
 
             if (needsVerification) {
-                console.log('📧 User password non vérifié — connecté avec needsVerification');
-
-                // Charger le profil pour les données affichage
                 const profile = await getUserProfile(user.uid);
                 setCurrentUser({
                     uid: user.uid,
@@ -596,7 +585,6 @@ export function initAuthListener() {
                     ...(profile || {})
                 });
             } else {
-                // Profil normal (vérifié ou social)
                 const cached = getUser();
                 if (cached && cached.uid === user.uid && cached.email === user.email && cached.role) {
                     console.log('✅ Profil en cache');
@@ -668,7 +656,7 @@ function stopIdleTimer() {
 // ============================================================
 export function isUserAdmin() {
     const user = getCurrentUser();
-    return user && user.role === 'admin';
+    return user && user.role === ROLES.ADMIN;
 }
 
 // ============================================================
@@ -688,4 +676,4 @@ export function restoreSession() {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ auth.js chargé — v3.0.0 (C10.1 fix : needsVerification)');
+console.log('✅ auth.js chargé — v3.2.0 (Marketplace)');
