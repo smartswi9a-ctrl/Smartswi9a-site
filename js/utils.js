@@ -1,7 +1,7 @@
 // js/utils.js
 // ============================================================
 // UTILITAIRES - SMART SWI9A
-// Version 8.0.0 — Marketplace + Nouveaux Statuts
+// Version 8.1.0 — Marketplace + Nouveaux Statuts + signup vendor
 // ============================================================
 
 import {
@@ -388,7 +388,7 @@ export function renderStars(rating) {
 }
 
 // ============================================================
-// ✅ NOUVEAU : VENDEUR & MARKETPLACE - Statuts
+// VENDEUR & MARKETPLACE - Statuts
 // ============================================================
 export function getVendorOrderStatusEmoji(status) {
     const emojis = {
@@ -557,7 +557,7 @@ export function initLang() {
     if (urlLang && LANGUAGES.includes(urlLang)) lang = urlLang;
     else if (saved && LANGUAGES.includes(saved)) lang = saved;
     else if (browserLang && LANGUAGES.includes(browserLang)) lang = browserLang;
-    
+
     setLang(lang);
     return lang;
 }
@@ -745,14 +745,36 @@ export function truncate(text, maxLength = 150) {
 
 // ============================================================
 // HELPERS SIGNUP
+// P2-c : ajout du mode 'vendor' (inscription vendeur via formulaire dédié)
+// La clé 'signupMethodVendor' doit être ajoutée dans translations.js (étape 8).
+// En attendant, fallback human-readable « Vendeur » évite d'afficher la clé brute.
 // ============================================================
 export function getSignupMethodLabel(method) {
-    const labels = { 'otp': 'signupMethodOtp', 'google': 'signupMethodGoogle', 'facebook': 'signupMethodFacebook' };
-    return t(labels[method] || 'signupMethodOtp');
+    const labels = {
+        'otp': 'signupMethodOtp',
+        'google': 'signupMethodGoogle',
+        'facebook': 'signupMethodFacebook',
+        'vendor': 'signupMethodVendor'
+    };
+    const key = labels[method];
+    if (!key) return t('signupMethodOtp');
+    const translated = t(key);
+    // Fallback human-readable si la clé de traduction manque encore
+    // (ex: signupMethodVendor à ajouter dans translations.js — étape 8)
+    if (translated === key) {
+        const fallbacks = { otp: 'OTP', google: 'Google', facebook: 'Facebook', vendor: 'Vendeur' };
+        return fallbacks[method] || 'OTP';
+    }
+    return translated;
 }
 
 export function getSignupMethodEmoji(method) {
-    const emojis = { 'otp': '🔐', 'google': '🔵', 'facebook': '📘' };
+    const emojis = {
+        'otp': '🔐',
+        'google': '🔵',
+        'facebook': '📘',
+        'vendor': '🏪'
+    };
     return emojis[method] || '🔐';
 }
 
@@ -784,4 +806,4 @@ export function cleanPhone(phone) {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ utils.js chargé — v8.0.0 (Marketplace)');
+console.log('✅ utils.js chargé — v8.1.0 (Marketplace + signup vendor)');
