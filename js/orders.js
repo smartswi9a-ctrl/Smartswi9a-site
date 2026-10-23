@@ -1,19 +1,24 @@
 // js/orders.js
 // ============================================================
 // GESTION DES COMMANDES - SMART SWI9A
-// Version 6.0.1 — Fix robustesse JSON (évite le crash si Speedaf renvoie du HTML)
+// Version 7.0.0 — Marketplace (N5 : commission, wallet vendeur, retours)
+//   - Helper commission + crédit/débit wallet par vendeur
+//   - Crédit wallet à la livraison + déblocage via unlockAt
+//   - Débit wallet (frais de retour) au retour
+//   - Journalisation wallet_transactions
+//   - vendorIds helper pour cart.js
 // ============================================================
 
 import {
     collection, doc, getDocs, getDoc, updateDoc, deleteDoc,
     query, where, orderBy, limit, startAfter, Timestamp,
-    runTransaction, writeBatch, increment
+    runTransaction, writeBatch, increment, addDoc
 } from "firebase/firestore";
 import { db } from "./firebase.js";
 import {
     CONFIG, ORDER_STATUS, normalizeOrderStatus, NOTIFICATION_TYPES,
     canReturnOrder, getReturnedQuantities, isFullReturn,
-    isTestMode, APP_MODE
+    isTestMode, APP_MODE, WALLET_TX_TYPE
 } from "./config.js";
 import {
     t, escapeHTML, formatDateTime,
@@ -336,14 +341,9 @@ function cleanMoroccanPhone(phone) {
 // 🚀 SPEEDAF — CREATE ORDER
 // ============================================================
 export async function sendToSpeedafAPI(order) {
-    // 🧪 MODE TEST : ZÉRO appel réseau
     if (isTestMode()) {
         console.log('🧪 [TEST] sendToSpeedafAPI MOCK — aucun appel Speedaf');
-        return {
-            success: true,
-            trackingNumber: "TEST-" + Date.now(),
-            labelUrl: null
-        };
+        return { success: true, trackingNumber: "TEST-" + Date.now(), labelUrl: null };
     }
 
     try {
@@ -352,7 +352,6 @@ export async function sendToSpeedafAPI(order) {
         }
         const addr = order.deliveryAddress;
 
-        // ✅ Calcul du poids total en KG
         let totalWeightGrams = 0;
         const itemList = (order.items || []).map(item => {
             const itemWeightGrams = Number(item.weight) || 500;
@@ -425,10 +424,9 @@ export async function sendToSpeedafAPI(order) {
             body: JSON.stringify(payload)
         });
 
-        // ✅ NOUVEAU : Vérification du type de réponse avant de parser
         const contentType = response.headers.get("content-type");
         let data;
-        
+
         if (contentType && contentType.includes("application/json")) {
             data = await response.json();
         } else {
@@ -436,7 +434,7 @@ export async function sendToSpeedafAPI(order) {
             console.error("❌ Réponse non-JSON reçue (Cloudflare/Speedaf) :", errorHtml.substring(0, 500));
             return {
                 success: false,
-                error: `Erreur serveur (${response.status}). Le Worker n'a pas pu joindre Speedaf. Vérifiez l'URL de production.`
+                error: `Erreur serveur (${response.status}). Le Worker n'a pas pu joindre Speedaf.`
             };
         }
 
@@ -460,10 +458,7 @@ export async function sendToSpeedafAPI(order) {
             errorMsg = "Code: " + data.errorCode;
         }
 
-        return {
-            success: false,
-            error: errorMsg
-        };
+        return { success: false, error: errorMsg };
 
     } catch (error) {
         console.error("❌ Erreur Speedaf create:", error);
@@ -494,18 +489,15 @@ export async function cancelSpeedafShipment(trackingNumber) {
                 }]
             })
         });
-        
+
         const contentType = response.headers.get("content-type");
         if (!contentType || !contentType.includes("application/json")) {
             return false;
         }
-        
+
         const data = await response.json();
         const cancelResult = data?.data?.[0];
-        if (cancelResult && cancelResult.success === true) {
-            return true;
-        }
-        return false;
+        return !!(cancelResult && cancelResult.success === true);
     } catch (error) {
         return false;
     }
@@ -639,7 +631,248 @@ async function restoreStockInTransaction(transaction, order, productSnaps, produ
 }
 
 // ============================================================
-// UPDATE ORDER STATUS
+// 🆕 HELPERS VENDEUR (N5)
+// ============================================================
+
+/**
+ * Utilitaire : groupe les items d'une commande par vendeur.
+ * @returns {Object} { [vendorId]: { items, subtotal, qty } }
+ */
+export function getOrderVendorBreakdown(order) {
+    const out = {};
+    for (const item of (order.items || [])) {
+        const vid = item.vendorId || 'smartswi9a';
+        if (vid === 'smartswi9a') continue; // Smart Swi9a ne compte pas dans les wallets vendeurs
+        if (!out[vid]) out[vid] = { items: [], subtotal: 0, qty: 0 };
+        const lineTotal = (Number(item.price) || 0) * (Number(item.quantity) || 0);
+        out[vid].items.push(item);
+        out[vid].subtotal += lineTotal;
+        out[vid].qty += Number(item.quantity) || 0;
+    }
+    return out;
+}
+
+/**
+ * Utilitaire à appeler par cart.js à la création de commande.
+ * Ajoute vendorId sur chaque item (depuis le produit), et écrit
+ * vendorIds (dédupliqué) au niveau du document commande.
+ * @param {Object} order — objet commande en cours de construction.
+ * @param {Object} productMap — { [productId]: product } (avec .vendorId).
+ * @returns {Object} order enrichi (mutation + retour).
+ */
+export function enrichOrderWithVendorIds(order, productMap = {}) {
+    const vendorIds = new Set();
+    (order.items || []).forEach(item => {
+        const p = productMap[item.productId];
+        const vid = (p && p.vendorId) || item.vendorId || 'smartswi9a';
+        item.vendorId = vid;
+        if (vid !== 'smartswi9a') vendorIds.add(vid);
+    });
+    order.vendorIds = Array.from(vendorIds);
+    return order;
+}
+
+/**
+ * Lit le taux de commission d'un vendeur, borné [MIN, MAX] depuis CONFIG.
+ * Fallback sur CONFIG.VENDOR.COMMISSION_RATE si vendeur introuvable ou invalide.
+ */
+async function getVendorCommissionRate(vendorId) {
+    const defaultRate = CONFIG.VENDOR.COMMISSION_RATE;
+    if (!vendorId || vendorId === 'smartswi9a') return defaultRate;
+    try {
+        const snap = await getDoc(doc(db, "users", vendorId));
+        if (!snap.exists()) return defaultRate;
+        const custom = snap.data()?.vendorInfo?.commissionRate;
+        if (typeof custom !== 'number' || !Number.isFinite(custom)) return defaultRate;
+        const min = CONFIG.VENDOR.COMMISSION_RATE_MIN;
+        const max = CONFIG.VENDOR.COMMISSION_RATE_MAX;
+        return Math.min(max, Math.max(min, custom));
+    } catch (e) {
+        return defaultRate;
+    }
+}
+
+/**
+ * Crédite le wallet d'un vendeur (pendingBalance + totalEarnings)
+ * et crée une entrée wallet_transactions.
+ * La ligne reste `pending` jusqu'à déblocage par worker-cron
+ * (UNLOCK_DAYS_VENDOR ou UNLOCK_DAYS_SMART selon les produits).
+ */
+async function creditVendorWallet(vendorId, subtotal, order, isSmartProduct) {
+    const rate = await getVendorCommissionRate(vendorId);
+    const commission = Math.round(subtotal * rate * 100) / 100;
+    const netToPay = Math.round((subtotal - commission) * 100) / 100;
+    if (netToPay <= 0) return;
+
+    const unlockDays = isSmartProduct ? CONFIG.VENDOR.UNLOCK_DAYS_SMART : CONFIG.VENDOR.UNLOCK_DAYS_VENDOR;
+    const unlockAt = new Date(Date.now() + unlockDays * 86400000);
+
+    try {
+        await runTransaction(db, async (tx) => {
+            const walletRef = doc(db, "wallets", vendorId);
+            const walletSnap = await tx.get(walletRef);
+
+            if (!walletSnap.exists()) {
+                tx.set(walletRef, {
+                    vendorId,
+                    pendingBalance: netToPay,
+                    availableBalance: 0,
+                    totalEarnings: netToPay,
+                    totalWithdrawn: 0,
+                    negativeBalance: 0,
+                    createdAt: Timestamp.now(),
+                    lastUpdated: Timestamp.now()
+                });
+            } else {
+                const w = walletSnap.data();
+                tx.update(walletRef, {
+                    pendingBalance: (Number(w.pendingBalance) || 0) + netToPay,
+                    totalEarnings: (Number(w.totalEarnings) || 0) + netToPay,
+                    lastUpdated: Timestamp.now()
+                });
+            }
+
+            const txRef = doc(collection(db, "wallet_transactions"));
+            tx.set(txRef, {
+                vendorId,
+                type: WALLET_TX_TYPE.SALE,
+                amount: netToPay,
+                commission,
+                commissionRate: rate,
+                subtotal,
+                orderId: order.id,
+                status: 'pending',
+                unlockAt: Timestamp.fromDate(unlockAt),
+                description: `Vente commande #${String(order.id).slice(0, 8).toUpperCase()}`,
+                createdAt: Timestamp.now()
+            });
+        });
+
+        console.log(`💰 Vendeur ${String(vendorId).slice(0, 8)}… crédité de ${netToPay} MAD (cmd ${String(order.id).slice(0, 8)})`);
+    } catch (e) {
+        console.error('❌ creditVendorWallet:', e);
+        throw e;
+    }
+}
+
+/**
+ * Débite le wallet d'un vendeur en cas de retour.
+ * Prélève en cascade : pendingBalance → availableBalance → negativeBalance.
+ * Crée une entrée wallet_transactions type 'return_fee'.
+ */
+async function debitVendorWallet(vendorId, returnedQty, order) {
+    const perParcel = Number(CONFIG.VENDOR.RETURN_FEE_SPEEDAF) || 20;
+    const fee = perParcel * (Number(returnedQty) || 0);
+    if (fee <= 0) return;
+
+    try {
+        await runTransaction(db, async (tx) => {
+            const walletRef = doc(db, "wallets", vendorId);
+            const walletSnap = await tx.get(walletRef);
+            if (!walletSnap.exists()) return;
+
+            const w = walletSnap.data();
+            let pendingBalance = Number(w.pendingBalance) || 0;
+            let availableBalance = Number(w.availableBalance) || 0;
+            let negativeBalance = Number(w.negativeBalance) || 0;
+            let remaining = fee;
+
+            if (pendingBalance >= remaining) {
+                pendingBalance -= remaining;
+                remaining = 0;
+            } else {
+                remaining -= pendingBalance;
+                pendingBalance = 0;
+            }
+
+            if (remaining > 0) {
+                if (availableBalance >= remaining) {
+                    availableBalance -= remaining;
+                    remaining = 0;
+                } else {
+                    remaining -= availableBalance;
+                    availableBalance = 0;
+                }
+            }
+
+            if (remaining > 0) {
+                negativeBalance -= remaining;
+            }
+
+            tx.update(walletRef, {
+                pendingBalance,
+                availableBalance,
+                negativeBalance,
+                lastUpdated: Timestamp.now()
+            });
+
+            const txRef = doc(collection(db, "wallet_transactions"));
+            tx.set(txRef, {
+                vendorId,
+                type: WALLET_TX_TYPE.RETURN_FEE,
+                amount: -fee,
+                orderId: order.id,
+                status: 'completed',
+                description: `Frais retour commande #${String(order.id).slice(0, 8).toUpperCase()} (${returnedQty} colis)`,
+                createdAt: Timestamp.now()
+            });
+        });
+
+        console.log(`💸 Vendeur ${String(vendorId).slice(0, 8)}… débité de ${fee} MAD (retour)`);
+    } catch (e) {
+        console.error('❌ debitVendorWallet:', e);
+        throw e;
+    }
+}
+
+/**
+ * Orchestrateur : applique les mouvements wallet vendeur selon
+ * la transition de statut.
+ * - delivered  : crédit pendingBalance pour chaque vendeur
+ * - returned   : débit des frais de retour pour chaque vendeur
+ */
+async function syncVendorWalletsForOrder(orderId, previousStatus, newStatus) {
+    // Lire la commande fraîche (source de vérité)
+    const orderSnap = await getDoc(doc(db, "orders", orderId));
+    if (!orderSnap.exists()) return;
+    const order = { id: orderId, ...orderSnap.data() };
+
+    // ---- Cas 1 : livraison → crédit wallets ----
+    if (newStatus === ORDER_STATUS.DELIVERED && previousStatus !== ORDER_STATUS.DELIVERED) {
+        const perVendor = getOrderVendorBreakdown(order);
+        for (const [vendorId, data] of Object.entries(perVendor)) {
+            // Détecter si un des items est un "produit Smart Swi9a" (UNLOCK_DAYS_SMART)
+            // On considère qu'un item est "smart" si le produit n'appartient PAS au vendeur
+            // (fallback simple : on utilise UNLOCK_DAYS_VENDOR car le vendeur est propriétaire)
+            // Note : la règle "smart" s'appliquerait si Smart Swi9a vendait lui-même → pas traité ici.
+            await creditVendorWallet(vendorId, data.subtotal, order, false);
+        }
+    }
+
+    // ---- Cas 2 : retour → débit frais ----
+    if (newStatus === ORDER_STATUS.RETURNED && previousStatus !== ORDER_STATUS.RETURNED) {
+        const returns = Array.isArray(order.returns) ? order.returns : [];
+        const lastReturn = returns[returns.length - 1];
+        if (lastReturn && Array.isArray(lastReturn.items)) {
+            const qtyByVendor = {};
+            for (const retItem of lastReturn.items) {
+                const item = (order.items || []).find(i => String(i.productId) === String(retItem.productId));
+                if (!item) continue;
+                const vid = item.vendorId || 'smartswi9a';
+                if (vid === 'smartswi9a') continue;
+                qtyByVendor[vid] = (qtyByVendor[vid] || 0) + (Number(retItem.delta) || 0);
+            }
+            for (const [vendorId, qty] of Object.entries(qtyByVendor)) {
+                if (qty > 0) {
+                    await debitVendorWallet(vendorId, qty, order);
+                }
+            }
+        }
+    }
+}
+
+// ============================================================
+// UPDATE ORDER STATUS (avec logique vendeur N5)
 // ============================================================
 export async function updateOrderStatus(orderId, newStatus) {
     try {
@@ -653,6 +886,7 @@ export async function updateOrderStatus(orderId, newStatus) {
 
         let orderForEmail = null;
         let emailStatus = null;
+        let previousStatusFinal = null;
 
         await runTransaction(db, async (transaction) => {
             const orderSnap = await transaction.get(orderRef);
@@ -660,6 +894,7 @@ export async function updateOrderStatus(orderId, newStatus) {
 
             const order = { id: orderId, ...orderSnap.data() };
             const previousStatus = normalizeOrderStatus(order.status);
+            previousStatusFinal = previousStatus;
             orderForEmail = order;
             emailStatus = normalizedStatus;
 
@@ -711,6 +946,17 @@ export async function updateOrderStatus(orderId, newStatus) {
             transaction.update(orderRef, updatePayload);
         });
 
+        // 🆕 N5 : sync wallets vendeur APRÈS la transaction de statut
+        // (hors transaction principale car Firestore limite à 500 écritures
+        // et on doit lire users/{uid} pour connaître le taux de commission)
+        try {
+            await syncVendorWalletsForOrder(orderId, previousStatusFinal, normalizedStatus);
+        } catch (walletErr) {
+            console.error('❌ syncVendorWalletsForOrder échoué (statut changé mais wallet non sync):', walletErr);
+            // On ne bloque pas : le statut reste changé, on log l'erreur pour audit.
+        }
+
+        // Speedaf (inchangé)
         if (normalizedStatus === ORDER_STATUS.CONFIRMED && orderForEmail) {
             if (!orderForEmail.speedafTracking) {
                 const spdResult = await sendToSpeedafAPI(orderForEmail);
@@ -736,6 +982,7 @@ export async function updateOrderStatus(orderId, newStatus) {
             if (cancelled) showToast('✅ Colis annulé chez Speedaf');
         }
 
+        // Emails (inchangé)
         if (emailStatus && ['confirmed', 'shipping', 'delivered', 'cancelled'].includes(emailStatus)) {
             try {
                 await sendOrderEmail(orderForEmail, emailStatus, 'client');
@@ -745,6 +992,7 @@ export async function updateOrderStatus(orderId, newStatus) {
             }
         }
 
+        // Notifications client (inchangé)
         if (normalizedStatus === ORDER_STATUS.DELIVERED && orderForEmail.userId) {
             try {
                 const { createNotification } = await import("./notifications.js");
@@ -881,6 +1129,12 @@ export async function renderAdminOrders(containerId = 'ordersList') {
             </button>
         `;
 
+        // 🆕 Badge vendeur (marketplace)
+        const vendorCount = Array.isArray(order.vendorIds) ? order.vendorIds.length : 0;
+        const vendorBadge = vendorCount > 0
+            ? `<span style="background:#3498db;color:#fff;font-size:0.65rem;padding:0.15rem 0.4rem;border-radius:30px;margin-left:0.3rem;font-weight:700;">🏪 ${vendorCount} vendeur${vendorCount > 1 ? 's' : ''}</span>`
+            : '';
+
         let speedafHtml = '';
         if (order.speedafTracking) {
             speedafHtml = `<div style="margin-top:0.5rem; padding:0.5rem; background:rgba(165,123,46,0.05); border:1px solid var(--border-gold); border-radius:var(--radius-sm); font-size:0.8rem;">
@@ -899,7 +1153,7 @@ export async function renderAdminOrders(containerId = 'ordersList') {
             <div class="admin-order-item" style="flex-direction:column;align-items:stretch;padding:0.8rem;border-bottom:1px solid var(--border);${isTest ? 'border-left:4px solid #dc3545;background:rgba(220,53,69,0.03);' : ''}">
                 <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.6rem;">
                     <div>
-                        <strong style="color:var(--gold);">#${orderIdShort}</strong>${testBadge} ${emoji} — ${date}<br>
+                        <strong style="color:var(--gold);">#${orderIdShort}</strong>${testBadge}${vendorBadge} ${emoji} — ${date}<br>
                         <small>👤 ${escapeHTML(order.deliveryAddress?.name || '—')} · 📞 ${escapeHTML(order.deliveryAddress?.phone || '')} · 🏙️ ${escapeHTML(cityDisplay)}</small><br>
                         <small>🛒 <strong>${itemsSummary}</strong></small><br>
                         <small>${itemCount} ${t('items')} · 💰 ${order.total || 0} ${t('currency')} · ${stockBadge}</small>
@@ -1192,6 +1446,14 @@ export async function openReturnModal(orderId) {
                 const allReturns = [...(Array.isArray(order.returns) ? order.returns : []), { date: new Date(), items: returns.map(r => ({ productId: r.productId, variant: r.variant, delta: r.quantity })) }];
                 let reviewSync = { deleted: 0, unverified: 0 };
                 try { reviewSync = await syncReviewsWithOrderReturn(order, allReturns); } catch (e) {}
+
+                // 🆕 N5 : sync wallets vendeur après retour
+                try {
+                    await syncVendorWalletsForOrder(orderId, ORDER_STATUS.DELIVERED, ORDER_STATUS.RETURNED);
+                } catch (walletErr) {
+                    console.error('❌ syncVendorWalletsForOrder (retour) échoué:', walletErr);
+                }
+
                 let toastMsg = '✅ Retour enregistré, stock mis à jour';
                 if (reviewSync.deleted > 0) toastMsg += ` · ${reviewSync.deleted} avis supprimé(s)`;
                 if (reviewSync.unverified > 0) toastMsg += ` · ${reviewSync.unverified} badge(s) retiré(s)`;
@@ -1501,4 +1763,4 @@ export async function openOrderDetails(orderId, isAdmin = false) {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ orders.js chargé — v6.0.1 (Fix robustesse JSON)');
+console.log('✅ orders.js chargé — v7.0.0 (Marketplace + wallet vendeur)');
