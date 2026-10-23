@@ -37,7 +37,7 @@ const app = getApps().length ? getApp() : initializeApp(CONFIG.FIREBASE);
 // Persistance par défaut = browserLocalPersistence (session qui survit
 // au reload, géré par Firebase). On ne force PAS de persistance ici :
 // le cache local (localStorage[swi9a_user]) ne sert qu'à l'affichage,
-// jamais à décider un droit (cf. auth.js v3.3.0).
+// jamais à décider un droit (cf. auth.js v3.3.1).
 // ============================================================
 export const auth = getAuth(app);
 
