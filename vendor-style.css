@@ -1,0 +1,726 @@
+/* ============================================================
+   VENDOR-STYLES.CSS - SMART SWI9A
+   Version 1.0.0 — Design Élégant, Simple et Clair
+   ============================================================ */
+
+/* ============================================================
+   1. VARIABLES LOCALES & BASE
+   ============================================================ */
+:root {
+    --v-sidebar-width: 260px;
+    --v-transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.vendor-page {
+    background: var(--bg);
+    min-height: 100dvh;
+    padding-top: 0; /* Le dashboard gère son propre layout */
+}
+
+/* ============================================================
+   2. LAYOUT PRINCIPAL (Dashboard)
+   ============================================================ */
+.v-layout {
+    display: flex;
+    min-height: 100dvh;
+    width: 100%;
+    position: relative;
+}
+
+/* --- SIDEBAR --- */
+.v-sidebar {
+    width: var(--v-sidebar-width);
+    background: var(--bg-card);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 100;
+    transition: transform var(--v-transition);
+}
+
+.v-shop-header {
+    padding: 2rem 1.5rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+    text-align: center;
+}
+
+.v-shop-name {
+    font-family: var(--font-secondary);
+    font-size: 1.25rem;
+    color: var(--gold);
+    margin-bottom: 0.5rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.v-shop-status {
+    display: inline-block;
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 0.25rem 0.75rem;
+    border-radius: 30px;
+    background: var(--bg-surface);
+    color: var(--text-muted);
+}
+.v-shop-status.approved { background: var(--success-bg); color: var(--success); }
+.v-shop-status.pending { background: var(--warning-bg); color: var(--warning); }
+.v-shop-status.rejected, .v-shop-status.suspended { background: var(--danger-bg); color: var(--danger); }
+
+.v-nav {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.5rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.v-nav-link {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    padding: 0.8rem 1rem;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-md);
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: all var(--v-transition);
+    text-align: left;
+    width: 100%;
+}
+
+.v-nav-link:hover {
+    background: rgba(var(--gold-rgb), 0.08);
+    color: var(--gold);
+}
+
+.v-nav-link.active {
+    background: var(--gold);
+    color: #ffffff;
+    box-shadow: 0 4px 12px rgba(165, 123, 46, 0.25);
+}
+
+.v-nav-icon {
+    font-size: 1.2rem;
+}
+
+.v-nav-badge {
+    margin-left: auto;
+    background: var(--danger);
+    color: #fff;
+    font-size: 0.7rem;
+    padding: 0.1rem 0.4rem;
+    border-radius: 30px;
+}
+
+.v-sidebar-help {
+    padding: 1rem;
+    border-top: 1px solid var(--border);
+}
+
+/* --- CONTENU --- */
+.v-content {
+    flex: 1;
+    margin-left: var(--v-sidebar-width);
+    padding: 2rem;
+    min-width: 0; /* Empêche le débordement flex */
+    display: flex;
+    flex-direction: column;
+}
+
+.v-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+    gap: 1rem;
+}
+
+.v-page-title {
+    font-family: var(--font-secondary);
+    font-size: 1.6rem;
+    color: var(--text);
+    margin: 0;
+}
+
+/* ============================================================
+   3. BANNIÈRES D'ALERTE (v-banner)
+   ============================================================ */
+.v-banners {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+    margin-bottom: 1.5rem;
+}
+
+.v-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem 1.2rem;
+    border-radius: var(--radius-md);
+    font-size: 0.9rem;
+    font-weight: 500;
+    border: 1px solid transparent;
+}
+
+.v-banner--info    { background: #e7f1ff; color: #084298; border-color: #b6d4fe; }
+.v-banner--warning { background: #fff3cd; color: #664d03; border-color: #ffe69c; }
+.v-banner--danger  { background: #f8d7da; color: #842029; border-color: #f5c2c7; }
+.v-banner--success { background: #d1e7dd; color: #0f5132; border-color: #badbcc; }
+
+.v-banner .v-btn {
+    padding: 0.4rem 1rem;
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
+
+/* ============================================================
+   4. DASHBOARD (KPI, Wallet, Empty states)
+   ============================================================ */
+.v-body {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+/* --- KPI Grid --- */
+.v-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1.2rem;
+}
+
+.v-kpi-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    box-shadow: var(--shadow-sm);
+    transition: transform var(--v-transition), box-shadow var(--v-transition);
+}
+
+.v-kpi-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+}
+
+.v-kpi-card.primary {
+    border-color: var(--border-gold);
+    background: linear-gradient(135deg, rgba(var(--gold-rgb), 0.05), transparent);
+}
+
+.v-kpi-header {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.v-kpi-icon {
+    font-size: 1.5rem;
+    background: var(--bg-surface);
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+}
+
+.v-kpi-value {
+    font-size: 1.8rem;
+    font-weight: 800;
+    color: var(--text);
+    margin: 0;
+    line-height: 1.2;
+}
+
+.v-kpi-card.primary .v-kpi-value {
+    color: var(--gold);
+}
+
+/* --- Wallet Hero --- */
+.v-wallet-hero {
+    background: var(--bg-card);
+    border: 1px solid var(--border-gold);
+    border-radius: var(--radius-lg);
+    padding: 2.5rem;
+    text-align: center;
+    box-shadow: var(--shadow-md);
+    position: relative;
+    overflow: hidden;
+}
+
+.v-wallet-hero::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, var(--gold), #7d5a1d);
+}
+
+.v-wallet-label {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 0.5rem;
+}
+
+.v-wallet-amount {
+    font-size: 3rem;
+    font-weight: 800;
+    color: var(--gold);
+    margin-bottom: 1rem;
+    line-height: 1;
+}
+
+/* --- Cartes génériques --- */
+.v-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    box-shadow: var(--shadow-sm);
+}
+
+.v-card-title {
+    font-family: var(--font-secondary);
+    font-size: 1.2rem;
+    color: var(--text);
+    margin: 0 0 1rem 0;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.8rem;
+}
+
+/* --- Empty State --- */
+.v-empty {
+    text-align: center;
+    padding: 3rem 1rem;
+    background: var(--bg-card);
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-lg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+}
+
+.v-empty-icon {
+    font-size: 3rem;
+    line-height: 1;
+}
+
+.v-empty-title {
+    font-family: var(--font-secondary);
+    font-size: 1.3rem;
+    color: var(--text);
+    margin: 0;
+}
+
+.v-empty-desc {
+    color: var(--text-muted);
+    font-size: 0.95rem;
+    max-width: 400px;
+    margin: 0 auto;
+    line-height: 1.5;
+}
+
+/* --- Produits --- */
+.v-product-card {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+}
+
+/* ============================================================
+   5. FORMULAIRE D'INSCRIPTION VENDEUR
+   ============================================================ */
+.vendor-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.vendor-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-gold);
+    border-radius: var(--radius-lg);
+    padding: 2rem;
+    box-shadow: var(--shadow-sm);
+}
+
+.vendor-card-title {
+    font-family: var(--font-secondary);
+    font-size: 1.25rem;
+    color: var(--gold);
+    margin-top: 0;
+    margin-bottom: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.v-form-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+@media (min-width: 600px) {
+    .v-form-row {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+.v-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin-bottom: 1rem;
+}
+
+.v-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.v-input {
+    width: 100%;
+    padding: 0.8rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-surface);
+    color: var(--text);
+    font-size: 0.95rem;
+    font-family: inherit;
+    transition: all var(--v-transition);
+}
+
+.v-input:focus {
+    outline: none;
+    border-color: var(--gold);
+    box-shadow: 0 0 0 3px rgba(var(--gold-rgb), 0.15);
+}
+
+.v-hint {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+/* Choix livraison */
+.v-choice-group {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.v-choice {
+    display: flex;
+    flex-direction: column;
+    padding: 1.2rem;
+    border: 2px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-surface);
+    cursor: pointer;
+    transition: all var(--v-transition);
+    position: relative;
+}
+
+.v-choice:hover {
+    border-color: var(--border-gold);
+}
+
+.v-choice.selected {
+    border-color: var(--gold);
+    background: rgba(var(--gold-rgb), 0.05);
+    box-shadow: 0 4px 12px rgba(var(--gold-rgb), 0.1);
+}
+
+.v-choice.selected::after {
+    content: '✓';
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    background: var(--gold);
+    color: #fff;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8rem;
+    font-weight: 800;
+}
+
+.v-choice-title {
+    font-weight: 700;
+    font-size: 1rem;
+    color: var(--text);
+    margin-bottom: 0.3rem;
+}
+
+.v-choice-desc {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    line-height: 1.5;
+}
+
+/* Checkbox */
+.v-checkbox {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.8rem;
+    cursor: pointer;
+    font-size: 0.9rem;
+    color: var(--text);
+    margin-top: 1rem;
+}
+.v-checkbox input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    accent-color: var(--gold);
+    cursor: pointer;
+    margin-top: 2px;
+    flex-shrink: 0;
+}
+
+/* ============================================================
+   6. BOUTONS
+   ============================================================ */
+.v-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.8rem 1.5rem;
+    border-radius: 30px;
+    font-weight: 700;
+    font-size: 0.95rem;
+    cursor: pointer;
+    text-decoration: none;
+    transition: all var(--v-transition);
+    border: none;
+    font-family: inherit;
+}
+
+.v-btn-primary {
+    background: linear-gradient(135deg, var(--gold), #7d5a1d);
+    color: #ffffff;
+}
+
+.v-btn-primary:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(var(--gold-rgb), 0.35);
+}
+
+.v-btn-secondary {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+}
+
+.v-btn-secondary:hover:not(:disabled) {
+    border-color: var(--gold);
+    color: var(--gold);
+    background: rgba(var(--gold-rgb), 0.05);
+}
+
+.v-btn-block {
+    width: 100%;
+}
+
+.v-btn-large {
+    padding: 1rem 2rem;
+    font-size: 1.1rem;
+}
+
+.v-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+/* ============================================================
+   7. MODALE CONTRAT (Design clair et spacieux)
+   ============================================================ */
+#contractModal .modal {
+    background: var(--bg-card);
+    border: 1px solid var(--border-gold);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    display: flex;
+    flex-direction: column;
+}
+
+#contractText {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 1.5rem;
+    line-height: 1.7;
+    font-size: 0.95rem;
+    color: var(--text);
+    scrollbar-width: thin;
+    scrollbar-color: var(--gold) transparent;
+}
+
+#contractText::-webkit-scrollbar {
+    width: 8px;
+}
+#contractText::-webkit-scrollbar-thumb {
+    background: var(--gold);
+    border-radius: 4px;
+}
+
+#contractText:focus-visible {
+    outline: 2px solid var(--gold);
+    outline-offset: -2px;
+}
+
+/* ============================================================
+   8. RESPONSIVE & MOBILE
+   ============================================================ */
+.v-mobile-toggle {
+    display: none;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: 1.5rem;
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+
+.v-mobile-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    backdrop-filter: blur(2px);
+    z-index: 99;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--v-transition);
+}
+
+@media (max-width: 1024px) {
+    .v-sidebar {
+        transform: translateX(-100%);
+        box-shadow: var(--shadow-lg);
+    }
+    
+    .v-sidebar.open {
+        transform: translateX(0);
+    }
+
+    .v-mobile-overlay.open {
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    .v-content {
+        margin-left: 0;
+        padding: 1.2rem;
+    }
+
+    .v-mobile-toggle {
+        display: flex;
+    }
+
+    .v-header {
+        position: sticky;
+        top: 0;
+        background: var(--bg);
+        padding: 0.5rem 0;
+        z-index: 50;
+    }
+}
+
+@media (max-width: 480px) {
+    .v-kpi-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .v-wallet-amount {
+        font-size: 2.2rem;
+    }
+    
+    .v-wallet-hero {
+        padding: 1.5rem;
+    }
+
+    .vendor-card {
+        padding: 1.2rem;
+    }
+}
+
+/* ============================================================
+   9. RTL (ARABE)
+   ============================================================ */
+[dir="rtl"] .v-sidebar {
+    left: auto;
+    right: 0;
+    border-right: none;
+    border-left: 1px solid var(--border);
+}
+
+[dir="rtl"] .v-content {
+    margin-left: 0;
+    margin-right: var(--v-sidebar-width);
+}
+
+[dir="rtl"] .v-nav-link {
+    text-align: right;
+}
+
+[dir="rtl"] .v-nav-badge {
+    margin-left: 0;
+    margin-right: auto;
+}
+
+[dir="rtl"] .v-choice.selected::after {
+    right: auto;
+    left: 1rem;
+}
+
+@media (max-width: 1024px) {
+    [dir="rtl"] .v-sidebar {
+        transform: translateX(100%);
+    }
+    [dir="rtl"] .v-sidebar.open {
+        transform: translateX(0);
+    }
+    [dir="rtl"] .v-content {
+        margin-right: 0;
+    }
+}
