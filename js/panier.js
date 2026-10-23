@@ -1,7 +1,7 @@
 // js/panier.js
 // ============================================================
 // PAGE PANIER DÉDIÉE - SMART SWI9A
-// Version 2.2.0 — Fix Popup Mobile (Chargement + Redirection)
+// Version 2.3.0 — Marketplace (N5 : IDs vendeurs Number + String)
 // ============================================================
 
 import { CONFIG, getCategoryById } from "./config.js";
@@ -21,6 +21,19 @@ import { getCurrentUser } from "./auth.js";
 import { showToast, confirmAction } from "./ui-core.js";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "./firebase.js";
+
+// ============================================================
+// NORMALISATION D'ID PRODUIT
+// - "42" (chaîne numérique) → 42 (Number)
+// - "abc123" (auto-ID Firestore vendeur) → "abc123" (String)
+// - null/undefined/"" → null
+// Identique à products.js / reviews.js / product-detail.js
+// ============================================================
+function normalizeProductId(id) {
+    if (id == null || id === '') return null;
+    const n = Number(id);
+    return Number.isFinite(n) && String(n) === String(id) ? n : String(id);
+}
 
 // ============================================================
 // ÉTAT LOCAL
@@ -143,10 +156,11 @@ function renderCartPage(options = {}) {
     let cart = getCart();
     const products = getProducts();
 
-    // ✅ Nettoyage des produits supprimés
+    // ✅ Nettoyage des produits supprimés (compatible Number + String)
     const invalidItems = [];
     cart = cart.filter(item => {
-        const p = products.find(pp => Number(pp.id) === item.productId);
+        const target = String(item.productId);
+        const p = products.find(pp => String(pp.id) === target);
         if (!p) { invalidItems.push(item); return false; }
         if (item.variant) {
             const v = p.variants?.find(v => (v.size || '') === (item.variant.size || '') && (v.color || '') === (item.variant.color || ''));
@@ -158,7 +172,7 @@ function renderCartPage(options = {}) {
     if (invalidItems.length > 0) {
         invalidItems.forEach(inv => removeFromCart(inv.id));
         showToast(`⚠️ ${invalidItems.length} article(s) retiré(s) (produit indisponible)`);
-        cart = getCart(); // Re-lire
+        cart = getCart();
     }
 
     if (!cart || cart.length === 0) {
@@ -194,7 +208,8 @@ function renderFullCart(cart, products) {
     const user = getCurrentUser();
 
     const itemsHtml = cart.map(item => {
-        const product = products.find(p => Number(p.id) === item.productId);
+        const target = String(item.productId);
+        const product = products.find(p => String(p.id) === target);
         if (!product) return '';
         return renderCartItem(product, item.quantity, item);
     }).join('');
@@ -222,7 +237,9 @@ function renderFullCart(cart, products) {
 }
 
 function renderCartItem(product, quantity, item) {
-    const pid = Number(product.id);
+    const pid = normalizeProductId(product.id);
+    if (pid == null) return '';
+
     const name = escapeHTML(getProductName(product));
     const img = getProductImageUrl(product);
     const fallback = getFallbackImage(name);
@@ -249,8 +266,11 @@ function renderCartItem(product, quantity, item) {
     const catObj = getCategoryById(product.category);
     const categoryLabel = catObj ? `${catObj.emoji} ${t(catObj.label)}` : escapeHTML(product.category || '');
 
+    // data-id utilise la forme sérialisée (String) pour être cohérent
+    const safeDataId = escapeHTML(String(pid));
+
     return `
-        <div class="cart-page-item" data-product-id="${pid}">
+        <div class="cart-page-item" data-product-id="${safeDataId}">
             <a href="${productUrl}" class="cart-page-item-img-link"><img src="${img}" alt="${name}" class="cart-page-item-img" onerror="this.src='${fallback}'"></a>
             <div class="cart-page-item-info">
                 <a href="${productUrl}" class="cart-page-item-name">${name}</a>
@@ -265,12 +285,12 @@ function renderCartItem(product, quantity, item) {
                         <span class="cart-item-current-price">${price} MAD</span>
                     </div>
                     <div class="cart-page-item-actions">
-                        <button class="cart-page-qty-btn" data-action="cart:decrease" data-id="${pid}">−</button>
-                        <input type="number" class="cart-page-qty-input" data-id="${pid}" value="${quantity}" min="1" max="${maxStock || 999}">
-                        <button class="cart-page-qty-btn" data-action="cart:increase" data-id="${pid}">+</button>
+                        <button class="cart-page-qty-btn" data-action="cart:decrease" data-id="${safeDataId}">−</button>
+                        <input type="number" class="cart-page-qty-input" data-id="${safeDataId}" value="${quantity}" min="1" max="${maxStock || 999}">
+                        <button class="cart-page-qty-btn" data-action="cart:increase" data-id="${safeDataId}">+</button>
                     </div>
                     <div class="cart-page-item-linetotal">${lineTotal} MAD</div>
-                    <button class="cart-page-remove-btn" data-action="cart:remove" data-id="${pid}">🗑️</button>
+                    <button class="cart-page-remove-btn" data-action="cart:remove" data-id="${safeDataId}">🗑️</button>
                 </div>
             </div>
         </div>
@@ -431,8 +451,9 @@ function renderSuggestions() {
     if (!container) return;
 
     const products = getProducts();
-    const cartIds = new Set(getCart().map(i => Number(i.productId)));
-    const available = products.filter(p => !cartIds.has(Number(p.id)) && (Number(p.stock) || 0) > 0);
+    // Exclusion par String (compatible Number + String)
+    const cartIds = new Set(getCart().map(i => String(i.productId)));
+    const available = products.filter(p => !cartIds.has(String(p.id)) && (Number(p.stock) || 0) > 0);
     const random = available.sort(() => 0.5 - Math.random()).slice(0, 4);
 
     if (random.length === 0) { container.innerHTML = ''; return; }
@@ -440,13 +461,14 @@ function renderSuggestions() {
     let html = `<section class="cart-page-suggestions"><h3 class="cart-page-suggestions-title">⭐ ${t('cartSimilarProducts')}</h3><div class="cart-page-suggestions-grid">`;
     random.forEach(p => {
         const name = escapeHTML(getProductName(p));
+        const pid = normalizeProductId(p.id);
         html += `
             <div class="cart-suggestion-card" data-slug="${escapeHTML(p.slug || '')}">
                 <div class="cart-suggestion-img"><img src="${getProductImageUrl(p)}" alt="${name}" loading="lazy"></div>
                 <div class="cart-suggestion-body">
                     <div class="cart-suggestion-name">${name}</div>
                     <div class="cart-suggestion-price"><span class="cart-suggestion-current">${p.price} MAD</span></div>
-                    <button class="cart-suggestion-btn" data-action="cart:add-suggestion" data-id="${p.id}">🛒 ${t('addToCart')}</button>
+                    <button class="cart-suggestion-btn" data-action="cart:add-suggestion" data-id="${escapeHTML(String(pid))}">🛒 ${t('addToCart')}</button>
                 </div>
             </div>
         `;
@@ -457,7 +479,7 @@ function renderSuggestions() {
     container.querySelectorAll('[data-action="cart:add-suggestion"]').forEach(btn => {
         btn.addEventListener('click', async (e) => {
             e.stopPropagation();
-            const id = Number(btn.dataset.id);
+            const id = btn.dataset.id;
             btn.disabled = true; btn.innerHTML = '✅';
             await import("./cart.js").then(m => m.addToCart(id));
             btn.closest('.cart-suggestion-card').remove();
@@ -553,17 +575,17 @@ function attachFullCartEvents() {
 
     container.querySelectorAll('[data-action="cart:increase"]').forEach(btn => {
         btn.addEventListener('click', () => {
-            const id = Number(btn.dataset.id);
-            const item = getCart().find(i => i.productId === id);
-            if (item) updateCartQuantity(id, item.quantity + 1);
+            const id = btn.dataset.id; // string brute, compatible Number + String
+            const item = getCart().find(i => String(i.productId) === String(id));
+            if (item) updateCartQuantity(item.id, item.quantity + 1);
         });
     });
 
     container.querySelectorAll('[data-action="cart:decrease"]').forEach(btn => {
         btn.addEventListener('click', () => {
-            const id = Number(btn.dataset.id);
-            const item = getCart().find(i => i.productId === id);
-            if (item && item.quantity > 1) updateCartQuantity(id, item.quantity - 1);
+            const id = btn.dataset.id;
+            const item = getCart().find(i => String(i.productId) === String(id));
+            if (item && item.quantity > 1) updateCartQuantity(item.id, item.quantity - 1);
         });
     });
 
@@ -571,12 +593,18 @@ function attachFullCartEvents() {
         input.addEventListener('change', () => {
             let val = parseInt(input.value) || 1;
             if (val < 1) val = 1;
-            updateCartQuantity(Number(input.dataset.id), val);
+            const id = input.dataset.id;
+            const item = getCart().find(i => String(i.productId) === String(id));
+            if (item) updateCartQuantity(item.id, val);
         });
     });
 
     container.querySelectorAll('[data-action="cart:remove"]').forEach(btn => {
-        btn.addEventListener('click', () => { removeFromCart(Number(btn.dataset.id)); showToast('🗑️ Retiré'); });
+        btn.addEventListener('click', () => {
+            const id = btn.dataset.id;
+            const item = getCart().find(i => String(i.productId) === String(id));
+            if (item) { removeFromCart(item.id); showToast('🗑️ Retiré'); }
+        });
     });
 
     initCitySearchOnPage();
@@ -711,7 +739,6 @@ async function handleCheckoutFromPage() {
     try {
         waWindow = window.open('', '_blank');
         if (waWindow) {
-            // On écrit un joli écran de chargement dans la nouvelle fenêtre
             waWindow.document.write(`
                 <!DOCTYPE html>
                 <html>
@@ -766,7 +793,6 @@ async function handleCheckoutFromPage() {
             cityFr: selectedCity?.nameFr || ''
         }, appliedCoupon, waWindow);
 
-        // Si pas de redirection (annulé, erreur, panier vide), on ferme la fenêtre
         if (!result.success || !result.redirected) {
             if (waWindow && !waWindow.closed) waWindow.close();
             if (checkoutBtn && checkoutBtn.isConnected) {
@@ -790,4 +816,4 @@ async function handleCheckoutFromPage() {
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initCartPage);
 else initCartPage();
 
-console.log('✅ panier.js chargé — v2.2.0 (Fix Popup Mobile avec Chargement)');
+console.log('✅ panier.js chargé — v2.3.0 (Marketplace + IDs vendeurs)');
