@@ -5,12 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard Vendeur | Smart Swi9a</title>
     <meta name="robots" content="noindex, nofollow">
+    <meta name="theme-color" content="#0d0d0d">
     <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
 
-    <!-- Perf : Firebase est chargé depuis gstatic -->
+    <!-- Perf : Firebase est chargé depuis gstatic ; preconnect élargi (Firestore + Storage) -->
     <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+    <link rel="preconnect" href="https://firebasestorage.googleapis.com" crossorigin>
     <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Perf : précharge le module principal (évite le waterfall importmap → module) -->
+    <link rel="modulepreload" href="/js/vendor-dashboard.js">
 
     <!-- Importmap complet : storage inclus (utilisé par js/firebase.js) -->
     <script type="importmap">
@@ -31,11 +38,11 @@
     <style>
         /* La modale ne doit jamais apparaître sans .open */
         .v-mobile-overlay:not(.open) { display: none !important; }
-        
+
         /* Fallback minimal pour les bannières si vendor-style.css échoue */
         .v-banners { display: flex; flex-direction: column; gap: 12px; margin-bottom: 1.5rem; }
         .v-banners:empty { display: none; }
-        
+
         /* Skip link accessible */
         .skip-link {
             position: absolute; left: -9999px; top: 0;
@@ -44,7 +51,11 @@
         .skip-link:focus { left: 8px; top: 8px; }
     </style>
 
+    <!-- Traductions de base (chargées avant les modules ES) -->
     <script src="/translations.js"></script>
+
+    <!-- T11 : à activer une fois js/translations-vendor.js publié -->
+    <!-- <script src="/translations-vendor.js" defer></script> -->
 </head>
 <body class="vendor-page">
 
@@ -126,7 +137,7 @@
         </div>
     </main>
 
-    <!-- Le script charge les modales dynamiquement -->
+    <!-- Le module vendor-dashboard.js injecte les modales dynamiquement -->
     <script type="module" src="/js/vendor-dashboard.js"></script>
 </body>
 </html>
