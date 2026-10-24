@@ -1,21 +1,28 @@
-// js/config.js
-// ============================================================
-// CONFIGURATION CENTRALISÉE - SMART SWI9A
-// Version 8.1.0 — FONDATION COMPLÈTE (Marketplace + Analytics)
-// Session 3 (T3/T6/T9) :
-//   - PRODUCT_STATUS aligné sur le dashboard vendeur (pending_admin_approval, suspended, draft)
-//   - CONTRACT_VERSION -> 1.1.0 (T9)
-//   - CONTRACT_MIN_SCROLL retiré (obsolète)
-//   - getCommissionRate robuste (users/vendorsPublic)
-//   - WALLET_TX_STATUS ajouté (T3/T4)
-//   - isValidProductStatus() ajouté
-// ============================================================
+/* ============================================================
+   js/config.js
+   CONFIGURATION CENTRALISÉE - SMART SWI9A
+   Version 8.2.0 — FONDATION COMPLÈTE (Marketplace + Analytics)
+   Session 4 (T9) :
+     - ALERTE 1 : tous les commentaires de ligne (//) convertis en blocs
+       (/* ... */) pour résister à un aplatissement éventuel du fichier.
+     - CONTRACT_RESIGN_GRACE_DAYS ajouté (T9 §11).
+     - Rappel explicite « toute modification de gabarit ⇒ nouvelle version »
+       à côté de CONTRACT_VERSION.
+   Session 3 (T3/T6/T9) :
+     - PRODUCT_STATUS aligné sur le dashboard vendeur
+       (pending_admin_approval, suspended, draft)
+     - CONTRACT_VERSION -> 1.1.0 (T9)
+     - CONTRACT_MIN_SCROLL retiré (obsolète)
+     - getCommissionRate robuste (users/vendorsPublic)
+     - WALLET_TX_STATUS ajouté (T3/T4)
+     - isValidProductStatus() ajouté
+   ============================================================ */
 
 export const VIDEO_BASE_URL = "https://videos.smartswi9a.top/";
 
-// ============================================================
-// 🧪 MODE TEST / RÉEL
-// ============================================================
+/* ============================================================
+   MODE TEST / RÉEL
+   ============================================================ */
 export const APP_MODE = {
     current: "production",
     testBatchId: null
@@ -43,14 +50,14 @@ export const CONFIG = {
         CURRENCY: 'MAD',
         DISCOUNT_THRESHOLD: 3,
         DISCOUNT_PERCENT: 5,
-        // ⚠️ Sémantique ambiguë : si cart.js teste `subtotal >= FREE_DELIVERY_THRESHOLD`,
-        // alors 0 = livraison TOUJOURS gratuite (DELIVERY_FEE_BASE ignoré).
-        // Si cart.js teste `if (FREE_DELIVERY_THRESHOLD && subtotal >= ...)`, alors 0 = jamais gratuit.
-        // À trancher en lisant cart.js (étape 7).
+        /* ⚠️ Sémantique ambiguë : si cart.js teste `subtotal >= FREE_DELIVERY_THRESHOLD`,
+           alors 0 = livraison TOUJOURS gratuite (DELIVERY_FEE_BASE ignoré).
+           Si cart.js teste `if (FREE_DELIVERY_THRESHOLD && subtotal >= ...)`,
+           alors 0 = jamais gratuit. À trancher en lisant cart.js (étape 7). */
         FREE_DELIVERY_THRESHOLD: 0,
         DELIVERY_FEE_BASE: 30,
         DELIVERY_FEE_PER_VENDOR_EXTRA: 0,
-        // ⚠️ Placeholders légaux — à remplir avant mise en production.
+        /* ⚠️ Placeholders légaux — à remplir avant mise en production. */
         ICE: 'XXXXXXXXXXXXXXX',
         RC: 'XXXXXX',
         PATENTE: 'XXXXXXXX',
@@ -92,13 +99,13 @@ export const CONFIG = {
         PAYOUT_APPROVED: 'payout_approved', PAYOUT_PAID: 'payout_paid', PAYOUT_REJECTED: 'payout_rejected',
         STORAGE_FEE_CHARGED: 'storage_fee_charged'
     }},
-    // VENDOR ajouté (E14) : le vendeur ne passe pas par l'OTP EmailJS.
+    /* VENDOR ajouté (E14) : le vendeur ne passe pas par l'OTP EmailJS. */
     SIGNUP_METHODS: { OTP: 'otp', GOOGLE: 'google', FACEBOOK: 'facebook', VENDOR: 'vendor' },
     BREAKPOINTS: { MOBILE_MAX: 480, TABLET_MIN: 481, TABLET_MAX: 1024, DESKTOP_MIN: 1025, LARGE_MIN: 1441 },
 
-    // ============================================================
-    // MARKETPLACE / VENDEURS
-    // ============================================================
+    /* ============================================================
+       MARKETPLACE / VENDEURS
+       ============================================================ */
     VENDOR: {
         COMMISSION_RATE: 0.07,
         COMMISSION_RATE_MIN: 0.05,
@@ -125,15 +132,22 @@ export const CONFIG = {
         LABEL_FORMAT: 'PDF',
         PRODUCT_VALIDATION_HOURS: 48,
         VENDOR_VALIDATION_HOURS: 72,
-        // T9 : version courante du contrat — le hash de preuve dépend de cette valeur.
-        // Source de vérité textuelle : vendor-contract-text.js
+        /* T9 : version courante du contrat — le hash de preuve dépend de cette valeur.
+           Source de vérité textuelle : vendor-contract-text.js (CONTRACT_TEMPLATES).
+           ⚠️ Toute modification d'un gabarit publié ⇒ NOUVELLE version ici + nouveau
+              gabarit dans vendor-contract-text.js. On n'édite JAMAIS un gabarit en place. */
         CONTRACT_VERSION: '1.1.0',
+        /* T9 §11 : délai de grâce (jours) après une montée de version (majeur/mineur)
+           avant de bloquer la publication de produits et les demandes de retrait.
+           Pendant ce délai, l'ancienne version reste acceptée mais l'admin voit le badge
+           "contrat obsolète" et le vendeur voit la bannière "re-signature requise". */
+        CONTRACT_RESIGN_GRACE_DAYS: 30,
         ALLOWED_CATEGORIES: []
     },
 
-    // ============================================================
-    // LOGISTIQUE & SÉCURITÉ (Workers Cloudflare)
-    // ============================================================
+    /* ============================================================
+       LOGISTIQUE & SÉCURITÉ (Workers Cloudflare)
+       ============================================================ */
     LOGISTICS: {
         PROVIDER: 'speedaf',
         PROVIDER_API_URL: 'https://speedaf.ma/api',
@@ -151,9 +165,9 @@ export const CONFIG = {
         CONTRACT_HASH_ALGO: 'SHA-256'
     },
 
-    // ============================================================
-    // COMPTABILITÉ & STATISTIQUES
-    // ============================================================
+    /* ============================================================
+       COMPTABILITÉ & STATISTIQUES
+       ============================================================ */
     ACCOUNTING: {
         TVA_ENABLED: false, TVA_RATE: 0.20, CURRENCY: 'MAD', DECIMAL_PRECISION: 2,
         LEDGER_ENABLED: true, LEDGER_RETENTION_YEARS: 10, EXPORT_FORMATS: ['csv', 'pdf'],
@@ -186,12 +200,12 @@ export const CONFIG = {
         EMAIL_DAILY_ADMIN_SUMMARY: true, EMAIL_DAILY_VENDOR_SUMMARY: true, EMAIL_MONTHLY_REPORTS: true,
         AUTO_SUSPEND_VENDORS: true, AUTO_SUSPEND_NEGATIVE_BALANCE: true,
         WEBHOOKS_ENABLED: true,
-        // ⚠️ SÉCURITÉ P0 — NE JAMAIS METTRE LE SECRET RÉEL ICI.
-        // Ce champ est chargé côté navigateur, donc PUBLIC. Le secret Speedaf
-        // doit vivre UNIQUEMENT dans les variables d'environnement du Worker
-        // Cloudflare (worker-cron / proxy Speedaf) — voir wrangler.toml.
-        // La valeur ci-dessous est un marqueur : toute comparaison échouera,
-        // ce qui est le comportement sûr (rejet par défaut).
+        /* ⚠️ SÉCURITÉ P0 — NE JAMAIS METTRE LE SECRET RÉEL ICI.
+           Ce champ est chargé côté navigateur, donc PUBLIC. Le secret Speedaf
+           doit vivre UNIQUEMENT dans les variables d'environnement du Worker
+           Cloudflare (worker-cron / proxy Speedaf) — voir wrangler.toml.
+           La valeur ci-dessous est un marqueur : toute comparaison échouera,
+           ce qui est le comportement sûr (rejet par défaut). */
         WEBHOOK_SPEEDAF_SECRET: '__MIGRATED_TO_WORKER_ENV__',
         WEBHOOK_RETRY_ATTEMPTS: 3, WEBHOOK_RETRY_DELAY_MS: 5000
     },
@@ -208,16 +222,16 @@ export const REVIEW_STATUS = CONFIG.REVIEWS.STATUS;
 export const NOTIFICATION_TYPES = CONFIG.NOTIFICATIONS.TYPES;
 export const SIGNUP_METHODS = CONFIG.SIGNUP_METHODS;
 
-// ============================================================
-// STATUTS VENDEURS & MARKETPLACE
-// ============================================================
+/* ============================================================
+   STATUTS VENDEURS & MARKETPLACE
+   ============================================================ */
 export const VENDOR_STATUS = { PENDING: 'pending', APPROVED: 'approved', REJECTED: 'rejected', SUSPENDED: 'suspended' };
 export const VENDOR_SHIPPING_METHOD = { DROPOFF: 'dropoff', FULFILLMENT: 'fulfillment' };
 
-// T6 : aligné sur le dashboard vendeur + admin (pending_admin_approval, suspended, draft).
-// On conserve PENDING pour compatibilité legacy.
+/* T6 : aligné sur le dashboard vendeur + admin (pending_admin_approval, suspended, draft).
+   On conserve PENDING pour compatibilité legacy. */
 export const PRODUCT_STATUS = {
-    PENDING: 'pending',                          // legacy — peut encore exister en base
+    PENDING: 'pending',
     PENDING_ADMIN_APPROVAL: 'pending_admin_approval',
     APPROVED: 'approved',
     REJECTED: 'rejected',
@@ -244,11 +258,11 @@ export const WALLET_TX_TYPE = {
     SALE: 'sale', RETURN_FEE: 'return_fee', PAYOUT: 'payout', PENALTY: 'penalty',
     STORAGE_FEE: 'storage_fee', STORAGE_REFUND: 'storage_refund', ADJUSTMENT: 'adjustment'
 };
-// T3/T4 : statuts d'une transaction wallet (idempotence du déblocage).
+/* T3/T4 : statuts d'une transaction wallet (idempotence du déblocage). */
 export const WALLET_TX_STATUS = {
-    PENDING: 'pending',   // fonds en attente (pendingBalance)
-    RELEASED: 'released', // fonds débloqués (availableBalance)
-    CANCELLED: 'cancelled' // annulée (ex. retour avant déblocage)
+    PENDING: 'pending',
+    RELEASED: 'released',
+    CANCELLED: 'cancelled'
 };
 export const PAYOUT_STATUS = { PENDING: 'pending', APPROVED: 'approved', PAID: 'paid', REJECTED: 'rejected', CANCELLED: 'cancelled' };
 export const CONTRACT_STATUS = { PENDING: 'pending', ACCEPTED: 'accepted', REVOKED: 'revoked' };
@@ -268,7 +282,7 @@ export function normalizeOrderStatus(status) {
     return STATUS_MIGRATION_MAP[status] || status;
 }
 
-// Mapping complet des anciennes catégories vers les nouvelles
+/* Mapping complet des anciennes catégories vers les nouvelles */
 export const LEGACY_CATEGORY_MAP = {
     'electronics': 'smartphones', 'smartphone': 'smartphones', 'tablet': 'computers', 'watch': 'wearables',
     'accessory': 'tech-accessories', 'home': 'smart-home', 'fashion': 'fashion', 'baby-kids': 'toys',
@@ -282,8 +296,8 @@ export function normalizeCategory(catId) {
     return LEGACY_CATEGORY_MAP[catId] || catId;
 }
 
-// NOTE : référence CATEGORY_GROUPS déclarée plus bas. Sûr en ES module
-// (la fonction n'est exécutée qu'après l'initialisation du module).
+/* NOTE : référence CATEGORY_GROUPS déclarée plus bas. Sûr en ES module
+   (la fonction n'est exécutée qu'après l'initialisation du module). */
 export function productMatchesCategory(product, categoryId) {
     if (!categoryId || categoryId === 'all') return true;
     if (!product || !product.category) return false;
@@ -321,9 +335,9 @@ export function isFullReturn(order) {
     return order.items.every(item => (returned[String(item.productId)] || 0) >= (Number(item.quantity) || 0));
 }
 
-// ============================================================
-// HELPERS MARKETPLACE (Calculs)
-// ============================================================
+/* ============================================================
+   HELPERS MARKETPLACE (Calculs)
+   ============================================================ */
 export function isVendorProduct(product) {
     return !!(product && product.vendorId && product.vendorId !== 'smartswi9a');
 }
@@ -383,6 +397,10 @@ export function getReturnFeeForVendor() {
     return CONFIG.VENDOR.RETURN_FEE_SPEEDAF;
 }
 
+/* T9 : politique de re-signature — ce helper NE tient PAS compte du délai
+   de grâce (CONFIG.VENDOR.CONTRACT_RESIGN_GRACE_DAYS). Pour savoir si un
+   vendeur doit re-signer et si le blocage est effectif, utiliser
+   needsResign() et compareVersions() depuis js/vendor-contract.js. */
 export function canVendorSell(vendor) {
     if (!vendor || !vendor.vendorInfo) return false;
     return vendor.vendorInfo.status === VENDOR_STATUS.APPROVED
@@ -426,9 +444,9 @@ export function generateVendorLabelBarcode(prefix = 'CMD') {
 export const LANGUAGES = ['fr', 'ar', 'en'];
 export const DEFAULT_LANGUAGE = 'fr';
 
-// ============================================================
-// CATÉGORIES (23 PARENTS + ENFANTS)
-// ============================================================
+/* ============================================================
+   CATÉGORIES (23 PARENTS + ENFANTS)
+   ============================================================ */
 export const CATEGORY_GROUPS = [
     { id: 'smartphones', label: 'filterSmartphones', emoji: '📱', children: [{ id: 'smartphones-android', label: 'filterAndroid', emoji: '🤖' }, { id: 'smartphones-ios', label: 'filterIOS', emoji: '🍏' }, { id: 'smartphones-accessories', label: 'filterPhoneAccessories', emoji: '🔌' }]},
     { id: 'audio', label: 'filterAudio', emoji: '🎧', children: [{ id: 'audio-headphones', label: 'filterHeadphones', emoji: '🎧' }, { id: 'audio-earbuds', label: 'filterEarbuds', emoji: '🎵' }, { id: 'audio-speakers', label: 'filterSpeakers', emoji: '🔊' }]},
@@ -455,9 +473,9 @@ export const CATEGORY_GROUPS = [
     { id: 'office', label: 'filterOffice', emoji: '📄', children: [{ id: 'office-stationery', label: 'filterStationery', emoji: '✏️' }, { id: 'office-furniture', label: 'filterOfficeFurniture', emoji: '🪑' }, { id: 'office-electronics', label: 'filterOfficeElectronics', emoji: '🖨️' }]}
 ];
 
-// ============================================================
-// INDEX DES CATÉGORIES
-// ============================================================
+/* ============================================================
+   INDEX DES CATÉGORIES
+   ============================================================ */
 let _categoryIndexCache = null;
 function buildCategoryIndex() {
     if (_categoryIndexCache) return _categoryIndexCache;
@@ -512,4 +530,4 @@ export const SORT_OPTIONS = [
     { value: 'rating', label: 'sortRating' }
 ];
 
-console.log('✅ config.js chargé — v8.1.0 (Marketplace complet, correctifs sécurité)');
+console.log('✅ config.js chargé — v8.2.0 (Marketplace complet, correctifs sécurité + T9)');
