@@ -472,6 +472,7 @@
         <div class="admin-content active" id="tab-dashboard">
             <div class="admin-stats" id="adminStats">
                 <div class="admin-stat-card"><span class="stat-value" id="statProducts">—</span><span class="stat-label">📦 Produits</span></div>
+                <div class="admin-stat-card"><span class="stat-value" id="statProductsPending">—</span><span class="stat-label">⏳ Produits à valider</span></div>
                 <div class="admin-stat-card"><span class="stat-value" id="statOrders">—</span><span class="stat-label">📋 Commandes</span></div>
                 <div class="admin-stat-card"><span class="stat-value" id="statUsers">—</span><span class="stat-label">👥 Clients</span></div>
                 <div class="admin-stat-card"><span class="stat-value" id="statReviewsPending">—</span><span class="stat-label">⭐ Avis en attente</span></div>
@@ -486,7 +487,7 @@
             <div class="admin-form">
                 <h3 id="productFormTitle">➕ Ajouter un produit</h3>
                 <input type="hidden" id="productEditId">
-                
+
                 <div class="admin-form-row">
                     <div><label>🇫🇷 Nom (Français) *</label><input type="text" id="pNameFr" placeholder="Ex: Prise Connectée WiFi"></div>
                     <div><label>🇲🇦 Nom (Arabe)</label><input type="text" id="pNameAr" placeholder="اسم المنتج"></div>
@@ -550,7 +551,7 @@
                     <div><label>Couleurs (séparées par virgule)</label><input type="text" id="pColors" placeholder="Rouge, Bleu, Noir"></div>
                 </div>
                 <button type="button" class="admin-btn-secondary" id="generateVariantsBtn" style="margin-top:0.5rem;margin-bottom:1rem;">🔄 Générer les combinaisons</button>
-                
+
                 <div id="variantsContainer">
                     <p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.5rem;">Ajustez le stock et le prix pour chaque combinaison :</p>
                     <table class="acc-table" id="variantsTable">
@@ -578,12 +579,12 @@
                 <textarea id="pFeaturesAr" placeholder="بلوتوث 5.3&#10;بطارية 30 ساعة"></textarea>
                 <label>🇬🇧 Caractéristiques EN (une par ligne)</label>
                 <textarea id="pFeaturesEn" placeholder="Bluetooth 5.3&#10;30h battery"></textarea>
-                
+
                 <label>📸 Image principale (URL ou upload)</label>
                 <input type="text" id="pImg" placeholder="https://... ou /photos/image.jpg">
                 <input type="file" id="pImgFile" accept="image/*" style="margin-top:0.5rem;">
                 <img id="pImgPreview" class="admin-preview-img" alt="Aperçu">
-                
+
                 <label>🖼️ Galerie (URLs séparées par des virgules, ou upload multiple)</label>
                 <input type="text" id="pGallery" placeholder="url1, url2, url3">
                 <input type="file" id="pGalleryFiles" accept="image/*" multiple style="margin-top:0.5rem;">
@@ -647,7 +648,7 @@
                     <button class="admin-btn-primary" id="syncAllSpeedafBtn" style="margin:0;">🔄 Synchroniser</button>
                 </div>
             </div>
-            
+
             <div class="admin-stats" style="margin-bottom:1.5rem;">
                 <div class="admin-stat-card"><span class="stat-value" id="speedafStatPending">—</span><span class="stat-label">⏳ À expédier</span></div>
                 <div class="admin-stat-card"><span class="stat-value" id="speedafStatShipping">—</span><span class="stat-label">🚚 En cours</span></div>
@@ -815,7 +816,11 @@
                     <div style="position:relative;height:320px;"><canvas id="revenueChart"></canvas></div>
                 </div>
                 <h3 style="font-family:var(--font-secondary);color:var(--gold);margin:1.5rem 0 1rem;">🕐 Activité récente</h3>
-                <div id="accRecentActivity"></div>
+                <!-- NOTE : `accRecentActivity` est prévu pour une future implémentation (T10).
+                     En attendant, un placeholder visuel évite un bloc vide. -->
+                <div id="accRecentActivity">
+                    <div class="admin-empty" style="font-size:0.85rem;padding:1rem;">ℹ️ Fonctionnalité à venir — les dernières commandes, dépenses et achats s'afficheront ici.</div>
+                </div>
             </div>
 
             <div class="acc-content" id="acc-purchases">
@@ -949,7 +954,8 @@
                     <div id="financeProductSelector" style="max-height:350px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.5rem;margin-bottom:1rem;"></div>
                     <button class="admin-btn-primary" id="calculateFinancesBtn" style="width:100%;">🧮 Lancer l'analyse</button>
                 </div>
-                <div id="financeResults" style="display:none;">
+                <!-- H1 corrigé : id="financesResults" (avec "s") pour matcher admin.js v10.2.1 -->
+                <div id="financesResults" style="display:none;">
                     <h4 style="color:var(--gold);margin:1.5rem 0 1rem;">📊 Totaux globaux</h4>
                     <div class="admin-stats" style="margin-bottom:1rem;">
                         <div class="admin-stat-card" style="border-color:var(--gold);">
@@ -964,7 +970,6 @@
                         <div class="admin-stat-card" style="border-color:var(--gold);"><span class="stat-value" id="finBreakEven" style="color:var(--gold);">0</span><span class="stat-label">🎯 Point mort</span></div>
                     </div>
 
-                    <!-- ✅ H1 corrigé : 3 cards réintroduites pour calculateFinances() -->
                     <div class="admin-stats" style="margin-bottom:1.5rem;">
                         <div class="admin-stat-card"><span class="stat-value" id="finTotalProducts">0</span><span class="stat-label">📦 Produits sélectionnés</span></div>
                         <div class="admin-stat-card"><span class="stat-value" id="finTotalUnits">0</span><span class="stat-label">📊 Unités en stock</span></div>
@@ -1050,6 +1055,8 @@
             <div class="admin-alert-items">
                 <button class="alert-badge alert-danger" id="alertOrdersBtn" style="display: none;">🔴 <span id="alertOrdersCount">0</span> Commande(s)</button>
                 <button class="alert-badge alert-warning" id="alertReviewsBtn" style="display: none;">🟡 <span id="alertReviewsCount">0</span> Avis</button>
+                <!-- H3 ajouté : bouton d'alerte "produits à valider" (alimenté par refreshAdminAlerts) -->
+                <button class="alert-badge alert-warning" id="alertProductsPendingBtn" style="display: none;">📦 <span id="alertProductsPendingCount">0</span> Produit(s) à valider</button>
                 <button class="alert-badge alert-danger" id="alertStockOutBtn" style="display: none;">❌ <span id="alertStockOutCount">0</span> Rupture(s)<span class="alert-tooltip" id="alertStockOutTooltip">—</span></button>
                 <button class="alert-badge alert-info" id="alertStockLowBtn" style="display: none;">🟠 <span id="alertStockLowCount">0</span> Stock(s) bas<span class="alert-tooltip" id="alertStockLowTooltip">—</span></button>
             </div>
