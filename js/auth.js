@@ -1,11 +1,12 @@
-// js/auth.js
-// ============================================================
-// AUTHENTIFICATION - SMART SWI9A
-// Version 3.4.0 — Marketplace + Vendor Signup + Règles v4.1.0
-// Session 4 — T12 : suppression des logs contenant des PII (e-mails),
-//   helper logAuthError qui masque le message d'erreur en production,
-//   wallet log simplifié. Aucune fonction exportée retirée.
-// ============================================================
+/* ============================================================
+   js/auth.js
+   AUTHENTIFICATION - SMART SWI9A
+   Version 3.4.0 — Marketplace + Vendor Signup + Règles v4.1.0
+   Session 4 — T12 : suppression des logs contenant des PII (e-mails),
+     helper logAuthError qui masque le message d'erreur en production,
+     wallet log simplifié. Aucune fonction exportée retirée.
+   ALERTE 1 : plus aucun // en début de ligne utile.
+   ============================================================ */
 
 import {
     createUserWithEmailAndPassword,
@@ -30,13 +31,13 @@ import {
 import { setUser, getUser } from "./store.js";
 import { showToast } from "./ui-core.js";
 
-// ============================================================
-// LOG SÉCURISÉ (T12)
-// ------------------------------------------------------------
-// En développement local : affiche l'objet error complet (debug).
-// En production : affiche uniquement error.code — jamais
-// error.message (qui peut contenir un e-mail côté Firebase Auth).
-// ============================================================
+/* ============================================================
+   LOG SÉCURISÉ (T12)
+   ------------------------------------------------------------
+   En développement local : affiche l'objet error complet (debug).
+   En production : affiche uniquement error.code — jamais
+   error.message (qui peut contenir un e-mail côté Firebase Auth).
+   ============================================================ */
 function isLocalDev() {
     if (typeof window === "undefined") return false;
     const h = window.location.hostname;
@@ -52,9 +53,9 @@ function logAuthError(context, error) {
     }
 }
 
-// ============================================================
-// ÉTAT GLOBAL
-// ============================================================
+/* ============================================================
+   ÉTAT GLOBAL
+   ============================================================ */
 let authReady = false;
 let authReadyResolve;
 
@@ -69,9 +70,9 @@ export const authReadyPromise = new Promise((resolve) => {
     };
 });
 
-// ============================================================
-// ÉTAT AUTH
-// ============================================================
+/* ============================================================
+   ÉTAT AUTH
+   ============================================================ */
 export function isAuthReady() {
     return authReady;
 }
@@ -80,10 +81,10 @@ export function getCurrentUser() {
     return getUser();
 }
 
-// --- B6 : whitelist avant stockage (PII) ---
-// La version complète reste en mémoire (store.js) ; seule une version
-// NON sensible est persistée dans localStorage. Le cache ne sert QU'À
-// l'affichage au reload, jamais à décider un droit.
+/* --- B6 : whitelist avant stockage (PII) ---
+   La version complète reste en mémoire (store.js) ; seule une version
+   NON sensible est persistée dans localStorage. Le cache ne sert QU'À
+   l'affichage au reload, jamais à décider un droit. */
 function sanitizeUserForStorage(user) {
     if (!user) return null;
     return {
@@ -104,8 +105,8 @@ export function setCurrentUser(user) {
     setUser(user);
     if (user) {
         safeSetItem(CONFIG.STORAGE_KEYS.USER, sanitizeUserForStorage(user));
-        // B11 : ne pas démarrer le timer idle depuis un cache — uniquement
-        // sur une session re-confirmée par onAuthStateChanged.
+        /* B11 : ne pas démarrer le timer idle depuis un cache — uniquement
+           sur une session re-confirmée par onAuthStateChanged. */
         if (!user._fromCache && user.emailVerified !== false && !user.needsVerification) {
             startIdleTimer();
         }
@@ -116,18 +117,18 @@ export function setCurrentUser(user) {
     document.dispatchEvent(new CustomEvent("auth-updated", { detail: { user } }));
 }
 
-// ============================================================
-// Vérifier si l'email est vérifié
-// ============================================================
+/* ============================================================
+   Vérifier si l'email est vérifié
+   ============================================================ */
 export function isEmailVerified() {
     const user = auth.currentUser;
     if (!user) return false;
     return user.emailVerified === true;
 }
 
-// ============================================================
-// PROFIL UTILISATEUR (Firestore)
-// ============================================================
+/* ============================================================
+   PROFIL UTILISATEUR (Firestore)
+   ============================================================ */
 export async function saveUserProfile(uid, data) {
     try {
         await setDoc(doc(db, "users", uid), data, { merge: true });
@@ -148,9 +149,9 @@ export async function getUserProfile(uid) {
     }
 }
 
-// ============================================================
-// HELPER : Mapper les erreurs Firebase Auth
-// ============================================================
+/* ============================================================
+   HELPER : Mapper les erreurs Firebase Auth
+   ============================================================ */
 function getAuthErrorMessage(error, context = "generic") {
     const code = error?.code || "";
 
@@ -192,13 +193,12 @@ function getAuthErrorMessage(error, context = "generic") {
     return t("error");
 }
 
-// ============================================================
-// INSCRIPTION CLIENT
-// (B12 : min 6 conservé pour ne pas casser la page client existante.
-//  À passer à 8+ lors de la mise à jour de inscription.html — non traité ici.)
-// ============================================================
+/* ============================================================
+   INSCRIPTION CLIENT
+   (B12 : min 6 conservé pour ne pas casser la page client existante.)
+   ============================================================ */
 export async function registerWithFirebase(name, email, phone, dob, password) {
-    // T12 : ne plus loguer l'email. Message neutre.
+    /* T12 : ne plus loguer l'email. Message neutre. */
     console.log("📝 registerWithFirebase");
 
     if (!email || !isValidEmail(email)) {
@@ -223,7 +223,7 @@ export async function registerWithFirebase(name, email, phone, dob, password) {
         const firstName = parts[0] || "";
         const lastName = parts.slice(1).join(" ") || "";
 
-        // Conforme à la règle users.create (v5.2.0)
+        /* Conforme à la règle users.create (v5.2.0) */
         const profile = {
             name: name.trim(),
             firstName,
@@ -273,15 +273,15 @@ export async function registerWithFirebase(name, email, phone, dob, password) {
     }
 }
 
-// ============================================================
-// INSCRIPTION VENDEUR
-// Conforme à la règle users.create + wallets.create (v5.2.0).
-// ============================================================
+/* ============================================================
+   INSCRIPTION VENDEUR
+   Conforme à la règle users.create + wallets.create (v5.2.0).
+   ============================================================ */
 export async function registerVendorWithFirebase(vendorData, password) {
-    // T12 : ne plus loguer l'email. Message neutre.
+    /* T12 : ne plus loguer l'email. Message neutre. */
     console.log("🏪 registerVendorWithFirebase");
 
-    // --- B5 : mot de passe 8+ avec lettre + chiffre ---
+    /* B5 : mot de passe 8+ avec lettre + chiffre */
     if (!vendorData?.email || !isValidEmail(vendorData.email)) {
         throw new Error("Email invalide");
     }
@@ -294,12 +294,12 @@ export async function registerVendorWithFirebase(vendorData, password) {
         throw new Error("Mot de passe trop faible (8 caractères min, lettres et chiffres).");
     }
 
-    // --- B9 : validations alignées sur vendor-signup.js ---
+    /* B9 : validations alignées sur vendor-signup.js */
     const shopName = (vendorData.shopName || "").trim();
     if (shopName.length < 2 || shopName.length > 60) {
         throw new Error("Nom de boutique invalide (2 à 60 caractères).");
     }
-    // Le téléphone DOIT être normalisé par l'appelant au format +212[67]XXXXXXXX
+    /* Le téléphone DOIT être normalisé par l'appelant au format +212[67]XXXXXXXX */
     if (!/^\+212[67]\d{8}$/.test(vendorData.phone || "")) {
         throw new Error("Téléphone marocain invalide (06XXXXXXXX ou +2126XXXXXXXX).");
     }
@@ -309,9 +309,9 @@ export async function registerVendorWithFirebase(vendorData, password) {
     }
     const iceCin = (vendorData.iceCin || "").trim().toUpperCase();
     if (!(
-        /^\d{15}$/.test(iceCin) ||              // ICE
-        /^[A-Z]{1,2}\d{5,6}$/.test(iceCin) ||   // CIN courant
-        /^\d{6,8}$/.test(iceCin)                // CIN numérique
+        /^\d{15}$/.test(iceCin) ||
+        /^[A-Z]{1,2}\d{5,6}$/.test(iceCin) ||
+        /^\d{6,8}$/.test(iceCin)
     )) {
         throw new Error("ICE ou CIN invalide.");
     }
@@ -320,43 +320,35 @@ export async function registerVendorWithFirebase(vendorData, password) {
     }
 
     try {
-        // 1. Créer le compte dans Firebase Auth
         const userCredential = await createUserWithEmailAndPassword(auth, vendorData.email, password);
         const user = userCredential.user;
         const uid = user.uid;
 
-        // 2. Préparer le profil vendeur
-        // Conforme aux règles users.create (v5.2.0)
         const profile = {
             name: shopName,
             email: cleanEmail(vendorData.email),
             phone: vendorData.phone,
             role: ROLES.VENDOR,
-            signupMethod: SIGNUP_METHODS.VENDOR,          // B4 : plus OTP
+            signupMethod: SIGNUP_METHODS.VENDOR,
             emailVerified: false,
-            createdAt: serverTimestamp(),                 // B14
+            createdAt: serverTimestamp(),
             vendorInfo: {
                 shopName,
                 iceCin,
                 city,
                 shippingMethod: vendorData.shippingMethod,
                 status: VENDOR_STATUS.PENDING,
-                // B2 : le contrat N'EST PAS encore signé à ce stade,
-                // il le sera dans vendor-signup.js APRÈS cette fonction.
                 contractStatus: CONTRACT_STATUS.PENDING,
                 delayCount: 0,
                 commissionRate: CONFIG.VENDOR.COMMISSION_RATE
             }
         };
 
-        // 3. Enregistrer le profil dans Firestore
         const profileOk = await saveUserProfile(uid, profile);
         if (!profileOk) {
             throw new Error("Impossible d'enregistrer le profil vendeur.");
         }
 
-        // 4. Initialiser le Wallet (B3 : montants à 0)
-        // Conforme à la règle wallets.create (v5.2.0)
         try {
             await setDoc(doc(db, "wallets", uid), {
                 vendorId: uid,
@@ -368,15 +360,12 @@ export async function registerVendorWithFirebase(vendorData, password) {
                 createdAt: serverTimestamp(),
                 lastUpdated: serverTimestamp()
             });
-            // T12 : log neutre (plus d'UID en clair)
+            /* T12 : log neutre (plus d'UID en clair) */
             console.log("✅ Wallet vendeur initialisé");
         } catch (walletErr) {
             logAuthError("❌ Wallet non initialisé", walletErr);
-            // On ne bloque pas l'inscription : le dashboard affichera un état
-            // "wallet manquant", et l'admin (ou un cron) pourra le créer.
         }
 
-        // 5. Envoi email de vérification
         try {
             await sendEmailVerification(user, {
                 url: `${CONFIG.SHOP.URL}/`,
@@ -386,8 +375,6 @@ export async function registerVendorWithFirebase(vendorData, password) {
             logAuthError("⚠️ Erreur envoi email vérif", e);
         }
 
-        // 6. Connexion locale (memory). On remplace le sentinel serverTimestamp
-        //    par une date locale pour l'affichage immédiat.
         setCurrentUser({
             uid,
             email: cleanEmail(vendorData.email),
@@ -404,9 +391,9 @@ export async function registerVendorWithFirebase(vendorData, password) {
     }
 }
 
-// ============================================================
-// RENVOYER L'EMAIL DE VÉRIFICATION
-// ============================================================
+/* ============================================================
+   RENVOYER L'EMAIL DE VÉRIFICATION
+   ============================================================ */
 export async function resendVerificationEmail() {
     const user = auth.currentUser;
     if (!user) {
@@ -437,9 +424,9 @@ export async function resendVerificationEmail() {
     }
 }
 
-// ============================================================
-// VÉRIFIER SI L'EMAIL EST CONFIRMÉ
-// ============================================================
+/* ============================================================
+   VÉRIFIER SI L'EMAIL EST CONFIRMÉ
+   ============================================================ */
 export async function checkEmailVerification() {
     const user = auth.currentUser;
     if (!user) return false;
@@ -449,7 +436,6 @@ export async function checkEmailVerification() {
         const verified = auth.currentUser?.emailVerified || false;
 
         if (verified && user.uid) {
-            // Conforme à users.update (whitelist inclut emailVerified)
             await saveUserProfile(user.uid, { emailVerified: true });
             const currentUser = getCurrentUser();
             if (currentUser) {
@@ -466,9 +452,9 @@ export async function checkEmailVerification() {
     }
 }
 
-// ============================================================
-// GOOGLE & FACEBOOK SIGN-IN
-// ============================================================
+/* ============================================================
+   GOOGLE & FACEBOOK SIGN-IN
+   ============================================================ */
 export async function loginWithGoogle() {
     const provider = new GoogleAuthProvider();
     provider.setCustomParameters({ prompt: "select_account" });
@@ -483,7 +469,6 @@ export async function loginWithGoogle() {
 
         if (!profile) {
             isNewUser = true;
-            // Conforme à users.create (signupMethod dans la liste)
             profile = {
                 name: user.displayName || (user.email ? user.email.split("@")[0] : "Utilisateur"),
                 firstName: (user.displayName || "").split(" ")[0] || "",
@@ -530,7 +515,6 @@ export async function loginWithFacebook() {
 
         if (!profile) {
             isNewUser = true;
-            // Conforme à users.create
             profile = {
                 name: user.displayName || (user.email ? user.email.split("@")[0] : "Utilisateur"),
                 firstName: (user.displayName || "").split(" ")[0] || "",
@@ -562,9 +546,9 @@ export async function loginWithFacebook() {
     }
 }
 
-// ============================================================
-// CONNEXION
-// ============================================================
+/* ============================================================
+   CONNEXION
+   ============================================================ */
 export async function loginUser(email, password) {
     try {
         const userCredential = await signInWithEmailAndPassword(auth, email, password);
@@ -572,7 +556,7 @@ export async function loginUser(email, password) {
         const uid = firebaseUser.uid;
 
         if (!firebaseUser.emailVerified) {
-            // T12 : log neutre (pas d'e-mail en clair)
+            /* T12 : log neutre (pas d'e-mail en clair) */
             console.log("⛔ Connexion bloquée : email non vérifié");
 
             try {
@@ -597,7 +581,6 @@ export async function loginUser(email, password) {
 
         let profile = await getUserProfile(uid);
         if (!profile) {
-            // Fallback sécurisé : création du profil minimal si manquant
             profile = {
                 name: email.split("@")[0],
                 email: cleanEmail(email),
@@ -633,9 +616,9 @@ export async function loginUser(email, password) {
     }
 }
 
-// ============================================================
-// DÉCONNEXION
-// ============================================================
+/* ============================================================
+   DÉCONNEXION
+   ============================================================ */
 export async function logoutUser() {
     try {
         await signOut(auth);
@@ -648,9 +631,9 @@ export async function logoutUser() {
     }
 }
 
-// ============================================================
-// MOT DE PASSE OUBLIÉ & CHANGEMENT
-// ============================================================
+/* ============================================================
+   MOT DE PASSE OUBLIÉ & CHANGEMENT
+   ============================================================ */
 export async function requestPasswordReset(email) {
     try {
         await sendPasswordResetEmail(auth, email);
@@ -662,20 +645,19 @@ export async function requestPasswordReset(email) {
     }
 }
 
-// B15 : pas de validation de force ajoutée ici pour ne pas casser
-// les flux de changement de mot de passe existants. À renforcer
-// quand les pages de changement de mot de passe seront auditées.
+/* B15 : pas de validation de force ajoutée ici pour ne pas casser
+   les flux de changement de mot de passe existants. */
 export async function updateUserPassword(newPassword) {
     const user = auth.currentUser;
     if (!user) throw new Error("Aucun utilisateur connecté");
     await updatePassword(user, newPassword);
 }
 
-// ============================================================
-// LISTENER D'AUTHENTIFICATION
-// B10 : retourne désormais l'unsubscribe et annule l'ancien pour
-// éviter le cumul de listeners si l'init est appelée plusieurs fois.
-// ============================================================
+/* ============================================================
+   LISTENER D'AUTHENTIFICATION
+   B10 : retourne désormais l'unsubscribe et annule l'ancien pour
+   éviter le cumul de listeners si l'init est appelée plusieurs fois.
+   ============================================================ */
 let currentAuthUnsubscribe = null;
 
 export function initAuthListener() {
@@ -736,9 +718,9 @@ export function initAuthListener() {
     return currentAuthUnsubscribe;
 }
 
-// ============================================================
-// IDLE TIMER
-// ============================================================
+/* ============================================================
+   IDLE TIMER
+   ============================================================ */
 let idleTimer = null;
 let lastActivity = Date.now();
 let idleListeners = [];
@@ -767,26 +749,21 @@ function stopIdleTimer() {
     idleListeners = [];
 }
 
-// ============================================================
-// RÔLE ADMIN
-// ============================================================
+/* ============================================================
+   RÔLE ADMIN
+   ============================================================ */
 
-/**
- * ⚠️ NON SÉCURISÉ — lit le cache local (localStorage manipulable).
- * Ne doit servir QU'À l'affichage (masquer/montrer des liens).
- * Pour TOUTE décision de droit (accès admin.html, actions admin),
- * utiliser isUserAdminVerified() (async, relit Firestore).
- */
+/* ⚠️ NON SÉCURISÉ — lit le cache local (localStorage manipulable).
+   Ne doit servir QU'À l'affichage (masquer/montrer des liens).
+   Pour TOUTE décision de droit (accès admin.html, actions admin),
+   utiliser isUserAdminVerified() (async, relit Firestore). */
 export function isUserAdmin() {
     const user = getCurrentUser();
     return !!(user && user.role === ROLES.ADMIN);
 }
 
-/**
- * Version sécurisée : relit le rôle depuis Firestore.
- * Les règles Firestore protègent ce champ (users/{uid}.role non modifiable
- * par le propriétaire — étape 2 validée).
- */
+/* Version sécurisée : relit le rôle depuis Firestore.
+   Les règles Firestore protègent ce champ. */
 export async function isUserAdminVerified() {
     const cached = getCurrentUser();
     if (!cached || !cached.uid) return false;
@@ -799,12 +776,11 @@ export async function isUserAdminVerified() {
     }
 }
 
-// ============================================================
-// RESTAURER LA SESSION
-// B7/B11 : la version restaurée est marquée _fromCache pour ne pas
-// démarrer le timer idle tant que onAuthStateChanged n'a pas re-confirmé.
-// Le cache ne sert QUE pour l'affichage initial.
-// ============================================================
+/* ============================================================
+   RESTAURER LA SESSION
+   B7/B11 : la version restaurée est marquée _fromCache pour ne pas
+   démarrer le timer idle tant que onAuthStateChanged n'a pas re-confirmé.
+   ============================================================ */
 export function restoreSession() {
     try {
         const saved = safeGetItem(CONFIG.STORAGE_KEYS.USER);
@@ -816,7 +792,7 @@ export function restoreSession() {
     }
 }
 
-// ============================================================
-// LOG
-// ============================================================
+/* ============================================================
+   LOG
+   ============================================================ */
 console.log("✅ auth.js chargé — v3.4.0 (T12 : logs PII retirés)");
