@@ -1,16 +1,12 @@
 // js/admin.js
 // ============================================================
 // PANNEAU ADMINISTRATION - SMART SWI9A
-// Version 10.1.0 — Marketplace (correctifs Vendeurs + Retraits + N2 fix)
-//   - B1/B2 : approbation vendeur écrit users ET vendorsPublic (transaction)
-//   - B3 : refus d'approbation si contrat non signé (lecture contracts/)
-//   - B4 : tri vendeurs (pending → approved → rejeté/suspendu)
-//   - B5 : affichage contrat (signé / non signé / révoqué)
-//   - B6 : serverTimestamp pour les mises à jour statut vendeur
-//   - B8/B9 : payouts bornés et vendorId fallback
-//   - B10 : message d'erreur enrichi
-//   - B11 : null-guards sur les éléments critiques du login
-//   - N2 : lecture contracts/contract_<uid> + sync vendorInfo.contractStatus
+// Version 10.2.1 — Marketplace (T6 workflow produits + T10 déblocage fonds)
+// Correctifs v10.2.1 (Session 3) :
+//   - Retrait imports inutilisés (CATEGORIES, openReturnModal)
+//   - Null-guards sur pickupModal / pickupDate / pickupPackages / pickupWeight / pickupNote
+//   - Commentaire explicite sur wallet_transactions.status = 'released' (payout)
+//   - Aucune fonctionnalité retirée (T4/T6/T10 identiques à v10.2.0)
 // ============================================================
 
 import { auth, db, storage } from "./firebase.js";
@@ -25,16 +21,18 @@ import {
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import {
-    ROLES, ORDER_STATUS, CATEGORIES, CATEGORY_GROUPS, CONFIG, normalizeOrderStatus,
+    ROLES, ORDER_STATUS, CATEGORY_GROUPS, CONFIG, normalizeOrderStatus,
     normalizeCategory, getCategoryById, APP_MODE, isTestMode,
-    VENDOR_STATUS, PAYOUT_STATUS, WALLET_TX_TYPE, CONTRACT_STATUS
+    VENDOR_STATUS, PAYOUT_STATUS, WALLET_TX_TYPE, WALLET_TX_STATUS, CONTRACT_STATUS,
+    PRODUCT_STATUS
 } from "./config.js";
 import {
     escapeHTML, slugify, getStoragePathFromUrl, isStorageUrl,
     getSignupMethodLabel, getSignupMethodEmoji, toDate, t, getCityName
 } from "./utils.js";
 import {
-    renderAdminOrders, resetAdminOrdersCache, openReturnModal, syncSpeedafStatus
+    renderAdminOrders, resetAdminOrdersCache, syncSpeedafStatus,
+    releaseDueVendorFunds
 } from "./orders.js";
 import { renderAdminReviews } from "./reviews.js";
 import { showToast, confirmAction } from "./ui-core.js";
@@ -43,7 +41,7 @@ import { showToast, confirmAction } from "./ui-core.js";
 // 🧪 MODE TEST — CONFIGURATION
 // ============================================================
 const PROTECTED_USER_EMAILS = [
-    "asaminfo20@gmail.com"   // Compte test permanent — jamais supprimé
+    "asaminfo20@gmail.com"
 ];
 
 const TEST_SNAPSHOT_ROOT = "_test_snapshots";
@@ -84,6 +82,7 @@ let lastProductsLoadTime = 0;
 let simulatorListenersAttached = false;
 let alertInterval = null;
 let tempStockFilter = null;
+let tempStatusFilter = null; // T6 : 'pending_admin_approval' | 'rejected' | 'suspended' | null
 let isSyncingAllSpeedaf = false;
 
 let revenueChartInstance = null;
@@ -163,6 +162,26 @@ async function deleteStorageImages(urls) {
 }
 
 // ============================================================
+// T10 : NOTIFICATION VENDEUR (in-app)
+// ============================================================
+async function notifyUser(userId, type, title, message, extra = {}) {
+    if (!userId) return;
+    try {
+        await addDoc(collection(db, "notifications"), {
+            userId,
+            type,
+            title: String(title).slice(0, 200),
+            message: String(message).slice(0, 500),
+            read: false,
+            createdAt: Timestamp.now(),
+            ...extra
+        });
+    } catch (e) {
+        console.warn('⚠️ Notification échouée (non bloquant) :', e);
+    }
+}
+
+// ============================================================
 // 🧪 MODE TEST — COLLECTE ET SUPPRESSION DES FICHIERS STORAGE
 // ============================================================
 async function collectTestFiles(batchId) {
@@ -227,7 +246,6 @@ function initTestMode() {
 }
 
 function showModeChoiceScreen() {
-    // B11 : null-guards
     const loginBox = document.getElementById('adminLoginBox');
     const panel = document.getElementById('adminPanel');
     const choice = document.getElementById('modeChoiceScreen');
@@ -370,7 +388,6 @@ function updateTestModeUI() {
 }
 
 function activateAdminPanel() {
-    // B11 : null-guards
     const choice = document.getElementById('modeChoiceScreen');
     const loginBox = document.getElementById('adminLoginBox');
     const panel = document.getElementById('adminPanel');
@@ -390,7 +407,6 @@ function activateAdminPanel() {
 }
 
 function showLoginBox() {
-    // B11 : null-guards
     const loginBox = document.getElementById('adminLoginBox');
     const choice = document.getElementById('modeChoiceScreen');
     const panel = document.getElementById('adminPanel');
@@ -536,7 +552,7 @@ function initAdmin() {
 }
 
 // ============================================================
-// CHARGEMENT DONNÉES (Stats, Produits, Commandes)
+// CHARGEMENT DONNÉES
 // ============================================================
 async function loadAllData() {
     await loadProducts(); await loadStats(); await loadUsers(); await loadCoupons();
@@ -576,6 +592,12 @@ async function loadStats() {
         const cr = await getCountFromServer(query(collection(db, "reviews"), where("status", "==", "pending")));
         const elR = document.getElementById('statReviewsPending');
         if (elR) elR.textContent = cr.data().count;
+
+        // T6 : compteur de produits à valider (index products(vendorId, status) requis pour loadVendors,
+        // mais cet appel ne fait qu'un count global — index single-field status suffit)
+        const cPending = await getCountFromServer(query(collection(db, "products"), where("status", "==", PRODUCT_STATUS.PENDING_ADMIN_APPROVAL)));
+        const elPP = document.getElementById('statProductsPending');
+        if (elPP) elPP.textContent = cPending.data().count;
 
         try {
             const cc = await getCountFromServer(collection(db, "cities"));
@@ -648,26 +670,45 @@ function attachClearTempFilterListener() {
     const btn = document.getElementById('clearTempFilterBtn');
     if (!btn || btn._listenerAttached) return;
     btn._listenerAttached = true;
-    btn.addEventListener('click', () => { tempStockFilter = null; filterProductsList(); });
+    btn.addEventListener('click', () => { tempStockFilter = null; tempStatusFilter = null; filterProductsList(); });
 }
 
 function renderProductsList(products) {
     const container = document.getElementById('adminProductsList');
     if (!container) return;
 
+    // T6 : filtres actifs (stock + statut)
     let filterIndicator = '';
-    if (tempStockFilter === 'out' || tempStockFilter === 'low') {
-        const label = tempStockFilter === 'out' ? '❌ Ruptures de stock' : '🟠 Stocks bas (< 5)';
+    const filtersActive = tempStockFilter === 'out' || tempStockFilter === 'low' || tempStatusFilter;
+    if (filtersActive) {
+        const labels = [];
+        if (tempStockFilter === 'out') labels.push('❌ Ruptures');
+        if (tempStockFilter === 'low') labels.push('🟠 Stocks bas');
+        if (tempStatusFilter === PRODUCT_STATUS.PENDING_ADMIN_APPROVAL) labels.push('⏳ À valider');
+        if (tempStatusFilter === PRODUCT_STATUS.REJECTED) labels.push('❌ Rejetés');
+        if (tempStatusFilter === PRODUCT_STATUS.SUSPENDED) labels.push('🚫 Suspendus');
         filterIndicator = `
             <div style="background:rgba(212,175,55,0.1);border:1px solid var(--border-gold);border-radius:var(--radius-sm);padding:0.6rem 1rem;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;font-size:0.85rem;">
-                <span>🔍 <strong>Filtre actif :</strong> ${label} (<strong>${products.length}</strong> produit${products.length > 1 ? 's' : ''})</span>
+                <span>🔍 <strong>Filtre actif :</strong> ${labels.join(' + ')} (<strong>${products.length}</strong> produit${products.length > 1 ? 's' : ''})</span>
                 <button id="clearTempFilterBtn" class="admin-btn-secondary" style="padding:0.3rem 0.8rem;font-size:0.75rem;">✖️ Enlever le filtre</button>
             </div>
         `;
     }
 
+    // T6 : barre "À valider" — compteur dynamique
+    const pendingCount = cachedProducts.filter(p => p.status === PRODUCT_STATUS.PENDING_ADMIN_APPROVAL).length;
+    let pendingBar = '';
+    if (pendingCount > 0 && tempStatusFilter !== PRODUCT_STATUS.PENDING_ADMIN_APPROVAL) {
+        pendingBar = `
+            <div style="background:rgba(255,193,7,0.15);border:1px solid #ffc107;border-radius:var(--radius-sm);padding:0.8rem 1rem;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">
+                <span>⏳ <strong>${pendingCount}</strong> produit${pendingCount > 1 ? 's' : ''} en attente de validation</span>
+                <button id="showPendingProductsBtn" class="admin-btn-primary" style="padding:0.4rem 1rem;font-size:0.8rem;">Voir les produits à valider</button>
+            </div>
+        `;
+    }
+
     if (products.length === 0) {
-        container.innerHTML = filterIndicator + `<div class="admin-empty">Aucun produit trouvé.</div>`;
+        container.innerHTML = filterIndicator + pendingBar + `<div class="admin-empty">Aucun produit trouvé.</div>`;
         attachClearTempFilterListener();
         return;
     }
@@ -677,7 +718,7 @@ function renderProductsList(products) {
     const start = (productsCurrentPage - 1) * PRODUCTS_PER_PAGE;
     const pageProducts = products.slice(start, start + PRODUCTS_PER_PAGE);
 
-    let html = filterIndicator;
+    let html = filterIndicator + pendingBar;
     if (totalPages > 1) html += `<div style="text-align:center;font-size:0.8rem;color:var(--text-muted);margin-bottom:0.5rem;">${productsCurrentPage} / ${totalPages} — ${products.length}</div>`;
 
     pageProducts.forEach(p => {
@@ -700,17 +741,50 @@ function renderProductsList(products) {
         const vendorBadge = p.vendorId && p.vendorId !== 'smartswi9a'
             ? `<span style="background:#3498db;color:#fff;font-size:0.6rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;">🏪</span>`
             : '';
-        const pendingBadge = p.status === 'pending_admin_approval'
-            ? `<span style="background:var(--warning);color:#fff;font-size:0.6rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;">⏳ À valider</span>`
-            : '';
+
+        // T6 : badge + actions selon statut
+        const productStatus = p.status || 'legacy';
+        let statusBadge = '';
+        let productActionsExtra = '';
+        let rejectionHtml = '';
+
+        if (productStatus === PRODUCT_STATUS.PENDING_ADMIN_APPROVAL || productStatus === 'pending') {
+            const createdAtDate = toDate(p.createdAt);
+            const hoursWaiting = createdAtDate ? (Date.now() - createdAtDate.getTime()) / 3600000 : 0;
+            const isLate = hoursWaiting > (CONFIG.VENDOR.PRODUCT_VALIDATION_HOURS || 48);
+            const lateBadge = isLate
+                ? `<span style="background:var(--danger);color:#fff;font-size:0.6rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;" title="En attente depuis ${Math.round(hoursWaiting)}h">⏰ Retard</span>`
+                : '';
+            statusBadge = `<span style="background:var(--warning);color:#fff;font-size:0.65rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;">⏳ À valider</span>${lateBadge}`;
+            productActionsExtra = `
+                <button class="admin-btn-approve" data-action="product-approve" data-id="${p.id}" title="Approuver">✅</button>
+                <button class="admin-btn-icon admin-btn-danger" data-action="product-reject" data-id="${p.id}" title="Rejeter avec motif">❌</button>
+            `;
+        } else if (productStatus === PRODUCT_STATUS.APPROVED) {
+            statusBadge = `<span style="background:var(--success-bg);color:var(--success);font-size:0.65rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;">✅ Approuvé</span>`;
+            if (p.vendorId && p.vendorId !== 'smartswi9a') {
+                productActionsExtra = `<button class="admin-btn-icon admin-btn-danger" data-action="product-suspend" data-id="${p.id}" title="Suspendre">🚫</button>`;
+            }
+        } else if (productStatus === PRODUCT_STATUS.REJECTED) {
+            statusBadge = `<span style="background:var(--danger-bg);color:var(--danger);font-size:0.65rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;">❌ Rejeté</span>`;
+            if (p.rejectionReason) {
+                rejectionHtml = `<div style="font-size:0.75rem;color:var(--danger);margin-top:0.2rem;">📝 Motif : ${escapeHTML(p.rejectionReason)}</div>`;
+            }
+            productActionsExtra = `<button class="admin-btn-approve" data-action="product-approve" data-id="${p.id}" title="Réactiver">✅</button>`;
+        } else if (productStatus === PRODUCT_STATUS.SUSPENDED) {
+            statusBadge = `<span style="background:var(--danger-bg);color:var(--danger);font-size:0.65rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;">🚫 Suspendu</span>`;
+            productActionsExtra = `<button class="admin-btn-approve" data-action="product-approve" data-id="${p.id}" title="Réactiver">✅</button>`;
+        }
 
         html += `
             <div class="admin-list-item" data-product-id="${p.id}">
                 <div class="admin-list-item-info">
-                    <strong>${name}${videoBadge}${variantBadge}${vendorBadge}${pendingBadge}${sku}</strong>
+                    <strong>${name}${videoBadge}${variantBadge}${vendorBadge}${statusBadge}${sku}</strong>
                     <div style="font-size:0.8rem;color:var(--text-muted);margin-top:0.2rem;">📂 ${categoryLabel} · 💰 ${price} MAD ${isPromo ? `<small style="text-decoration:line-through;color:var(--text-dim);">${oldPrice}</small>` : ''} · <span style="color:${stockColor};font-weight:700;">${stockEmoji} ${stock}</span></div>
+                    ${rejectionHtml}
                 </div>
                 <div class="admin-list-item-actions">
+                    ${productActionsExtra}
                     <button class="admin-btn-restock" data-action="restock-product" data-id="${p.id}">➕</button>
                     <button class="admin-btn-icon" data-action="edit-product" data-id="${p.id}">✏️</button>
                     <button class="admin-btn-icon admin-btn-danger" data-action="delete-product" data-id="${p.id}">🗑️</button>
@@ -728,6 +802,16 @@ function renderProductsList(products) {
     container.innerHTML = html;
     attachClearTempFilterListener();
 
+    document.getElementById('showPendingProductsBtn')?.addEventListener('click', () => {
+        tempStatusFilter = PRODUCT_STATUS.PENDING_ADMIN_APPROVAL;
+        tempStockFilter = null;
+        productsCurrentPage = 1;
+        filterProductsList();
+    });
+
+    container.querySelectorAll('[data-action="product-approve"]').forEach(btn => btn.addEventListener('click', () => approveProduct(btn.dataset.id)));
+    container.querySelectorAll('[data-action="product-reject"]').forEach(btn => btn.addEventListener('click', () => openRejectProductModal(btn.dataset.id)));
+    container.querySelectorAll('[data-action="product-suspend"]').forEach(btn => btn.addEventListener('click', () => suspendProduct(btn.dataset.id)));
     container.querySelectorAll('[data-action="restock-product"]').forEach(btn => btn.addEventListener('click', () => openRestockModal(btn.dataset.id)));
     container.querySelectorAll('[data-action="edit-product"]').forEach(btn => btn.addEventListener('click', () => editProduct(btn.dataset.id)));
     container.querySelectorAll('[data-action="delete-product"]').forEach(btn => btn.addEventListener('click', () => deleteProduct(btn.dataset.id)));
@@ -768,8 +852,162 @@ function filterProductsList(resetPage = true) {
     if (tempStockFilter === 'out') filtered = filtered.filter(p => (Number(p.stock) || 0) === 0);
     else if (tempStockFilter === 'low') filtered = filtered.filter(p => { const s = Number(p.stock) || 0; return s > 0 && s <= 4; });
 
+    if (tempStatusFilter === PRODUCT_STATUS.PENDING_ADMIN_APPROVAL) {
+        filtered = filtered.filter(p => p.status === PRODUCT_STATUS.PENDING_ADMIN_APPROVAL || p.status === 'pending');
+    } else if (tempStatusFilter === PRODUCT_STATUS.REJECTED) {
+        filtered = filtered.filter(p => p.status === PRODUCT_STATUS.REJECTED);
+    } else if (tempStatusFilter === PRODUCT_STATUS.SUSPENDED) {
+        filtered = filtered.filter(p => p.status === PRODUCT_STATUS.SUSPENDED);
+    }
+
     if (resetPage) productsCurrentPage = 1;
     renderProductsList(filtered);
+}
+
+// ============================================================
+// T6 — WORKFLOW DE VALIDATION DES PRODUITS
+// ============================================================
+async function approveProduct(productId) {
+    const prod = cachedProducts.find(p => p.id === productId);
+    if (!prod) return;
+    const ok = await confirmAction(`Approuver le produit "${prod.nameFr || prod.nameEn || '—'}" ? Il sera immédiatement visible en boutique.`, {
+        title: '✅ Approuver le produit', confirmText: 'Approuver', cancelText: 'Annuler', variant: 'primary'
+    });
+    if (!ok) return;
+
+    try {
+        await updateDoc(doc(db, "products", productId), {
+            status: PRODUCT_STATUS.APPROVED,
+            reviewedAt: Timestamp.now(),
+            reviewedBy: currentAdmin?.uid || 'admin',
+            rejectionReason: deleteField()
+        });
+
+        if (prod.vendorId && prod.vendorId !== 'smartswi9a') {
+            await notifyUser(
+                prod.vendorId,
+                'product_approved',
+                '✅ Produit approuvé',
+                `Votre produit "${prod.nameFr || prod.nameEn}" est maintenant visible en boutique.`,
+                { productId }
+            );
+        }
+
+        showToast('✅ Produit approuvé et publié');
+        await loadProducts(true);
+        await loadStats();
+    } catch (e) {
+        console.error(e);
+        showToast('❌ ' + (e.message || 'Erreur'));
+    }
+}
+
+function openRejectProductModal(productId) {
+    document.getElementById('rejectProductModal')?.remove();
+    const prod = cachedProducts.find(p => p.id === productId);
+    const name = escapeHTML(prod?.nameFr || prod?.nameEn || 'Produit');
+
+    const modalHtml = `
+        <div class="modal-overlay open" id="rejectProductModal" style="z-index:2200;">
+            <div class="modal" style="max-width:480px;">
+                <button class="modal-close" id="closeRejectModalBtn">✕</button>
+                <h2 style="font-family:var(--font-secondary);color:var(--danger);text-align:center;margin-bottom:0.5rem;">❌ Rejeter le produit</h2>
+                <p style="text-align:center;font-size:0.85rem;color:var(--text-muted);margin-bottom:1.2rem;"><strong>${name}</strong></p>
+                <label style="display:block;font-size:0.85rem;color:var(--text-muted);margin-bottom:0.4rem;">Motif du rejet (visible par le vendeur) *</label>
+                <textarea id="rejectReasonInput" rows="4" style="width:100%;padding:0.8rem;border:2px solid var(--border);border-radius:var(--radius-sm);font-family:inherit;font-size:0.9rem;margin-bottom:1rem;" placeholder="Ex : Image de mauvaise qualité, description incomplète, prix anormalement élevé..."></textarea>
+                <div id="rejectError" style="color:var(--danger);font-size:0.8rem;min-height:1rem;text-align:center;margin-bottom:0.5rem;"></div>
+                <div style="display:flex;gap:0.5rem;justify-content:center;">
+                    <button id="cancelRejectBtn" style="padding:0.7rem 1.2rem;background:transparent;border:1px solid var(--border);border-radius:30px;cursor:pointer;">Annuler</button>
+                    <button id="confirmRejectBtn" style="padding:0.7rem 1.2rem;background:linear-gradient(135deg,#dc3545,#a02030);color:#fff;border:none;border-radius:30px;font-weight:700;cursor:pointer;">❌ Confirmer le rejet</button>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    const modal = document.getElementById('rejectProductModal');
+    const reasonInput = document.getElementById('rejectReasonInput');
+    const closeModal = () => modal?.remove();
+    document.getElementById('closeRejectModalBtn').addEventListener('click', closeModal);
+    document.getElementById('cancelRejectBtn').addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+    setTimeout(() => reasonInput.focus(), 100);
+
+    document.getElementById('confirmRejectBtn').addEventListener('click', async () => {
+        const reason = (reasonInput.value || '').trim();
+        if (reason.length < 5) {
+            document.getElementById('rejectError').textContent = 'Motif obligatoire (min 5 caractères).';
+            return;
+        }
+        const btn = document.getElementById('confirmRejectBtn');
+        btn.disabled = true; btn.textContent = '⏳...';
+        try {
+            await rejectProduct(productId, reason);
+            closeModal();
+        } catch (e) {
+            document.getElementById('rejectError').textContent = e.message || 'Erreur';
+            btn.disabled = false; btn.textContent = '❌ Confirmer le rejet';
+        }
+    });
+}
+
+async function rejectProduct(productId, reason) {
+    const prod = cachedProducts.find(p => p.id === productId);
+    if (!prod) throw new Error('Produit introuvable');
+
+    await updateDoc(doc(db, "products", productId), {
+        status: PRODUCT_STATUS.REJECTED,
+        rejectionReason: reason,
+        reviewedAt: Timestamp.now(),
+        reviewedBy: currentAdmin?.uid || 'admin'
+    });
+
+    if (prod.vendorId && prod.vendorId !== 'smartswi9a') {
+        await notifyUser(
+            prod.vendorId,
+            'product_rejected',
+            '❌ Produit rejeté',
+            `Votre produit "${prod.nameFr || prod.nameEn}" a été rejeté. Motif : ${reason}`,
+            { productId }
+        );
+    }
+
+    showToast('❌ Produit rejeté');
+    await loadProducts(true);
+    await loadStats();
+}
+
+async function suspendProduct(productId) {
+    const prod = cachedProducts.find(p => p.id === productId);
+    if (!prod) return;
+    const ok = await confirmAction(`Suspendre le produit "${prod.nameFr || prod.nameEn || '—'}" ? Il ne sera plus visible en boutique.`, {
+        title: '🚫 Suspendre le produit', confirmText: 'Suspendre', cancelText: 'Annuler', variant: 'danger'
+    });
+    if (!ok) return;
+
+    try {
+        await updateDoc(doc(db, "products", productId), {
+            status: PRODUCT_STATUS.SUSPENDED,
+            reviewedAt: Timestamp.now(),
+            reviewedBy: currentAdmin?.uid || 'admin'
+        });
+
+        if (prod.vendorId && prod.vendorId !== 'smartswi9a') {
+            await notifyUser(
+                prod.vendorId,
+                'product_suspended',
+                '🚫 Produit suspendu',
+                `Votre produit "${prod.nameFr || prod.nameEn}" a été suspendu par l'administration.`,
+                { productId }
+            );
+        }
+
+        showToast('🚫 Produit suspendu');
+        await loadProducts(true);
+    } catch (e) {
+        console.error(e);
+        showToast('❌ ' + (e.message || 'Erreur'));
+    }
 }
 
 // ============================================================
@@ -1196,8 +1434,8 @@ async function saveProduct() {
             productData.salesCount = 0;
             productData.ratingCount = 0;
             productData.isSpeedafStored = false;
-            productData.vendorId = 'smartswi9a'; // Admin crée pour Swi9a
-            productData.status = 'approved';
+            productData.vendorId = 'smartswi9a';
+            productData.status = PRODUCT_STATUS.APPROVED;
             if (!videoValue) delete productData.video;
             await setDoc(doc(db, "products", newId), productData);
             showToast('✅ Produit créé');
@@ -1351,6 +1589,31 @@ const VENDOR_STATUS_ORDER = {
     [VENDOR_STATUS.REJECTED]: 3
 };
 
+// T10 : recherche le contrat actif (legacy contract_<uid> OU versionné contract_<uid>_v<X.Y.Z>)
+async function fetchVendorContract(vendorId) {
+    // 1. Essaie le doc direct (legacy)
+    try {
+        const legacySnap = await getDoc(doc(db, "contracts", `contract_${vendorId}`));
+        if (legacySnap.exists()) {
+            return { exists: true, id: legacySnap.id, data: legacySnap.data() };
+        }
+    } catch (e) { /* ignore */ }
+
+    // 2. Cherche dans les contrats versionnés via query
+    try {
+        const q = query(collection(db, "contracts"), where("vendorId", "==", vendorId));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+            const sorted = snap.docs
+                .map(d => ({ id: d.id, ...d.data() }))
+                .sort((a, b) => safeDate(b.signedAt || b.createdAt) - safeDate(a.signedAt || a.createdAt));
+            return { exists: true, id: sorted[0].id, data: sorted[0] };
+        }
+    } catch (e) { /* ignore */ }
+
+    return { exists: false, id: null, data: null };
+}
+
 async function loadVendors() {
     const container = document.getElementById('adminVendorsList');
     if (!container) return;
@@ -1360,30 +1623,38 @@ async function loadVendors() {
         const snap = await getDocs(q);
         cachedVendors = snap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-        // N2 : enrichir chaque vendeur avec le statut RÉEL du contrat (source de vérité = contracts/contract_<uid>)
-        // Lecture en parallèle, tolérante aux erreurs (collection absente, permission refusée, etc.)
-        const contractSnaps = await Promise.all(
-            cachedVendors.map(v =>
-                getDoc(doc(db, "contracts", `contract_${v.id}`))
-                    .then(s => ({ ok: true, exists: s.exists(), data: s.exists() ? s.data() : null }))
-                    .catch(() => ({ ok: false, exists: false, data: null }))
-            )
-        );
-        cachedVendors.forEach((v, i) => {
-            const r = contractSnaps[i];
-            v._contractExists = r.ok && r.exists;
-            v._contractStatus = r.ok && r.exists ? (r.data?.status || 'pending') : null;
-            v._contractVersion = r.ok && r.exists ? (r.data?.version || null) : null;
-        });
+        // T10 : enrichir avec contrat (versionné ou legacy), wallet, produits en attente.
+        // ⚠️ L'appel getCountFromServer sur products(where vendorId + where status) requiert
+        // l'index composite products(vendorId ASC, status ASC) — fourni dans firestore.indexes.json v5.0.1.
+        const enriched = await Promise.all(cachedVendors.map(async (v) => {
+            const [contractRes, walletRes, productsPendingSnap] = await Promise.allSettled([
+                fetchVendorContract(v.id),
+                getDoc(doc(db, "wallets", v.id)),
+                getCountFromServer(query(collection(db, "products"), where("vendorId", "==", v.id), where("status", "==", PRODUCT_STATUS.PENDING_ADMIN_APPROVAL)))
+            ]);
 
-        // B4 : tri par priorité d'action
+            const contract = contractRes.status === 'fulfilled' ? contractRes.value : { exists: false, data: null };
+            const wallet = walletRes.status === 'fulfilled' && walletRes.value.exists() ? walletRes.value.data() : null;
+            const pendingProducts = productsPendingSnap.status === 'fulfilled' ? productsPendingSnap.value.data().count : 0;
+
+            return {
+                ...v,
+                _contractExists: contract.exists,
+                _contractData: contract.data,
+                _contractStatus: contract.exists ? (contract.data?.status || 'pending') : null,
+                _contractVersion: contract.exists ? (contract.data?.version || null) : null,
+                _wallet: wallet,
+                _pendingProducts: pendingProducts
+            };
+        }));
+        cachedVendors = enriched;
+
         cachedVendors.sort((a, b) => {
             const sa = a.vendorInfo?.status || VENDOR_STATUS.PENDING;
             const sb = b.vendorInfo?.status || VENDOR_STATUS.PENDING;
             const oa = VENDOR_STATUS_ORDER[sa] ?? 99;
             const ob = VENDOR_STATUS_ORDER[sb] ?? 99;
             if (oa !== ob) return oa - ob;
-            // au sein d'un statut : plus récents en premier
             const da = toDate(a.createdAt)?.getTime() || 0;
             const db_ = toDate(b.createdAt)?.getTime() || 0;
             return db_ - da;
@@ -1435,8 +1706,9 @@ function renderVendorsList(vendors) {
         const status = v.vendorInfo?.status || 'pending';
         const shippingMethod = v.vendorInfo?.shippingMethod === 'dropoff' ? '📤 Drop-off' : '📥 Fulfillment';
         const createdAt = toDate(v.createdAt)?.toLocaleDateString('fr-FR') || '—';
+        const delayCount = Number(v.vendorInfo?.delayCount) || 0;
 
-        // N2 : statut CONTRAT réel (contracts/ en priorité, fallback legacy)
+        // T10 : statut CONTRAT réel (versionné ou legacy)
         const contractStatus = v._contractStatus || v.vendorInfo?.contractStatus || 'pending';
         const canApprove = contractStatus === 'accepted';
 
@@ -1446,7 +1718,6 @@ function renderVendorsList(vendors) {
         else if (status === 'rejected') statusBadge = `<span style="background:var(--danger-bg);color:var(--danger);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">❌ Rejeté</span>`;
         else if (status === 'suspended') statusBadge = `<span style="background:var(--danger-bg);color:var(--danger);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">🚫 Suspendu</span>`;
 
-        // B5 : badge contrat — utilise la source de vérité contracts/
         let contractBadge = '';
         if (contractStatus === 'accepted') {
             const ver = v._contractVersion ? ` (v${escapeHTML(v._contractVersion)})` : '';
@@ -1459,41 +1730,56 @@ function renderVendorsList(vendors) {
             contractBadge = `<span style="background:var(--warning-bg);color:var(--warning);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;">📜 Contrat non signé</span>`;
         }
 
+        // T10 : badges complémentaires
+        const delayBadge = delayCount > 0
+            ? `<span style="background:var(--danger);color:#fff;padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;" title="Retards de dépôt">⏰ ${delayCount} retard${delayCount > 1 ? 's' : ''}</span>`
+            : '';
+        const pendingProductsBadge = v._pendingProducts > 0
+            ? `<span style="background:#3498db;color:#fff;padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;">📦 ${v._pendingProducts} produit${v._pendingProducts > 1 ? 's' : ''} à valider</span>`
+            : '';
+        const needsReviewBadge = v._wallet && v._wallet.needsReview
+            ? `<span style="background:var(--danger);color:#fff;padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;">⚠️ Wallet à vérifier</span>`
+            : '';
+        const walletStr = v._wallet
+            ? `💰 Dispo : ${formatMAD(v._wallet.availableBalance)} · En attente : ${formatMAD(v._wallet.pendingBalance)}${Number(v._wallet.negativeBalance) < 0 ? ` · <span style="color:var(--danger);">Négatif : ${formatMAD(v._wallet.negativeBalance)}</span>` : ''}`
+            : `<span style="color:var(--text-muted);">💰 Wallet non initialisé</span>`;
+
         let actionsHtml = '';
+        if (v._contractExists) {
+            actionsHtml += `<button class="admin-btn-secondary" data-action="vendor-view-contract" data-id="${v.id}" style="font-size:0.75rem; padding:0.3rem 0.6rem;">📜 Voir contrat</button>`;
+        }
         if (status === 'pending') {
-            const approveDisabledAttr = canApprove ? '' : 'disabled title="Le contrat doit être signé (statut accepted) avant approbation"';
+            const approveDisabledAttr = canApprove ? '' : 'disabled title="Le contrat doit être signé avant approbation"';
             const approveStyle = canApprove ? '' : 'opacity:0.5;cursor:not-allowed;';
-            actionsHtml = `
+            actionsHtml += `
                 <button class="admin-btn-approve" data-action="vendor-approve" data-id="${v.id}" ${approveDisabledAttr} style="${approveStyle}">✅ Approuver</button>
                 <button class="admin-btn-icon admin-btn-danger" data-action="vendor-reject" data-id="${v.id}">❌ Rejeter</button>
             `;
         } else if (status === 'approved') {
-            actionsHtml = `
-                <button class="admin-btn-icon admin-btn-danger" data-action="vendor-suspend" data-id="${v.id}">🚫 Suspendre</button>
-            `;
+            actionsHtml += `<button class="admin-btn-icon admin-btn-danger" data-action="vendor-suspend" data-id="${v.id}">🚫 Suspendre</button>`;
         } else if (status === 'suspended' || status === 'rejected') {
-            const approveDisabledAttr = canApprove ? '' : 'disabled title="Le contrat doit être signé (statut accepted) avant approbation"';
+            const approveDisabledAttr = canApprove ? '' : 'disabled title="Le contrat doit être signé avant approbation"';
             const approveStyle = canApprove ? '' : 'opacity:0.5;cursor:not-allowed;';
-            actionsHtml = `
-                <button class="admin-btn-approve" data-action="vendor-approve" data-id="${v.id}" ${approveDisabledAttr} style="${approveStyle}">✅ Réactiver</button>
-            `;
+            actionsHtml += `<button class="admin-btn-approve" data-action="vendor-approve" data-id="${v.id}" ${approveDisabledAttr} style="${approveStyle}">✅ Réactiver</button>`;
         }
 
         html += `
             <div class="admin-list-item" style="flex-direction:column; align-items:stretch; padding:1rem;">
                 <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.5rem;">
-                    <div>
+                    <div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap;">
                         <strong style="color:var(--gold); font-size:1rem;">🏪 ${shopName}</strong>
-                        <span style="margin-left:0.5rem;">${statusBadge}</span>
-                        <span style="margin-left:0.5rem;">${contractBadge}</span>
+                        ${statusBadge}${contractBadge}${delayBadge}${pendingProductsBadge}${needsReviewBadge}
                     </div>
                     <div style="font-size:0.8rem; color:var(--text-dim);">Inscrit le ${createdAt}</div>
                 </div>
-                <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:0.5rem;">
+                <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:0.3rem;">
                     📧 ${email} · 📞 ${phone} · 🏙️ ${city} · 🆔 ${iceCin}<br>
                     🚚 Mode : <strong>${shippingMethod}</strong>
                 </div>
-                <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:0.5rem;">
+                <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:0.5rem;">
+                    ${walletStr}
+                </div>
+                <div style="display:flex; justify-content:flex-end; gap:0.5rem; flex-wrap:wrap; margin-top:0.5rem;">
                     ${actionsHtml}
                 </div>
             </div>
@@ -1508,6 +1794,7 @@ function renderVendorsList(vendors) {
     });
     container.querySelectorAll('[data-action="vendor-reject"]').forEach(btn => btn.addEventListener('click', () => handleVendorAction(btn.dataset.id, VENDOR_STATUS.REJECTED)));
     container.querySelectorAll('[data-action="vendor-suspend"]').forEach(btn => btn.addEventListener('click', () => handleVendorAction(btn.dataset.id, VENDOR_STATUS.SUSPENDED)));
+    container.querySelectorAll('[data-action="vendor-view-contract"]').forEach(btn => btn.addEventListener('click', () => openVendorContractModal(btn.dataset.id)));
 }
 
 async function handleVendorAction(vendorId, newStatus) {
@@ -1518,7 +1805,9 @@ async function handleVendorAction(vendorId, newStatus) {
     if (!confirmed) return;
 
     try {
-        // N2 : dans la transaction, relire le CONTRAT (source de vérité) et sync vendorInfo.contractStatus
+        // T10 : rechercher le contrat versionné OU legacy avant la transaction
+        const contract = await fetchVendorContract(vendorId);
+
         await runTransaction(db, async (tx) => {
             const userRef = doc(db, "users", vendorId);
             const userSnap = await tx.get(userRef);
@@ -1527,37 +1816,26 @@ async function handleVendorAction(vendorId, newStatus) {
             const data = userSnap.data();
             const vendorInfo = data.vendorInfo || {};
 
-            let contractOk = false;
-            let contractStatusValue = null;
-
             if (newStatus === VENDOR_STATUS.APPROVED) {
-                const contractRef = doc(db, "contracts", `contract_${vendorId}`);
-                const contractSnap = await tx.get(contractRef);
-                if (contractSnap.exists()) {
-                    contractStatusValue = contractSnap.data()?.status || 'pending';
-                    contractOk = contractStatusValue === 'accepted';
-                } else {
-                    // Fallback legacy (contrat antérieur à la collection contracts/)
-                    contractOk = vendorInfo.contractStatus === 'accepted';
-                    contractStatusValue = contractOk ? 'accepted' : 'pending';
-                }
-                if (!contractOk) {
-                    throw new Error(`Contrat non signé (statut "${contractStatusValue}"). Approbation refusée — demandez au vendeur de signer.`);
+                if (contract.exists) {
+                    const contractStatus = contract.data?.status || 'pending';
+                    if (contractStatus !== 'accepted') {
+                        throw new Error(`Contrat non signé (statut "${contractStatus}"). Approbation refusée.`);
+                    }
+                } else if (vendorInfo.contractStatus !== 'accepted') {
+                    throw new Error(`Aucun contrat trouvé. Approbation refusée.`);
                 }
             }
 
-            // 1) users/{uid} — mise à jour du statut vendeur
             const userUpdate = {
                 "vendorInfo.status": newStatus,
                 "vendorInfo.updatedAt": serverTimestamp()
             };
-            // N2 : on ne force contractStatus = accepted QU'À l'approbation, et seulement après vérif
             if (newStatus === VENDOR_STATUS.APPROVED) {
                 userUpdate["vendorInfo.contractStatus"] = 'accepted';
             }
             tx.update(userRef, userUpdate);
 
-            // 2) vendorsPublic/{uid} — collection publique (cf. E10)
             const publicRef = doc(db, "vendorsPublic", vendorId);
             const shopName = vendorInfo.shopName || data.name || 'Boutique';
             const city = vendorInfo.city || '';
@@ -1568,6 +1846,15 @@ async function handleVendorAction(vendorId, newStatus) {
                 updatedAt: serverTimestamp()
             }, { merge: true });
         });
+
+        // T10 : notification in-app au vendeur
+        const notifMessages = {
+            approved: { title: '✅ Compte vendeur approuvé', msg: 'Votre compte vendeur a été approuvé. Vous pouvez commencer à publier vos produits.' },
+            rejected: { title: '❌ Inscription refusée', msg: 'Votre inscription a été refusée. Contactez le support pour plus d\'informations.' },
+            suspended: { title: '🚫 Compte suspendu', msg: 'Votre compte a été suspendu. Contactez le support.' }
+        };
+        const n = notifMessages[newStatus];
+        if (n) await notifyUser(vendorId, `vendor_${newStatus}`, n.title, n.msg, { vendorId });
 
         const verb = newStatus === VENDOR_STATUS.APPROVED ? 'approuvé'
             : newStatus === VENDOR_STATUS.REJECTED ? 'rejeté'
@@ -1580,15 +1867,70 @@ async function handleVendorAction(vendorId, newStatus) {
     }
 }
 
+// T10 : modale contrat vendeur
+async function openVendorContractModal(vendorId) {
+    try {
+        const contract = await fetchVendorContract(vendorId);
+        if (!contract.exists) {
+            showToast('⚠️ Aucun contrat trouvé pour ce vendeur');
+            return;
+        }
+        const c = contract.data;
+        const vendor = cachedVendors.find(v => v.id === vendorId);
+        const shopName = escapeHTML(vendor?.vendorInfo?.shopName || vendor?.name || 'Vendeur');
+        const version = escapeHTML(c.version || '—');
+        const language = escapeHTML(c.language || '—');
+        const status = escapeHTML(c.status || '—');
+        const ipAddress = escapeHTML(c.ipAddress || '—');
+        const ipSource = escapeHTML(c.ipSource || '—');
+        const userAgent = escapeHTML((c.userAgent || '—').slice(0, 120));
+        const textHash = escapeHTML((c.textHash || '—').slice(0, 24) + '…');
+        const contractHash = escapeHTML((c.contractHash || '—').slice(0, 24) + '…');
+        const signedAt = c.signedAt ? toDate(c.signedAt)?.toLocaleString('fr-FR') : '—';
+
+        document.getElementById('vendorContractModal')?.remove();
+        const modalHtml = `
+            <div class="modal-overlay open" id="vendorContractModal" style="z-index:2200;">
+                <div class="modal" style="max-width:600px;">
+                    <button class="modal-close" id="closeVendorContractBtn">✕</button>
+                    <h2 style="font-family:var(--font-secondary);color:var(--gold);text-align:center;margin-bottom:1rem;">
+                        📜 Contrat — ${shopName}
+                    </h2>
+                    <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:1rem;font-size:0.85rem;line-height:1.8;">
+                        <div><strong>Version :</strong> ${version}</div>
+                        <div><strong>Langue :</strong> ${language}</div>
+                        <div><strong>Statut :</strong> ${status}</div>
+                        <div><strong>Signé le :</strong> ${signedAt}</div>
+                        <div><strong>IP :</strong> <code>${ipAddress}</code> <span style="color:var(--text-muted);">(${ipSource})</span></div>
+                        <div style="word-break:break-all;"><strong>User-Agent :</strong> <span style="font-size:0.75rem;color:var(--text-muted);">${userAgent}</span></div>
+                        <div style="word-break:break-all;"><strong>TextHash :</strong> <code style="font-size:0.75rem;">${textHash}</code></div>
+                        <div style="word-break:break-all;"><strong>ContractHash :</strong> <code style="font-size:0.75rem;">${contractHash}</code></div>
+                    </div>
+                    <p style="font-size:0.75rem;color:var(--text-muted);text-align:center;margin-top:1rem;">
+                        Empreintes SHA-256 tronquées à 24 caractères pour l'affichage. Vérification complète prévue en T9.
+                    </p>
+                </div>
+            </div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        const modal = document.getElementById('vendorContractModal');
+        const closeModal = () => modal?.remove();
+        document.getElementById('closeVendorContractBtn').addEventListener('click', closeModal);
+        modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+    } catch (e) {
+        console.error(e);
+        showToast('❌ Erreur lecture contrat');
+    }
+}
+
 // ============================================================
-// 🆕 RETRAITS / PAYOUTS (collection : payout_requests — cf. N6)
+// 🆕 RETRAITS / PAYOUTS (T5/T4) + Déblocage des fonds échus
 // ============================================================
 async function loadPayouts() {
     const container = document.getElementById('payoutsList');
     if (!container) return;
     container.innerHTML = `<div class="admin-loading">⏳ Chargement des demandes...</div>`;
     try {
-        // B8 : orderBy + limit
         const q = query(
             collection(db, "payout_requests"),
             orderBy("requestedAt", "desc"),
@@ -1616,9 +1958,9 @@ function filterPayoutsList() {
     if (search) {
         filtered = filtered.filter(p => {
             const name = (p.vendorName || '').toLowerCase();
-            const phone = (p.phone || '').toLowerCase();
+            const account = (p.account || p.phone || '').toLowerCase();
             const vid = (p.vendorId || '').toLowerCase();
-            return name.includes(search) || phone.includes(search) || vid.includes(search);
+            return name.includes(search) || account.includes(search) || vid.includes(search);
         });
     }
 
@@ -1628,20 +1970,31 @@ function filterPayoutsList() {
 function renderPayoutsList(payouts) {
     const container = document.getElementById('payoutsList');
     if (!container) return;
+
+    // T4 : bandeau + bouton "Débloquer les fonds échus"
+    const releaseBanner = `
+        <div style="background:rgba(46,204,113,0.08);border:1px solid var(--success);border-radius:var(--radius-sm);padding:0.8rem 1rem;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">
+            <div style="font-size:0.85rem;">
+                💸 <strong>Fonds échus</strong> : débloque les gains dont la période d'attente (7j vendeur / 15j Smart) est terminée.
+            </div>
+            <button id="releaseDueFundsBtn" class="admin-btn-primary" style="padding:0.4rem 1rem;font-size:0.8rem;white-space:nowrap;">🔓 Débloquer les fonds échus</button>
+        </div>
+    `;
+
     if (payouts.length === 0) {
-        container.innerHTML = `<div class="admin-empty">Aucune demande de retrait.</div>`;
+        container.innerHTML = releaseBanner + `<div class="admin-empty">Aucune demande de retrait.</div>`;
+        attachReleaseDueFundsListener();
         return;
     }
 
-    let html = '';
+    let html = releaseBanner;
     payouts.forEach(p => {
-        // B9 : fallback si vendorName absent
         const vendorName = p.vendorName
             ? escapeHTML(p.vendorName)
             : (p.vendorId ? `Vendeur ${String(p.vendorId).slice(0, 8)}…` : 'Inconnu');
         const amount = Number(p.amount) || 0;
         const method = escapeHTML(p.method || 'Wafacash');
-        const phone = escapeHTML(p.phone || '');
+        const account = escapeHTML(p.account || p.phone || '');
         const status = p.status || 'pending';
         const date = p.requestedAt ? p.requestedAt.toLocaleDateString('fr-FR') : '—';
 
@@ -1649,6 +2002,7 @@ function renderPayoutsList(payouts) {
         if (status === 'pending') statusBadge = `<span style="background:var(--warning-bg);color:var(--warning);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">⏳ En attente</span>`;
         else if (status === 'paid') statusBadge = `<span style="background:var(--success-bg);color:var(--success);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">✅ Payé</span>`;
         else if (status === 'rejected') statusBadge = `<span style="background:var(--danger-bg);color:var(--danger);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">❌ Rejeté</span>`;
+        else if (status === 'cancelled') statusBadge = `<span style="background:var(--bg-surface);color:var(--text-muted);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">🚫 Annulé</span>`;
 
         let actionsHtml = '';
         if (status === 'pending') {
@@ -1662,13 +2016,13 @@ function renderPayoutsList(payouts) {
             <div class="admin-list-item" style="flex-direction:column; align-items:stretch; padding:1rem;">
                 <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.5rem;">
                     <div>
-                        <strong style="color:var(--gold); font-size:1rem;">💸 ${amount} MAD</strong>
+                        <strong style="color:var(--gold); font-size:1rem;">💸 ${formatMAD(amount)}</strong>
                         <span style="margin-left:0.5rem;">${statusBadge}</span>
                     </div>
                     <div style="font-size:0.8rem; color:var(--text-dim);">Demandé le ${date}</div>
                 </div>
                 <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:0.5rem;">
-                    🏪 <strong>${vendorName}</strong> · 📞 ${phone} · 📍 ${method}
+                    🏪 <strong>${vendorName}</strong> · 📞 <code>${account}</code> · 📍 ${method}
                 </div>
                 <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:0.5rem;">
                     ${actionsHtml}
@@ -1686,10 +2040,50 @@ function renderPayoutsList(payouts) {
     container.querySelectorAll('[data-action="payout-reject"]').forEach(btn => {
         btn.addEventListener('click', () => handlePayoutReject(btn.dataset.id));
     });
+
+    attachReleaseDueFundsListener();
+}
+
+function attachReleaseDueFundsListener() {
+    const btn = document.getElementById('releaseDueFundsBtn');
+    if (!btn) return;
+    btn.addEventListener('click', handleReleaseDueFunds);
+}
+
+// T4 : déblocage des fonds échus
+async function handleReleaseDueFunds() {
+    const btn = document.getElementById('releaseDueFundsBtn');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Déblocage...'; }
+
+    try {
+        if (typeof releaseDueVendorFunds !== 'function') {
+            throw new Error('Fonction releaseDueVendorFunds introuvable. Déployez orders.js v8.0.0.');
+        }
+
+        const result = await releaseDueVendorFunds({ batchSize: 400, dryRun: false });
+
+        if (result.errors && result.errors.length > 0) {
+            console.warn('⚠️ Erreurs déblocage :', result.errors);
+            showToast(`⚠️ ${result.transactionsReleased} transactions débloquées, ${result.errors.length} erreur(s). Voir console.`, 6000);
+        } else if (result.transactionsReleased === 0) {
+            showToast('ℹ️ Aucun fond à débloquer pour le moment.');
+        } else {
+            showToast(
+                `✅ ${result.transactionsReleased} transaction(s) débloquée(s) · ${result.vendorsProcessed} vendeur(s) · ${formatMAD(result.totalReleased)}`,
+                5000
+            );
+        }
+        await loadPayouts();
+    } catch (e) {
+        console.error('❌ handleReleaseDueFunds:', e);
+        showToast('❌ ' + (e.message || 'Erreur'));
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '🔓 Débloquer les fonds échus'; }
+    }
 }
 
 async function handlePayoutPaid(payoutId, vendorId, amount) {
-    const confirmed = await confirmAction(`Confirmez-vous avoir envoyé ${amount} MAD à ce vendeur via Wafacash ?`, {
+    const confirmed = await confirmAction(`Confirmez-vous avoir envoyé ${formatMAD(amount)} à ce vendeur ?`, {
         title: '💸 Confirmer le virement', confirmText: 'Oui, payé', cancelText: 'Annuler', variant: 'primary'
     });
     if (!confirmed) return;
@@ -1699,37 +2093,50 @@ async function handlePayoutPaid(payoutId, vendorId, amount) {
             const payoutRef = doc(db, "payout_requests", payoutId);
             const payoutSnap = await transaction.get(payoutRef);
             if (!payoutSnap.exists()) throw new Error("Demande introuvable");
+            const payoutData = payoutSnap.data();
+            if (payoutData.status !== 'pending') throw new Error(`Statut inattendu : ${payoutData.status}`);
 
             const walletRef = doc(db, "wallets", vendorId);
             const walletSnap = await transaction.get(walletRef);
             if (!walletSnap.exists()) throw new Error("Wallet introuvable");
 
             const wallet = walletSnap.data();
-            // B10 : message enrichi
             if (Number(wallet.availableBalance) < amount) {
-                throw new Error(`Solde insuffisant : disponible ${Number(wallet.availableBalance) || 0} MAD, demandé ${amount} MAD.`);
+                throw new Error(`Solde insuffisant : disponible ${formatMAD(wallet.availableBalance)}, demandé ${formatMAD(amount)}.`);
             }
 
             transaction.update(walletRef, {
                 availableBalance: increment(-amount),
-                totalWithdrawn: increment(amount)
+                totalWithdrawn: increment(amount),
+                lastUpdated: Timestamp.now()
             });
 
             transaction.update(payoutRef, {
-                status: 'paid',
-                paidAt: Timestamp.now()
+                status: PAYOUT_STATUS.PAID || 'paid',
+                paidAt: Timestamp.now(),
+                paidBy: currentAdmin?.uid || 'admin'
             });
 
+            // NOTE V4 : `status: 'released'` — sémantiquement discutable pour un payout
+            // (le terme 'released' désigne normalement le déblocage pendingBalance → availableBalance),
+            // MAIS le Worker Cron T4 filtre uniquement `status === 'pending' && unlockAt <= now`,
+            // donc aucun risque de re-débit. On garde 'released' pour rester compatible avec
+            // l'énumération WALLET_TX_STATUS (pending | released | cancelled) et éviter les
+            // documents "orphelins" à statut inconnu du dashboard vendeur.
             const txRef = doc(collection(db, "wallet_transactions"));
             transaction.set(txRef, {
                 vendorId: vendorId,
                 type: WALLET_TX_TYPE?.PAYOUT || 'payout',
                 amount: -amount,
-                status: "completed",
-                description: `Retrait payé (admin)`,
-                createdAt: Timestamp.now()
+                status: WALLET_TX_STATUS.RELEASED || 'released',
+                payoutRequestId: payoutId,
+                description: `Retrait payé (admin) — ${payoutData.method || 'Wafacash'}`,
+                createdAt: Timestamp.now(),
+                releasedAt: Timestamp.now()
             });
         });
+
+        await notifyUser(vendorId, 'payout_paid', '💸 Retrait payé', `Votre retrait de ${formatMAD(amount)} a été payé.`, { payoutId });
 
         showToast('✅ Retrait marqué comme payé avec succès !');
         await loadPayouts();
@@ -1746,10 +2153,27 @@ async function handlePayoutReject(payoutId) {
     if (!confirmed) return;
 
     try {
-        await updateDoc(doc(db, "payout_requests", payoutId), {
-            status: 'rejected',
-            rejectedAt: Timestamp.now()
+        const payoutRef = doc(db, "payout_requests", payoutId);
+        const payoutSnap = await getDoc(payoutRef);
+        if (!payoutSnap.exists()) { showToast('⚠️ Demande introuvable'); return; }
+        const payoutData = payoutSnap.data();
+
+        await updateDoc(payoutRef, {
+            status: PAYOUT_STATUS.REJECTED || 'rejected',
+            rejectedAt: Timestamp.now(),
+            rejectedBy: currentAdmin?.uid || 'admin'
         });
+
+        if (payoutData.vendorId) {
+            await notifyUser(
+                payoutData.vendorId,
+                'payout_rejected',
+                '❌ Retrait rejeté',
+                `Votre demande de retrait de ${formatMAD(payoutData.amount)} a été rejetée. Contactez le support.`,
+                { payoutId }
+            );
+        }
+
         showToast('❌ Demande rejetée');
         await loadPayouts();
     } catch (e) {
@@ -2259,7 +2683,7 @@ function filterCouponsList() {
 }
 
 // ============================================================
-// SPEEDAF — COMPLET (résout N1)
+// SPEEDAF
 // ============================================================
 async function loadSpeedafTab() {
     const container = document.getElementById('adminSpeedafList');
@@ -2437,14 +2861,17 @@ async function handleSyncAllSpeedaf() {
 }
 
 async function handleConfirmPickup() {
-    const dateVal = document.getElementById('pickupDate').value;
-    const packages = parseInt(document.getElementById('pickupPackages').value) || 1;
-    const weight = parseFloat(document.getElementById('pickupWeight').value) || 1;
-    const note = document.getElementById('pickupNote').value.trim();
+    // A3 : null-guards (si admin.html n'a pas le formulaire pickup, on sort proprement)
+    const dateEl = document.getElementById('pickupDate');
+    if (!dateEl) { showToast('❌ Formulaire de pickup absent du HTML'); return; }
+    const dateVal = dateEl.value;
+    const packages = parseInt(document.getElementById('pickupPackages')?.value) || 1;
+    const weight = parseFloat(document.getElementById('pickupWeight')?.value) || 1;
+    const note = (document.getElementById('pickupNote')?.value || '').trim();
     if (!dateVal) { showToast('⚠️ Sélectionnez une date'); return; }
 
     const btn = document.getElementById('confirmPickupBtn');
-    btn.disabled = true; btn.textContent = '⏳ Envoi...';
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Envoi...'; }
 
     try {
         await addDoc(collection(db, "speedaf_pickups"), {
@@ -2454,11 +2881,12 @@ async function handleConfirmPickup() {
             createdAt: Timestamp.now()
         });
         showToast(isTestMode() ? '🧪 [TEST] Demande enregistrée (rollback à la fin)' : '✅ Demande enregistrée (à confirmer avec Speedaf)');
-        document.getElementById('pickupModal').classList.remove('open');
+        // A2 : null-guard sur pickupModal (sinon le pickup est créé mais la modale reste ouverte)
+        document.getElementById('pickupModal')?.classList.remove('open');
     } catch (e) {
         showToast('❌ Erreur : ' + e.message);
     } finally {
-        btn.disabled = false; btn.textContent = '🚀 Envoyer la demande';
+        if (btn) { btn.disabled = false; btn.textContent = '🚀 Envoyer la demande'; }
     }
 }
 
@@ -2485,6 +2913,11 @@ function initAdminAlerts() {
     document.getElementById('alertReviewsBtn')?.addEventListener('click', () => document.querySelector('[data-tab="reviews"]')?.click());
     document.getElementById('alertStockOutBtn')?.addEventListener('click', () => { tempStockFilter = 'out'; document.querySelector('[data-tab="products"]')?.click(); });
     document.getElementById('alertStockLowBtn')?.addEventListener('click', () => { tempStockFilter = 'low'; document.querySelector('[data-tab="products"]')?.click(); });
+    // Optionnel : bouton "produits à valider" dans la bannière d'alertes (si présent dans admin.html)
+    document.getElementById('alertProductsPendingBtn')?.addEventListener('click', () => {
+        tempStatusFilter = PRODUCT_STATUS.PENDING_ADMIN_APPROVAL;
+        document.querySelector('[data-tab="products"]')?.click();
+    });
 }
 
 async function refreshAdminAlerts() {
@@ -2492,13 +2925,15 @@ async function refreshAdminAlerts() {
     if (!banner || !auth.currentUser) return;
 
     try {
-        const [ordersSnap, reviewsSnap] = await Promise.allSettled([
+        const [ordersSnap, reviewsSnap, productsPendingSnap] = await Promise.allSettled([
             getCountFromServer(query(collection(db, "orders"), where("status", "==", "pending"))),
-            getCountFromServer(query(collection(db, "reviews"), where("status", "==", "pending")))
+            getCountFromServer(query(collection(db, "reviews"), where("status", "==", "pending"))),
+            getCountFromServer(query(collection(db, "products"), where("status", "==", PRODUCT_STATUS.PENDING_ADMIN_APPROVAL)))
         ]);
 
         const pendingOrdersCount = ordersSnap.value?.data().count || 0;
         const pendingReviewsCount = reviewsSnap.value?.data().count || 0;
+        const pendingProductsCount = productsPendingSnap.value?.data().count || 0;
 
         const stockOutNames = [];
         const stockLowNames = [];
@@ -2525,10 +2960,12 @@ async function refreshAdminAlerts() {
         const btnR = document.getElementById('alertReviewsBtn');
         const btnSO = document.getElementById('alertStockOutBtn');
         const btnSL = document.getElementById('alertStockLowBtn');
+        const btnPP = document.getElementById('alertProductsPendingBtn'); // optionnel
 
         let hasAlerts = false;
         if (btnO) { if (pendingOrdersCount > 0) { document.getElementById('alertOrdersCount').textContent = pendingOrdersCount; btnO.style.display = 'inline-flex'; hasAlerts = true; } else btnO.style.display = 'none'; }
         if (btnR) { if (pendingReviewsCount > 0) { document.getElementById('alertReviewsCount').textContent = pendingReviewsCount; btnR.style.display = 'inline-flex'; hasAlerts = true; } else btnR.style.display = 'none'; }
+        if (btnPP) { if (pendingProductsCount > 0) { document.getElementById('alertProductsPendingCount').textContent = pendingProductsCount; btnPP.style.display = 'inline-flex'; hasAlerts = true; } else btnPP.style.display = 'none'; }
         if (btnSO) {
             if (stockOutNames.length > 0) {
                 document.getElementById('alertStockOutCount').textContent = stockOutNames.length;
@@ -2615,7 +3052,7 @@ async function renderRevenueChart(period = 7, preloadedOrders = null) {
 }
 
 // ============================================================
-// COMPTABILITÉ — CHARGEMENT
+// COMPTABILITÉ
 // ============================================================
 async function loadPurchases() {
     try {
@@ -3472,8 +3909,8 @@ function attachAllRemainingEvents() {
     attachProductFormEvents();
 
     // Produits
-    document.getElementById('productSearchAdmin')?.addEventListener('input', () => { tempStockFilter = null; productsCurrentPage = 1; filterProductsList(); });
-    document.getElementById('productCategoryFilter')?.addEventListener('change', () => { tempStockFilter = null; productsCurrentPage = 1; filterProductsList(); });
+    document.getElementById('productSearchAdmin')?.addEventListener('input', () => { tempStockFilter = null; tempStatusFilter = null; productsCurrentPage = 1; filterProductsList(); });
+    document.getElementById('productCategoryFilter')?.addEventListener('change', () => { tempStockFilter = null; tempStatusFilter = null; productsCurrentPage = 1; filterProductsList(); });
 
     // Clients
     document.getElementById('userSearchAdmin')?.addEventListener('input', filterUsersList);
@@ -3485,7 +3922,7 @@ function attachAllRemainingEvents() {
         });
     });
 
-    // 🆕 Vendeurs (N1-c)
+    // Vendeurs
     document.getElementById('vendorSearchAdmin')?.addEventListener('input', filterVendorsList);
     document.querySelectorAll('[data-vendor-filter]').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -3495,7 +3932,7 @@ function attachAllRemainingEvents() {
         });
     });
 
-    // 🆕 Retraits (N1-c)
+    // Retraits
     document.getElementById('payoutSearchAdmin')?.addEventListener('input', filterPayoutsList);
     document.querySelectorAll('[data-payout-filter]').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -3516,10 +3953,12 @@ function attachAllRemainingEvents() {
     document.getElementById('speedafStatusFilter')?.addEventListener('change', renderSpeedafList);
     document.getElementById('syncAllSpeedafBtn')?.addEventListener('click', handleSyncAllSpeedaf);
     document.getElementById('pickupSpeedafBtn')?.addEventListener('click', () => {
-        document.getElementById('pickupDate').valueAsDate = new Date();
-        document.getElementById('pickupModal').classList.add('open');
+        // A3 : null-guards pickup
+        const pickupDateEl = document.getElementById('pickupDate');
+        if (pickupDateEl) pickupDateEl.valueAsDate = new Date();
+        document.getElementById('pickupModal')?.classList.add('open');
     });
-    document.getElementById('closePickupModalBtn')?.addEventListener('click', () => document.getElementById('pickupModal').classList.remove('open'));
+    document.getElementById('closePickupModalBtn')?.addEventListener('click', () => document.getElementById('pickupModal')?.classList.remove('open'));
     document.getElementById('confirmPickupBtn')?.addEventListener('click', handleConfirmPickup);
 
     // Outils
@@ -3557,7 +3996,6 @@ function attachAllRemainingEvents() {
     document.getElementById('transFilterType')?.addEventListener('change', renderTransactionsList);
     document.getElementById('reportType')?.addEventListener('change', updateReportDates);
 
-    // Valeurs par défaut des dates
     ['purDate', 'expDate', 'transDate'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.valueAsDate = new Date();
@@ -3571,4 +4009,4 @@ function attachAllRemainingEvents() {
 // DÉMARRAGE
 // ============================================================
 initAdmin();
-console.log('✅ admin.js chargé — v10.1.0 (Marketplace + N2 contractStatus fix)');
+console.log('✅ admin.js chargé — v10.2.1 (T6 workflow produits + T10 déblocage fonds, imports nettoyés, null-guards pickup)');
