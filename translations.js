@@ -1,15 +1,5 @@
-// translations.js
-// ============================================================
-// TRADUCTIONS - SMART SWI9A (FR / AR / EN)
-// Version 8.1.0 — Marketplace + Dashboard Vendeur
-//   - N9 : ajout des clés vendor.* en FR/AR/EN
-//   - P2-c : signupMethodVendor
-// ============================================================
-
+/* translations.js - Smart Swi9a (FR / AR / EN) - v8.1.0 (Marketplace + Dashboard Vendeur) IMPORTANT : ce fichier ne contient volontairement AUCUN commentaire de ligne (//). Si un outil de copier-coller supprime les retours a la ligne, un commentaire // mettrait tout le fichier en commentaire et le site perdrait tous ses textes. */
 window.translations = {
-  // ========================================================
-  // FRANÇAIS
-  // ========================================================
   fr: {
     navProducts: "Produits",
     navFeatures: "Avantages",
@@ -20,7 +10,6 @@ window.translations = {
     navCities: "Villes",
     navCategories: "Catégories",
     logoText: "SMART SWI9A",
-
     heroBadge: "🇲🇦 Livraison dans tout le Maroc — Paiement à la livraison",
     heroTitleHtml:
       "Les meilleurs <em>gadgets & objets connectés</em><br>au Maroc",
@@ -28,18 +17,15 @@ window.translations = {
       "À Smart Swi9a, montres connectées, écouteurs sans fil, domotique et maison connectée — les dernières tendances livrées en 24-72h.",
     btnPrimary: "Commander maintenant",
     btnGhost: "Commander via WhatsApp",
-
     trust1: "Livraison 24-72h",
     trust2: "Paiement à la livraison",
     trust3: "Garantie 15 jours",
     trust4: "Support WhatsApp 7/7",
-
     promoBannerText: "5% de réduction sur votre commande (+3 articles)",
     promoTitle: "Promos du moment",
     newTitle: "Nouveautés",
     noNewProducts: "Aucun nouveau produit pour le moment",
     noPromotions: "Aucune promotion pour le moment",
-
     productsTag: "Nouveau 2026",
     productsTitle: "Nos gadgets et produits connectés",
     productsSub:
@@ -53,14 +39,12 @@ window.translations = {
       "Aucun produit disponible dans cette catégorie en ce moment.",
     searchProductsPlaceholder: "Rechercher un produit...",
     chooseOptions: "Choisir les options",
-
     sortDefault: "Par défaut",
     sortPriceAsc: "Prix : croissant",
     sortPriceDesc: "Prix : décroissant",
     sortNameAsc: "Nom : A-Z",
     sortNameDesc: "Nom : Z-A",
     sortRating: "Mieux notés",
-
     filterAll: "Tout",
     filterFavorites: "Favoris",
     filterInStock: "En stock",
@@ -68,8 +52,6 @@ window.translations = {
     filterReset: "Réinitialiser",
     refresh: "Nouveautés",
     trendingBadge: "🔥 Populaire",
-
-    // ✅ NOUVELLES CLÉS VENDEURS / BOUTIQUE
     vendorSoldBy: "Vendu par",
     vendorSmartSwi9a: "Smart Swi9a",
     boutiqueVerified: "Boutique vérifiée",
@@ -79,8 +61,6 @@ window.translations = {
     boutiqueSuspendedText:
       "Cette boutique n'est pas disponible pour le moment. Réessayez plus tard.",
     boutiqueNoProducts: "Aucun produit dans cette catégorie",
-
-    // ✅ NOUVELLES CLÉS DASHBOARD VENDEUR (v8.1.0)
     "vendor.shop.fallbackName": "Ma boutique",
     "vendor.shop.loading": "Chargement...",
     "vendor.shop.status.approved": "Approuvé",
@@ -167,8 +147,6 @@ window.translations = {
     "vendor.error.tab": "Erreur de chargement",
     "vendor.error.tabDesc": "Veuillez réessayer.",
     "vendor.error.loading": "Erreur de chargement des données.",
-
-    // CATÉGORIES PARENTS
     filterSmartphones: "Smartphones",
     filterAudio: "Audio",
     filterComputers: "Informatique",
@@ -192,8 +170,6 @@ window.translations = {
     filterToys: "Jouets",
     filterPets: "Animaux",
     filterOffice: "Bureau",
-
-    // SOUS-CATÉGORIES
     filterAndroid: "Android",
     filterIOS: "iPhone",
     filterPhoneAccessories: "Accessoires",
@@ -263,13 +239,11 @@ window.translations = {
     filterStationery: "Papeterie",
     filterOfficeFurniture: "Mobilier de bureau",
     filterOfficeElectronics: "Électronique de bureau",
-
     reviewBadgeVerified: "✅ Achat vérifié",
     reviewRating: "Note",
     reviewDate: "Date",
     comboSize: "Taille",
     comboColor: "Couleur",
-
     cartTitle: "Panier",
     cartEmpty: "Panier vide",
     cartAddressPlaceholder: "Adresse de livraison",
@@ -285,7 +259,6 @@ window.translations = {
     savingsLabel: "Économies",
     removeItemAria: "Supprimer l'article",
     addedToCart: "Ajouté au panier",
-
     cartEmptyText:
       "Vous n'avez encore rien ajouté à votre panier. Découvrez nos produits !",
     cartDiscoverProducts: "Découvrir nos produits",
@@ -305,7 +278,6 @@ window.translations = {
     cartFreeDeliveryReached: "pour la livraison gratuite",
     cartFreeDeliveryUnlocked: "Livraison gratuite débloquée !",
     optional: "optionnel",
-
     account: "Compte",
     login: "Connexion",
     register: "Inscription",
@@ -332,7 +304,6 @@ window.translations = {
     noTitle: "Sans titre",
     myOrders: "Mes commandes",
     noNotifications: "Aucune notification",
-
     accountNamePlaceholder: "Nom complet",
     accountFirstNamePlaceholder: "Prénom",
     accountLastNamePlaceholder: "Nom",
@@ -343,7 +314,6 @@ window.translations = {
     accountDobPlaceholder: "Date de naissance",
     noAccount: "Pas de compte ?",
     alreadyHaveAccount: "Déjà un compte ?",
-
     editProfile: "Modifier le profil",
     newPassword: "Nouveau mot de passe",
     confirmPassword: "Confirmer le mot de passe",
@@ -354,14 +324,12 @@ window.translations = {
     passwordTooShort: "Mot de passe trop court (6 caractères min)",
     profileUpdated: "Profil mis à jour",
     inactivityLogout: "Déconnecté pour inactivité",
-
     fillAllFields: "Veuillez remplir tous les champs",
     loginRequired: "Connectez-vous d'abord",
     favAdded: "Ajouté aux favoris",
     favRemoved: "Retiré des favoris",
     orderSent: "Commande envoyée",
     orderError: "Erreur lors de la commande",
-
     loginError: "Erreur de connexion",
     userNotFound: "Utilisateur introuvable",
     wrongPassword: "Mot de passe incorrect",
@@ -372,7 +340,6 @@ window.translations = {
     profileNotFound: "Profil utilisateur introuvable",
     loginSuccess: "Connexion réussie",
     registerSuccess: "Inscription réussie",
-
     verifyEmailTitle: "Vérifiez votre adresse email",
     verifyEmailMessage:
       "Nous vous avons envoyé un lien de vérification. Vous devez cliquer sur ce lien pour activer votre compte et pouvoir vous connecter.",
@@ -388,7 +355,6 @@ window.translations = {
       "Astuce : Si vous ne recevez pas l'email, essayez de vous reconnecter avec votre email et mot de passe → le lien sera renvoyé automatiquement.",
     verifyEmailRequired:
       "Vous devez vérifier votre email pour accéder à votre compte.",
-
     verifyButton: "Vérifier",
     otpSent: "Un code OTP a été envoyé à votre email.",
     resendOTP: "Renvoyer le code",
@@ -399,7 +365,6 @@ window.translations = {
     otpExpired: "Le code a expiré",
     otpLocked: "Trop de tentatives",
     otpAttemptsLeft: "Tentatives restantes : {count}",
-
     socialOr: "OU",
     socialGoogle: "Continuer avec Google",
     socialFacebook: "Continuer avec Facebook",
@@ -407,13 +372,11 @@ window.translations = {
     socialFacebookError: "Erreur de connexion Facebook",
     socialPopupClosed: "Connexion annulée",
     socialAccountExists: "Cet email est déjà utilisé avec une autre méthode",
-
     signupMethod: "Inscription",
     signupMethodOtp: "OTP",
     signupMethodGoogle: "Google",
     signupMethodFacebook: "Facebook",
-    signupMethodVendor: "Vendeur", // ✅ P2-c
-
+    signupMethodVendor: "Vendeur",
     noReviewsYet: "Aucun avis pour le moment",
     reviews: "Avis",
     reviewTitle: "Titre de l'avis",
@@ -437,7 +400,6 @@ window.translations = {
     reviewStatusApproved: "Publié",
     reviewStatusRejected: "Rejeté",
     reviewStatusUnknown: "Statut inconnu",
-
     orderStatusPending: "En attente",
     orderStatusConfirmed: "Confirmée",
     orderStatusShipping: "En cours de livraison",
@@ -447,7 +409,6 @@ window.translations = {
     orderStatusUnknown: "Inconnu",
     orderStatusValidated: "Confirmée",
     orderStatusReceived: "Livrée",
-
     orderDetails: "Voir détails",
     orderCancel: "Annuler la commande",
     orderCancelConfirm: "Voulez-vous vraiment annuler cette commande ?",
@@ -464,13 +425,11 @@ window.translations = {
     orderPaymentStatus: "Paiement",
     orderPaymentUnpaid: "Non payé",
     orderPaymentPaid: "Payé",
-
     timelinePending: "Reçue",
     timelineConfirmed: "Confirmée",
     timelineShipping: "En route",
     timelineDelivered: "Livrée",
     timelineReturned: "Retournée",
-
     returnModalTitle: "Gérer le retour",
     returnModalHint:
       "Indiquez le nombre d'unités retournées par le client. Le stock sera mis à jour automatiquement.",
@@ -482,7 +441,6 @@ window.translations = {
     returnSuccess: "Retour enregistré, stock mis à jour",
     returnNoChange: "Aucune modification à enregistrer",
     returnNotAllowed: "Retour impossible pour ce statut",
-
     notificationOrderCreated: "Commande reçue",
     notificationOrderCreatedMsg:
       "Merci pour votre commande #{id} ! Nous la traitons rapidement.",
@@ -507,12 +465,10 @@ window.translations = {
     notificationOrderValidatedMsg: "Votre commande #{id} est confirmée.",
     notificationOrderReceived: "Commande livrée",
     notificationOrderReceivedMsg: "Votre commande #{id} est livrée.",
-
     abandonedCartTitle: "Panier abandonné !",
     abandonedCartMessage:
       "Vous avez {count} article(s) dans votre panier. Voulez-vous finaliser ?",
     abandonedCartView: "Voir le panier",
-
     productBreadcrumbHome: "Accueil",
     productBreadcrumbProducts: "Produits",
     productBackToProducts: "Retour aux produits",
@@ -522,7 +478,6 @@ window.translations = {
     productOrderWhatsApp: "Commander via WhatsApp",
     productFeatures: "Caractéristiques",
     productRelatedTitle: "Vous aimerez aussi",
-
     blogTag: "Blog Tech",
     blogTechTag: "📝 Blog Tech",
     blogTitle: "Dernières actualités et conseils",
@@ -539,7 +494,6 @@ window.translations = {
     blogReadTime: "{min} min",
     blogPageTitle: "Blog Tech | Smart Swi9a Maroc",
     blogDiscoverProducts: "Découvrir nos produits",
-
     blogCatConseils: "Conseils",
     blogCatTendances: "Tendances",
     blogCatTests: "Tests & Avis",
@@ -548,14 +502,12 @@ window.translations = {
     blogCatGadgets: "Gadgets",
     blogCatActualites: "Actualités",
     blogCatGeneral: "Général",
-
     avisTag: "Ils nous font confiance",
     avisTitle: "Avis clients",
     avisSub: "Découvrez ce que nos clients disent de Smart Swi9a",
     avisLoading: "Chargement des avis...",
     avisNoReviews: "Soyez le premier à donner votre avis !",
     avisVerifiedPurchase: "Achat vérifié",
-
     villesTag: "🗺️ Livraison Maroc",
     villesTitle: "Toutes nos villes de livraison",
     villesSub:
@@ -573,7 +525,6 @@ window.translations = {
     villesResults: "résultat(s)",
     villesNoResult: "Aucune ville trouvée",
     villesPageTitle: "Villes de livraison au Maroc | Smart Swi9a",
-
     trustBadgesTag: "Sécurité et confiance",
     trustBadgesTitle: "Achetez en toute confiance",
     trustBadge1Title: "Paiement sécurisé",
@@ -584,7 +535,6 @@ window.translations = {
     trustBadge3Desc: "Produits authentiques et fiables.",
     trustBadge4Title: "Satisfaction client",
     trustBadge4Desc: "Avis positifs de nos clients.",
-
     featuresTag: "Pourquoi nous choisir ?",
     featuresTitle: "Nos engagements",
     feature1title: "Livraison rapide",
@@ -599,7 +549,6 @@ window.translations = {
     feature5desc: "Nous proposons uniquement des produits tech certifiés.",
     feature6title: "Prix compétitifs",
     feature6desc: "Les meilleurs prix au Maroc avec des promotions exclusives.",
-
     aboutTag: "Notre histoire",
     aboutTitle: "Qui sommes-nous ?",
     aboutText:
@@ -616,43 +565,25 @@ window.translations = {
     aboutCard4Title: "🚀 Notre vision",
     aboutCard4Desc:
       "Devenir la première boutique tech du Maroc et bâtir une communauté de clients avertis qui font confiance à nos choix et partagent notre passion pour l'innovation.",
-
     legalTag: "Conditions générales",
     legalTitle: "Politique de confidentialité et CGV",
     privacySummary: "🔒 Politique de confidentialité",
     privacyText:
       "Nous respectons votre vie privée. Vos données ne sont pas partagées.",
     termsSummary: "📄 Conditions générales de vente",
-    termsTextHtml: `
-            <strong style="color:var(--text);">1. Délais de réclamation et Garantie</strong><br>
-            • <strong>Défaut à la réception (3 jours) :</strong> Vous disposez de 3 jours après la livraison pour signaler un produit défectueux ou non conforme.<br>
-            • <strong>Garantie de fonctionnement (15 jours) :</strong> Au-delà des 3 jours, nos produits restent garantis 15 jours contre les défauts de fabrication.<br><br>
-            
-            <strong style="color:var(--text);">2. Conditions d'éligibilité</strong><br> • Le produit doit être dans son <strong>emballage d'origine intact</strong> (boîte, notices, accessoires).<br>
-            • Le produit ne doit pas présenter de traces d'usure, de choc, de rayure ou d'infiltration d'eau.<br> • Une <strong>preuve d'achat</strong> (la facture reçue par email) est obligatoire.<br><br>
-            
-            <strong style="color:var(--text);">3. Procédure de retour</strong><br>
-            • <strong>Avant expédition (Devant le livreur) :</strong> Si le colis est endommagé, vous pouvez le refuser directement devant le livreur. Vous ne payez rien.<br>
-            • <strong>Après réception :</strong> Contactez notre support WhatsApp avec votre facture, des photos et une <strong>vidéo continue</strong> montrant le problème. Aucun retour ne sera accepté sans ces preuves.<br><br>
-            
-            <strong style="color:var(--text);">4. Frais de retour</strong><br>
-            • <strong>Si le produit est défectueux ou erreur de notre part :</strong> Les frais de retour sont <strong>à notre charge</strong>.<br>
-            • <strong>Changement d'avis :</strong> Les frais de retour sont <strong>à votre charge</strong>.<br><br> <strong style="color:var(--text);">5. Remboursement et Échange</strong><br> • Le remboursement n'est déclenché qu'<strong>après réception et vérification technique</strong> du produit retourné.<br> • Le remboursement se fait par virement bancaire ou via une agence (Wafacash / Cash Plus) sous 48h à 72h ouvrés.<br> • Un échange peut être proposé si le produit est en stock.<br><br> <strong style="color:var(--text);">6. Exclusions de garantie</strong><br> La garantie ne couvre pas : les chocs physiques, les dégâts liés à l'eau, l'usure normale, ou une mauvaise utilisation de l'appareil.
-        `,
-
+    termsTextHtml:
+      "\n <strong style=\"color:var(--text);\">1. Délais de réclamation et Garantie</strong><br>\n • <strong>Défaut à la réception (3 jours) :</strong> Vous disposez de 3 jours après la livraison pour signaler un produit défectueux ou non conforme.<br>\n • <strong>Garantie de fonctionnement (15 jours) :</strong> Au-delà des 3 jours, nos produits restent garantis 15 jours contre les défauts de fabrication.<br><br>\n \n <strong style=\"color:var(--text);\">2. Conditions d'éligibilité</strong><br>\n • Le produit doit être dans son <strong>emballage d'origine intact</strong> (boîte, notices, accessoires).<br>\n • Le produit ne doit pas présenter de traces d'usure, de choc, de rayure ou d'infiltration d'eau.<br>\n • Une <strong>preuve d'achat</strong> (la facture reçue par email) est obligatoire.<br><br>\n \n <strong style=\"color:var(--text);\">3. Procédure de retour</strong><br>\n • <strong>Avant expédition (Devant le livreur) :</strong> Si le colis est endommagé, vous pouvez le refuser directement devant le livreur. Vous ne payez rien.<br>\n • <strong>Après réception :</strong> Contactez notre support WhatsApp avec votre facture, des photos et une <strong>vidéo continue</strong> montrant le problème. Aucun retour ne sera accepté sans ces preuves.<br><br>\n \n <strong style=\"color:var(--text);\">4. Frais de retour</strong><br>\n • <strong>Si le produit est défectueux ou erreur de notre part :</strong> Les frais de retour sont <strong>à notre charge</strong>.<br>\n • <strong>Changement d'avis :</strong> Les frais de retour sont <strong>à votre charge</strong>.<br><br>\n \n <strong style=\"color:var(--text);\">5. Remboursement et Échange</strong><br>\n • Le remboursement n'est déclenché qu'<strong>après réception et vérification technique</strong> du produit retourné.<br>\n • Le remboursement se fait par virement bancaire ou via une agence (Wafacash / Cash Plus) sous 48h à 72h ouvrés.<br>\n • Un échange peut être proposé si le produit est en stock.<br><br>\n \n <strong style=\"color:var(--text);\">6. Exclusions de garantie</strong><br>\n La garantie ne couvre pas : les chocs physiques, les dégâts liés à l'eau, l'usure normale, ou une mauvaise utilisation de l'appareil.\n ",
     footerDesc:
       "Votre boutique tech au Maroc. Livraison rapide, paiement à la livraison.",
     footerCopyright: "© 2026 Smart Swi9a 🇲🇦 — Tous droits réservés",
     footerContact: "Contact",
     footerSocial: "Suivez-nous",
-
     pageTitle: "Smart Swi9a | Gadgets & Smart Home au Maroc – Livraison 24-72h",
     pageNotFoundTitle: "Oups ! Page introuvable",
     pageNotFoundMsg:
       "La page que vous cherchez n'existe pas ou a été déplacée.",
     resetPasswordTitle: "Réinitialisation du mot de passe | Smart Swi9a",
     cartPageTitle: "Mon Panier | Smart Swi9a",
-
     loading: "Chargement...",
     error: "Erreur",
     success: "Succès",
@@ -668,12 +599,10 @@ window.translations = {
     markAllRead: "Tout marquer comme lu",
     yes: "Oui",
     no: "Non",
-
     productNotFound: "Produit introuvable",
     articleNotFound: "Article introuvable",
     stockAvailable: "Stock disponible : {n}",
     selectCityRequired: "Veuillez sélectionner une ville dans la liste",
-
     confirmOrderTitle: "🛒 Confirmer la commande",
     confirmOrderMsg:
       "Voulez-vous vraiment confirmer votre commande ? Vous allez être redirigé vers WhatsApp.",
@@ -706,7 +635,6 @@ window.translations = {
     confirmMigrateMsg:
       "Il y a déjà {n} villes dans Firestore. Voulez-vous les écraser ?",
     confirmMigrateYes: "Écraser",
-
     waNewOrder: "Nouvelle commande Smart Swi9a",
     waOrder: "Commande",
     waName: "Nom",
@@ -723,7 +651,6 @@ window.translations = {
     waProduct: "Produit",
     waPrice: "Prix",
     waInstead: "au lieu de",
-
     emailOrderReceived: "Commande reçue",
     emailOrderConfirmed: "Commande confirmée",
     emailOrderShipping: "En cours de livraison",
@@ -746,7 +673,6 @@ window.translations = {
       "Votre commande #{id} a été annulée. Contactez-nous si besoin.",
     emailNewOrderAdmin: "Vous avez reçu une nouvelle commande de {name}.",
     emailTeam: "L'équipe Smart Swi9a",
-
     ariaNavMain: "Navigation principale",
     ariaCartOpen: "Ouvrir le panier",
     ariaCartClose: "Fermer le panier",
@@ -763,7 +689,6 @@ window.translations = {
     ariaSortProducts: "Trier les produits",
     ariaReviewPhotos: "Photos de l'avis",
     ariaBlogModal: "Article de blog",
-
     adminAddProduct: "Ajouter un produit",
     adminEditProduct: "Modifier le produit",
     adminProductNameRequired: "Le nom (FR) est obligatoire",
@@ -776,7 +701,6 @@ window.translations = {
     featuredRemove: "Retirer de l'accueil",
     timeHoursShort: "h",
     timeMinShort: "min",
-
     restockTitle: "Restocker",
     restockModalTitle: "Restocker",
     restockCurrentStock: "Stock actuel",
@@ -787,9 +711,6 @@ window.translations = {
     restockQuantityInvalid: "Quantité invalide (min 1)",
     restockQuantityTooHigh: "Quantité trop élevée (max 99999)",
   },
-  // ========================================================
-  // ARABE
-  // ========================================================
   ar: {
     navProducts: "المنتجات",
     navFeatures: "المميزات",
@@ -800,25 +721,21 @@ window.translations = {
     navCities: "المدن",
     navCategories: "الأقسام",
     logoText: "سمارت سويقة",
-
     heroBadge: "🇲🇦 التوصيل في جميع أنحاء المغرب — الدفع عند الاستلام",
     heroTitleHtml: "أفضل <em>الأدوات والأجهزة الذكية</em><br>في المغرب",
     heroSub:
       "في سمارت سويقة، ساعات ذكية، سماعات لاسلكية، منزل ذكي وبيت متصل — أحدث الاتجاهات تُوصَل في 24-72 ساعة.",
     btnPrimary: "اطلب الآن",
     btnGhost: "اطلب عبر واتساب",
-
     trust1: "توصيل 24-72 ساعة",
     trust2: "الدفع عند الاستلام",
     trust3: "ضمان 15 يومًا",
     trust4: "دعم واتساب 7/7",
-
     promoBannerText: "خصم 5% على طلبك (+3 منتجات)",
     promoTitle: "عروض اللحظة",
     newTitle: "الجديد",
     noNewProducts: "لا توجد منتجات جديدة حالياً",
     noPromotions: "لا توجد عروض حالياً",
-
     productsTag: "جديد 2026",
     productsTitle: "أدواتنا ومنتجاتنا الذكية",
     productsSub:
@@ -831,14 +748,12 @@ window.translations = {
     noProductsInCategory: "لا توجد منتجات متاحة في هذه الفئة حالياً.",
     searchProductsPlaceholder: "ابحث عن منتج...",
     chooseOptions: "اختر الخيارات",
-
     sortDefault: "افتراضي",
     sortPriceAsc: "السعر: تصاعدي",
     sortPriceDesc: "السعر: تنازلي",
     sortNameAsc: "الاسم: أ-ي",
     sortNameDesc: "الاسم: ي-أ",
     sortRating: "الأعلى تقييماً",
-
     filterAll: "الكل",
     filterFavorites: "المفضلة",
     filterInStock: "متوفر",
@@ -846,8 +761,6 @@ window.translations = {
     filterReset: "إعادة تعيين",
     refresh: "جديد",
     trendingBadge: "🔥 رائج",
-
-    // ✅ NOUVELLES CLÉS VENDEURS / BOUTIQUE
     vendorSoldBy: "يُباع بواسطة",
     vendorSmartSwi9a: "سمارت سويقة",
     boutiqueVerified: "متجر موثّق",
@@ -856,8 +769,6 @@ window.translations = {
     boutiqueSuspended: "المتجر غير متاح مؤقتًا",
     boutiqueSuspendedText: "هذا المتجر غير متاح حاليًا. يرجى المحاولة لاحقًا.",
     boutiqueNoProducts: "لا توجد منتجات في هذه الفئة",
-
-    // ✅ NOUVELLES CLÉS DASHBOARD VENDEUR (v8.1.0)
     "vendor.shop.fallbackName": "متجري",
     "vendor.shop.loading": "جارٍ التحميل...",
     "vendor.shop.status.approved": "مقبول",
@@ -939,8 +850,6 @@ window.translations = {
     "vendor.error.tab": "خطأ في التحميل",
     "vendor.error.tabDesc": "يرجى المحاولة مرة أخرى.",
     "vendor.error.loading": "خطأ في تحميل البيانات.",
-
-    // CATÉGORIES
     filterSmartphones: "هواتف ذكية",
     filterAudio: "صوتيات",
     filterComputers: "حواسيب",
@@ -964,7 +873,6 @@ window.translations = {
     filterToys: "ألعاب أطفال",
     filterPets: "حيوانات أليفة",
     filterOffice: "مكتب",
-
     filterAndroid: "أندرويد",
     filterIOS: "آيفون",
     filterPhoneAccessories: "إكسسوارات الهاتف",
@@ -1034,13 +942,11 @@ window.translations = {
     filterStationery: "قرطاسية",
     filterOfficeFurniture: "أثاث مكتبي",
     filterOfficeElectronics: "إلكترونيات مكتبية",
-
     reviewBadgeVerified: "✅ شراء موثق",
     reviewRating: "التقييم",
     reviewDate: "التاريخ",
     comboSize: "المقاس",
     comboColor: "اللون",
-
     cartTitle: "السلة",
     cartEmpty: "سلة فارغة",
     cartAddressPlaceholder: "عنوان التوصيل",
@@ -1056,7 +962,6 @@ window.translations = {
     savingsLabel: "التوفير",
     removeItemAria: "إزالة العنصر",
     addedToCart: "تمت الإضافة إلى السلة",
-
     cartEmptyText: "لم تقم بإضافة أي شيء إلى سلتك بعد. اكتشف منتجاتنا!",
     cartDiscoverProducts: "اكتشف منتجاتنا",
     cartItemSingular: "عنصر",
@@ -1075,7 +980,6 @@ window.translations = {
     cartFreeDeliveryReached: "للحصول على التوصيل المجاني",
     cartFreeDeliveryUnlocked: "تم تفعيل التوصيل المجاني!",
     optional: "اختياري",
-
     account: "الحساب",
     login: "تسجيل الدخول",
     register: "تسجيل",
@@ -1102,7 +1006,6 @@ window.translations = {
     noTitle: "بدون عنوان",
     myOrders: "طلباتي",
     noNotifications: "لا توجد إشعارات",
-
     accountNamePlaceholder: "الاسم الكامل",
     accountFirstNamePlaceholder: "الاسم",
     accountLastNamePlaceholder: "النسب",
@@ -1113,7 +1016,6 @@ window.translations = {
     accountDobPlaceholder: "تاريخ الميلاد",
     noAccount: "ليس لديك حساب؟",
     alreadyHaveAccount: "لديك حساب؟",
-
     editProfile: "تعديل الملف الشخصي",
     newPassword: "كلمة مرور جديدة",
     confirmPassword: "تأكيد كلمة المرور",
@@ -1124,14 +1026,12 @@ window.translations = {
     passwordTooShort: "كلمة المرور قصيرة جداً (6 أحرف على الأقل)",
     profileUpdated: "تم تحديث الملف الشخصي",
     inactivityLogout: "تم تسجيل الخروج بسبب عدم النشاط",
-
     fillAllFields: "الرجاء ملء جميع الحقول",
     loginRequired: "الرجاء تسجيل الدخول أولاً",
     favAdded: "تمت الإضافة إلى المفضلة",
     favRemoved: "تمت الإزالة من المفضلة",
     orderSent: "تم إرسال الطلب",
     orderError: "حدث خطأ أثناء إرسال الطلب",
-
     loginError: "خطأ في تسجيل الدخول",
     userNotFound: "المستخدم غير موجود",
     wrongPassword: "كلمة مرور خاطئة",
@@ -1142,7 +1042,6 @@ window.translations = {
     profileNotFound: "لم يتم العثور على ملف المستخدم",
     loginSuccess: "تم تسجيل الدخول بنجاح",
     registerSuccess: "تم التسجيل بنجاح",
-
     verifyEmailTitle: "تحقق من بريدك الإلكتروني",
     verifyEmailMessage:
       "لقد أرسلنا لك رابط تحقق. يجب النقر على هذا الرابط لتفعيل حسابك والقدرة على تسجيل الدخول.",
@@ -1156,7 +1055,6 @@ window.translations = {
     verifyEmailResendHint:
       "نصيحة: إذا لم تستلم البريد، حاول تسجيل الدخول ببريدك وكلمة المرور → سيتم إعادة إرسال الرابط تلقائياً.",
     verifyEmailRequired: "يجب التحقق من بريدك الإلكتروني للوصول إلى حسابك.",
-
     verifyButton: "تأكيد",
     otpSent: "تم إرسال رمز التحقق إلى بريدك الإلكتروني.",
     resendOTP: "إعادة إرسال الرمز",
@@ -1167,7 +1065,6 @@ window.translations = {
     otpExpired: "انتهت صلاحية الرمز",
     otpLocked: "عدد كبير من المحاولات",
     otpAttemptsLeft: "المحاولات المتبقية: {count}",
-
     socialOr: "أو",
     socialGoogle: "المتابعة مع Google",
     socialFacebook: "المتابعة مع Facebook",
@@ -1175,13 +1072,11 @@ window.translations = {
     socialFacebookError: "خطأ في تسجيل الدخول عبر Facebook",
     socialPopupClosed: "تم إلغاء تسجيل الدخول",
     socialAccountExists: "هذا البريد مستخدم بالفعل بطريقة أخرى",
-
     signupMethod: "التسجيل",
     signupMethodOtp: "OTP",
     signupMethodGoogle: "Google",
     signupMethodFacebook: "Facebook",
-    signupMethodVendor: "بائع", // ✅ P2-c
-
+    signupMethodVendor: "بائع",
     noReviewsYet: "لا توجد تقييمات بعد",
     reviews: "التقييمات",
     reviewTitle: "عنوان التقييم",
@@ -1204,7 +1099,6 @@ window.translations = {
     reviewStatusApproved: "منشور",
     reviewStatusRejected: "مرفوض",
     reviewStatusUnknown: "حالة غير معروفة",
-
     orderStatusPending: "في انتظار التأكيد",
     orderStatusConfirmed: "مؤكد",
     orderStatusShipping: "قيد التوصيل",
@@ -1214,7 +1108,6 @@ window.translations = {
     orderStatusUnknown: "غير معروف",
     orderStatusValidated: "مؤكد",
     orderStatusReceived: "تم التسليم",
-
     orderDetails: "عرض التفاصيل",
     orderCancel: "إلغاء الطلب",
     orderCancelConfirm: "هل تريد فعلاً إلغاء هذا الطلب؟",
@@ -1230,13 +1123,11 @@ window.translations = {
     orderPaymentStatus: "الدفع",
     orderPaymentUnpaid: "غير مدفوع",
     orderPaymentPaid: "مدفوع",
-
     timelinePending: "مستلم",
     timelineConfirmed: "مؤكد",
     timelineShipping: "في الطريق",
     timelineDelivered: "تم التسليم",
     timelineReturned: "مُرجع",
-
     returnModalTitle: "إدارة الإرجاع",
     returnModalHint:
       "حدد عدد الوحدات التي أرجعها العميل. سيتم تحديث المخزون تلقائياً.",
@@ -1248,7 +1139,6 @@ window.translations = {
     returnSuccess: "تم تسجيل الإرجاع وتحديث المخزون",
     returnNoChange: "لا يوجد تغيير لتسجيله",
     returnNotAllowed: "الإرجاع غير ممكن لهذه الحالة",
-
     notificationOrderCreated: "تم استلام طلبك",
     notificationOrderCreatedMsg: "شكراً على طلبك #{id}! نحن نعالجه بسرعة.",
     notificationOrderConfirmed: "تم تأكيد طلبك",
@@ -1270,12 +1160,10 @@ window.translations = {
     notificationOrderValidatedMsg: "طلبك #{id} مؤكد.",
     notificationOrderReceived: "تم تسليم طلبك",
     notificationOrderReceivedMsg: "تم تسليم طلبك #{id}.",
-
     abandonedCartTitle: "سلة مهجورة!",
     abandonedCartMessage:
       "لديك {count} عنصر(عناصر) في السلة. هل تريد إكمال الطلب؟",
     abandonedCartView: "عرض السلة",
-
     productBreadcrumbHome: "الرئيسية",
     productBreadcrumbProducts: "المنتجات",
     productBackToProducts: "العودة إلى المنتجات",
@@ -1285,7 +1173,6 @@ window.translations = {
     productOrderWhatsApp: "اطلب عبر واتساب",
     productFeatures: "المميزات",
     productRelatedTitle: "قد يعجبك أيضاً",
-
     blogTag: "مدونة التقنية",
     blogTechTag: "📝 مدونة التقنية",
     blogTitle: "آخر الأخبار والنصائح",
@@ -1301,7 +1188,6 @@ window.translations = {
     blogReadTime: "{min} دقيقة",
     blogPageTitle: "مدونة التقنية | سمارت سويقة",
     blogDiscoverProducts: "اكتشف منتجاتنا",
-
     blogCatConseils: "نصائح",
     blogCatTendances: "اتجاهات",
     blogCatTests: "اختبارات وآراء",
@@ -1310,14 +1196,12 @@ window.translations = {
     blogCatGadgets: "أدوات",
     blogCatActualites: "أخبار",
     blogCatGeneral: "عام",
-
     avisTag: "يثقون بنا",
     avisTitle: "آراء العملاء",
     avisSub: "اكتشف ما يقوله عملاؤنا عن سمارت سويقة",
     avisLoading: "جاري تحميل التقييمات...",
     avisNoReviews: "كن أول من يشارك رأيه!",
     avisVerifiedPurchase: "شراء موثق",
-
     villesTag: "🗺️ التوصيل في المغرب",
     villesTitle: "جميع مدن التوصيل لدينا",
     villesSub:
@@ -1335,7 +1219,6 @@ window.translations = {
     villesResults: "نتيجة/نتائج",
     villesNoResult: "لا توجد مدينة",
     villesPageTitle: "مدن التوصيل في المغرب | سمارت سويقة",
-
     trustBadgesTag: "الأمان والثقة",
     trustBadgesTitle: "اشترِ بكل ثقة",
     trustBadge1Title: "دفع آمن",
@@ -1346,7 +1229,6 @@ window.translations = {
     trustBadge3Desc: "منتجات أصلية وموثوقة.",
     trustBadge4Title: "رضا العملاء",
     trustBadge4Desc: "تقييمات إيجابية من عملائنا.",
-
     featuresTag: "لماذا تختارنا؟",
     featuresTitle: "التزاماتنا",
     feature1title: "توصيل سريع",
@@ -1361,7 +1243,6 @@ window.translations = {
     feature5desc: "نقدم فقط منتجات تقنية معتمدة.",
     feature6title: "أسعار تنافسية",
     feature6desc: "أفضل الأسعار في المغرب مع عروض حصرية.",
-
     aboutTag: "قصتنا",
     aboutTitle: "من نحن؟",
     aboutText:
@@ -1378,50 +1259,22 @@ window.translations = {
     aboutCard4Title: "🚀 رؤيتنا",
     aboutCard4Desc:
       "أن نصبح أول متجر تقني في المغرب ونبني مجتمعًا من العملاء الواعين الذين يثقون في اختياراتنا ويشاركوننا شغفنا بالابتكار.",
-
     legalTag: "الشروط العامة",
     legalTitle: "سياسة الخصوصية والشروط العامة",
     privacySummary: "🔒 سياسة الخصوصية",
     privacyText: "نحن نحترم خصوصيتك. لا تتم مشاركة بياناتك.",
     termsSummary: "📄 الشروط العامة للبيع",
-    termsTextHtml: `
-        <strong style="color:var(--text);">1. مدة الشكوى والضمان</strong><br>
-        • <strong>عيب عند الاستلام (3 أيام):</strong> لديك 3 أيام بعد التوصيل للإبلاغ عن منتج معيب أو غير مطابق.<br>
-        • <strong>ضمان التشغيل (15 يومًا):</strong> بعد 3 أيام، تظل منتجاتنا مضمونة لمدة 15 يومًا ضد عيوب التصنيع.<br><br>
-        
-        <strong style="color:var(--text);">2. شروط القبول</strong><br>
-        • يجب أن يكون المنتج في <strong>عبوته الأصلية سليمة</strong> (الصندوق، الكتيبات، الملحقات).<br>
-        • يجب ألا يظهر على المنتج أي آثار للاستخدام، الصدمات، الخدوش أو تسرب المياه.<br>
-        • <strong>إثبات الشراء</strong> (الفاتورة المرسلة عبر البريد الإلكتروني) إلزامي.<br><br>
-        
-        <strong style="color:var(--text);">3. إجراءات الإرجاع</strong><br>
-        • <strong>قبل الشحن (أمام عامل التوصيل):</strong> إذا كان الطلب تالفًا، يمكنك رفضه مباشرة أمام عامل التوصيل. لن تدفع شيئًا.<br>
-        • <strong>بعد الاستلام:</strong> اتصل بدعم واتساب مع الفاتورة والصور و<strong>فيديو مستمر</strong> يظهر المشكلة. لن يتم قبول أي إرجاع بدون هذه الأدلة.<br><br>
-        
-        <strong style="color:var(--text);">4. رسوم الإرجاع</strong><br>
-        • <strong>إذا كان المنتج معيبًا أو خطأ من جانبنا:</strong> رسوم الإرجاع <strong>على حسابنا</strong>.<br>
-        • <strong>تغيير الرأي:</strong> رسوم الإرجاع <strong>على حسابك</strong>.<br><br>
-        
-        <strong style="color:var(--text);">5. الاسترداد والاستبدال</strong><br>
-        • لا يتم بدء الاسترداد إلا <strong>بعد استلام المنتج المرتجع والتحقق منه تقنيًا</strong>.<br>
-        • يتم الاسترداد عبر تحويل بنكي أو وكالة (وفا كاش / كاش بلوس) في غضون 48 إلى 72 ساعة عمل.<br>
-        • قد يُقترح استبدال إذا كان المنتج متوفراً في المخزون.<br><br>
-        
-        <strong style="color:var(--text);">6. استثناءات الضمان</strong><br>
-        لا يغطي الضمان: الصدمات الجسدية، الأضرار الناتجة عن الماء، التآكل الطبيعي، أو سوء استخدام الجهاز.
-    `,
-
+    termsTextHtml:
+      '\n        <strong style="color:var(--text);">1. مدة الشكوى والضمان</strong><br>\n        • <strong>عيب عند الاستلام (3 أيام):</strong> لديك 3 أيام بعد التوصيل للإبلاغ عن منتج معيب أو غير مطابق.<br>\n        • <strong>ضمان التشغيل (15 يومًا):</strong> بعد 3 أيام، تظل منتجاتنا مضمونة لمدة 15 يومًا ضد عيوب التصنيع.<br><br>\n        \n        <strong style="color:var(--text);">2. شروط القبول</strong><br>\n        • يجب أن يكون المنتج في <strong>عبوته الأصلية سليمة</strong> (الصندوق، الكتيبات، الملحقات).<br>\n        • يجب ألا يظهر على المنتج أي آثار للاستخدام، الصدمات، الخدوش أو تسرب المياه.<br>\n        • <strong>إثبات الشراء</strong> (الفاتورة المرسلة عبر البريد الإلكتروني) إلزامي.<br><br>\n        \n        <strong style="color:var(--text);">3. إجراءات الإرجاع</strong><br>\n        • <strong>قبل الشحن (أمام عامل التوصيل):</strong> إذا كان الطلب تالفًا، يمكنك رفضه مباشرة أمام عامل التوصيل. لن تدفع شيئًا.<br>\n        • <strong>بعد الاستلام:</strong> اتصل بدعم واتساب مع الفاتورة والصور و<strong>فيديو مستمر</strong> يظهر المشكلة. لن يتم قبول أي إرجاع بدون هذه الأدلة.<br><br>\n        \n        <strong style="color:var(--text);">4. رسوم الإرجاع</strong><br>\n        • <strong>إذا كان المنتج معيبًا أو خطأ من جانبنا:</strong> رسوم الإرجاع <strong>على حسابنا</strong>.<br>\n        • <strong>تغيير الرأي:</strong> رسوم الإرجاع <strong>على حسابك</strong>.<br><br>\n        \n        <strong style="color:var(--text);">5. الاسترداد والاستبدال</strong><br>\n        • لا يتم بدء الاسترداد إلا <strong>بعد استلام المنتج المرتجع والتحقق منه تقنيًا</strong>.<br>\n        • يتم الاسترداد عبر تحويل بنكي أو وكالة (وفا كاش / كاش بلوس) في غضون 48 إلى 72 ساعة عمل.<br>\n        • قد يُقترح استبدال إذا كان المنتج متوفراً في المخزون.<br><br>\n        \n        <strong style="color:var(--text);">6. استثناءات الضمان</strong><br>\n        لا يغطي الضمان: الصدمات الجسدية، الأضرار الناتجة عن الماء، التآكل الطبيعي، أو سوء استخدام الجهاز.\n    ',
     footerDesc: "متجرك التقني في المغرب. توصيل سريع، الدفع عند الاستلام.",
     footerCopyright: "© 2026 سمارت سويقة 🇲🇦 — جميع الحقوق محفوظة",
     footerContact: "اتصل بنا",
     footerSocial: "تابعنا",
-
     pageTitle: "سمارت سويقة | الأدوات والمنزل الذكي في المغرب",
     pageNotFoundTitle: "عذراً! الصفحة غير موجودة",
     pageNotFoundMsg: "الصفحة التي تبحث عنها غير موجودة أو تم نقلها.",
     resetPasswordTitle: "إعادة تعيين كلمة المرور | سمارت سويقة",
     cartPageTitle: "سلتي | سمارت سويقة",
-
     loading: "جاري التحميل...",
     error: "خطأ",
     success: "نجاح",
@@ -1437,12 +1290,10 @@ window.translations = {
     markAllRead: "تحديد الكل كمقروء",
     yes: "نعم",
     no: "لا",
-
     productNotFound: "المنتج غير موجود",
     articleNotFound: "المقال غير موجود",
     stockAvailable: "المخزون المتاح: {n}",
     selectCityRequired: "يرجى اختيار مدينة من القائمة",
-
     confirmOrderTitle: "🛒 تأكيد الطلب",
     confirmOrderMsg: "هل تريد فعلاً تأكيد طلبك؟ سيتم توجيهك إلى واتساب.",
     confirmOrderYes: "تأكيد",
@@ -1470,7 +1321,6 @@ window.translations = {
     confirmMigrateTitle: "⚠️ استبدال المدن",
     confirmMigrateMsg: "يوجد بالفعل {n} مدينة في Firestore. هل تريد استبدالها؟",
     confirmMigrateYes: "استبدال",
-
     waNewOrder: "طلب جديد — سمارت سويقة",
     waOrder: "الطلب",
     waName: "الاسم",
@@ -1487,7 +1337,6 @@ window.translations = {
     waProduct: "المنتج",
     waPrice: "السعر",
     waInstead: "بدلاً من",
-
     emailOrderReceived: "تم استلام الطلب",
     emailOrderConfirmed: "تم تأكيد الطلب",
     emailOrderShipping: "قيد التوصيل",
@@ -1504,7 +1353,6 @@ window.translations = {
     emailCancelledMsg: "تم إلغاء طلبك #{id}. تواصل معنا إذا لزم الأمر.",
     emailNewOrderAdmin: "لقد استلمت طلباً جديداً من {name}.",
     emailTeam: "فريق سمارت سويقة",
-
     ariaNavMain: "التنقل الرئيسي",
     ariaCartOpen: "فتح السلة",
     ariaCartClose: "إغلاق السلة",
@@ -1521,7 +1369,6 @@ window.translations = {
     ariaSortProducts: "ترتيب المنتجات",
     ariaReviewPhotos: "صور التقييم",
     ariaBlogModal: "مقال المدونة",
-
     adminAddProduct: "إضافة منتج",
     adminEditProduct: "تعديل المنتج",
     adminProductNameRequired: "الاسم (بالفرنسية) مطلوب",
@@ -1534,7 +1381,6 @@ window.translations = {
     featuredRemove: "إزالة من الصفحة الرئيسية",
     timeHoursShort: "س",
     timeMinShort: "د",
-
     restockTitle: "إعادة تعبئة المخزون",
     restockModalTitle: "إعادة تعبئة المخزون",
     restockCurrentStock: "المخزون الحالي",
@@ -1545,10 +1391,6 @@ window.translations = {
     restockQuantityInvalid: "كمية غير صحيحة (الحد الأدنى 1)",
     restockQuantityTooHigh: "الكمية مرتفعة جداً (الحد الأقصى 99999)",
   },
-
-  // ========================================================
-  // ENGLISH
-  // ========================================================
   en: {
     navProducts: "Products",
     navFeatures: "Features",
@@ -1559,25 +1401,21 @@ window.translations = {
     navCities: "Cities",
     navCategories: "Categories",
     logoText: "SMART SWI9A",
-
     heroBadge: "🇲🇦 Delivery across Morocco — Cash on delivery",
     heroTitleHtml: "The best <em>gadgets & smart devices</em><br>in Morocco",
     heroSub:
       "At Smart Swi9a, smartwatches, wireless earbuds, smart home and connected home — latest trends delivered in 24-72h.",
     btnPrimary: "Order now",
     btnGhost: "Order via WhatsApp",
-
     trust1: "24-72h delivery",
     trust2: "Cash on delivery",
     trust3: "15-day warranty",
     trust4: "WhatsApp support 7/7",
-
     promoBannerText: "5% off your order (+3 items)",
     promoTitle: "Current promos",
     newTitle: "New arrivals",
     noNewProducts: "No new products at the moment",
     noPromotions: "No promotions at the moment",
-
     productsTag: "New 2026",
     productsTitle: "Our gadgets and smart products",
     productsSub:
@@ -1591,14 +1429,12 @@ window.translations = {
       "No products available in this category at the moment.",
     searchProductsPlaceholder: "Search a product...",
     chooseOptions: "Choose options",
-
     sortDefault: "Default",
     sortPriceAsc: "Price: low to high",
     sortPriceDesc: "Price: high to low",
     sortNameAsc: "Name: A-Z",
     sortNameDesc: "Name: Z-A",
     sortRating: "Top rated",
-
     filterAll: "All",
     filterFavorites: "Favorites",
     filterInStock: "In stock",
@@ -1606,8 +1442,6 @@ window.translations = {
     filterReset: "Reset",
     refresh: "Refresh",
     trendingBadge: "🔥 Trending",
-
-    // ✅ NOUVELLES CLÉS VENDEURS / BOUTIQUE
     vendorSoldBy: "Sold by",
     vendorSmartSwi9a: "Smart Swi9a",
     boutiqueVerified: "Verified shop",
@@ -1617,8 +1451,6 @@ window.translations = {
     boutiqueSuspendedText:
       "This shop is not available right now. Please try again later.",
     boutiqueNoProducts: "No products in this category",
-
-    // CATÉGORIES
     filterSmartphones: "Smartphones",
     filterAudio: "Audio",
     filterComputers: "Computers",
@@ -1642,7 +1474,6 @@ window.translations = {
     filterToys: "Toys",
     filterPets: "Pets",
     filterOffice: "Office",
-
     filterAndroid: "Android",
     filterIOS: "iPhone",
     filterPhoneAccessories: "Accessories",
@@ -1712,13 +1543,11 @@ window.translations = {
     filterStationery: "Stationery",
     filterOfficeFurniture: "Office Furniture",
     filterOfficeElectronics: "Office Electronics",
-
     reviewBadgeVerified: "✅ Verified purchase",
     reviewRating: "Rating",
     reviewDate: "Date",
     comboSize: "Size",
     comboColor: "Color",
-
     cartTitle: "Cart",
     cartEmpty: "Cart is empty",
     cartAddressPlaceholder: "Delivery address",
@@ -1734,7 +1563,6 @@ window.translations = {
     savingsLabel: "Savings",
     removeItemAria: "Remove item",
     addedToCart: "Added to cart",
-
     cartEmptyText:
       "You haven't added anything to your cart yet. Discover our products!",
     cartDiscoverProducts: "Discover our products",
@@ -1754,7 +1582,6 @@ window.translations = {
     cartFreeDeliveryReached: "left for free delivery",
     cartFreeDeliveryUnlocked: "Free delivery unlocked!",
     optional: "optional",
-
     account: "Account",
     login: "Login",
     register: "Register",
@@ -1781,7 +1608,6 @@ window.translations = {
     noTitle: "No title",
     myOrders: "My orders",
     noNotifications: "No notifications",
-
     accountNamePlaceholder: "Full name",
     accountFirstNamePlaceholder: "First name",
     accountLastNamePlaceholder: "Last name",
@@ -1792,7 +1618,6 @@ window.translations = {
     accountDobPlaceholder: "Date of birth",
     noAccount: "No account?",
     alreadyHaveAccount: "Already have an account?",
-
     editProfile: "Edit profile",
     newPassword: "New password",
     confirmPassword: "Confirm password",
@@ -1803,14 +1628,12 @@ window.translations = {
     passwordTooShort: "Password too short (min 6 chars)",
     profileUpdated: "Profile updated",
     inactivityLogout: "Logged out due to inactivity",
-
     fillAllFields: "Please fill in all fields",
     loginRequired: "Please log in first",
     favAdded: "Added to favorites",
     favRemoved: "Removed from favorites",
     orderSent: "Order sent",
     orderError: "Order error",
-
     loginError: "Login error",
     userNotFound: "User not found",
     wrongPassword: "Wrong password",
@@ -1821,7 +1644,6 @@ window.translations = {
     profileNotFound: "User profile not found",
     loginSuccess: "Login successful",
     registerSuccess: "Registration successful",
-
     verifyEmailTitle: "Verify your email address",
     verifyEmailMessage:
       "We sent you a verification link. You must click on this link to activate your account and be able to log in.",
@@ -1836,7 +1658,6 @@ window.translations = {
     verifyEmailResendHint:
       "Tip: If you don't receive the email, try logging in with your email and password → the link will be resent automatically.",
     verifyEmailRequired: "You must verify your email to access your account.",
-
     verifyButton: "Verify",
     otpSent: "An OTP code has been sent to your email.",
     resendOTP: "Resend code",
@@ -1847,7 +1668,6 @@ window.translations = {
     otpExpired: "Code expired",
     otpLocked: "Too many attempts",
     otpAttemptsLeft: "Attempts left: {count}",
-
     socialOr: "OR",
     socialGoogle: "Continue with Google",
     socialFacebook: "Continue with Facebook",
@@ -1855,12 +1675,10 @@ window.translations = {
     socialFacebookError: "Facebook login error",
     socialPopupClosed: "Login cancelled",
     socialAccountExists: "This email is already used with another method",
-
     signupMethod: "Signup",
     signupMethodOtp: "OTP",
     signupMethodGoogle: "Google",
     signupMethodFacebook: "Facebook",
-
     noReviewsYet: "No reviews yet",
     reviews: "Reviews",
     reviewTitle: "Review title",
@@ -1883,7 +1701,6 @@ window.translations = {
     reviewStatusApproved: "Published",
     reviewStatusRejected: "Rejected",
     reviewStatusUnknown: "Unknown status",
-
     orderStatusPending: "Pending",
     orderStatusConfirmed: "Confirmed",
     orderStatusShipping: "Shipping",
@@ -1893,7 +1710,6 @@ window.translations = {
     orderStatusUnknown: "Unknown",
     orderStatusValidated: "Confirmed",
     orderStatusReceived: "Delivered",
-
     orderDetails: "View details",
     orderCancel: "Cancel order",
     orderCancelConfirm: "Do you really want to cancel this order?",
@@ -1909,13 +1725,11 @@ window.translations = {
     orderPaymentStatus: "Payment",
     orderPaymentUnpaid: "Unpaid",
     orderPaymentPaid: "Paid",
-
     timelinePending: "Received",
     timelineConfirmed: "Confirmed",
     timelineShipping: "Shipping",
     timelineDelivered: "Delivered",
     timelineReturned: "Returned",
-
     returnModalTitle: "Manage return",
     returnModalHint:
       "Enter the number of units returned by the customer. Stock will be updated automatically.",
@@ -1927,7 +1741,6 @@ window.translations = {
     returnSuccess: "Return recorded, stock updated",
     returnNoChange: "No change to save",
     returnNotAllowed: "Return not allowed for this status",
-
     notificationOrderCreated: "Order received",
     notificationOrderCreatedMsg:
       "Thank you for your order #{id}! We're processing it quickly.",
@@ -1952,12 +1765,10 @@ window.translations = {
     notificationOrderValidatedMsg: "Your order #{id} is confirmed.",
     notificationOrderReceived: "Order delivered",
     notificationOrderReceivedMsg: "Your order #{id} is delivered.",
-
     abandonedCartTitle: "Abandoned cart!",
     abandonedCartMessage:
       "You have {count} item(s) in your cart. Want to complete?",
     abandonedCartView: "View cart",
-
     productBreadcrumbHome: "Home",
     productBreadcrumbProducts: "Products",
     productBackToProducts: "Back to products",
@@ -1967,7 +1778,6 @@ window.translations = {
     productOrderWhatsApp: "Order via WhatsApp",
     productFeatures: "Features",
     productRelatedTitle: "You might also like",
-
     blogTag: "Tech Blog",
     blogTechTag: "📝 Tech Blog",
     blogTitle: "Latest news and tips",
@@ -1984,7 +1794,6 @@ window.translations = {
     blogReadTime: "{min} min",
     blogPageTitle: "Tech Blog | Smart Swi9a Morocco",
     blogDiscoverProducts: "Discover our products",
-
     blogCatConseils: "Tips",
     blogCatTendances: "Trends",
     blogCatTests: "Tests & Reviews",
@@ -1993,14 +1802,12 @@ window.translations = {
     blogCatGadgets: "Gadgets",
     blogCatActualites: "News",
     blogCatGeneral: "General",
-
     avisTag: "They trust us",
     avisTitle: "Customer reviews",
     avisSub: "See what our customers say about Smart Swi9a",
     avisLoading: "Loading reviews...",
     avisNoReviews: "Be the first to leave a review!",
     avisVerifiedPurchase: "Verified purchase",
-
     villesTag: "🗺️ Delivery Morocco",
     villesTitle: "All our delivery cities",
     villesSub:
@@ -2018,7 +1825,6 @@ window.translations = {
     villesResults: "result(s)",
     villesNoResult: "No city found",
     villesPageTitle: "Delivery cities in Morocco | Smart Swi9a",
-
     trustBadgesTag: "Security and trust",
     trustBadgesTitle: "Buy with confidence",
     trustBadge1Title: "Secure payment",
@@ -2029,7 +1835,6 @@ window.translations = {
     trustBadge3Desc: "Authentic and reliable products.",
     trustBadge4Title: "Customer satisfaction",
     trustBadge4Desc: "Positive reviews from our customers.",
-
     featuresTag: "Why choose us?",
     featuresTitle: "Our commitments",
     feature1title: "Fast delivery",
@@ -2044,7 +1849,6 @@ window.translations = {
     feature5desc: "We only offer certified tech products.",
     feature6title: "Competitive prices",
     feature6desc: "Best prices in Morocco with exclusive deals.",
-
     aboutTag: "Our story",
     aboutTitle: "Who are we?",
     aboutText:
@@ -2061,51 +1865,23 @@ window.translations = {
     aboutCard4Title: "🚀 Our vision",
     aboutCard4Desc:
       "To become Morocco's leading tech shop and build a community of informed customers who trust our choices and share our passion for innovation.",
-
     legalTag: "Terms",
     legalTitle: "Privacy policy and Terms of sale",
     privacySummary: "🔒 Privacy policy",
     privacyText: "We respect your privacy. Your data is not shared.",
     termsSummary: "📄 Terms of sale",
-    termsTextHtml: `
-            <strong style="color:var(--text);">1. Claim Deadlines and Warranty</strong><br>
-            • <strong>Defect upon receipt (3 days):</strong> You have 3 days after delivery to report a defective or non-compliant product.<br>
-            • <strong>Operational Warranty (15 days):</strong> Beyond 3 days, our products remain guaranteed for 15 days against manufacturing defects.<br><br>
-            
-            <strong style="color:var(--text);">2. Eligibility Conditions</strong><br>
-            • The product must be in its <strong>intact original packaging</strong> (box, manuals, accessories).<br>
-            • The product must not show signs of wear, impact, scratches, or water damage.<br>
-            • A <strong>proof of purchase</strong> (invoice received by email) is mandatory.<br><br>
-            
-            <strong style="color:var(--text);">3. Return Procedure</strong><br>
-            • <strong>Before shipping (In front of the driver):</strong> If the package is damaged, you can refuse it directly in front of the delivery driver. You pay nothing.<br>
-            • <strong>After receipt:</strong> Contact our WhatsApp support with your invoice, photos, and a <strong>continuous video</strong> showing the issue. No return will be accepted without this evidence.<br><br>
-            
-            <strong style="color:var(--text);">4. Return Fees</strong><br>
-            • <strong>If the product is defective or our mistake:</strong> Return fees are <strong>our responsibility</strong>.<br>
-            • <strong>Change of mind:</strong> Return fees are <strong>your responsibility</strong>.<br><br>
-            
-            <strong style="color:var(--text);">5. Refund and Exchange</strong><br>
-            • The refund is only triggered <strong>after receipt and technical verification</strong> of the returned product.<br>
-            • The refund is made by bank transfer or agency (Wafacash/Cash Plus) within 48 to 72 business hours.<br>
-            • An exchange may be offered if the product is in stock.<br><br>
-            
-            <strong style="color:var(--text);">6. Warranty Exclusions</strong><br>
-            The warranty does not cover: physical impact, water damage, normal wear and tear, or misuse of the device.
-        `,
-
+    termsTextHtml:
+      '\n            <strong style="color:var(--text);">1. Claim Deadlines and Warranty</strong><br>\n            • <strong>Defect upon receipt (3 days):</strong> You have 3 days after delivery to report a defective or non-compliant product.<br>\n            • <strong>Operational Warranty (15 days):</strong> Beyond 3 days, our products remain guaranteed for 15 days against manufacturing defects.<br><br>\n            \n            <strong style="color:var(--text);">2. Eligibility Conditions</strong><br>\n            • The product must be in its <strong>intact original packaging</strong> (box, manuals, accessories).<br>\n            • The product must not show signs of wear, impact, scratches, or water damage.<br>\n            • A <strong>proof of purchase</strong> (invoice received by email) is mandatory.<br><br>\n            \n            <strong style="color:var(--text);">3. Return Procedure</strong><br>\n            • <strong>Before shipping (In front of the driver):</strong> If the package is damaged, you can refuse it directly in front of the delivery driver. You pay nothing.<br>\n            • <strong>After receipt:</strong> Contact our WhatsApp support with your invoice, photos, and a <strong>continuous video</strong> showing the issue. No return will be accepted without this evidence.<br><br>\n            \n            <strong style="color:var(--text);">4. Return Fees</strong><br>\n            • <strong>If the product is defective or our mistake:</strong> Return fees are <strong>our responsibility</strong>.<br>\n            • <strong>Change of mind:</strong> Return fees are <strong>your responsibility</strong>.<br><br>\n            \n            <strong style="color:var(--text);">5. Refund and Exchange</strong><br>\n            • The refund is only triggered <strong>after receipt and technical verification</strong> of the returned product.<br>\n            • The refund is made by bank transfer or agency (Wafacash/Cash Plus) within 48 to 72 business hours.<br>\n • An exchange may be offered if the product is in stock.<br><br>\n \n <strong style="color:var(--text);">6. Warranty Exclusions</strong><br>\n            The warranty does not cover: physical impact, water damage, normal wear and tear, or misuse of the device.\n        ',
     footerDesc: "Your tech shop in Morocco. Fast delivery, cash on delivery.",
     footerCopyright: "© 2026 Smart Swi9a 🇲🇦 — All rights reserved",
     footerContact: "Contact",
     footerSocial: "Follow us",
-
     pageTitle: "Smart Swi9a | Gadgets & Smart Home in Morocco",
     pageNotFoundTitle: "Oops! Page not found",
     pageNotFoundMsg:
       "The page you are looking for doesn't exist or has been moved.",
     resetPasswordTitle: "Password reset | Smart Swi9a",
     cartPageTitle: "My Cart | Smart Swi9a",
-
     loading: "Loading...",
     error: "Error",
     success: "Success",
@@ -2121,12 +1897,10 @@ window.translations = {
     markAllRead: "Mark all as read",
     yes: "Yes",
     no: "No",
-
     productNotFound: "Product not found",
     articleNotFound: "Article not found",
     stockAvailable: "Available stock: {n}",
     selectCityRequired: "Please select a city from the list",
-
     confirmOrderTitle: "🛒 Confirm order",
     confirmOrderMsg:
       "Do you really want to confirm your order? You will be redirected to WhatsApp.",
@@ -2159,7 +1933,6 @@ window.translations = {
     confirmMigrateMsg:
       "There are already {n} cities in Firestore. Do you want to overwrite them?",
     confirmMigrateYes: "Overwrite",
-
     waNewOrder: "New Smart Swi9a order",
     waOrder: "Order",
     waName: "Name",
@@ -2176,7 +1949,6 @@ window.translations = {
     waProduct: "Product",
     waPrice: "Price",
     waInstead: "instead of",
-
     emailOrderReceived: "Order received",
     emailOrderConfirmed: "Order confirmed",
     emailOrderShipping: "Shipping",
@@ -2199,7 +1971,6 @@ window.translations = {
       "Your order #{id} has been cancelled. Contact us if needed.",
     emailNewOrderAdmin: "You received a new order from {name}.",
     emailTeam: "Smart Swi9a team",
-
     ariaNavMain: "Main navigation",
     ariaCartOpen: "Open cart",
     ariaCartClose: "Close cart",
@@ -2216,7 +1987,6 @@ window.translations = {
     ariaSortProducts: "Sort products",
     ariaReviewPhotos: "Review photos",
     ariaBlogModal: "Blog article",
-
     adminAddProduct: "Add a product",
     adminEditProduct: "Edit product",
     adminProductNameRequired: "Name (FR) is required",
@@ -2229,7 +1999,6 @@ window.translations = {
     featuredRemove: "Remove from homepage",
     timeHoursShort: "h",
     timeMinShort: "min",
-
     restockTitle: "Restock",
     restockModalTitle: "Restock",
     restockCurrentStock: "Current stock",
@@ -2239,8 +2008,6 @@ window.translations = {
     restockSuccess: "Stock updated",
     restockQuantityInvalid: "Invalid quantity (min 1)",
     restockQuantityTooHigh: "Quantity too high (max 99999)",
-
-    // ===== Marketplace vendeur (v8.1.0) =====
     signupMethodVendor: "Vendor",
     "vendor.shop.fallbackName": "My shop",
     "vendor.shop.loading": "Loading...",
@@ -2332,6 +2099,4 @@ window.translations = {
   },
 };
 
-console.log(
-  "✅ translations.js chargé — v8.1.0 (Marketplace + Dashboard Vendeur)"
-);
+console.log("translations.js charge - v8.1.0");
