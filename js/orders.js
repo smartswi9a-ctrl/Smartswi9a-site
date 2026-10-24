@@ -1,12 +1,17 @@
 // js/orders.js
 // ============================================================
 // GESTION DES COMMANDES - SMART SWI9A
-// Version 7.0.0 — Marketplace (N5 : commission, wallet vendeur, retours)
-//   - Helper commission + crédit/débit wallet par vendeur
-//   - Crédit wallet à la livraison + déblocage via unlockAt
-//   - Débit wallet (frais de retour) au retour
-//   - Journalisation wallet_transactions
-//   - vendorIds helper pour cart.js
+// Version 8.0.0 — Marketplace (Session 3 / T3 + T4-ready)
+// Correctifs T3 :
+//   - getVendorCommissionRate : plus de fallback silencieux (throw si introuvable)
+//   - creditVendorWallet : idempotent (marqueur orders.vendorCredits + txId déterministe)
+//   - debitVendorWallet : idempotent + respect MAX_NEGATIVE_BALANCE + flag needsReview
+//   - syncVendorWalletsForOrder : remonte les erreurs (plus de try/catch muet)
+//   - updateOrderStatus : retourne walletSyncError si le crédit wallet échoue
+//   - autoSyncActiveOrders : guard admin (évite les 403 côté client)
+//   - releaseDueVendorFunds (T4) : déblocage pending → available (idempotent)
+//   - deleteOrderCompletely / syncVendorWalletsForOrder : exportés
+//   - Politique remise/coupon documentée (absorbée par Smart Swi9a)
 // ============================================================
 
 import {
@@ -18,7 +23,7 @@ import { db } from "./firebase.js";
 import {
     CONFIG, ORDER_STATUS, normalizeOrderStatus, NOTIFICATION_TYPES,
     canReturnOrder, getReturnedQuantities, isFullReturn,
-    isTestMode, APP_MODE, WALLET_TX_TYPE
+    isTestMode, APP_MODE, WALLET_TX_TYPE, WALLET_TX_STATUS
 } from "./config.js";
 import {
     t, escapeHTML, formatDateTime,
@@ -631,18 +636,27 @@ async function restoreStockInTransaction(transaction, order, productSnaps, produ
 }
 
 // ============================================================
-// 🆕 HELPERS VENDEUR (N5)
+// 🆕 HELPERS VENDEUR (N5 / T3)
 // ============================================================
 
 /**
- * Utilitaire : groupe les items d'une commande par vendeur.
- * @returns {Object} { [vendorId]: { items, subtotal, qty } }
+ * Groupe les items d'une commande par vendeur.
+ *
+ * ⚠️ Politique remise/coupon (T3 — Q1) :
+ *   Le `subtotal` retourné est le **prix catalogue** (items.price × qty).
+ *   Les remises (coupon, volume) sont **absorbées par Smart Swi9a** :
+ *   la commission vendeur est calculée sur le prix catalogue, la remise
+ *   n'est pas répercutée sur le wallet vendeur. Si la politique change
+ *   (répartition au prorata), modifier cette fonction + le test manuel.
+ *
+ * Les produits Smart Swi9a (`vendorId === 'smartswi9a'`) sont exclus :
+ * pas de wallet, pas de commission. Seuls les vendeurs tiers apparaissent.
  */
 export function getOrderVendorBreakdown(order) {
     const out = {};
     for (const item of (order.items || [])) {
         const vid = item.vendorId || 'smartswi9a';
-        if (vid === 'smartswi9a') continue; // Smart Swi9a ne compte pas dans les wallets vendeurs
+        if (vid === 'smartswi9a') continue;
         if (!out[vid]) out[vid] = { items: [], subtotal: 0, qty: 0 };
         const lineTotal = (Number(item.price) || 0) * (Number(item.quantity) || 0);
         out[vid].items.push(item);
@@ -656,9 +670,6 @@ export function getOrderVendorBreakdown(order) {
  * Utilitaire à appeler par cart.js à la création de commande.
  * Ajoute vendorId sur chaque item (depuis le produit), et écrit
  * vendorIds (dédupliqué) au niveau du document commande.
- * @param {Object} order — objet commande en cours de construction.
- * @param {Object} productMap — { [productId]: product } (avec .vendorId).
- * @returns {Object} order enrichi (mutation + retour).
  */
 export function enrichOrderWithVendorIds(order, productMap = {}) {
     const vendorIds = new Set();
@@ -673,186 +684,257 @@ export function enrichOrderWithVendorIds(order, productMap = {}) {
 }
 
 /**
- * Lit le taux de commission d'un vendeur, borné [MIN, MAX] depuis CONFIG.
- * Fallback sur CONFIG.VENDOR.COMMISSION_RATE si vendeur introuvable ou invalide.
+ * Lit le taux de commission d'un vendeur.
+ * T3 : en cas d'échec de lecture, **throw** (plus de fallback silencieux).
+ * Seul cas de retour par défaut : le vendeur n'a pas de `commissionRate`
+ * explicite → on utilise CONFIG.VENDOR.COMMISSION_RATE (log un warning).
  */
 async function getVendorCommissionRate(vendorId) {
-    const defaultRate = CONFIG.VENDOR.COMMISSION_RATE;
-    if (!vendorId || vendorId === 'smartswi9a') return defaultRate;
+    if (!vendorId || vendorId === 'smartswi9a') return CONFIG.VENDOR.COMMISSION_RATE;
+    let snap;
     try {
-        const snap = await getDoc(doc(db, "users", vendorId));
-        if (!snap.exists()) return defaultRate;
-        const custom = snap.data()?.vendorInfo?.commissionRate;
-        if (typeof custom !== 'number' || !Number.isFinite(custom)) return defaultRate;
-        const min = CONFIG.VENDOR.COMMISSION_RATE_MIN;
-        const max = CONFIG.VENDOR.COMMISSION_RATE_MAX;
-        return Math.min(max, Math.max(min, custom));
+        snap = await getDoc(doc(db, "users", vendorId));
     } catch (e) {
-        return defaultRate;
+        throw new Error(`Lecture profil vendeur impossible (${vendorId}) : ${e.message}`);
     }
+    if (!snap.exists()) {
+        throw new Error(`Profil vendeur introuvable (${vendorId}) — commission non calculable`);
+    }
+    const custom = snap.data()?.vendorInfo?.commissionRate;
+    if (typeof custom !== 'number' || !Number.isFinite(custom)) {
+        console.warn(`⚠️ commissionRate manquant pour ${vendorId}, utilisation du défaut ${CONFIG.VENDOR.COMMISSION_RATE}`);
+        return CONFIG.VENDOR.COMMISSION_RATE;
+    }
+    return Math.min(CONFIG.VENDOR.COMMISSION_RATE_MAX, Math.max(CONFIG.VENDOR.COMMISSION_RATE_MIN, custom));
 }
 
 /**
  * Crédite le wallet d'un vendeur (pendingBalance + totalEarnings)
  * et crée une entrée wallet_transactions.
- * La ligne reste `pending` jusqu'à déblocage par worker-cron
- * (UNLOCK_DAYS_VENDOR ou UNLOCK_DAYS_SMART selon les produits).
+ *
+ * T3 : idempotent.
+ *   - `order.vendorCredits[vendorId]` marqueur est écrit dans la MÊME
+ *     transaction Firestore que le crédit wallet. Si déjà présent → skip.
+ *   - `wallet_transactions/{orderId}_{vendorId}` : ID déterministe
+ *     → impossible de créer deux tx identiques.
  */
 async function creditVendorWallet(vendorId, subtotal, order, isSmartProduct) {
-    const rate = await getVendorCommissionRate(vendorId);
+    if (!vendorId || subtotal <= 0) return { skipped: true };
+    const rate = await getVendorCommissionRate(vendorId); // throw si introuvable
     const commission = Math.round(subtotal * rate * 100) / 100;
     const netToPay = Math.round((subtotal - commission) * 100) / 100;
-    if (netToPay <= 0) return;
+    if (netToPay <= 0) return { skipped: true };
 
     const unlockDays = isSmartProduct ? CONFIG.VENDOR.UNLOCK_DAYS_SMART : CONFIG.VENDOR.UNLOCK_DAYS_VENDOR;
     const unlockAt = new Date(Date.now() + unlockDays * 86400000);
+    const creditTxId = `${order.id}_${vendorId}`;
 
-    try {
-        await runTransaction(db, async (tx) => {
-            const walletRef = doc(db, "wallets", vendorId);
-            const walletSnap = await tx.get(walletRef);
+    return await runTransaction(db, async (tx) => {
+        const orderRef = doc(db, "orders", order.id);
+        const orderSnap = await tx.get(orderRef);
+        if (!orderSnap.exists()) throw new Error(`Commande ${order.id} introuvable`);
+        const o = orderSnap.data();
 
-            if (!walletSnap.exists()) {
-                tx.set(walletRef, {
-                    vendorId,
-                    pendingBalance: netToPay,
-                    availableBalance: 0,
-                    totalEarnings: netToPay,
-                    totalWithdrawn: 0,
-                    negativeBalance: 0,
-                    createdAt: Timestamp.now(),
-                    lastUpdated: Timestamp.now()
-                });
-            } else {
-                const w = walletSnap.data();
-                tx.update(walletRef, {
-                    pendingBalance: (Number(w.pendingBalance) || 0) + netToPay,
-                    totalEarnings: (Number(w.totalEarnings) || 0) + netToPay,
-                    lastUpdated: Timestamp.now()
-                });
-            }
+        if (o.vendorCredits && o.vendorCredits[vendorId]) {
+            console.log(`ℹ️ Crédit déjà effectué pour ${vendorId} sur ${order.id} — skip`);
+            return { skipped: true, alreadyCredited: true };
+        }
 
-            const txRef = doc(collection(db, "wallet_transactions"));
-            tx.set(txRef, {
+        const walletRef = doc(db, "wallets", vendorId);
+        const walletSnap = await tx.get(walletRef);
+
+        if (!walletSnap.exists()) {
+            tx.set(walletRef, {
                 vendorId,
-                type: WALLET_TX_TYPE.SALE,
+                pendingBalance: netToPay,
+                availableBalance: 0,
+                totalEarnings: netToPay,
+                totalWithdrawn: 0,
+                negativeBalance: 0,
+                createdAt: Timestamp.now(),
+                lastUpdated: Timestamp.now()
+            });
+        } else {
+            const w = walletSnap.data();
+            tx.update(walletRef, {
+                pendingBalance: (Number(w.pendingBalance) || 0) + netToPay,
+                totalEarnings: (Number(w.totalEarnings) || 0) + netToPay,
+                lastUpdated: Timestamp.now()
+            });
+        }
+
+        const txRef = doc(db, "wallet_transactions", creditTxId);
+        tx.set(txRef, {
+            vendorId,
+            type: WALLET_TX_TYPE.SALE,
+            amount: netToPay,
+            commission,
+            commissionRate: rate,
+            subtotal,
+            orderId: order.id,
+            status: WALLET_TX_STATUS.PENDING,
+            unlockAt: Timestamp.fromDate(unlockAt),
+            description: `Vente commande #${String(order.id).slice(0, 8).toUpperCase()}`,
+            createdAt: Timestamp.now()
+        });
+
+        tx.update(orderRef, {
+            [`vendorCredits.${vendorId}`]: {
+                creditedAt: Timestamp.now(),
+                txId: creditTxId,
                 amount: netToPay,
                 commission,
                 commissionRate: rate,
-                subtotal,
-                orderId: order.id,
-                status: 'pending',
-                unlockAt: Timestamp.fromDate(unlockAt),
-                description: `Vente commande #${String(order.id).slice(0, 8).toUpperCase()}`,
-                createdAt: Timestamp.now()
-            });
+                unlockAt: Timestamp.fromDate(unlockAt)
+            }
         });
 
         console.log(`💰 Vendeur ${String(vendorId).slice(0, 8)}… crédité de ${netToPay} MAD (cmd ${String(order.id).slice(0, 8)})`);
-    } catch (e) {
-        console.error('❌ creditVendorWallet:', e);
-        throw e;
-    }
+        return { credited: true, amount: netToPay, commission, commissionRate: rate };
+    });
 }
 
 /**
  * Débite le wallet d'un vendeur en cas de retour.
  * Prélève en cascade : pendingBalance → availableBalance → negativeBalance.
- * Crée une entrée wallet_transactions type 'return_fee'.
+ * T3 : idempotent (marqueur order.vendorDebits[debitId]).
+ * T3 : respecte MAX_NEGATIVE_BALANCE + flag needsReview si plafond atteint.
  */
-async function debitVendorWallet(vendorId, returnedQty, order) {
+async function debitVendorWallet(vendorId, returnedQty, order, returnEntryIndex) {
     const perParcel = Number(CONFIG.VENDOR.RETURN_FEE_SPEEDAF) || 20;
     const fee = perParcel * (Number(returnedQty) || 0);
-    if (fee <= 0) return;
+    if (fee <= 0) return { skipped: true };
 
-    try {
-        await runTransaction(db, async (tx) => {
-            const walletRef = doc(db, "wallets", vendorId);
-            const walletSnap = await tx.get(walletRef);
-            if (!walletSnap.exists()) return;
+    const debitTxId = `${order.id}_${vendorId}_ret${returnEntryIndex}`;
+    const debitKey = `${vendorId}_ret${returnEntryIndex}`;
 
-            const w = walletSnap.data();
-            let pendingBalance = Number(w.pendingBalance) || 0;
-            let availableBalance = Number(w.availableBalance) || 0;
-            let negativeBalance = Number(w.negativeBalance) || 0;
-            let remaining = fee;
+    return await runTransaction(db, async (tx) => {
+        const orderRef = doc(db, "orders", order.id);
+        const orderSnap = await tx.get(orderRef);
+        if (!orderSnap.exists()) throw new Error(`Commande ${order.id} introuvable`);
+        const o = orderSnap.data();
 
-            if (pendingBalance >= remaining) {
-                pendingBalance -= remaining;
-                remaining = 0;
+        if (o.vendorDebits && o.vendorDebits[debitKey]) {
+            console.log(`ℹ️ Débit déjà effectué ${debitKey} — skip`);
+            return { skipped: true, alreadyDebited: true };
+        }
+
+        const walletRef = doc(db, "wallets", vendorId);
+        const walletSnap = await tx.get(walletRef);
+        if (!walletSnap.exists()) return { skipped: true, reason: 'no_wallet' };
+
+        const w = walletSnap.data();
+        let pendingBalance = Number(w.pendingBalance) || 0;
+        let availableBalance = Number(w.availableBalance) || 0;
+        let negativeBalance = Number(w.negativeBalance) || 0;
+        let remaining = fee;
+        let needsReview = !!w.needsReview;
+
+        if (pendingBalance >= remaining) { pendingBalance -= remaining; remaining = 0; }
+        else { remaining -= pendingBalance; pendingBalance = 0; }
+
+        if (remaining > 0) {
+            if (availableBalance >= remaining) { availableBalance -= remaining; remaining = 0; }
+            else { remaining -= availableBalance; availableBalance = 0; }
+        }
+
+        if (remaining > 0) {
+            const newNegative = negativeBalance - remaining;
+            const floor = Number(CONFIG.VENDOR.MAX_NEGATIVE_BALANCE) || -1000;
+            if (newNegative < floor) {
+                negativeBalance = floor;
+                needsReview = true;
+                console.warn(`⚠️ Plafond MAX_NEGATIVE_BALANCE atteint pour ${vendorId} — needsReview=true`);
             } else {
-                remaining -= pendingBalance;
-                pendingBalance = 0;
+                negativeBalance = newNegative;
             }
+        }
 
-            if (remaining > 0) {
-                if (availableBalance >= remaining) {
-                    availableBalance -= remaining;
-                    remaining = 0;
-                } else {
-                    remaining -= availableBalance;
-                    availableBalance = 0;
-                }
+        const walletUpdate = {
+            pendingBalance,
+            availableBalance,
+            negativeBalance,
+            lastUpdated: Timestamp.now()
+        };
+        if (needsReview) walletUpdate.needsReview = true;
+        tx.update(walletRef, walletUpdate);
+
+        const txRef = doc(db, "wallet_transactions", debitTxId);
+        tx.set(txRef, {
+            vendorId,
+            type: WALLET_TX_TYPE.RETURN_FEE,
+            amount: -fee,
+            orderId: order.id,
+            returnEntryIndex,
+            status: WALLET_TX_STATUS.RELEASED,
+            description: `Frais retour commande #${String(order.id).slice(0, 8).toUpperCase()} (${returnedQty} colis)`,
+            createdAt: Timestamp.now()
+        });
+
+        tx.update(orderRef, {
+            [`vendorDebits.${debitKey}`]: {
+                debitedAt: Timestamp.now(),
+                txId: debitTxId,
+                amount: fee,
+                returnedQty
             }
-
-            if (remaining > 0) {
-                negativeBalance -= remaining;
-            }
-
-            tx.update(walletRef, {
-                pendingBalance,
-                availableBalance,
-                negativeBalance,
-                lastUpdated: Timestamp.now()
-            });
-
-            const txRef = doc(collection(db, "wallet_transactions"));
-            tx.set(txRef, {
-                vendorId,
-                type: WALLET_TX_TYPE.RETURN_FEE,
-                amount: -fee,
-                orderId: order.id,
-                status: 'completed',
-                description: `Frais retour commande #${String(order.id).slice(0, 8).toUpperCase()} (${returnedQty} colis)`,
-                createdAt: Timestamp.now()
-            });
         });
 
         console.log(`💸 Vendeur ${String(vendorId).slice(0, 8)}… débité de ${fee} MAD (retour)`);
-    } catch (e) {
-        console.error('❌ debitVendorWallet:', e);
-        throw e;
-    }
+        return { debited: true, amount: fee, needsReview };
+    });
 }
 
 /**
  * Orchestrateur : applique les mouvements wallet vendeur selon
  * la transition de statut.
- * - delivered  : crédit pendingBalance pour chaque vendeur
- * - returned   : débit des frais de retour pour chaque vendeur
+ *
+ * T3 : ne swallow plus les erreurs — collecte et remonte.
+ *
+ * isSmartProduct :
+ *   - TOUJOURS false dans ce contexte, car `getOrderVendorBreakdown`
+ *     exclut déjà les produits Smart Swi9a (vendorId === 'smartswi9a').
+ *   - UNLOCK_DAYS_SMART ne s'applique qu'aux produits Smart vendus par
+ *     Smart Swi9a elle-même (pas de wallet vendeur dans ce cas).
  */
-async function syncVendorWalletsForOrder(orderId, previousStatus, newStatus) {
-    // Lire la commande fraîche (source de vérité)
-    const orderSnap = await getDoc(doc(db, "orders", orderId));
-    if (!orderSnap.exists()) return;
+export async function syncVendorWalletsForOrder(orderId, previousStatus, newStatus) {
+    const results = { success: true, credits: [], debits: [], errors: [] };
+
+    let orderSnap;
+    try {
+        orderSnap = await getDoc(doc(db, "orders", orderId));
+    } catch (e) {
+        results.success = false;
+        results.errors.push({ stage: 'read_order', error: e.message });
+        return results;
+    }
+    if (!orderSnap.exists()) {
+        results.success = false;
+        results.errors.push({ stage: 'read_order', error: 'order_not_found' });
+        return results;
+    }
     const order = { id: orderId, ...orderSnap.data() };
 
     // ---- Cas 1 : livraison → crédit wallets ----
     if (newStatus === ORDER_STATUS.DELIVERED && previousStatus !== ORDER_STATUS.DELIVERED) {
         const perVendor = getOrderVendorBreakdown(order);
         for (const [vendorId, data] of Object.entries(perVendor)) {
-            // Détecter si un des items est un "produit Smart Swi9a" (UNLOCK_DAYS_SMART)
-            // On considère qu'un item est "smart" si le produit n'appartient PAS au vendeur
-            // (fallback simple : on utilise UNLOCK_DAYS_VENDOR car le vendeur est propriétaire)
-            // Note : la règle "smart" s'appliquerait si Smart Swi9a vendait lui-même → pas traité ici.
-            await creditVendorWallet(vendorId, data.subtotal, order, false);
+            try {
+                const r = await creditVendorWallet(vendorId, data.subtotal, order, false);
+                results.credits.push({ vendorId, ...r });
+            } catch (e) {
+                console.error(`❌ creditVendorWallet(${vendorId}) :`, e);
+                results.errors.push({ vendorId, stage: 'credit', error: e.message });
+                results.success = false;
+            }
         }
     }
 
     // ---- Cas 2 : retour → débit frais ----
     if (newStatus === ORDER_STATUS.RETURNED && previousStatus !== ORDER_STATUS.RETURNED) {
         const returns = Array.isArray(order.returns) ? order.returns : [];
-        const lastReturn = returns[returns.length - 1];
+        const lastReturnIndex = returns.length - 1;
+        const lastReturn = returns[lastReturnIndex];
         if (lastReturn && Array.isArray(lastReturn.items)) {
             const qtyByVendor = {};
             for (const retItem of lastReturn.items) {
@@ -864,15 +946,24 @@ async function syncVendorWalletsForOrder(orderId, previousStatus, newStatus) {
             }
             for (const [vendorId, qty] of Object.entries(qtyByVendor)) {
                 if (qty > 0) {
-                    await debitVendorWallet(vendorId, qty, order);
+                    try {
+                        const r = await debitVendorWallet(vendorId, qty, order, lastReturnIndex);
+                        results.debits.push({ vendorId, ...r });
+                    } catch (e) {
+                        console.error(`❌ debitVendorWallet(${vendorId}) :`, e);
+                        results.errors.push({ vendorId, stage: 'debit', error: e.message });
+                        results.success = false;
+                    }
                 }
             }
         }
     }
+
+    return results;
 }
 
 // ============================================================
-// UPDATE ORDER STATUS (avec logique vendeur N5)
+// UPDATE ORDER STATUS (avec logique vendeur N5 + T3)
 // ============================================================
 export async function updateOrderStatus(orderId, newStatus) {
     try {
@@ -946,14 +1037,19 @@ export async function updateOrderStatus(orderId, newStatus) {
             transaction.update(orderRef, updatePayload);
         });
 
-        // 🆕 N5 : sync wallets vendeur APRÈS la transaction de statut
-        // (hors transaction principale car Firestore limite à 500 écritures
-        // et on doit lire users/{uid} pour connaître le taux de commission)
+        // ---- T3 : sync wallets vendeur, remontée d'erreurs ----
+        let walletSyncError = null;
         try {
-            await syncVendorWalletsForOrder(orderId, previousStatusFinal, normalizedStatus);
+            const walletResult = await syncVendorWalletsForOrder(orderId, previousStatusFinal, normalizedStatus);
+            if (!walletResult.success) {
+                console.error('❌ Wallet sync partiel :', walletResult.errors);
+                showToast(`⚠️ Statut mis à jour mais wallet vendeur à vérifier (${walletResult.errors.length} erreur(s)). Voir console.`, 6000);
+                walletSyncError = walletResult.errors;
+            }
         } catch (walletErr) {
-            console.error('❌ syncVendorWalletsForOrder échoué (statut changé mais wallet non sync):', walletErr);
-            // On ne bloque pas : le statut reste changé, on log l'erreur pour audit.
+            console.error('❌ syncVendorWalletsForOrder a échoué :', walletErr);
+            showToast(`⚠️ Statut mis à jour mais wallet vendeur non synchronisé : ${walletErr.message}`, 6000);
+            walletSyncError = walletErr.message;
         }
 
         // Speedaf (inchangé)
@@ -1018,7 +1114,7 @@ export async function updateOrderStatus(orderId, newStatus) {
             }
         }
 
-        return { success: true };
+        return walletSyncError ? { success: true, walletSyncError } : { success: true };
     } catch (e) {
         console.error('❌ Erreur update statut :', e);
         return { success: false, error: e.message };
@@ -1026,9 +1122,9 @@ export async function updateOrderStatus(orderId, newStatus) {
 }
 
 // ============================================================
-// SUPPRESSION COMPLÈTE
+// SUPPRESSION COMPLÈTE (T3 : exportée pour admin/tests)
 // ============================================================
-async function deleteOrderCompletely(orderId) {
+export async function deleteOrderCompletely(orderId) {
     const orderSnap = await getDoc(doc(db, "orders", orderId));
     if (!orderSnap.exists()) return { success: false };
     const order = { id: orderId, ...orderSnap.data() };
@@ -1051,7 +1147,110 @@ async function deleteOrderCompletely(orderId) {
     notifSnap.forEach(d => batch.delete(d.ref));
     batch.delete(doc(db, "orders", orderId));
     await batch.commit();
+
+    // NOTE : les wallet_transactions liées ne sont PAS supprimées (journal comptable immuable).
     return { success: true };
+}
+
+// ============================================================
+// 🆕 T4 — RELEASE DES FONDS ÉCHUS (prêt pour worker-cron)
+// ============================================================
+/**
+ * Débloque les fonds échus : transfert pendingBalance → availableBalance
+ * pour toutes les wallet_transactions `pending` dont `unlockAt <= now`.
+ *
+ * Idempotent :
+ *   - Les tx déjà `released` sont exclues de la requête.
+ *   - Le passage à `released` est fait dans la même transaction que
+ *     la mise à jour du wallet.
+ *
+ * @param {Object} options - { batchSize?: number (défaut 400), dryRun?: boolean }
+ * @returns {Promise<{totalReleased:number, vendorsProcessed:number, transactionsReleased:number, errors:Array}>}
+ */
+export async function releaseDueVendorFunds(options = {}) {
+    const { batchSize = 400, dryRun = false } = options;
+    const result = { totalReleased: 0, vendorsProcessed: 0, transactionsReleased: 0, errors: [] };
+
+    try {
+        const now = Timestamp.now();
+        const q = query(
+            collection(db, "wallet_transactions"),
+            where("status", "==", WALLET_TX_STATUS.PENDING),
+            where("unlockAt", "<=", now),
+            limit(batchSize)
+        );
+        const snap = await getDocs(q);
+        if (snap.empty) return result;
+
+        // Regrouper par vendeur
+        const byVendor = {};
+        snap.forEach(d => {
+            const data = d.data();
+            const vid = data.vendorId;
+            if (!vid) return;
+            if (!byVendor[vid]) byVendor[vid] = [];
+            byVendor[vid].push({ id: d.id, ...data });
+        });
+
+        for (const [vendorId, txs] of Object.entries(byVendor)) {
+            const totalAmount = txs.reduce((s, t) => s + (Number(t.amount) || 0), 0);
+            if (dryRun) {
+                result.totalReleased += totalAmount;
+                result.vendorsProcessed++;
+                result.transactionsReleased += txs.length;
+                continue;
+            }
+            try {
+                await runTransaction(db, async (tx) => {
+                    const walletRef = doc(db, "wallets", vendorId);
+                    const walletSnap = await tx.get(walletRef);
+                    if (!walletSnap.exists()) throw new Error('wallet_missing');
+
+                    const w = walletSnap.data();
+                    const pendingBefore = Number(w.pendingBalance) || 0;
+                    const transfer = Math.min(pendingBefore, totalAmount);
+
+                    // Marquer toutes les tx comme released (même si transfer=0,
+                    // pour ne pas reboucler à l'infini sur des tx orphelines).
+                    txs.forEach(t => tx.update(doc(db, "wallet_transactions", t.id), {
+                        status: WALLET_TX_STATUS.RELEASED,
+                        releasedAt: Timestamp.now(),
+                        releasedAmount: Number(t.amount) || 0
+                    }));
+
+                    if (transfer > 0) {
+                        tx.update(walletRef, {
+                            pendingBalance: Math.max(0, pendingBefore - transfer),
+                            availableBalance: (Number(w.availableBalance) || 0) + transfer,
+                            lastUpdated: Timestamp.now()
+                        });
+                    }
+                });
+
+                result.totalReleased += totalAmount;
+                result.vendorsProcessed++;
+                result.transactionsReleased += txs.length;
+            } catch (e) {
+                console.error(`❌ release wallet ${vendorId}:`, e);
+                result.errors.push({ vendorId, error: e.message });
+            }
+        }
+
+        // Continuer si le batch était plein (potentiellement d'autres tx)
+        if (snap.docs.length === batchSize) {
+            const next = await releaseDueVendorFunds({ batchSize, dryRun });
+            result.totalReleased += next.totalReleased;
+            result.vendorsProcessed += next.vendorsProcessed;
+            result.transactionsReleased += next.transactionsReleased;
+            result.errors.push(...next.errors);
+        }
+
+        return result;
+    } catch (e) {
+        console.error('❌ releaseDueVendorFunds:', e);
+        result.errors.push({ global: e.message });
+        return result;
+    }
 }
 
 // ============================================================
@@ -1129,7 +1328,6 @@ export async function renderAdminOrders(containerId = 'ordersList') {
             </button>
         `;
 
-        // 🆕 Badge vendeur (marketplace)
         const vendorCount = Array.isArray(order.vendorIds) ? order.vendorIds.length : 0;
         const vendorBadge = vendorCount > 0
             ? `<span style="background:#3498db;color:#fff;font-size:0.65rem;padding:0.15rem 0.4rem;border-radius:30px;margin-left:0.3rem;font-weight:700;">🏪 ${vendorCount} vendeur${vendorCount > 1 ? 's' : ''}</span>`
@@ -1199,7 +1397,11 @@ export async function renderAdminOrders(containerId = 'ordersList') {
                 if (field === 'status') {
                     const result = await updateOrderStatus(orderId, value);
                     if (result.success) {
-                        showToast('✅ ' + t('success'));
+                        if (result.walletSyncError) {
+                            // Toast géré dans updateOrderStatus, on rafraîchit quand même
+                        } else {
+                            showToast('✅ ' + t('success'));
+                        }
                         adminOrdersCache = [];
                         await renderAdminOrders(containerId);
                     } else {
@@ -1447,11 +1649,14 @@ export async function openReturnModal(orderId) {
                 let reviewSync = { deleted: 0, unverified: 0 };
                 try { reviewSync = await syncReviewsWithOrderReturn(order, allReturns); } catch (e) {}
 
-                // 🆕 N5 : sync wallets vendeur après retour
                 try {
-                    await syncVendorWalletsForOrder(orderId, ORDER_STATUS.DELIVERED, ORDER_STATUS.RETURNED);
+                    const walletRes = await syncVendorWalletsForOrder(orderId, ORDER_STATUS.DELIVERED, ORDER_STATUS.RETURNED);
+                    if (!walletRes.success) {
+                        showToast(`⚠️ Retour enregistré mais wallet vendeur à vérifier (${walletRes.errors.length} erreur(s))`, 6000);
+                    }
                 } catch (walletErr) {
                     console.error('❌ syncVendorWalletsForOrder (retour) échoué:', walletErr);
+                    showToast(`⚠️ Retour enregistré mais wallet non synchronisé : ${walletErr.message}`, 6000);
                 }
 
                 let toastMsg = '✅ Retour enregistré, stock mis à jour';
@@ -1514,9 +1719,31 @@ const AUTO_SYNC_STORAGE_PREFIX = 'swi9a_sync_';
 
 let _autoSyncInProgress = false;
 
+/**
+ * T3 : l'auto-sync modifie les statuts → réservé à l'admin.
+ * Côté client, aucun update de statut n'est possible (règles T2),
+ * donc on skip pour éviter les 403 Firestore.
+ */
+function _isAdminUser() {
+    try {
+        const u = typeof getCurrentUser === 'function' ? getCurrentUser() : null;
+        if (!u) return false;
+        if (u.role === 'admin') return true;
+        if (u.userData && u.userData.role === 'admin') return true;
+        return false;
+    } catch (e) {
+        return false;
+    }
+}
+
 export async function autoSyncActiveOrders(orders, onComplete = null) {
     if (isTestMode()) {
         console.log('🧪 [TEST] autoSyncActiveOrders désactivé en mode test');
+        return;
+    }
+
+    if (!_isAdminUser()) {
+        console.log('⏸️ autoSyncActiveOrders : réservé aux admins (skip côté client)');
         return;
     }
 
@@ -1598,6 +1825,7 @@ export async function renderUserOrders(containerId = 'tabContent') {
             return;
         }
 
+        // T3 : auto-sync ne fait rien si non-admin (guard interne)
         autoSyncActiveOrders(orders, () => {
             const c = document.getElementById(containerId);
             if (c) renderUserOrders(containerId);
@@ -1763,4 +1991,4 @@ export async function openOrderDetails(orderId, isAdmin = false) {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ orders.js chargé — v7.0.0 (Marketplace + wallet vendeur)');
+console.log('✅ orders.js chargé — v8.0.0 (Marketplace T3, idempotence wallet, releaseDueVendorFunds)');
