@@ -14,9 +14,14 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">
     <link rel="manifest" href="/site.webmanifest">
 
+    <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+    <link rel="preconnect" href="https://firebasestorage.googleapis.com" crossorigin>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;800&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <link rel="modulepreload" href="/js/admin.js">
 
     <script type="importmap">
     {
@@ -32,6 +37,9 @@
     <link rel="stylesheet" href="/style.css">
     <link rel="stylesheet" href="/style-patches.css">
     <script src="/translations.js"></script>
+
+    <!-- T11 : à activer une fois js/translations-vendor.js publié -->
+    <!-- <script src="/translations-vendor.js" defer></script> -->
 
     <style>
         body { padding-top: 1rem; padding-bottom: 4rem; }
@@ -366,7 +374,6 @@
             .alert-tooltip { display: none; }
         }
 
-        /* 🧪 MODE TEST */
         #modeChoiceScreen {
             min-height: 100vh; display: none; align-items: center; justify-content: center;
             padding: 1rem; flex-direction: column; text-align: center;
@@ -631,6 +638,7 @@
                 <button data-vendor-filter="approved">✅ Approuvés</button>
                 <button data-vendor-filter="suspended">🚫 Suspendus</button>
                 <button data-vendor-filter="rejected">❌ Rejetés</button>
+                <button data-vendor-filter="outdated">📜 Contrats obsolètes</button>
                 <button data-vendor-filter="all">📊 Tous</button>
             </div>
             <div class="admin-search-bar">
@@ -816,8 +824,6 @@
                     <div style="position:relative;height:320px;"><canvas id="revenueChart"></canvas></div>
                 </div>
                 <h3 style="font-family:var(--font-secondary);color:var(--gold);margin:1.5rem 0 1rem;">🕐 Activité récente</h3>
-                <!-- NOTE : `accRecentActivity` est prévu pour une future implémentation (T10).
-                     En attendant, un placeholder visuel évite un bloc vide. -->
                 <div id="accRecentActivity">
                     <div class="admin-empty" style="font-size:0.85rem;padding:1rem;">ℹ️ Fonctionnalité à venir — les dernières commandes, dépenses et achats s'afficheront ici.</div>
                 </div>
@@ -954,7 +960,6 @@
                     <div id="financeProductSelector" style="max-height:350px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.5rem;margin-bottom:1rem;"></div>
                     <button class="admin-btn-primary" id="calculateFinancesBtn" style="width:100%;">🧮 Lancer l'analyse</button>
                 </div>
-                <!-- H1 corrigé : id="financesResults" (avec "s") pour matcher admin.js v10.2.1 -->
                 <div id="financesResults" style="display:none;">
                     <h4 style="color:var(--gold);margin:1.5rem 0 1rem;">📊 Totaux globaux</h4>
                     <div class="admin-stats" style="margin-bottom:1rem;">
@@ -1055,7 +1060,6 @@
             <div class="admin-alert-items">
                 <button class="alert-badge alert-danger" id="alertOrdersBtn" style="display: none;">🔴 <span id="alertOrdersCount">0</span> Commande(s)</button>
                 <button class="alert-badge alert-warning" id="alertReviewsBtn" style="display: none;">🟡 <span id="alertReviewsCount">0</span> Avis</button>
-                <!-- H3 ajouté : bouton d'alerte "produits à valider" (alimenté par refreshAdminAlerts) -->
                 <button class="alert-badge alert-warning" id="alertProductsPendingBtn" style="display: none;">📦 <span id="alertProductsPendingCount">0</span> Produit(s) à valider</button>
                 <button class="alert-badge alert-danger" id="alertStockOutBtn" style="display: none;">❌ <span id="alertStockOutCount">0</span> Rupture(s)<span class="alert-tooltip" id="alertStockOutTooltip">—</span></button>
                 <button class="alert-badge alert-info" id="alertStockLowBtn" style="display: none;">🟠 <span id="alertStockLowCount">0</span> Stock(s) bas<span class="alert-tooltip" id="alertStockLowTooltip">—</span></button>
