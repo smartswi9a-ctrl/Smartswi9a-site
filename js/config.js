@@ -1,9 +1,14 @@
 // js/config.js
 // ============================================================
 // CONFIGURATION CENTRALISÉE - SMART SWI9A
-// Version 8.0.1 — FONDATION COMPLÈTE (Marketplace + Analytics)
-// Correctifs : clamping commission, SIGNUP_METHODS.VENDOR, secret webhook sorti,
-//              isProductPubliclyVisible accepte le vendeur en option.
+// Version 8.1.0 — FONDATION COMPLÈTE (Marketplace + Analytics)
+// Session 3 (T3/T6/T9) :
+//   - PRODUCT_STATUS aligné sur le dashboard vendeur (pending_admin_approval, suspended, draft)
+//   - CONTRACT_VERSION -> 1.1.0 (T9)
+//   - CONTRACT_MIN_SCROLL retiré (obsolète)
+//   - getCommissionRate robuste (users/vendorsPublic)
+//   - WALLET_TX_STATUS ajouté (T3/T4)
+//   - isValidProductStatus() ajouté
 // ============================================================
 
 export const VIDEO_BASE_URL = "https://videos.smartswi9a.top/";
@@ -90,7 +95,7 @@ export const CONFIG = {
     // VENDOR ajouté (E14) : le vendeur ne passe pas par l'OTP EmailJS.
     SIGNUP_METHODS: { OTP: 'otp', GOOGLE: 'google', FACEBOOK: 'facebook', VENDOR: 'vendor' },
     BREAKPOINTS: { MOBILE_MAX: 480, TABLET_MIN: 481, TABLET_MAX: 1024, DESKTOP_MIN: 1025, LARGE_MIN: 1441 },
-    
+
     // ============================================================
     // MARKETPLACE / VENDEURS
     // ============================================================
@@ -120,13 +125,12 @@ export const CONFIG = {
         LABEL_FORMAT: 'PDF',
         PRODUCT_VALIDATION_HOURS: 48,
         VENDOR_VALIDATION_HOURS: 72,
-        CONTRACT_VERSION: '1.0.0',
-        // ⚠️ NE PAS utiliser tel quel côté DOM (voir E11). Le test correct
-        // est `scrollHeight <= clientHeight + tolérance`, puis fallback.
-        CONTRACT_MIN_SCROLL: 0.95,
+        // T9 : version courante du contrat — le hash de preuve dépend de cette valeur.
+        // Source de vérité textuelle : vendor-contract-text.js
+        CONTRACT_VERSION: '1.1.0',
         ALLOWED_CATEGORIES: []
     },
-    
+
     // ============================================================
     // LOGISTIQUE & SÉCURITÉ (Workers Cloudflare)
     // ============================================================
@@ -146,7 +150,7 @@ export const CONFIG = {
         ANALYTICS_WORKER_URL: 'https://worker-analytics.smartswi9a.workers.dev',
         CONTRACT_HASH_ALGO: 'SHA-256'
     },
-    
+
     // ============================================================
     // COMPTABILITÉ & STATISTIQUES
     // ============================================================
@@ -209,7 +213,23 @@ export const SIGNUP_METHODS = CONFIG.SIGNUP_METHODS;
 // ============================================================
 export const VENDOR_STATUS = { PENDING: 'pending', APPROVED: 'approved', REJECTED: 'rejected', SUSPENDED: 'suspended' };
 export const VENDOR_SHIPPING_METHOD = { DROPOFF: 'dropoff', FULFILLMENT: 'fulfillment' };
-export const PRODUCT_STATUS = { PENDING: 'pending', APPROVED: 'approved', REJECTED: 'rejected' };
+
+// T6 : aligné sur le dashboard vendeur + admin (pending_admin_approval, suspended, draft).
+// On conserve PENDING pour compatibilité legacy.
+export const PRODUCT_STATUS = {
+    PENDING: 'pending',                          // legacy — peut encore exister en base
+    PENDING_ADMIN_APPROVAL: 'pending_admin_approval',
+    APPROVED: 'approved',
+    REJECTED: 'rejected',
+    SUSPENDED: 'suspended',
+    DRAFT: 'draft'
+};
+
+export const VALID_PRODUCT_STATUSES = Object.values(PRODUCT_STATUS);
+export function isValidProductStatus(status) {
+    return VALID_PRODUCT_STATUSES.includes(status);
+}
+
 export const VENDOR_ORDER_STATUS = {
     PENDING: 'pending', AWAITING_DROPOFF: 'awaiting_dropoff', OVERDUE: 'overdue',
     DROPOFF_RECEIVED: 'dropoff_received', PREPARING: 'preparing', SHIPPED: 'shipped',
@@ -224,7 +244,13 @@ export const WALLET_TX_TYPE = {
     SALE: 'sale', RETURN_FEE: 'return_fee', PAYOUT: 'payout', PENALTY: 'penalty',
     STORAGE_FEE: 'storage_fee', STORAGE_REFUND: 'storage_refund', ADJUSTMENT: 'adjustment'
 };
-export const PAYOUT_STATUS = { PENDING: 'pending', APPROVED: 'approved', PAID: 'paid', REJECTED: 'rejected' };
+// T3/T4 : statuts d'une transaction wallet (idempotence du déblocage).
+export const WALLET_TX_STATUS = {
+    PENDING: 'pending',   // fonds en attente (pendingBalance)
+    RELEASED: 'released', // fonds débloqués (availableBalance)
+    CANCELLED: 'cancelled' // annulée (ex. retour avant déblocage)
+};
+export const PAYOUT_STATUS = { PENDING: 'pending', APPROVED: 'approved', PAID: 'paid', REJECTED: 'rejected', CANCELLED: 'cancelled' };
 export const CONTRACT_STATUS = { PENDING: 'pending', ACCEPTED: 'accepted', REVOKED: 'revoked' };
 
 export const LEDGER_TYPE = { INCOME: 'income', EXPENSE: 'expense', TRANSFER: 'transfer' };
@@ -311,18 +337,29 @@ export function getProductOwner(product) {
  * Taux de commission applicable à un vendeur.
  * Borné dans [COMMISSION_RATE_MIN, COMMISSION_RATE_MAX] pour éviter
  * qu'une valeur corrompue / frauduleuse (0.9, 0.001, NaN) ne passe.
- * Les bornes peuvent être ajustées dans CONFIG.VENDOR si la politique change.
+ *
+ * T3 : accepte un doc `users` (avec `vendorInfo.commissionRate`) OU
+ * un doc `vendorsPublic` / objet partiel (avec `commissionRate` à la racine).
+ * Sans objet `vendor` fourni, retourne le taux par défaut — mais les
+ * appelants critiques (crédit wallet) doivent refuser d'opérer si vendor est null.
  */
 export function getCommissionRate(vendor) {
     const defaultRate = CONFIG.VENDOR.COMMISSION_RATE;
     if (!vendor) return defaultRate;
-    const customRate = vendor.vendorInfo?.commissionRate;
+    const customRate = vendor.vendorInfo?.commissionRate ?? vendor.commissionRate;
     if (typeof customRate !== 'number' || !Number.isFinite(customRate)) return defaultRate;
     const min = CONFIG.VENDOR.COMMISSION_RATE_MIN;
     const max = CONFIG.VENDOR.COMMISSION_RATE_MAX;
     return Math.min(max, Math.max(min, customRate));
 }
 
+/**
+ * Calcule commission + net à percevoir pour un sous-total donné.
+ * Arrondi à 2 décimales (MAD).
+ * NOTE : la commission se calcule sur le sous-total PRODUITS (hors frais de livraison).
+ * Si un coupon est appliqué, `subtotal` doit être le montant APRÈS remise
+ * (choix documenté T3 §6).
+ */
 export function calculateVendorCommission(subtotal, vendor = null) {
     const rate = getCommissionRate(vendor);
     const subtotalNum = Math.max(0, Number(subtotal) || 0);
@@ -475,4 +512,4 @@ export const SORT_OPTIONS = [
     { value: 'rating', label: 'sortRating' }
 ];
 
-console.log('✅ config.js chargé — v8.0.1 (Marketplace complet, correctifs sécurité)');
+console.log('✅ config.js chargé — v8.1.0 (Marketplace complet, correctifs sécurité)');
