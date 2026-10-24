@@ -1,6 +1,9 @@
 /* ============================================================
-   VENDOR-STYLES.CSS - SMART SWI9A
-   Version 1.0.0 — Design Élégant, Simple et Clair
+   VENDOR-STYLE.CSS - SMART SWI9A
+   Version 1.1.0 — Design Élégant, Simple et Clair
+   Session 3 (T1) : ajout de v-nav-label, v-kpi-label,
+   v-product-list, modales génériques .v-modal, responsive 390px,
+   compléments RTL.
    ============================================================ */
 
 /* ============================================================
@@ -110,6 +113,17 @@
 
 .v-nav-icon {
     font-size: 1.2rem;
+    flex-shrink: 0;
+}
+
+/* T1 — span libellé du menu (utilisé dans dashboard.html et le JS) */
+.v-nav-label {
+    flex: 1;
+    min-width: 0;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .v-nav-badge {
@@ -119,6 +133,7 @@
     font-size: 0.7rem;
     padding: 0.1rem 0.4rem;
     border-radius: 30px;
+    flex-shrink: 0;
 }
 
 .v-sidebar-help {
@@ -185,7 +200,7 @@
 }
 
 /* ============================================================
-   4. DASHBOARD (KPI, Wallet, Empty states)
+   4. DASHBOARD (KPI, Wallet, Empty states, Produits)
    ============================================================ */
 .v-body {
     display: flex;
@@ -241,6 +256,18 @@
     justify-content: center;
     border-radius: 50%;
     border: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+/* T1 — libellé KPI (utilisé dans les cartes et les listes wallet) */
+.v-kpi-label {
+    display: block;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 0 0 0.35rem;
 }
 
 .v-kpi-value {
@@ -343,7 +370,7 @@
     line-height: 1.5;
 }
 
-/* --- Produits --- */
+/* --- Produits : liste & cartes --- */
 .v-product-card {
     display: flex;
     align-items: center;
@@ -353,6 +380,95 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
 }
+
+/* T1 — conteneur de liste produits (utilisé par renderProducts) */
+.v-product-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-top: 1rem;
+}
+
+.v-product-list:empty {
+    display: none;
+}
+
+/* T1 — variante item (alias probable dans le JS) */
+.v-product-item {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    transition: border-color var(--v-transition), box-shadow var(--v-transition);
+}
+
+.v-product-item:hover {
+    border-color: var(--border-gold);
+    box-shadow: var(--shadow-sm);
+}
+
+.v-product-img {
+    width: 64px;
+    height: 64px;
+    border-radius: var(--radius-sm);
+    object-fit: cover;
+    flex-shrink: 0;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+}
+
+.v-product-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.v-product-name {
+    font-weight: 700;
+    color: var(--text);
+    font-size: 0.95rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin: 0 0 0.25rem;
+}
+
+.v-product-meta {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.v-product-price {
+    font-weight: 800;
+    color: var(--gold);
+    white-space: nowrap;
+}
+
+.v-product-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.v-product-status {
+    display: inline-block;
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 0.15rem 0.55rem;
+    border-radius: 30px;
+    background: var(--bg-surface);
+    color: var(--text-muted);
+}
+.v-product-status.pending  { background: var(--warning-bg); color: var(--warning); }
+.v-product-status.approved { background: var(--success-bg); color: var(--success); }
+.v-product-status.rejected { background: var(--danger-bg);  color: var(--danger); }
+.v-product-status.suspended { background: var(--danger-bg); color: var(--danger); }
 
 /* ============================================================
    5. FORMULAIRE D'INSCRIPTION VENDEUR
@@ -620,6 +736,7 @@
     align-items: center;
     justify-content: center;
     padding: 0;
+    flex-shrink: 0;
 }
 
 .v-mobile-overlay {
@@ -638,7 +755,7 @@
         transform: translateX(-100%);
         box-shadow: var(--shadow-lg);
     }
-    
+
     .v-sidebar.open {
         transform: translateX(0);
     }
@@ -670,11 +787,11 @@
     .v-kpi-grid {
         grid-template-columns: 1fr;
     }
-    
+
     .v-wallet-amount {
         font-size: 2.2rem;
     }
-    
+
     .v-wallet-hero {
         padding: 1.5rem;
     }
@@ -703,14 +820,27 @@
     text-align: right;
 }
 
+[dir="rtl"] .v-nav-label {
+    text-align: right;
+}
+
 [dir="rtl"] .v-nav-badge {
     margin-left: 0;
     margin-right: auto;
 }
 
+[dir="rtl"] .v-kpi-label {
+    text-align: right;
+}
+
 [dir="rtl"] .v-choice.selected::after {
     right: auto;
     left: 1rem;
+}
+
+[dir="rtl"] .v-product-name,
+[dir="rtl"] .v-product-meta {
+    text-align: right;
 }
 
 @media (max-width: 1024px) {
@@ -722,5 +852,173 @@
     }
     [dir="rtl"] .v-content {
         margin-right: 0;
+    }
+}
+
+/* ============================================================
+   10. MODALES GÉNÉRIQUES (.v-modal) — T1
+   Utilisées par vendor-dashboard.js pour les modales
+   "Nouveau produit", "Demande de retrait", "Aperçu commande".
+   La modale contrat reste gérée par #contractModal (voir §7).
+   ============================================================ */
+.v-modal:not(.open) {
+    display: none !important;
+}
+
+.v-modal.open {
+    display: flex;
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.55);
+    padding: 1rem;
+}
+
+.v-modal-content {
+    background: var(--bg-card);
+    border: 1px solid var(--border-gold);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    max-width: 640px;
+    width: 100%;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.v-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.v-modal-title {
+    font-family: var(--font-secondary);
+    font-size: 1.2rem;
+    color: var(--gold);
+    margin: 0;
+}
+
+.v-modal-close {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    color: var(--text-muted);
+    line-height: 1;
+    padding: 0;
+    flex-shrink: 0;
+}
+
+.v-modal-close:hover {
+    color: var(--danger);
+}
+
+.v-modal-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.5rem;
+}
+
+.v-modal-footer {
+    padding: 1rem 1.5rem;
+    border-top: 1px solid var(--border);
+    background: var(--bg-surface);
+    display: flex;
+    gap: 0.75rem;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+}
+
+@media (max-width: 480px) {
+    .v-modal.open {
+        padding: 0;
+        align-items: flex-end;
+    }
+    .v-modal-content {
+        max-height: 92vh;
+        border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    }
+    .v-modal-footer {
+        justify-content: stretch;
+    }
+    .v-modal-footer .v-btn {
+        flex: 1;
+    }
+}
+
+/* ============================================================
+   11. RESPONSIVE 390px (iPhone 12/13 mini) — T1
+   ============================================================ */
+@media (max-width: 390px) {
+    .v-content {
+        padding: 0.9rem;
+    }
+
+    .v-page-title {
+        font-size: 1.3rem;
+    }
+
+    .v-shop-header {
+        padding: 1.5rem 1rem 1rem;
+    }
+
+    .v-shop-name {
+        font-size: 1.1rem;
+    }
+
+    .v-wallet-amount {
+        font-size: 1.9rem;
+    }
+
+    .v-wallet-hero {
+        padding: 1.2rem;
+    }
+
+    .v-kpi-card {
+        padding: 1.1rem;
+    }
+
+    .v-kpi-value {
+        font-size: 1.5rem;
+    }
+
+    .vendor-card {
+        padding: 1rem;
+    }
+
+    .v-btn-large {
+        padding: 0.85rem 1.4rem;
+        font-size: 1rem;
+    }
+
+    .v-form-row {
+        gap: 0.75rem;
+    }
+
+    .v-product-item {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .v-product-img {
+        width: 100%;
+        height: auto;
+        max-height: 160px;
+    }
+
+    .v-product-actions {
+        width: 100%;
+    }
+
+    .v-banner {
+        flex-direction: column;
+        align-items: flex-start;
     }
 }
