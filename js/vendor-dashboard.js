@@ -1,11 +1,16 @@
 // js/vendor-dashboard.js
 // ============================================================
 // LOGIQUE DU DASHBOARD VENDEUR - SMART SWI9A
-// Version 3.0.0 — Session 3 (T5 + T6 + T7)
-// Correctifs :
-//   - T5 : anti-abus retraits (1 pending max, solde virtuel), validation RIB/phone
-//   - T6 : édition produit (retour en validation), validation 2 MB, motif de refus
-//   - T7 : requête orders (array-contains + orderBy + pagination), calcul commission/net
+// Version 3.0.1 — Session 3 (T5 + T6 + T7 + T9)
+// Correctifs v3.0.1 (audit T5/T7/T9) :
+//   - T9-1 (P0) : submitContractSignature écrit bien `currentContractId`
+//                 + `updatedAt` (au lieu de `contractUpdatedAt`) pour
+//                 satisfaire la whitelist Firestore v5.1.0.
+//   - T7-1 (P2) : utilise `calculateVendorCommission` de orders.js
+//                 (avec clamping MIN/MAX) au lieu de recalculer à la main.
+//   - V4  (P3) : catch séparé sur updateDoc → message clair si la
+//                transition user échoue après création du contrat.
+//   - V3  (P3) : imports nettoyés (doublons retirés).
 // ============================================================
 
 import {
@@ -29,14 +34,12 @@ import {
     CONTRACT_STATUS,
     LANGUAGES,
     DEFAULT_LANGUAGE,
-    PRODUCT_STATUS,
-    VENDOR_ORDER_STATUS
+    PRODUCT_STATUS
 } from "./config.js";
 import { showToast, confirmAction } from "./ui-core.js";
 import { signVendorContract, computeContractTextHash } from "./vendor-contract.js";
 import { getContractText } from "./vendor-contract-text.js";
-import { getOrderVendorBreakdown, calculateVendorCommission, getOrderVendorBreakdown as _getBreakdown } from "./orders.js";
-import { calculateVendorCommission as _calcCommission } from "./config.js";
+import { getOrderVendorBreakdown, calculateVendorCommission } from "./orders.js";
 
 // ============================================================
 // ÉTAT MODULE
@@ -48,7 +51,7 @@ let authBound = false;
 let cachedWithdrawals = [];
 let cachedProducts = [];
 let cachedOrders = [];
-let currentProductIdEditing = null; // null = création, sinon édition
+let currentProductIdEditing = null;
 let ordersLastDoc = null;
 let ordersHasMore = false;
 let ordersLoading = false;
@@ -511,7 +514,7 @@ async function submitWithdrawal() {
             vendorName: currentVendor.vendorInfo?.shopName || currentVendor.name || 'Vendeur',
             amount: amount,
             method,
-            account,           // T5 : remplace l'ancien champ "phone"
+            account,
             status: 'pending',
             requestedAt: serverTimestamp(),
             createdAt: serverTimestamp()
@@ -886,16 +889,62 @@ async function submitContractSignature() {
 
     const text = getContractText(_contractLang);
 
+    // 1) Créer le document contracts/contract_<uid> (immuable côté règles)
     try {
         await signVendorContract(currentUserUid, text, {
             textHash: _contractTextHash,
             language: _contractLang
         });
+    } catch (e) {
+        console.error('❌ Création contrat échouée :', e);
+        showToast('❌ ' + (e.message || 'Erreur lors de la signature.'));
+        btn.disabled = false;
+        btn.textContent = '✍️ Signer le contrat';
+        return;
+    }
+
+    // 2) Transition users/{uid} — pending → accepted
+    //    ⚠️ Firestore rules v5.1.0 §1 exigent :
+    //       - vendorInfo.contractStatus === 'accepted'
+    //       - vendorInfo.currentContractId (string matches 'contract_.*')
+    //       - exists(contracts/{currentContractId})
+    //       - affectedKeys() ⊆ {contractStatus, currentContractId, updatedAt}
+    //    → On n'écrit PAS `vendorInfo.contractUpdatedAt` (non autorisé).
+    const currentContractId = `contract_${currentUserUid}`;
+    try {
         await updateDoc(doc(db, "users", currentUserUid), {
             "vendorInfo.contractStatus": CONTRACT_STATUS.ACCEPTED,
-            "vendorInfo.contractUpdatedAt": serverTimestamp()
+            "vendorInfo.currentContractId": currentContractId,
+            "updatedAt": serverTimestamp()
         });
+    } catch (e) {
+        // Le contrat existe, mais la transition user a échoué.
+        // Ne pas faire croire à un succès complet — le vendeur reste `pending`.
+        console.error('❌ Transition users/{uid}.vendorInfo.contractStatus échouée :', e);
+        showToast(
+            "⚠️ Contrat signé mais statut à finaliser. Contactez le support (ref: contract-transition).",
+            6000
+        );
+        // On continue le flow : recharger le profil pour refléter l'état réel.
+        // L'admin pourra approuver manuellement (son handleVendorAction lit contracts/).
+        try {
+            const reload = await loadVendorData(currentUserUid);
+            if (reload.profile) {
+                currentVendor = reload.profile;
+                currentWallet = reload.wallet;
+                updateSidebarUI(currentVendor);
+                renderBanners(buildBanners(currentVendor));
+                attachBannerActions(createBannerHandlers());
+            }
+        } catch (_) { /* ignore */ }
+        closeContractModal();
+        btn.disabled = false;
+        btn.textContent = '✍️ Signer le contrat';
+        return;
+    }
 
+    // 3) Succès complet : recharger + afficher
+    try {
         showToast('✅ Contrat signé avec succès !');
         closeContractModal();
 
@@ -910,8 +959,7 @@ async function submitContractSignature() {
         setActiveTab('overview');
         await renderTab('overview');
     } catch (e) {
-        console.error('❌ Signature contrat échouée :', e);
-        showToast('❌ ' + (e.message || 'Erreur lors de la signature.'));
+        console.error('❌ Rechargement post-signature échoué :', e);
         btn.disabled = false;
         btn.textContent = '✍️ Signer le contrat';
     }
@@ -1089,18 +1137,22 @@ async function renderOrders(container) {
         const myItems = (o.items || []).filter(it => String(it.vendorId) === String(currentUserUid));
         const myGross = myItems.reduce((s, i) => s + (Number(i.price) || 0) * (Number(i.quantity) || 0), 0);
 
-        let commissionInfo = { commission: 0, netToPay: myGross, commissionRate: CONFIG.VENDOR.COMMISSION_RATE };
+        // T7 : calcul commission/net via orders.js (clampée MIN/MAX, cohérente
+        // avec le crédit réel effectué par creditVendorWallet).
+        let commissionInfo;
         try {
-            const breakdown = getOrderVendorBreakdown(o);
-            const vendorData = breakdown[currentUserUid];
-            if (vendorData && vendorData.subtotal > 0) {
-                const rate = currentVendor.vendorInfo?.commissionRate ?? CONFIG.VENDOR.COMMISSION_RATE;
-                const commission = Math.round(vendorData.subtotal * rate * 100) / 100;
-                const net = Math.round((vendorData.subtotal - commission) * 100) / 100;
-                commissionInfo = { commission, netToPay: net, commissionRate: rate };
-            }
+            const vendorForCommission = {
+                vendorInfo: { commissionRate: currentVendor?.vendorInfo?.commissionRate }
+            };
+            commissionInfo = calculateVendorCommission(myGross, vendorForCommission);
         } catch (e) {
             console.warn('⚠️ Calcul commission échoué :', e);
+            commissionInfo = {
+                subtotal: myGross,
+                commissionRate: CONFIG.VENDOR.COMMISSION_RATE,
+                commission: Math.round(myGross * CONFIG.VENDOR.COMMISSION_RATE * 100) / 100,
+                netToPay: Math.round(myGross * (1 - CONFIG.VENDOR.COMMISSION_RATE) * 100) / 100
+            };
         }
 
         const itemsHtml = myItems.map(i => {
