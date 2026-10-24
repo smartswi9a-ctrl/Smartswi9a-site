@@ -1,7 +1,10 @@
 // js/auth.js
 // ============================================================
 // AUTHENTIFICATION - SMART SWI9A
-// Version 3.3.1 — Marketplace + Vendor Signup + Règles v4.1.0
+// Version 3.4.0 — Marketplace + Vendor Signup + Règles v4.1.0
+// Session 4 — T12 : suppression des logs contenant des PII (e-mails),
+//   helper logAuthError qui masque le message d'erreur en production,
+//   wallet log simplifié. Aucune fonction exportée retirée.
 // ============================================================
 
 import {
@@ -28,6 +31,28 @@ import { setUser, getUser } from "./store.js";
 import { showToast } from "./ui-core.js";
 
 // ============================================================
+// LOG SÉCURISÉ (T12)
+// ------------------------------------------------------------
+// En développement local : affiche l'objet error complet (debug).
+// En production : affiche uniquement error.code — jamais
+// error.message (qui peut contenir un e-mail côté Firebase Auth).
+// ============================================================
+function isLocalDev() {
+    if (typeof window === "undefined") return false;
+    const h = window.location.hostname;
+    return h === "localhost" || h === "127.0.0.1";
+}
+
+function logAuthError(context, error) {
+    if (isLocalDev()) {
+        console.error(context, error);
+    } else {
+        const code = (error && (error.code || error.name)) || "unknown";
+        console.error(context + " [" + code + "]");
+    }
+}
+
+// ============================================================
 // ÉTAT GLOBAL
 // ============================================================
 let authReady = false;
@@ -35,7 +60,7 @@ let authReadyResolve;
 
 export const authReadyPromise = new Promise((resolve) => {
     const timeout = setTimeout(() => {
-        console.warn('⚠️ authReadyPromise résolue par timeout (10s)');
+        console.warn("⚠️ authReadyPromise résolue par timeout (10s)");
         resolve();
     }, 10000);
     authReadyResolve = () => {
@@ -57,32 +82,30 @@ export function getCurrentUser() {
 
 // --- B6 : whitelist avant stockage (PII) ---
 // La version complète reste en mémoire (store.js) ; seule une version
-// NON sensible est persistée dans localStorage. Le cache ne sert QUE
-// à l'affichage au reload, jamais à décider un droit (cf. E8/A).
+// NON sensible est persistée dans localStorage. Le cache ne sert QU'À
+// l'affichage au reload, jamais à décider un droit.
 function sanitizeUserForStorage(user) {
     if (!user) return null;
     return {
-        uid: user.uid || '',
-        email: user.email || '',
+        uid: user.uid || "",
+        email: user.email || "",
         emailVerified: user.emailVerified === true,
-        name: user.name || '',
-        firstName: user.firstName || '',
-        lastName: user.lastName || '',
+        name: user.name || "",
+        firstName: user.firstName || "",
+        lastName: user.lastName || "",
         role: user.role || ROLES.USER,
-        signupMethod: user.signupMethod || '',
-        photoURL: user.photoURL || '',
+        signupMethod: user.signupMethod || "",
+        photoURL: user.photoURL || "",
         needsVerification: user.needsVerification === true
     };
 }
 
 export function setCurrentUser(user) {
-    // B6 : la mémoire garde la version complète
     setUser(user);
     if (user) {
-        // B6 : seule la version whitelist va dans localStorage
         safeSetItem(CONFIG.STORAGE_KEYS.USER, sanitizeUserForStorage(user));
-        // B11 : ne pas démarrer le timer idle depuis un cache (uniquement
-        // sur une session re-confirmée par onAuthStateChanged)
+        // B11 : ne pas démarrer le timer idle depuis un cache — uniquement
+        // sur une session re-confirmée par onAuthStateChanged.
         if (!user._fromCache && user.emailVerified !== false && !user.needsVerification) {
             startIdleTimer();
         }
@@ -90,7 +113,7 @@ export function setCurrentUser(user) {
         safeRemoveItem(CONFIG.STORAGE_KEYS.USER);
         stopIdleTimer();
     }
-    document.dispatchEvent(new CustomEvent('auth-updated', { detail: { user } }));
+    document.dispatchEvent(new CustomEvent("auth-updated", { detail: { user } }));
 }
 
 // ============================================================
@@ -110,7 +133,7 @@ export async function saveUserProfile(uid, data) {
         await setDoc(doc(db, "users", uid), data, { merge: true });
         return true;
     } catch (e) {
-        console.error('❌ Erreur saveUserProfile :', e);
+        logAuthError("❌ Erreur saveUserProfile", e);
         return false;
     }
 }
@@ -120,7 +143,7 @@ export async function getUserProfile(uid) {
         const snap = await getDoc(doc(db, "users", uid));
         return snap.exists() ? snap.data() : null;
     } catch (e) {
-        console.error('❌ Erreur getUserProfile :', e);
+        logAuthError("❌ Erreur getUserProfile", e);
         return null;
     }
 }
@@ -128,45 +151,45 @@ export async function getUserProfile(uid) {
 // ============================================================
 // HELPER : Mapper les erreurs Firebase Auth
 // ============================================================
-function getAuthErrorMessage(error, context = 'generic') {
-    const code = error?.code || '';
+function getAuthErrorMessage(error, context = "generic") {
+    const code = error?.code || "";
 
-    if (context === 'login') {
-        if (code === 'auth/user-not-found') return t('userNotFound');
-        if (code === 'auth/wrong-password' || code === 'auth/invalid-credential') return t('wrongPassword');
-        if (code === 'auth/too-many-requests') return t('tooManyRequests');
-        if (code === 'auth/network-request-failed') return '⚠️ Pas de connexion internet';
-        if (code === 'auth/user-disabled') return '⚠️ Ce compte a été désactivé';
-        return t('loginError');
+    if (context === "login") {
+        if (code === "auth/user-not-found") return t("userNotFound");
+        if (code === "auth/wrong-password" || code === "auth/invalid-credential") return t("wrongPassword");
+        if (code === "auth/too-many-requests") return t("tooManyRequests");
+        if (code === "auth/network-request-failed") return "⚠️ Pas de connexion internet";
+        if (code === "auth/user-disabled") return "⚠️ Ce compte a été désactivé";
+        return t("loginError");
     }
 
-    if (context === 'register') {
-        if (code === 'auth/email-already-in-use') return '⚠️ Cet email est déjà utilisé';
-        if (code === 'auth/invalid-email') return '⚠️ Email invalide';
-        if (code === 'auth/weak-password') return '⚠️ Mot de passe trop faible';
-        if (code === 'auth/network-request-failed') return '⚠️ Pas de connexion internet';
-        if (code === 'auth/too-many-requests') return t('tooManyRequests');
-        return '❌ Erreur lors de la création du compte';
+    if (context === "register") {
+        if (code === "auth/email-already-in-use") return "⚠️ Cet email est déjà utilisé";
+        if (code === "auth/invalid-email") return "⚠️ Email invalide";
+        if (code === "auth/weak-password") return "⚠️ Mot de passe trop faible";
+        if (code === "auth/network-request-failed") return "⚠️ Pas de connexion internet";
+        if (code === "auth/too-many-requests") return t("tooManyRequests");
+        return "❌ Erreur lors de la création du compte";
     }
 
-    if (context === 'reset') {
-        if (code === 'auth/user-not-found') return t('emailNotFound');
-        if (code === 'auth/invalid-email') return '⚠️ Email invalide';
-        if (code === 'auth/too-many-requests') return t('rateLimitError');
-        if (code === 'auth/network-request-failed') return '⚠️ Pas de connexion internet';
-        return t('resetError');
+    if (context === "reset") {
+        if (code === "auth/user-not-found") return t("emailNotFound");
+        if (code === "auth/invalid-email") return "⚠️ Email invalide";
+        if (code === "auth/too-many-requests") return t("rateLimitError");
+        if (code === "auth/network-request-failed") return "⚠️ Pas de connexion internet";
+        return t("resetError");
     }
 
-    if (context === 'social') {
-        if (code === 'auth/popup-closed-by-user') return t('socialPopupClosed');
-        if (code === 'auth/popup-blocked') return '⚠️ Popup bloquée. Autorisez les popups.';
-        if (code === 'auth/account-exists-with-different-credential') return t('socialAccountExists');
-        if (code === 'auth/cancelled-popup-request') return t('socialPopupClosed');
-        if (code === 'auth/network-request-failed') return '⚠️ Pas de connexion internet';
-        return t('error');
+    if (context === "social") {
+        if (code === "auth/popup-closed-by-user") return t("socialPopupClosed");
+        if (code === "auth/popup-blocked") return "⚠️ Popup bloquée. Autorisez les popups.";
+        if (code === "auth/account-exists-with-different-credential") return t("socialAccountExists");
+        if (code === "auth/cancelled-popup-request") return t("socialPopupClosed");
+        if (code === "auth/network-request-failed") return "⚠️ Pas de connexion internet";
+        return t("error");
     }
 
-    return t('error');
+    return t("error");
 }
 
 // ============================================================
@@ -175,19 +198,20 @@ function getAuthErrorMessage(error, context = 'generic') {
 //  À passer à 8+ lors de la mise à jour de inscription.html — non traité ici.)
 // ============================================================
 export async function registerWithFirebase(name, email, phone, dob, password) {
-    console.log('📝 Inscription Client pour :', email);
+    // T12 : ne plus loguer l'email. Message neutre.
+    console.log("📝 registerWithFirebase");
 
     if (!email || !isValidEmail(email)) {
-        showToast('⚠️ Email invalide');
-        return { success: false, error: 'invalid_email' };
+        showToast("⚠️ Email invalide");
+        return { success: false, error: "invalid_email" };
     }
     if (!password || password.length < 6) {
-        showToast('⚠️ Mot de passe trop faible (min 6 caractères)');
-        return { success: false, error: 'weak_password' };
+        showToast("⚠️ Mot de passe trop faible (min 6 caractères)");
+        return { success: false, error: "weak_password" };
     }
     if (!name || name.trim().length < 2) {
-        showToast('⚠️ Nom trop court');
-        return { success: false, error: 'invalid_name' };
+        showToast("⚠️ Nom trop court");
+        return { success: false, error: "invalid_name" };
     }
 
     try {
@@ -195,18 +219,18 @@ export async function registerWithFirebase(name, email, phone, dob, password) {
         const user = userCredential.user;
         const uid = user.uid;
 
-        const parts = name.trim().split(' ');
-        const firstName = parts[0] || '';
-        const lastName = parts.slice(1).join(' ') || '';
+        const parts = name.trim().split(" ");
+        const firstName = parts[0] || "";
+        const lastName = parts.slice(1).join(" ") || "";
 
-        // Conforme à la règle users.create (v4.1.0)
+        // Conforme à la règle users.create (v5.2.0)
         const profile = {
             name: name.trim(),
             firstName,
             lastName,
             email: cleanEmail(email),
-            phone: phone || '',
-            dob: dob || '',
+            phone: phone || "",
+            dob: dob || "",
             role: ROLES.USER,
             signupMethod: SIGNUP_METHODS.OTP,
             emailVerified: false,
@@ -224,7 +248,7 @@ export async function registerWithFirebase(name, email, phone, dob, password) {
                 handleCodeInApp: false
             });
         } catch (e) {
-            console.warn('⚠️ Erreur envoi email vérif :', e);
+            logAuthError("⚠️ Erreur envoi email vérif", e);
         }
 
         setCurrentUser({
@@ -242,29 +266,27 @@ export async function registerWithFirebase(name, email, phone, dob, password) {
             emailSent: true,
             needsVerification: true
         };
-
     } catch (error) {
-        console.error('❌ Erreur inscription Firebase :', error);
-        showToast(getAuthErrorMessage(error, 'register'));
-        return { success: false, error: error.code || 'unknown' };
+        logAuthError("❌ Erreur inscription Firebase", error);
+        showToast(getAuthErrorMessage(error, "register"));
+        return { success: false, error: error.code || "unknown" };
     }
 }
 
 // ============================================================
 // INSCRIPTION VENDEUR
-// Correctifs B1..B5 + B9 : validations renforcées, signupMethod VENDOR,
-// contractStatus PENDING, serverTimestamp pour le wallet.
-// Conforme à la règle users.create + wallets.create (v4.1.0).
+// Conforme à la règle users.create + wallets.create (v5.2.0).
 // ============================================================
 export async function registerVendorWithFirebase(vendorData, password) {
-    console.log('🏪 Inscription Vendeur pour :', vendorData?.email);
+    // T12 : ne plus loguer l'email. Message neutre.
+    console.log("🏪 registerVendorWithFirebase");
 
     // --- B5 : mot de passe 8+ avec lettre + chiffre ---
     if (!vendorData?.email || !isValidEmail(vendorData.email)) {
         throw new Error("Email invalide");
     }
     if (
-        typeof password !== 'string' ||
+        typeof password !== "string" ||
         password.length < 8 ||
         !/[A-Za-z]/.test(password) ||
         !/\d/.test(password)
@@ -273,19 +295,19 @@ export async function registerVendorWithFirebase(vendorData, password) {
     }
 
     // --- B9 : validations alignées sur vendor-signup.js ---
-    const shopName = (vendorData.shopName || '').trim();
+    const shopName = (vendorData.shopName || "").trim();
     if (shopName.length < 2 || shopName.length > 60) {
         throw new Error("Nom de boutique invalide (2 à 60 caractères).");
     }
     // Le téléphone DOIT être normalisé par l'appelant au format +212[67]XXXXXXXX
-    if (!/^\+212[67]\d{8}$/.test(vendorData.phone || '')) {
+    if (!/^\+212[67]\d{8}$/.test(vendorData.phone || "")) {
         throw new Error("Téléphone marocain invalide (06XXXXXXXX ou +2126XXXXXXXX).");
     }
-    const city = (vendorData.city || '').trim();
+    const city = (vendorData.city || "").trim();
     if (city.length < 2 || city.length > 80) {
         throw new Error("Ville invalide.");
     }
-    const iceCin = (vendorData.iceCin || '').trim().toUpperCase();
+    const iceCin = (vendorData.iceCin || "").trim().toUpperCase();
     if (!(
         /^\d{15}$/.test(iceCin) ||              // ICE
         /^[A-Z]{1,2}\d{5,6}$/.test(iceCin) ||   // CIN courant
@@ -293,7 +315,7 @@ export async function registerVendorWithFirebase(vendorData, password) {
     )) {
         throw new Error("ICE ou CIN invalide.");
     }
-    if (!['dropoff', 'fulfillment'].includes(vendorData.shippingMethod)) {
+    if (!["dropoff", "fulfillment"].includes(vendorData.shippingMethod)) {
         throw new Error("Mode de livraison invalide.");
     }
 
@@ -304,7 +326,7 @@ export async function registerVendorWithFirebase(vendorData, password) {
         const uid = user.uid;
 
         // 2. Préparer le profil vendeur
-        // Conforme aux règles users.create (v4.1.0)
+        // Conforme aux règles users.create (v5.2.0)
         const profile = {
             name: shopName,
             email: cleanEmail(vendorData.email),
@@ -334,7 +356,7 @@ export async function registerVendorWithFirebase(vendorData, password) {
         }
 
         // 4. Initialiser le Wallet (B3 : montants à 0)
-        // Conforme à la règle wallets.create (v4.1.0)
+        // Conforme à la règle wallets.create (v5.2.0)
         try {
             await setDoc(doc(db, "wallets", uid), {
                 vendorId: uid,
@@ -346,11 +368,12 @@ export async function registerVendorWithFirebase(vendorData, password) {
                 createdAt: serverTimestamp(),
                 lastUpdated: serverTimestamp()
             });
-            console.log('✅ Wallet initialisé pour le vendeur :', uid);
+            // T12 : log neutre (plus d'UID en clair)
+            console.log("✅ Wallet vendeur initialisé");
         } catch (walletErr) {
-            console.error('❌ Wallet non initialisé :', walletErr);
-            // On ne bloque pas l'inscription : le dashboard affichera un état "wallet manquant",
-            // et l'admin (ou un cron) pourra le créer. Étape 4 gérera ce cas.
+            logAuthError("❌ Wallet non initialisé", walletErr);
+            // On ne bloque pas l'inscription : le dashboard affichera un état
+            // "wallet manquant", et l'admin (ou un cron) pourra le créer.
         }
 
         // 5. Envoi email de vérification
@@ -360,7 +383,7 @@ export async function registerVendorWithFirebase(vendorData, password) {
                 handleCodeInApp: false
             });
         } catch (e) {
-            console.warn('⚠️ Erreur envoi email vérif :', e);
+            logAuthError("⚠️ Erreur envoi email vérif", e);
         }
 
         // 6. Connexion locale (memory). On remplace le sentinel serverTimestamp
@@ -375,9 +398,8 @@ export async function registerVendorWithFirebase(vendorData, password) {
         });
 
         return { success: true, uid, needsVerification: true };
-
     } catch (error) {
-        console.error('❌ Erreur inscription vendeur :', error);
+        logAuthError("❌ Erreur inscription vendeur", error);
         throw error;
     }
 }
@@ -388,12 +410,12 @@ export async function registerVendorWithFirebase(vendorData, password) {
 export async function resendVerificationEmail() {
     const user = auth.currentUser;
     if (!user) {
-        showToast('⚠️ Aucun utilisateur connecté');
+        showToast("⚠️ Aucun utilisateur connecté");
         return false;
     }
 
     if (user.emailVerified) {
-        showToast('ℹ️ Votre email est déjà vérifié');
+        showToast("ℹ️ Votre email est déjà vérifié");
         return false;
     }
 
@@ -402,14 +424,14 @@ export async function resendVerificationEmail() {
             url: `${CONFIG.SHOP.URL}/`,
             handleCodeInApp: false
         });
-        showToast('📧 Email de vérification renvoyé');
+        showToast("📧 Email de vérification renvoyé");
         return true;
     } catch (error) {
-        console.error('❌ Erreur renvoi vérification :', error);
-        if (error.code === 'auth/too-many-requests') {
-            showToast('⏳ Trop de demandes, attendez quelques minutes');
+        logAuthError("❌ Erreur renvoi vérification", error);
+        if (error.code === "auth/too-many-requests") {
+            showToast("⏳ Trop de demandes, attendez quelques minutes");
         } else {
-            showToast('❌ ' + t('error'));
+            showToast("❌ " + t("error"));
         }
         return false;
     }
@@ -439,7 +461,7 @@ export async function checkEmailVerification() {
         }
         return verified;
     } catch (error) {
-        console.error('❌ Erreur vérification :', error);
+        logAuthError("❌ Erreur vérification", error);
         return false;
     }
 }
@@ -449,7 +471,7 @@ export async function checkEmailVerification() {
 // ============================================================
 export async function loginWithGoogle() {
     const provider = new GoogleAuthProvider();
-    provider.setCustomParameters({ prompt: 'select_account' });
+    provider.setCustomParameters({ prompt: "select_account" });
 
     try {
         const result = await signInWithPopup(auth, provider);
@@ -463,13 +485,13 @@ export async function loginWithGoogle() {
             isNewUser = true;
             // Conforme à users.create (signupMethod dans la liste)
             profile = {
-                name: user.displayName || (user.email ? user.email.split('@')[0] : 'Utilisateur'),
-                firstName: (user.displayName || '').split(' ')[0] || '',
-                lastName: (user.displayName || '').split(' ').slice(1).join(' ') || '',
+                name: user.displayName || (user.email ? user.email.split("@")[0] : "Utilisateur"),
+                firstName: (user.displayName || "").split(" ")[0] || "",
+                lastName: (user.displayName || "").split(" ").slice(1).join(" ") || "",
                 email: cleanEmail(user.email),
-                phone: '',
-                dob: '',
-                photoURL: user.photoURL || '',
+                phone: "",
+                dob: "",
+                photoURL: user.photoURL || "",
                 role: ROLES.USER,
                 signupMethod: SIGNUP_METHODS.GOOGLE,
                 emailVerified: true,
@@ -482,13 +504,12 @@ export async function loginWithGoogle() {
         }
 
         setCurrentUser({ uid, email: user.email, ...profile, emailVerified: true, needsVerification: false });
-        showToast(isNewUser ? '🎉 Bienvenue !' : '👋 ' + t('loginSuccess'));
+        showToast(isNewUser ? "🎉 Bienvenue !" : "👋 " + t("loginSuccess"));
         return { uid, email: user.email, ...profile };
-
     } catch (error) {
-        console.error('❌ Erreur Google :', error);
-        if (error.code !== 'auth/popup-closed-by-user' && error.code !== 'auth/cancelled-popup-request') {
-            showToast(getAuthErrorMessage(error, 'social'));
+        logAuthError("❌ Erreur Google", error);
+        if (error.code !== "auth/popup-closed-by-user" && error.code !== "auth/cancelled-popup-request") {
+            showToast(getAuthErrorMessage(error, "social"));
         }
         return null;
     }
@@ -496,8 +517,8 @@ export async function loginWithGoogle() {
 
 export async function loginWithFacebook() {
     const provider = new FacebookAuthProvider();
-    provider.addScope('email');
-    provider.setCustomParameters({ display: 'popup' });
+    provider.addScope("email");
+    provider.setCustomParameters({ display: "popup" });
 
     try {
         const result = await signInWithPopup(auth, provider);
@@ -511,13 +532,13 @@ export async function loginWithFacebook() {
             isNewUser = true;
             // Conforme à users.create
             profile = {
-                name: user.displayName || (user.email ? user.email.split('@')[0] : 'Utilisateur'),
-                firstName: (user.displayName || '').split(' ')[0] || '',
-                lastName: (user.displayName || '').split(' ').slice(1).join(' ') || '',
+                name: user.displayName || (user.email ? user.email.split("@")[0] : "Utilisateur"),
+                firstName: (user.displayName || "").split(" ")[0] || "",
+                lastName: (user.displayName || "").split(" ").slice(1).join(" ") || "",
                 email: cleanEmail(user.email),
-                phone: '',
-                dob: '',
-                photoURL: user.photoURL || '',
+                phone: "",
+                dob: "",
+                photoURL: user.photoURL || "",
                 role: ROLES.USER,
                 signupMethod: SIGNUP_METHODS.FACEBOOK,
                 emailVerified: true,
@@ -530,13 +551,12 @@ export async function loginWithFacebook() {
         }
 
         setCurrentUser({ uid, email: user.email, ...profile, emailVerified: true, needsVerification: false });
-        showToast(isNewUser ? '🎉 Bienvenue !' : '👋 ' + t('loginSuccess'));
+        showToast(isNewUser ? "🎉 Bienvenue !" : "👋 " + t("loginSuccess"));
         return { uid, email: user.email, ...profile };
-
     } catch (error) {
-        console.error('❌ Erreur Facebook :', error);
-        if (error.code !== 'auth/popup-closed-by-user' && error.code !== 'auth/cancelled-popup-request') {
-            showToast(getAuthErrorMessage(error, 'social'));
+        logAuthError("❌ Erreur Facebook", error);
+        if (error.code !== "auth/popup-closed-by-user" && error.code !== "auth/cancelled-popup-request") {
+            showToast(getAuthErrorMessage(error, "social"));
         }
         return null;
     }
@@ -552,14 +572,17 @@ export async function loginUser(email, password) {
         const uid = firebaseUser.uid;
 
         if (!firebaseUser.emailVerified) {
-            console.log('⛔ Email non vérifié — connexion bloquée');
+            // T12 : log neutre (pas d'e-mail en clair)
+            console.log("⛔ Connexion bloquée : email non vérifié");
 
             try {
                 await sendEmailVerification(firebaseUser, {
                     url: `${CONFIG.SHOP.URL}/`,
                     handleCodeInApp: false
                 });
-            } catch (e) { }
+            } catch (e) {
+                logAuthError("⚠️ Erreur renvoi email vérif (blocage)", e);
+            }
 
             await signOut(auth);
             setUser(null);
@@ -567,7 +590,7 @@ export async function loginUser(email, password) {
 
             return {
                 success: false,
-                reason: 'email_not_verified',
+                reason: "email_not_verified",
                 email: cleanEmail(email)
             };
         }
@@ -576,7 +599,7 @@ export async function loginUser(email, password) {
         if (!profile) {
             // Fallback sécurisé : création du profil minimal si manquant
             profile = {
-                name: email.split('@')[0],
+                name: email.split("@")[0],
                 email: cleanEmail(email),
                 role: ROLES.USER,
                 signupMethod: SIGNUP_METHODS.OTP,
@@ -601,11 +624,11 @@ export async function loginUser(email, password) {
             user: getCurrentUser()
         };
     } catch (error) {
-        console.error('❌ Erreur connexion :', error);
+        logAuthError("❌ Erreur connexion", error);
         return {
             success: false,
-            reason: error.code || 'unknown',
-            message: getAuthErrorMessage(error, 'login')
+            reason: error.code || "unknown",
+            message: getAuthErrorMessage(error, "login")
         };
     }
 }
@@ -620,7 +643,7 @@ export async function logoutUser() {
         safeRemoveItem(CONFIG.STORAGE_KEYS.USER);
         return true;
     } catch (e) {
-        console.error('❌ Erreur logout :', e);
+        logAuthError("❌ Erreur logout", e);
         return false;
     }
 }
@@ -633,8 +656,8 @@ export async function requestPasswordReset(email) {
         await sendPasswordResetEmail(auth, email);
         return true;
     } catch (error) {
-        console.error('❌ Erreur reset password :', error);
-        showToast(getAuthErrorMessage(error, 'reset'));
+        logAuthError("❌ Erreur reset password", error);
+        showToast(getAuthErrorMessage(error, "reset"));
         return false;
     }
 }
@@ -644,7 +667,7 @@ export async function requestPasswordReset(email) {
 // quand les pages de changement de mot de passe seront auditées.
 export async function updateUserPassword(newPassword) {
     const user = auth.currentUser;
-    if (!user) throw new Error('Aucun utilisateur connecté');
+    if (!user) throw new Error("Aucun utilisateur connecté");
     await updatePassword(user, newPassword);
 }
 
@@ -663,7 +686,7 @@ export function initAuthListener() {
 
     currentAuthUnsubscribe = onAuthStateChanged(auth, async (user) => {
         if (user) {
-            const isPasswordProvider = user.providerData?.[0]?.providerId === 'password';
+            const isPasswordProvider = user.providerData?.[0]?.providerId === "password";
             const needsVerification = isPasswordProvider && !user.emailVerified;
 
             if (needsVerification) {
@@ -678,7 +701,7 @@ export function initAuthListener() {
             } else {
                 const cached = getUser();
                 if (cached && cached.uid === user.uid && cached.email === user.email && cached.role) {
-                    console.log('✅ Profil en cache');
+                    console.log("✅ Profil en cache");
                 } else {
                     const profile = await getUserProfile(user.uid);
                     if (profile) {
@@ -725,14 +748,14 @@ function startIdleTimer() {
     lastActivity = Date.now();
 
     const resetActivity = () => { lastActivity = Date.now(); };
-    const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
+    const events = ["mousemove", "keydown", "click", "scroll", "touchstart"];
     events.forEach(evt => document.addEventListener(evt, resetActivity, { passive: true }));
     idleListeners = events.map(evt => [evt, resetActivity]);
 
     idleTimer = setInterval(async () => {
         if (getCurrentUser() && (Date.now() - lastActivity > CONFIG.SESSION.IDLE_TIMEOUT)) {
             await logoutUser();
-            showToast('👋 ' + t('inactivityLogout'));
+            showToast("👋 " + t("inactivityLogout"));
         }
     }, 60000);
 }
@@ -771,7 +794,7 @@ export async function isUserAdminVerified() {
         const profile = await getUserProfile(cached.uid);
         return !!(profile && profile.role === ROLES.ADMIN);
     } catch (e) {
-        console.warn('⚠️ Vérification admin impossible :', e);
+        console.warn("⚠️ Vérification admin impossible");
         return false;
     }
 }
@@ -789,11 +812,11 @@ export function restoreSession() {
             setCurrentUser({ ...saved, _fromCache: true });
         }
     } catch (e) {
-        console.warn('⚠️ Erreur restauration session :', e);
+        console.warn("⚠️ Erreur restauration session");
     }
 }
 
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ auth.js chargé — v3.3.1 (Marketplace + Règles v4.1.0)');
+console.log("✅ auth.js chargé — v3.4.0 (T12 : logs PII retirés)");
