@@ -1,7 +1,14 @@
 // js/cart.js
 // ============================================================
 // PANIER ET COMMANDES - SMART SWI9A
-// Version 3.7.0 — Marketplace (N5 + IDs vendeurs Number/String)
+// Version 3.8.0 — Marketplace (T3 : correctifs T2-bis, robustesse)
+// Changements Session 3 :
+//   - updateCartQuantity : retrait propre si produit supprimé
+//   - Commentaires sur la dépendance aux règles Firestore T2-bis :
+//       §8 products : allowed keys = ['stock', 'salesCount', 'variants']
+//       §9 orders   : allowed keys annulation = ['status', 'cancelledAt',
+//                      'updatedAt', 'stockDeducted', 'couponRestored']
+//   - Aucune autre modification fonctionnelle.
 // ============================================================
 
 import {
@@ -361,12 +368,21 @@ export function updateCartQuantity(itemId, quantity) {
     // Comparaison par String (patch C)
     const product = products.find(p => String(p.id) === String(item.productId));
 
+    // T3 : si le produit a disparu du catalogue, retrait propre
+    // (évite les quantités fantômes qui échoueront au checkout)
+    if (!product) {
+        cart = cart.filter(i => i.id !== itemId);
+        saveCart();
+        showToast('⚠️ Ce produit n\'est plus disponible, retiré du panier');
+        return;
+    }
+
     let maxStock = Infinity;
     if (item.variant) {
-        const v = product?.variants?.find(v => (v.size || '') === (item.variant.size || '') && (v.color || '') === (item.variant.color || ''));
+        const v = product.variants?.find(v => (v.size || '') === (item.variant.size || '') && (v.color || '') === (item.variant.color || ''));
         maxStock = v ? Number(v.stock) : 0;
     } else {
-        maxStock = product ? Number(product.stock) || Infinity : Infinity;
+        maxStock = Number(product.stock) || Infinity;
     }
 
     if (Number.isFinite(maxStock) && maxStock === 0) {
@@ -579,6 +595,12 @@ export async function checkout(cartItems, deliveryInfo, appliedCoupon = null, wa
 
 // ============================================================
 // CRÉATION DE COMMANDE (N5 : vendorId par item + vendorIds)
+//
+// ⚠️ Dépendance Firestore Rules (T2-bis) :
+//    L'update produit en transaction DOIT être autorisé pour
+//    les clés ['stock', 'salesCount', 'variants'] (voir firestore.rules §8).
+//    Sans cette règle, toute commande contenant un produit à variante
+//    échoue avec permission-denied.
 // ============================================================
 export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
     const user = getCurrentUser();
@@ -649,6 +671,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                     if (availableStock < qty) throw new Error(`Stock insuffisant pour ${data.nameFr} (${itemVariant.size}/${itemVariant.color})`);
 
                     variants[vIdx].stock = Math.max(0, availableStock - qty);
+                    // `variants` doit être autorisé par les règles Firestore T2-bis.
                     updateData.variants = variants;
                     updateData.stock = variants.reduce((s, v) => s + (Number(v.stock) || 0), 0);
                 } else {
@@ -743,6 +766,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                 deliveryFee: Number(deliveryFee) || 0,
                 total: Number(total) || 0,
                 stockDeducted: true,
+                couponRestored: false,
                 deliveryAddress: {
                     name: String(deliveryInfo.name || '').trim().slice(0, 100),
                     phone: String(deliveryInfo.phone || '').trim().slice(0, 20),
@@ -863,6 +887,12 @@ export async function loadUserOrders() {
 
 // ============================================================
 // ANNULER UNE COMMANDE
+//
+// ⚠️ Dépendance Firestore Rules (T2-bis) :
+//    L'update orders doit être autorisé pour les clés
+//    ['status', 'cancelledAt', 'updatedAt', 'stockDeducted', 'couponRestored']
+//    dans la branche propriétaire (voir firestore.rules §9).
+//    Sans cette règle, toute annulation client échoue.
 // ============================================================
 export async function cancelOrder(orderId) {
     const user = getCurrentUser();
@@ -954,4 +984,4 @@ export function checkAbandonedCart() {
 // ============================================================
 // LOG
 // ============================================================
-console.log('✅ cart.js chargé — v3.7.0 (Marketplace + IDs vendeurs)');
+console.log('✅ cart.js chargé — v3.8.0 (Marketplace T3, dépend T2-bis)');
