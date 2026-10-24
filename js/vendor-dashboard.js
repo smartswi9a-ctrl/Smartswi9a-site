@@ -1,17 +1,26 @@
-// js/vendor-dashboard.js
-// ============================================================
-// LOGIQUE DU DASHBOARD VENDEUR - SMART SWI9A
-// Version 3.0.1 — Session 3 (T5 + T6 + T7 + T9)
-// Correctifs v3.0.1 (audit T5/T7/T9) :
-//   - T9-1 (P0) : submitContractSignature écrit bien `currentContractId`
-//                 + `updatedAt` (au lieu de `contractUpdatedAt`) pour
-//                 satisfaire la whitelist Firestore v5.1.0.
-//   - T7-1 (P2) : utilise `calculateVendorCommission` de orders.js
-//                 (avec clamping MIN/MAX) au lieu de recalculer à la main.
-//   - V4  (P3) : catch séparé sur updateDoc → message clair si la
-//                transition user échoue après création du contrat.
-//   - V3  (P3) : imports nettoyés (doublons retirés).
-// ============================================================
+/* ============================================================
+   js/vendor-dashboard.js
+   Logique du dashboard vendeur - Smart Swi9a
+   Version 3.1.0 — Session 4 (T9)
+
+   Correctifs T9 :
+     - C5     : signature versionnée (contractId + contractVersion
+                écrits via signResult, plus d'ID legacy en dur).
+     - C5-rec : reprise de transition depuis le dashboard
+                (?contractTransitionFailed=1 → bouton Finaliser).
+     - Bannière re-signature si needsResign(vendorInfo) est vrai,
+                avec délai de grâce CONFIG.VENDOR.CONTRACT_RESIGN_GRACE_DAYS.
+     - Section « Mon contrat » (version, statut, date, langue,
+                Voir / Imprimer / Télécharger / Vérifier l'intégrité).
+     - source ('resign' | 'dashboard') + version + termsSnapshot
+                passés à signVendorContract.
+     - verifyContractIntegrity pour le bouton Vérifier.
+     - ALERTE 1 : plus aucun // en début de ligne utile.
+
+   Importé par : vendor/dashboard.html
+   Dépendances : ./firebase.js, ./auth.js, ./config.js, ./ui-core.js,
+                 ./vendor-contract.js, ./vendor-contract-text.js, ./orders.js
+   ============================================================ */
 
 import {
     doc, getDoc, collection, query, where, getDocs, limit,
@@ -37,13 +46,23 @@ import {
     PRODUCT_STATUS
 } from "./config.js";
 import { showToast, confirmAction } from "./ui-core.js";
-import { signVendorContract, computeContractTextHash } from "./vendor-contract.js";
-import { getContractText } from "./vendor-contract-text.js";
+import {
+    signVendorContract,
+    computeContractTextHash,
+    needsResign,
+    compareVersions,
+    verifyContractIntegrity
+} from "./vendor-contract.js";
+import {
+    getContractText,
+    buildTermsSnapshot,
+    getSupportedContractVersions
+} from "./vendor-contract-text.js";
 import { getOrderVendorBreakdown, calculateVendorCommission } from "./orders.js";
 
-// ============================================================
-// ÉTAT MODULE
-// ============================================================
+/* ============================================================
+   ÉTAT MODULE
+   ============================================================ */
 let currentVendor = null;
 let currentWallet = null;
 let currentUserUid = null;
@@ -56,9 +75,21 @@ let ordersLastDoc = null;
 let ordersHasMore = false;
 let ordersLoading = false;
 
-// ============================================================
-// HELPERS
-// ============================================================
+/* Contrat courant (dernier connu du vendeur) */
+let currentContractDoc = null;
+
+/* Contexte de la modale contrat */
+let _contractTextHash = null;
+let _contractLang = DEFAULT_LANGUAGE;
+let _contractVersion = null;
+let _contractTermsSnapshot = null;
+let _contractScrollReached = false;
+let _contractReadOnly = false;
+let _contractSignatureSource = "dashboard";
+
+/* ============================================================
+   HELPERS
+   ============================================================ */
 const madFormatter = new Intl.NumberFormat('fr-MA', {
     style: 'currency',
     currency: 'MAD',
@@ -98,11 +129,47 @@ function getCurrentLanguage() {
     return DEFAULT_LANGUAGE;
 }
 
+/* Clés i18n propres au dashboard (fallback si absentes de translations.js). */
+const MINIMAL_FALLBACKS = {
+    "vendor.contract.version":              { fr: "Version", ar: "الإصدار", en: "Version" },
+    "vendor.contract.statusUpToDate":       { fr: "✅ Contrat à jour", ar: "✅ العقد محدّث", en: "✅ Contract up to date" },
+    "vendor.contract.statusOutdated":       { fr: "⚠️ Contrat obsolète — re-signature requise", ar: "⚠️ عقد قديم — إعادة التوقيع مطلوبة", en: "⚠️ Outdated contract — re-signature required" },
+    "vendor.contract.statusMissing":        { fr: "❌ Aucun contrat signé", ar: "❌ لا يوجد عقد موقّع", en: "❌ No contract signed" },
+    "vendor.contract.signedOn":             { fr: "Signé le {date}", ar: "موقّع في {date}", en: "Signed on {date}" },
+    "vendor.contract.language":             { fr: "Langue", ar: "اللغة", en: "Language" },
+    "vendor.contract.view":                 { fr: "Voir", ar: "عرض", en: "View" },
+    "vendor.contract.print":                { fr: "Imprimer", ar: "طباعة", en: "Print" },
+    "vendor.contract.download":             { fr: "Télécharger (.txt)", ar: "تنزيل (.txt)", en: "Download (.txt)" },
+    "vendor.contract.verify":               { fr: "Vérifier l'intégrité", ar: "التحقق من السلامة", en: "Verify integrity" },
+    "vendor.contract.verifyOk":             { fr: "✅ Intégrité vérifiée", ar: "✅ تم التحقق من السلامة", en: "✅ Integrity verified" },
+    "vendor.contract.verifyFail":           { fr: "❌ Intégrité non vérifiable : {reason}", ar: "❌ تعذّر التحقق: {reason}", en: "❌ Cannot verify: {reason}" },
+    "vendor.contract.verifyRunning":        { fr: "⏳ Vérification...", ar: "⏳ جارٍ التحقق...", en: "⏳ Verifying..." },
+    "vendor.contract.sectionTitle":         { fr: "Mon contrat", ar: "عقدي", en: "My contract" },
+    "vendor.contract.hash":                 { fr: "Hash SHA-256", ar: "بصمة SHA-256", en: "SHA-256 hash" },
+    "vendor.contract.loadFailed":           { fr: "Impossible de charger le contrat.", ar: "تعذّر تحميل العقد.", en: "Cannot load contract." },
+    "vendor.contract.notFound":             { fr: "Aucun contrat signé à afficher.", ar: "لا يوجد عقد موقّع للعرض.", en: "No signed contract to display." },
+    "vendor.contract.signNow":              { fr: "Signer le contrat", ar: "توقيع العقد", en: "Sign contract" },
+    "vendor.contract.readOnlyHint":         { fr: "Lecture seule — version signée", ar: "قراءة فقط — النسخة الموقّعة", en: "Read-only — signed version" },
+    "vendor.banner.resignRequired":         { fr: "⚠️ Une nouvelle version du contrat ({version}) est disponible. Signez-la avant le {date} pour éviter le blocage de la publication et des retraits.", ar: "⚠️ نسخة جديدة من العقد ({version}) متاحة. وقّعها قبل {date} لتجنّب حظر النشر والسحب.", en: "⚠️ A new contract version ({version}) is available. Sign it before {date} to avoid blocking publishing and withdrawals." },
+    "vendor.banner.resignNow":              { fr: "Signer maintenant", ar: "التوقيع الآن", en: "Sign now" },
+    "vendor.banner.contractTransitionFailed": { fr: "⚠️ Contrat signé mais la synchronisation du profil a échoué. Finalisez pour débloquer votre compte.", ar: "⚠️ تم توقيع العقد لكن مزامنة الملف الشخصي فشلت. أكمل لفتح حسابك.", en: "⚠️ Contract signed but profile sync failed. Complete it to unlock your account." },
+    "vendor.banner.finalize":               { fr: "Finaliser", ar: "إنهاء", en: "Finalize" },
+    "vendor.banner.finalizeSuccess":        { fr: "✅ Profil synchronisé", ar: "✅ تمت مزامنة الملف الشخصي", en: "✅ Profile synchronized" },
+    "vendor.banner.finalizeFail":           { fr: "❌ Synchronisation échouée. Contactez le support.", ar: "❌ فشلت المزامنة. اتصل بالدعم.", en: "❌ Sync failed. Contact support." }
+};
+
 function tr(key, fallback) {
     const lang = getCurrentLanguage();
     const dict = (window.translations && window.translations[lang]) || {};
     const frDict = (window.translations && window.translations[DEFAULT_LANGUAGE]) || {};
-    return dict[key] || frDict[key] || fallback || key;
+    const fb = MINIMAL_FALLBACKS[key];
+    return dict[key] || frDict[key] || (fb && (fb[lang] || fb[DEFAULT_LANGUAGE])) || fallback || key;
+}
+
+function trParams(key, params, fallback) {
+    let value = tr(key, fallback);
+    for (const p in params) value = value.replace('{' + p + '}', params[p]);
+    return value;
 }
 
 function applyLanguageDirection() {
@@ -123,9 +190,18 @@ function translateStatus(status) {
     return map[status] || status;
 }
 
-// ============================================================
-// ÉTAT DÉRIVÉ
-// ============================================================
+function formatDate(ts) {
+    if (!ts) return '—';
+    try {
+        if (typeof ts.toDate === 'function') return ts.toDate().toLocaleDateString('fr-FR');
+        if (ts instanceof Date) return ts.toLocaleDateString('fr-FR');
+    } catch (_) { /* ignore */ }
+    return '—';
+}
+
+/* ============================================================
+   ÉTAT DÉRIVÉ
+   ============================================================ */
 function getVendorStatus() {
     return (currentVendor && currentVendor.vendorInfo && currentVendor.vendorInfo.status) || VENDOR_STATUS.PENDING;
 }
@@ -151,9 +227,33 @@ function canRequestWithdrawal() {
     return getVirtualAvailableBalance() >= CONFIG.VENDOR.MIN_WITHDRAWAL;
 }
 
-// ============================================================
-// BANNIÈRES
-// ============================================================
+/* Vérifie si le vendeur doit re-signer (version obsolète) */
+function vendorNeedsResign() {
+    const vendorInfo = currentVendor && currentVendor.vendorInfo;
+    if (!vendorInfo || !vendorInfo.contractVersion) return false;
+    return needsResign(vendorInfo);
+}
+
+/* Renvoie la date limite (grace) avant blocage, ou null */
+function getResignGraceDeadline() {
+    const vendorInfo = currentVendor && currentVendor.vendorInfo;
+    if (!vendorInfo) return null;
+    const graceDays = Number(CONFIG.VENDOR.CONTRACT_RESIGN_GRACE_DAYS);
+    if (!Number.isFinite(graceDays) || graceDays <= 0) return null;
+    let baseMs = 0;
+    try {
+        const v = vendorInfo.contractVersionChangedAt || vendorInfo.contractSignedAt;
+        if (v && typeof v.toDate === 'function') baseMs = v.toDate().getTime();
+        else if (v && v.seconds) baseMs = v.seconds * 1000;
+        else if (v instanceof Date) baseMs = v.getTime();
+    } catch (_) { /* ignore */ }
+    if (!baseMs) return null;
+    return new Date(baseMs + graceDays * 24 * 3600 * 1000);
+}
+
+/* ============================================================
+   BANNIÈRES
+   ============================================================ */
 function renderBanners(banners) {
     const container = document.getElementById('vBanners');
     if (!container) return;
@@ -188,7 +288,7 @@ function buildBanners(profile) {
     const user = getCurrentUser();
     const emailVerified = (user && user.emailVerified === true);
 
-    const vendorInfo = profile.vendorInfo || {};
+    const vendorInfo = (profile && profile.vendorInfo) || {};
     const status = vendorInfo.status || VENDOR_STATUS.PENDING;
     const contractStatus = vendorInfo.contractStatus || CONTRACT_STATUS.PENDING;
 
@@ -211,10 +311,39 @@ function buildBanners(profile) {
             actionLabel: tr('vendor.banner.resign', 'Signer maintenant')
         });
     }
-    if (params.has('welcome') || params.has('verifyEmail') || params.has('contractFailed')) {
+    /* C5-rec : transition users échouée après inscription */
+    if (params.get('contractTransitionFailed') === '1' && contractStatus !== CONTRACT_STATUS.ACCEPTED) {
+        banners.push({
+            type: 'danger',
+            text: tr('vendor.banner.contractTransitionFailed', "⚠️ Contrat signé mais la synchronisation du profil a échoué. Finalisez pour débloquer votre compte."),
+            actionId: 'retryTransition',
+            actionLabel: tr('vendor.banner.finalize', 'Finaliser')
+        });
+    }
+
+    /* Re-signature requise (montée de version) */
+    if (vendorInfo.contractVersion
+        && needsResign(vendorInfo)
+        && contractStatus === CONTRACT_STATUS.ACCEPTED) {
+        const currentVer = CONFIG.VENDOR.CONTRACT_VERSION;
+        const graceDeadline = getResignGraceDeadline();
+        let text = trParams('vendor.banner.resignRequired', {
+            version: currentVer,
+            date: graceDeadline ? graceDeadline.toLocaleDateString('fr-FR') : '—'
+        }, '⚠️ Une nouvelle version du contrat ({version}) est disponible.');
+        banners.push({
+            type: 'warning',
+            text,
+            actionId: 'resignContract',
+            actionLabel: tr('vendor.banner.resignNow', 'Signer maintenant')
+        });
+    }
+
+    if (params.has('welcome') || params.has('verifyEmail') || params.has('contractFailed') || params.has('contractTransitionFailed')) {
         params.delete('welcome');
         params.delete('verifyEmail');
         params.delete('contractFailed');
+        params.delete('contractTransitionFailed');
         const newUrl = location.pathname + (params.toString() ? '?' + params.toString() : '') + location.hash;
         history.replaceState({}, '', newUrl);
     }
@@ -243,9 +372,9 @@ function buildBanners(profile) {
     return banners;
 }
 
-// ============================================================
-// SIDEBAR
-// ============================================================
+/* ============================================================
+   SIDEBAR
+   ============================================================ */
 function updateSidebarUI(profile) {
     const shopNameEl = document.getElementById('vShopName');
     const statusEl = document.getElementById('vShopStatus');
@@ -269,9 +398,9 @@ function updateSidebarUI(profile) {
     statusEl.removeAttribute('data-i18n');
 }
 
-// ============================================================
-// CHARGEMENT DES DONNÉES VENDEUR
-// ============================================================
+/* ============================================================
+   CHARGEMENT DES DONNÉES VENDEUR
+   ============================================================ */
 async function loadVendorData(uid) {
     let profile = null;
     try {
@@ -297,9 +426,32 @@ async function loadVendorData(uid) {
     return { profile, wallet, reason: null };
 }
 
-// ============================================================
-// INJECTION DES MODALES
-// ============================================================
+/* Charge le dernier contrat du vendeur. Priorité : currentContractId,
+   puis fallback legacy contract_<uid>, puis le plus récent des versionnés. */
+async function loadCurrentContract() {
+    if (!currentUserUid) return null;
+    const vendorInfo = (currentVendor && currentVendor.vendorInfo) || {};
+    const candidates = [];
+    if (vendorInfo.currentContractId) candidates.push(vendorInfo.currentContractId);
+    if (vendorInfo.contractVersion) candidates.push(`contract_${currentUserUid}_v${vendorInfo.contractVersion}`);
+    candidates.push(`contract_${currentUserUid}`);
+
+    for (const id of candidates) {
+        try {
+            const snap = await getDoc(doc(db, "contracts", id));
+            if (snap.exists()) {
+                return { id, data: snap.data() };
+            }
+        } catch (e) {
+            console.warn('⚠️ Lecture contrat ' + id + ' :', e);
+        }
+    }
+    return null;
+}
+
+/* ============================================================
+   INJECTION DES MODALES
+   ============================================================ */
 function injectModals() {
     if (document.getElementById('vModalsRoot')) return;
 
@@ -399,13 +551,21 @@ function injectModals() {
                 <div id="vContractText" tabindex="0" style="flex:1;overflow-y:auto;padding:2rem;font-size:0.9rem;line-height:1.7;color:#444;background:#fafafa;"></div>
                 <div style="padding:1.5rem;border-top:1px solid #eee;background:#fff;text-align:center;">
                     <p id="vContractHint" style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.75rem;">Faites défiler pour lire l'intégralité du contrat.</p>
-                    <label class="v-checkbox" for="vContractCheckbox">
-                        <input type="checkbox" id="vContractCheckbox">
-                        <span>J'ai lu et j'accepte le contrat dans son intégralité</span>
-                    </label>
-                    <button type="button" id="vContractAcceptBtn" class="v-btn v-btn-primary v-btn-block" disabled style="opacity:0.5;margin-top:0.75rem;">
-                        ✍️ Signer le contrat
-                    </button>
+                    <div id="vContractMeta" style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.75rem;"></div>
+                    <div id="vContractSignZone">
+                        <label class="v-checkbox" for="vContractCheckbox">
+                            <input type="checkbox" id="vContractCheckbox">
+                            <span>J'ai lu et j'accepte le contrat dans son intégralité</span>
+                        </label>
+                        <button type="button" id="vContractAcceptBtn" class="v-btn v-btn-primary v-btn-block" disabled style="opacity:0.5;margin-top:0.75rem;">
+                            ✍️ Signer le contrat
+                        </button>
+                    </div>
+                    <div id="vContractReadZone" style="display:none;gap:0.5rem;flex-wrap:wrap;justify-content:center;">
+                        <button type="button" id="vContractPrintBtn" class="v-btn v-btn-secondary">🖨️ Imprimer</button>
+                        <button type="button" id="vContractDownloadBtn" class="v-btn v-btn-secondary">⬇️ Télécharger</button>
+                        <button type="button" id="vContractVerifyBtn" class="v-btn v-btn-secondary">🔍 Vérifier l'intégrité</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -413,9 +573,9 @@ function injectModals() {
     document.body.appendChild(root);
 }
 
-// ============================================================
-// T5 — MODALE DE RETRAIT
-// ============================================================
+/* ============================================================
+   T5 — MODALE DE RETRAIT
+   ============================================================ */
 function openWithdrawModal() {
     if (!canRequestWithdrawal()) {
         const virtualAvailable = getVirtualAvailableBalance();
@@ -477,12 +637,10 @@ async function submitWithdrawal() {
 
     errEl.textContent = '';
 
-    // T5 : anti-abus (1 seule demande pending à la fois)
     if (getPendingWithdrawalTotal() > 0) {
         errEl.textContent = 'Vous avez déjà une demande en cours de traitement.';
         return;
     }
-
     if (!Number.isFinite(amount) || amount < CONFIG.VENDOR.MIN_WITHDRAWAL) {
         errEl.textContent = `Minimum : ${CONFIG.VENDOR.MIN_WITHDRAWAL} MAD.`;
         return;
@@ -491,8 +649,6 @@ async function submitWithdrawal() {
         errEl.textContent = `Solde insuffisant (${formatMAD(virtualAvailable)} disponibles).`;
         return;
     }
-
-    // T5 : validation stricte du compte de réception
     if (method === 'Virement bancaire') {
         if (!/^\d{24}$/.test(account)) {
             errEl.textContent = 'RIB invalide (24 chiffres attendus).';
@@ -551,9 +707,9 @@ async function loadWithdrawals() {
     }
 }
 
-// ============================================================
-// T6 — MODALE PRODUIT (Création + Édition)
-// ============================================================
+/* ============================================================
+   T6 — MODALE PRODUIT (Création + Édition)
+   ============================================================ */
 function openProductModal(product = null) {
     const modal = document.getElementById('vProductModal');
     if (!modal) return;
@@ -631,7 +787,6 @@ async function submitProduct() {
         let imgUrl = null;
         let oldImagePath = null;
 
-        // Récupération de l'ancien produit si édition
         if (currentProductIdEditing) {
             const snap = await getDoc(doc(db, "products", currentProductIdEditing));
             if (snap.exists()) {
@@ -644,7 +799,6 @@ async function submitProduct() {
             }
         }
 
-        // Upload nouvelle image si fournie
         if (file) {
             const ts = Date.now();
             const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -652,7 +806,6 @@ async function submitProduct() {
             await uploadBytes(storageRef, file);
             imgUrl = await getDownloadURL(storageRef);
 
-            // Suppression de l'ancienne image si elle existait (édition)
             if (oldImagePath && oldImagePath.startsWith(`vendors/${currentUserUid}/`)) {
                 try { await deleteObject(ref(storage, oldImagePath)); } catch (_) { /* ignore */ }
             }
@@ -661,7 +814,6 @@ async function submitProduct() {
         btn.textContent = '⏳ Enregistrement...';
 
         if (currentProductIdEditing) {
-            // T6 : si seul le stock change, on peut garder le statut.
             const snap = await getDoc(doc(db, "products", currentProductIdEditing));
             const oldData = snap.exists() ? snap.data() : {};
             const isStockOnly = (
@@ -672,14 +824,12 @@ async function submitProduct() {
             );
 
             if (isStockOnly) {
-                // Règle Firestore §8 branche B : stock + updatedAt uniquement
                 await updateDoc(doc(db, "products", currentProductIdEditing), {
                     stock: stock,
                     updatedAt: serverTimestamp()
                 });
                 showToast('✅ Stock mis à jour.');
             } else {
-                // Édition de contenu : retour en validation
                 await updateDoc(doc(db, "products", currentProductIdEditing), {
                     nameFr,
                     nameAr: nameAr || nameFr,
@@ -695,7 +845,6 @@ async function submitProduct() {
                 showToast('✅ Produit mis à jour et renvoyé pour validation.');
             }
         } else {
-            // Création
             const ts = Date.now();
             const slug = generateSlug(nameFr) + '-' + ts.toString(36).slice(-4);
             const productData = {
@@ -708,7 +857,7 @@ async function submitProduct() {
                 basePrice: price,
                 price: price,
                 oldPrice: 0,
-                purchasePrice: 0,      // jamais lu par le vendeur (masqué par admin)
+                purchasePrice: 0,
                 stock: stock,
                 ratingAvg: 0,
                 ratingCount: 0,
@@ -788,49 +937,112 @@ async function deleteVendorProduct(productId) {
     }
 }
 
-// ============================================================
-// MODALE CONTRAT (N7 / N10 / T9)
-// ============================================================
-let _contractTextHash = null;
-let _contractLang = DEFAULT_LANGUAGE;
-let _contractScrollReached = false;
+/* ============================================================
+   MODALE CONTRAT (Signature + Lecture seule)
+   ============================================================ */
 
-async function openContractModal() {
+/* Ouvre la modale pour signer un contrat (modeSignature=true) ou
+   pour consulter un contrat signé (modeSignature=false). */
+async function openContractModal(modeSignature = true) {
     const modal = document.getElementById('vContractModal');
     if (!modal) return;
 
-    const lang = getCurrentLanguage();
-    const text = getContractText(lang);
-    _contractLang = lang;
+    _contractReadOnly = !modeSignature;
+    _contractLang = getCurrentLanguage();
 
-    const textEl = document.getElementById('vContractText');
-    textEl.textContent = text;
-    textEl.setAttribute('lang', lang);
-    textEl.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
-    textEl.scrollTop = 0;
+    if (modeSignature) {
+        /* Capture version + snapshot AU MOMENT DE L'OUVERTURE (déterminisme) */
+        _contractVersion = CONFIG.VENDOR.CONTRACT_VERSION;
+        try {
+            _contractTermsSnapshot = buildTermsSnapshot();
+        } catch (e) {
+            console.error('❌ buildTermsSnapshot impossible :', e);
+            showToast(tr('vendor.contract.loadFailed', 'Impossible de charger le contrat.'));
+            return;
+        }
+        _contractSignatureSource = vendorNeedsResign() ? 'resign' : 'dashboard';
 
-    try {
-        _contractTextHash = await computeContractTextHash(text);
-    } catch (e) {
-        console.error('❌ Hash contrat impossible :', e);
-        showToast('❌ Erreur hash contrat.');
-        return;
+        const text = getContractText(_contractLang, _contractVersion, _contractTermsSnapshot);
+        const textEl = document.getElementById('vContractText');
+        textEl.textContent = text;
+        textEl.setAttribute('lang', _contractLang);
+        textEl.setAttribute('dir', _contractLang === 'ar' ? 'rtl' : 'ltr');
+        textEl.scrollTop = 0;
+
+        try {
+            _contractTextHash = await computeContractTextHash(text);
+        } catch (e) {
+            console.error('❌ Hash contrat impossible :', e);
+            showToast('❌ Erreur hash contrat.');
+            return;
+        }
+
+        _contractScrollReached = false;
+        document.getElementById('vContractCheckbox').checked = false;
+        document.getElementById('vContractAcceptBtn').disabled = true;
+        document.getElementById('vContractAcceptBtn').style.opacity = '0.5';
+        document.getElementById('vContractHint').textContent = "Faites défiler pour lire l'intégralité du contrat.";
+        document.getElementById('vContractHint').style.color = 'var(--text-muted)';
+        document.getElementById('vContractHint').style.display = '';
+        document.getElementById('vContractMeta').textContent =
+            tr('vendor.contract.version', 'Version') + ' : ' + _contractVersion;
+        document.getElementById('vContractSignZone').style.display = '';
+        document.getElementById('vContractReadZone').style.display = 'none';
+    } else {
+        /* Mode lecture : reconstruct from snapshot du contrat existant */
+        const loaded = currentContractDoc || (await loadCurrentContract());
+        if (!loaded || !loaded.data) {
+            showToast(tr('vendor.contract.notFound', 'Aucun contrat signé à afficher.'));
+            return;
+        }
+        currentContractDoc = loaded;
+
+        const data = loaded.data;
+        const lang = (LANGUAGES.includes(data.language) ? data.language : DEFAULT_LANGUAGE);
+        const version = data.version || CONFIG.VENDOR.CONTRACT_VERSION;
+        const snapshot = data.termsSnapshot || null;
+
+        let text;
+        try {
+            text = getContractText(lang, version, snapshot);
+        } catch (e) {
+            console.error('❌ Reconstruction du contrat impossible :', e);
+            showToast(trParams('vendor.contract.verifyFail', { reason: e.message || 'gabarit manquant' },
+                '❌ Intégrité non vérifiable : {reason}'));
+            return;
+        }
+
+        _contractLang = lang;
+        _contractVersion = version;
+        _contractTermsSnapshot = snapshot;
+        _contractTextHash = null;
+
+        const textEl = document.getElementById('vContractText');
+        textEl.textContent = text;
+        textEl.setAttribute('lang', lang);
+        textEl.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
+        textEl.scrollTop = 0;
+
+        const signedDate = formatDate(data.acceptedAt);
+        document.getElementById('vContractHint').style.display = 'none';
+        document.getElementById('vContractMeta').innerHTML =
+            escapeHTML(tr('vendor.contract.version', 'Version')) + ' : <strong>' + escapeHTML(version) + '</strong> · ' +
+            escapeHTML(tr('vendor.contract.language', 'Langue')) + ' : <strong>' + escapeHTML(lang.toUpperCase()) + '</strong> · ' +
+            escapeHTML(trParams('vendor.contract.signedOn', { date: signedDate }, 'Signé le {date}'));
+        document.getElementById('vContractSignZone').style.display = 'none';
+        document.getElementById('vContractReadZone').style.display = 'flex';
     }
-
-    _contractScrollReached = false;
-    document.getElementById('vContractCheckbox').checked = false;
-    document.getElementById('vContractAcceptBtn').disabled = true;
-    document.getElementById('vContractAcceptBtn').style.opacity = '0.5';
-    document.getElementById('vContractHint').textContent = "Faites défiler pour lire l'intégralité du contrat.";
-    document.getElementById('vContractHint').style.color = 'var(--text-muted)';
 
     modal.classList.add('open');
     document.body.style.overflow = 'hidden';
 
-    requestAnimationFrame(() => requestAnimationFrame(() => checkContractScroll()));
+    if (modeSignature) {
+        requestAnimationFrame(() => requestAnimationFrame(() => checkContractScroll()));
+    }
 }
 
 function checkContractScroll() {
+    if (_contractReadOnly) return;
     const textEl = document.getElementById('vContractText');
     if (!textEl) return;
     const sh = textEl.scrollHeight;
@@ -846,6 +1058,7 @@ function checkContractScroll() {
 }
 
 function updateContractAcceptButton() {
+    if (_contractReadOnly) return;
     const btn = document.getElementById('vContractAcceptBtn');
     const cb = document.getElementById('vContractCheckbox');
     const hint = document.getElementById('vContractHint');
@@ -875,26 +1088,34 @@ function closeContractModal() {
     document.body.style.overflow = '';
 }
 
+/* Signature versionnée + transition users atomique + rechargement */
 async function submitContractSignature() {
     const btn = document.getElementById('vContractAcceptBtn');
     if (!btn || btn.disabled) return;
 
-    if (!_contractTextHash) {
-        showToast('❌ Hash contrat manquant.');
+    if (_contractReadOnly) return;
+
+    if (!_contractTextHash || !_contractVersion || !_contractTermsSnapshot) {
+        showToast('❌ Contexte de signature incomplet.');
         return;
     }
 
     btn.disabled = true;
     btn.textContent = '⏳ Signature...';
 
-    const text = getContractText(_contractLang);
-
-    // 1) Créer le document contracts/contract_<uid> (immuable côté règles)
+    let signResult;
     try {
-        await signVendorContract(currentUserUid, text, {
+        const text = getContractText(_contractLang, _contractVersion, _contractTermsSnapshot);
+        signResult = await signVendorContract(currentUserUid, text, {
             textHash: _contractTextHash,
-            language: _contractLang
+            language: _contractLang,
+            version: _contractVersion,
+            termsSnapshot: _contractTermsSnapshot,
+            source: _contractSignatureSource
         });
+        if (!signResult || !signResult.contractId) {
+            throw new Error('signVendorContract : contractId manquant.');
+        }
     } catch (e) {
         console.error('❌ Création contrat échouée :', e);
         showToast('❌ ' + (e.message || 'Erreur lors de la signature.'));
@@ -903,37 +1124,29 @@ async function submitContractSignature() {
         return;
     }
 
-    // 2) Transition users/{uid} — pending → accepted
-    //    ⚠️ Firestore rules v5.1.0 §1 exigent :
-    //       - vendorInfo.contractStatus === 'accepted'
-    //       - vendorInfo.currentContractId (string matches 'contract_.*')
-    //       - exists(contracts/{currentContractId})
-    //       - affectedKeys() ⊆ {contractStatus, currentContractId, updatedAt}
-    //    → On n'écrit PAS `vendorInfo.contractUpdatedAt` (non autorisé).
-    const currentContractId = `contract_${currentUserUid}`;
+    /* C5 : transition users avec contractId + contractVersion */
     try {
         await updateDoc(doc(db, "users", currentUserUid), {
             "vendorInfo.contractStatus": CONTRACT_STATUS.ACCEPTED,
-            "vendorInfo.currentContractId": currentContractId,
+            "vendorInfo.currentContractId": signResult.contractId,
+            "vendorInfo.contractVersion": signResult.version,
             "updatedAt": serverTimestamp()
         });
     } catch (e) {
-        // Le contrat existe, mais la transition user a échoué.
-        // Ne pas faire croire à un succès complet — le vendeur reste `pending`.
         console.error('❌ Transition users/{uid}.vendorInfo.contractStatus échouée :', e);
         showToast(
-            "⚠️ Contrat signé mais statut à finaliser. Contactez le support (ref: contract-transition).",
+            trParams('vendor.banner.contractTransitionFailed', {},
+                "⚠️ Contrat signé mais statut à finaliser. Cliquez sur « Finaliser » sur la bannière."),
             6000
         );
-        // On continue le flow : recharger le profil pour refléter l'état réel.
-        // L'admin pourra approuver manuellement (son handleVendorAction lit contracts/).
         try {
             const reload = await loadVendorData(currentUserUid);
             if (reload.profile) {
                 currentVendor = reload.profile;
                 currentWallet = reload.wallet;
                 updateSidebarUI(currentVendor);
-                renderBanners(buildBanners(currentVendor));
+                const banners = buildBanners(currentVendor);
+                renderBanners(banners);
                 attachBannerActions(createBannerHandlers());
             }
         } catch (_) { /* ignore */ }
@@ -943,7 +1156,7 @@ async function submitContractSignature() {
         return;
     }
 
-    // 3) Succès complet : recharger + afficher
+    /* Succès complet */
     try {
         showToast('✅ Contrat signé avec succès !');
         closeContractModal();
@@ -951,6 +1164,8 @@ async function submitContractSignature() {
         const loaded = await loadVendorData(currentUserUid);
         currentVendor = loaded.profile;
         currentWallet = loaded.wallet;
+
+        currentContractDoc = await loadCurrentContract();
 
         const banners = buildBanners(currentVendor);
         renderBanners(banners);
@@ -965,9 +1180,202 @@ async function submitContractSignature() {
     }
 }
 
-// ============================================================
-// RENDU DES ONGLETS
-// ============================================================
+/* C5-rec : rejoue la transition users → accepted (post-échec inscription) */
+async function retryContractTransition() {
+    if (!currentUserUid) return;
+
+    let loaded = currentContractDoc;
+    if (!loaded) loaded = await loadCurrentContract();
+    if (!loaded || !loaded.data) {
+        showToast(tr('vendor.contract.notFound', 'Aucun contrat signé à afficher.'));
+        return;
+    }
+    currentContractDoc = loaded;
+
+    const version = loaded.data.version || CONFIG.VENDOR.CONTRACT_VERSION;
+
+    try {
+        await updateDoc(doc(db, "users", currentUserUid), {
+            "vendorInfo.contractStatus": CONTRACT_STATUS.ACCEPTED,
+            "vendorInfo.currentContractId": loaded.id,
+            "vendorInfo.contractVersion": version,
+            "updatedAt": serverTimestamp()
+        });
+        showToast(tr('vendor.banner.finalizeSuccess', '✅ Profil synchronisé'));
+    } catch (e) {
+        console.error('❌ retryContractTransition :', e);
+        showToast(tr('vendor.banner.finalizeFail', '❌ Synchronisation échouée. Contactez le support.'));
+        return;
+    }
+
+    try {
+        const reload = await loadVendorData(currentUserUid);
+        if (reload.profile) {
+            currentVendor = reload.profile;
+            currentWallet = reload.wallet;
+            currentContractDoc = await loadCurrentContract();
+            updateSidebarUI(currentVendor);
+            const banners = buildBanners(currentVendor);
+            renderBanners(banners);
+            attachBannerActions(createBannerHandlers());
+            setActiveTab('overview');
+            await renderTab('overview');
+        }
+    } catch (_) { /* ignore */ }
+}
+
+/* ============================================================
+   SECTION « MON CONTRAT » (aperçu)
+   ============================================================ */
+async function renderContractSection() {
+    const vendorInfo = (currentVendor && currentVendor.vendorInfo) || {};
+    const contractStatus = vendorInfo.contractStatus || CONTRACT_STATUS.PENDING;
+
+    if (contractStatus !== CONTRACT_STATUS.ACCEPTED) {
+        return `
+            <div class="v-card">
+                <h3 class="v-card-title">📜 ${escapeHTML(tr('vendor.contract.sectionTitle', 'Mon contrat'))}</h3>
+                <p style="color:var(--text-muted); font-size:0.9rem;">
+                    ${escapeHTML(tr('vendor.contract.statusMissing', '❌ Aucun contrat signé'))}
+                </p>
+                <button type="button" id="vSignContractBtn" class="v-btn v-btn-primary" style="margin-top:0.75rem;">
+                    ✍️ ${escapeHTML(tr('vendor.contract.signNow', 'Signer le contrat'))}
+                </button>
+            </div>
+        `;
+    }
+
+    if (!currentContractDoc) {
+        try {
+            currentContractDoc = await loadCurrentContract();
+        } catch (e) {
+            console.warn('⚠️ loadCurrentContract :', e);
+        }
+    }
+
+    const data = (currentContractDoc && currentContractDoc.data) || {};
+    const version = data.version || vendorInfo.contractVersion || CONFIG.VENDOR.CONTRACT_VERSION;
+    const language = data.language || DEFAULT_LANGUAGE;
+    const signedDate = formatDate(data.acceptedAt);
+    const isUpToDate = !needsResign({ contractVersion: version });
+
+    let statusBadge;
+    if (isUpToDate) {
+        statusBadge = `<span style="display:inline-block;background:var(--success-bg,#e6f6ec);color:var(--success,#0a7a3b);padding:0.15rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">${escapeHTML(tr('vendor.contract.statusUpToDate', '✅ Contrat à jour'))}</span>`;
+    } else {
+        statusBadge = `<span style="display:inline-block;background:var(--warning-bg,#fff3cd);color:var(--warning,#8a6d00);padding:0.15rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">${escapeHTML(tr('vendor.contract.statusOutdated', '⚠️ Contrat obsolète — re-signature requise'))}</span>`;
+    }
+
+    return `
+        <div class="v-card">
+            <h3 class="v-card-title">📜 ${escapeHTML(tr('vendor.contract.sectionTitle', 'Mon contrat'))}</h3>
+            <div style="font-size:0.9rem;color:var(--text);line-height:1.8;">
+                <div>${escapeHTML(tr('vendor.contract.version', 'Version'))} : <strong>${escapeHTML(version)}</strong></div>
+                <div>${escapeHTML(tr('vendor.contract.language', 'Langue'))} : <strong>${escapeHTML(language.toUpperCase())}</strong></div>
+                <div>${escapeHTML(trParams('vendor.contract.signedOn', { date: signedDate }, 'Signé le {date}'))}</div>
+                <div style="margin-top:0.4rem;">${statusBadge}</div>
+            </div>
+            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:1rem;">
+                <button type="button" id="vViewContractBtn" class="v-btn v-btn-secondary">👁️ ${escapeHTML(tr('vendor.contract.view', 'Voir'))}</button>
+                <button type="button" id="vPrintContractBtn" class="v-btn v-btn-secondary">🖨️ ${escapeHTML(tr('vendor.contract.print', 'Imprimer'))}</button>
+                <button type="button" id="vDownloadContractBtn" class="v-btn v-btn-secondary">⬇️ ${escapeHTML(tr('vendor.contract.download', 'Télécharger'))}</button>
+                <button type="button" id="vVerifyContractBtn" class="v-btn v-btn-secondary">🔍 ${escapeHTML(tr('vendor.contract.verify', "Vérifier l'intégrité"))}</button>
+                ${!isUpToDate ? `<button type="button" id="vResignContractBtn" class="v-btn v-btn-primary">✍️ ${escapeHTML(tr('vendor.contract.signNow', 'Signer le contrat'))}</button>` : ''}
+            </div>
+        </div>
+    `;
+}
+
+/* Ouvre la modale contrat en lecture seule */
+async function handleViewContract() {
+    await openContractModal(false);
+}
+
+/* Imprime le contrat courant dans une nouvelle fenêtre */
+async function handlePrintContract() {
+    const loaded = currentContractDoc || (await loadCurrentContract());
+    if (!loaded || !loaded.data) {
+        showToast(tr('vendor.contract.notFound', 'Aucun contrat signé à afficher.'));
+        return;
+    }
+    const data = loaded.data;
+    const lang = LANGUAGES.includes(data.language) ? data.language : DEFAULT_LANGUAGE;
+    const version = data.version || CONFIG.VENDOR.CONTRACT_VERSION;
+    const snapshot = data.termsSnapshot || null;
+    let text;
+    try {
+        text = getContractText(lang, version, snapshot);
+    } catch (e) {
+        showToast('❌ ' + (e.message || 'Contrat non reconstructible.'));
+        return;
+    }
+    const w = window.open('', '_blank');
+    if (!w) { showToast('❌ Popup bloquée. Autorisez les popups.'); return; }
+    const safe = escapeHTML(text).replace(/\n/g, '<br>');
+    w.document.write(`<!doctype html><html lang="${escapeHTML(lang)}" dir="${lang === 'ar' ? 'rtl' : 'ltr'}"><head><meta charset="utf-8"><title>Contrat ${escapeHTML(version)}</title><style>body{font-family:Georgia,serif;max-width:820px;margin:2rem auto;padding:1rem;line-height:1.7;color:#222;}footer{margin-top:2rem;padding-top:1rem;border-top:1px solid #ccc;font-size:0.75rem;color:#666;}pre{white-space:pre-wrap;font-family:inherit;}</style></head><body><pre>${safe}</pre><footer>textHash: ${escapeHTML(data.textHash || '—')}<br>contractHash: ${escapeHTML(data.contractHash || '—')}<br>${escapeHTML(trParams('vendor.contract.signedOn', { date: formatDate(data.acceptedAt) }, 'Signé le {date}'))}</footer></body></html>`);
+    w.document.close();
+    w.focus();
+    setTimeout(() => { try { w.print(); } catch (_) { /* ignore */ } }, 250);
+}
+
+/* Télécharge le contrat en .txt avec les hash en pied */
+async function handleDownloadContract() {
+    const loaded = currentContractDoc || (await loadCurrentContract());
+    if (!loaded || !loaded.data) {
+        showToast(tr('vendor.contract.notFound', 'Aucun contrat signé à afficher.'));
+        return;
+    }
+    const data = loaded.data;
+    const lang = LANGUAGES.includes(data.language) ? data.language : DEFAULT_LANGUAGE;
+    const version = data.version || CONFIG.VENDOR.CONTRACT_VERSION;
+    const snapshot = data.termsSnapshot || null;
+    let text;
+    try {
+        text = getContractText(lang, version, snapshot);
+    } catch (e) {
+        showToast('❌ ' + (e.message || 'Contrat non reconstructible.'));
+        return;
+    }
+    const footer = [
+        '',
+        '—'.repeat(40),
+        'Version : ' + version,
+        'Langue : ' + lang,
+        'Signé le : ' + formatDate(data.acceptedAt),
+        'textHash : ' + (data.textHash || '—'),
+        'contractHash : ' + (data.contractHash || '—')
+    ].join('\n');
+    const blob = new Blob([text + footer], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `contrat-smartswi9a-v${version}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+/* Vérifie l'intégrité via verifyContractIntegrity (déjà importé) */
+async function handleVerifyContract() {
+    const loaded = currentContractDoc || (await loadCurrentContract());
+    if (!loaded || !loaded.data) {
+        showToast(tr('vendor.contract.notFound', 'Aucun contrat signé à afficher.'));
+        return;
+    }
+    showToast(tr('vendor.contract.verifyRunning', '⏳ Vérification...'));
+    const result = await verifyContractIntegrity(loaded.data);
+    if (result.ok) {
+        showToast(tr('vendor.contract.verifyOk', '✅ Intégrité vérifiée'));
+    } else {
+        showToast(trParams('vendor.contract.verifyFail', { reason: result.reason || 'inconnue' },
+            '❌ Intégrité non vérifiable : {reason}'), 6000);
+    }
+}
+
+/* ============================================================
+   RENDU DES ONGLETS
+   ============================================================ */
 function renderEmptyState(icon, title, desc, actionHtml = '') {
     return `
         <div class="v-empty">
@@ -984,6 +1392,8 @@ async function renderOverview(container) {
     const pending = formatMAD(currentWallet && currentWallet.pendingBalance);
     const totalEarnings = formatMAD(currentWallet && currentWallet.totalEarnings);
     const totalWithdrawn = formatMAD(currentWallet && currentWallet.totalWithdrawn);
+
+    const contractSectionHtml = await renderContractSection();
 
     container.innerHTML = `
         <div class="v-kpi-grid">
@@ -1010,7 +1420,16 @@ async function renderOverview(container) {
                 ${escapeHTML(tr('vendor.overview.welcomeDesc', 'Utilisez le menu pour gérer vos produits, commandes, wallet et stock.'))}
             </p>
         </div>
+        ${contractSectionHtml}
     `;
+
+    /* Attache les listeners de la section contrat */
+    document.getElementById('vSignContractBtn')?.addEventListener('click', () => openContractModal(true));
+    document.getElementById('vViewContractBtn')?.addEventListener('click', handleViewContract);
+    document.getElementById('vPrintContractBtn')?.addEventListener('click', handlePrintContract);
+    document.getElementById('vDownloadContractBtn')?.addEventListener('click', handleDownloadContract);
+    document.getElementById('vVerifyContractBtn')?.addEventListener('click', handleVerifyContract);
+    document.getElementById('vResignContractBtn')?.addEventListener('click', () => openContractModal(true));
 }
 
 async function renderProducts(container) {
@@ -1137,8 +1556,6 @@ async function renderOrders(container) {
         const myItems = (o.items || []).filter(it => String(it.vendorId) === String(currentUserUid));
         const myGross = myItems.reduce((s, i) => s + (Number(i.price) || 0) * (Number(i.quantity) || 0), 0);
 
-        // T7 : calcul commission/net via orders.js (clampée MIN/MAX, cohérente
-        // avec le crédit réel effectué par creditVendorWallet).
         let commissionInfo;
         try {
             const vendorForCommission = {
@@ -1301,9 +1718,9 @@ async function renderTab(tabName) {
     }
 }
 
-// ============================================================
-// NAVIGATION
-// ============================================================
+/* ============================================================
+   NAVIGATION
+   ============================================================ */
 const TAB_I18N_KEYS = {
     overview: 'vendor.page.overview',
     products: 'vendor.nav.products',
@@ -1382,9 +1799,9 @@ function setupNavigation() {
     }
 }
 
-// ============================================================
-// BANNIÈRES — Handlers
-// ============================================================
+/* ============================================================
+   BANNIÈRES — Handlers
+   ============================================================ */
 function createBannerHandlers() {
     return {
         resendVerify: async () => {
@@ -1392,16 +1809,19 @@ function createBannerHandlers() {
             if (ok) showToast(tr('vendor.banner.emailResent', '📧 Email renvoyé'));
         },
         resignContract: async () => {
-            await openContractModal();
+            await openContractModal(true);
+        },
+        retryTransition: async () => {
+            await retryContractTransition();
         }
     };
 }
 
-// ============================================================
-// ATTACHE LES LISTENERS DES MODALES
-// ============================================================
+/* ============================================================
+   ATTACHE LES LISTENERS DES MODALES
+   ============================================================ */
 function attachModalListeners() {
-    // Retrait
+    /* Retrait */
     document.getElementById('closeWithdrawModal')?.addEventListener('click', closeWithdrawModal);
     document.getElementById('vWithdrawModal')?.addEventListener('click', (e) => {
         if (e.target.id === 'vWithdrawModal') closeWithdrawModal();
@@ -1409,7 +1829,7 @@ function attachModalListeners() {
     document.getElementById('vWithdrawSubmitBtn')?.addEventListener('click', submitWithdrawal);
     document.getElementById('vWithdrawMethod')?.addEventListener('change', handleWithdrawMethodChange);
 
-    // Produit
+    /* Produit */
     document.getElementById('closeProductModal')?.addEventListener('click', closeProductModal);
     document.getElementById('vProductModal')?.addEventListener('click', (e) => {
         if (e.target.id === 'vProductModal') closeProductModal();
@@ -1431,7 +1851,7 @@ function attachModalListeners() {
         }
     });
 
-    // Contrat
+    /* Contrat */
     document.getElementById('closeContractModal')?.addEventListener('click', closeContractModal);
     document.getElementById('vContractModal')?.addEventListener('click', (e) => {
         if (e.target.id === 'vContractModal') closeContractModal();
@@ -1439,15 +1859,18 @@ function attachModalListeners() {
     document.getElementById('vContractText')?.addEventListener('scroll', checkContractScroll, { passive: true });
     document.getElementById('vContractCheckbox')?.addEventListener('change', updateContractAcceptButton);
     document.getElementById('vContractAcceptBtn')?.addEventListener('click', submitContractSignature);
+    document.getElementById('vContractPrintBtn')?.addEventListener('click', handlePrintContract);
+    document.getElementById('vContractDownloadBtn')?.addEventListener('click', handleDownloadContract);
+    document.getElementById('vContractVerifyBtn')?.addEventListener('click', handleVerifyContract);
     window.addEventListener('resize', () => {
         const modal = document.getElementById('vContractModal');
-        if (modal && modal.classList.contains('open')) checkContractScroll();
+        if (modal && modal.classList.contains('open') && !_contractReadOnly) checkContractScroll();
     });
 }
 
-// ============================================================
-// INITIALISATION
-// ============================================================
+/* ============================================================
+   INITIALISATION
+   ============================================================ */
 document.addEventListener('DOMContentLoaded', async () => {
     applyLanguageDirection();
 
@@ -1460,7 +1883,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const user = getCurrentUser();
     if (!user || !user.uid) {
-        console.log('⛔ Non connecté — redirection');
         window.location.href = '/';
         return;
     }
@@ -1477,13 +1899,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     if (!loaded || !loaded.profile) {
-        console.warn('⛔ Profil vendeur introuvable');
         window.location.href = '/';
         return;
     }
 
     currentVendor = loaded.profile;
     currentWallet = loaded.wallet;
+
+    /* Charge le contrat courant en amont (utile pour l'aperçu) */
+    try { currentContractDoc = await loadCurrentContract(); } catch (_) { currentContractDoc = null; }
 
     injectModals();
     attachModalListeners();
