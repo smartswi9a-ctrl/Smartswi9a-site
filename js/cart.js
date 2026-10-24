@@ -1,15 +1,35 @@
-// js/cart.js
-// ============================================================
-// PANIER ET COMMANDES - SMART SWI9A
-// Version 3.8.0 — Marketplace (T3 : correctifs T2-bis, robustesse)
-// Changements Session 3 :
-//   - updateCartQuantity : retrait propre si produit supprimé
-//   - Commentaires sur la dépendance aux règles Firestore T2-bis :
-//       §8 products : allowed keys = ['stock', 'salesCount', 'variants']
-//       §9 orders   : allowed keys annulation = ['status', 'cancelledAt',
-//                      'updatedAt', 'stockDeducted', 'couponRestored']
-//   - Aucune autre modification fonctionnelle.
-// ============================================================
+/* ============================================================
+   js/cart.js
+   Panier et commandes - Smart Swi9a
+   Version 3.9.0 — Marketplace (T4-bis / T7-partiel)
+
+   Correctifs Session 4 (T4-bis) :
+     - B-cart-1 (P2) : createOrder refuse unitPrice <= 0.
+     - B-cart-2 (P1) : createOrder vérifie data.status !== 'approved'
+                       pour TOUS les produits (Smart Swi9a inclus).
+     - B-cart-3 (P1) : addToCart refuse un produit vendeur dont le
+                       statut n'est pas 'approved'.
+     - B-cart-4 (P1) : createOrder vérifie vendorsPublic/{vid}.status
+                       === 'approved' pour chaque vendeur unique
+                       (attrape le cas « vendeur suspendu, produits
+                       restés approved »).
+     - B-cart-5 (P2) : coupon_uses.set(..., { merge: true }) + orderId
+                       pour ne pas écraser l'historique.
+     - R7 : vérifié que createOrder recalcule les prix depuis
+            products.price / variants[i].price (source de vérité).
+     - ALERTE 1 : plus aucun // en début de ligne utile.
+
+   Dépendances Firestore Rules (v5.2.0) :
+     §8 products : allowed keys client = ['stock', 'salesCount', 'variants']
+     §9 orders   : create autorisé propriétaire, allowed keys annulation
+                   = ['status', 'cancelledAt', 'updatedAt',
+                      'stockDeducted', 'couponRestored']
+
+   Note T7 (décision à valider) :
+     orders/{orderId} reste lisible par les vendeurs via vendorIds.
+     Création d'une collection vendorOrders/{orderId}_{vendorId} :
+     NON faite ici (décision produit à confirmer).
+   ============================================================ */
 
 import {
     collection, doc, getDoc, getDocs, setDoc, runTransaction,
@@ -27,33 +47,33 @@ import {
 import { getCurrentUser } from "./auth.js";
 import { showToast, confirmAction } from "./ui-core.js";
 
-// ============================================================
-// NORMALISATION D'ID PRODUIT
-// - "42" (chaîne numérique) → 42 (Number)
-// - "abc123" (auto-ID Firestore vendeur) → "abc123" (String)
-// - null/undefined/"" → null
-// Identique à products.js / reviews.js / product-detail.js / panier.js
-// ============================================================
+/* ============================================================
+   NORMALISATION D'ID PRODUIT
+   - "42" (chaîne numérique) -> 42 (Number)
+   - "abc123" (auto-ID Firestore vendeur) -> "abc123" (String)
+   - null/undefined/"" -> null
+   Identique à products.js / reviews.js / product-detail.js / panier.js
+   ============================================================ */
 function normalizeProductId(id) {
     if (id == null || id === '') return null;
     const n = Number(id);
     return Number.isFinite(n) && String(n) === String(id) ? n : String(id);
 }
 
-// ============================================================
-// ÉTAT LOCAL DU PANIER
-// ============================================================
+/* ============================================================
+   ÉTAT LOCAL DU PANIER
+   ============================================================ */
 let cart = [];
 
-// ============================================================
-// ÉTAT DE SYNC FIRESTORE
-// ============================================================
+/* ============================================================
+   ÉTAT DE SYNC FIRESTORE
+   ============================================================ */
 let firestoreSaveTimeout = null;
 let isSyncing = false;
 
-// ============================================================
-// HELPER : Clé de stockage par utilisateur
-// ============================================================
+/* ============================================================
+   HELPER : Clé de stockage par utilisateur
+   ============================================================ */
 function getCartStorageKey() {
     const user = getCurrentUser();
     return user?.uid
@@ -61,9 +81,9 @@ function getCartStorageKey() {
         : CONFIG.STORAGE_KEYS.CART;
 }
 
-// ============================================================
-// HELPER : Générer un ID unique (Delimiter "::")
-// ============================================================
+/* ============================================================
+   HELPER : Générer un ID unique (Delimiter "::")
+   ============================================================ */
 function generateItemId(productId, variant) {
     if (!variant) return String(productId);
     const size = encodeURIComponent(String(variant.size || ''));
@@ -71,9 +91,9 @@ function generateItemId(productId, variant) {
     return `${productId}::${size}::${color}`;
 }
 
-// ============================================================
-// CHARGER LE PANIER (patch A : IDs vendeurs préservés)
-// ============================================================
+/* ============================================================
+   CHARGER LE PANIER (IDs vendeurs préservés)
+   ============================================================ */
 export function loadCart() {
     try {
         const data = safeGetItem(getCartStorageKey());
@@ -105,9 +125,9 @@ export function loadCart() {
     updateCartBadge();
 }
 
-// ============================================================
-// SAUVEGARDER LE PANIER
-// ============================================================
+/* ============================================================
+   SAUVEGARDER LE PANIER
+   ============================================================ */
 export function saveCart() {
     safeSetItem(getCartStorageKey(), cart);
     setCart(cart);
@@ -117,9 +137,9 @@ export function saveCart() {
     scheduleFirestoreSave();
 }
 
-// ============================================================
-// VIDER LE PANIER LOCAL
-// ============================================================
+/* ============================================================
+   VIDER LE PANIER LOCAL
+   ============================================================ */
 function clearLocalCart() {
     cart = [];
     safeSetItem(getCartStorageKey(), cart);
@@ -129,9 +149,9 @@ function clearLocalCart() {
     document.dispatchEvent(new CustomEvent('cart-updated'));
 }
 
-// ============================================================
-// FIRESTORE SYNC
-// ============================================================
+/* ============================================================
+   FIRESTORE SYNC
+   ============================================================ */
 async function saveCartToFirestoreImmediate() {
     if (firestoreSaveTimeout) clearTimeout(firestoreSaveTimeout);
     await saveCartToFirestore();
@@ -170,9 +190,9 @@ async function loadCartFromFirestore() {
     }
 }
 
-// ============================================================
-// FUSION PANIER LOCAL + FIRESTORE (patch C)
-// ============================================================
+/* ============================================================
+   FUSION PANIER LOCAL + FIRESTORE
+   ============================================================ */
 function mergeCarts(localCart, firestoreCart) {
     const merged = [...localCart];
     const products = getProducts();
@@ -183,7 +203,6 @@ function mergeCarts(localCart, firestoreCart) {
         let qty = Number(fi.quantity) || 0;
         if (qty < 1) return;
 
-        // Comparaison par String → compatible Number + String
         const p = products.find(pp => String(pp.id) === String(fi.productId));
         if (p) {
             let maxStock = Number(p.stock) || 0;
@@ -240,9 +259,9 @@ function scheduleFirestoreSave() {
     firestoreSaveTimeout = setTimeout(() => { saveCartToFirestore(); firestoreSaveTimeout = null; }, 1000);
 }
 
-// ============================================================
-// LISTENERS
-// ============================================================
+/* ============================================================
+   LISTENERS
+   ============================================================ */
 if (typeof document !== 'undefined') {
     document.addEventListener('auth-updated', async (e) => {
         const user = e.detail?.user;
@@ -268,9 +287,9 @@ if (typeof window !== 'undefined') {
     });
 }
 
-// ============================================================
-// BADGE
-// ============================================================
+/* ============================================================
+   BADGE
+   ============================================================ */
 export function updateCartBadge() {
     const badge = document.getElementById('cartBadge');
     const count = cart.reduce((sum, item) => sum + (item.quantity || 0), 0);
@@ -280,9 +299,10 @@ export function updateCartBadge() {
     }
 }
 
-// ============================================================
-// AJOUTER AU PANIER (patch B)
-// ============================================================
+/* ============================================================
+   AJOUTER AU PANIER
+   B-cart-3 : refuse les produits vendeurs non 'approved'.
+   ============================================================ */
 export async function addToCart(productId, variant = null) {
     const user = getCurrentUser();
     if (!user) {
@@ -291,7 +311,6 @@ export async function addToCart(productId, variant = null) {
         return;
     }
 
-    // Accepter Number OU String, normaliser
     const pid = normalizeProductId(productId);
     if (pid == null) { showToast('⚠️ ' + t('productNotFound')); return; }
 
@@ -299,6 +318,24 @@ export async function addToCart(productId, variant = null) {
     const product = products.find(p => String(p.id) === String(pid));
 
     if (!product) { showToast('⚠️ ' + t('productNotFound')); return; }
+
+    /* B-cart-3 : refus si produit non 'approved' (vendeur suspendu/rejeté,
+       pending_admin_approval). Produits Smart Swi9a legacy (sans status) : OK. */
+    const isVendor = product.vendorId && product.vendorId !== 'smartswi9a';
+    if (isVendor) {
+        const ps = product.status;
+        if (ps && ps !== 'approved') {
+            showToast('❌ Ce produit n\'est pas disponible à la vente');
+            return;
+        }
+    } else {
+        /* Smart Swi9a : si status présent et non 'approved', bloquer aussi */
+        const ps = product.status;
+        if (ps && ps !== 'approved') {
+            showToast('❌ Ce produit n\'est pas disponible à la vente');
+            return;
+        }
+    }
 
     const hasVariants = product.variants && product.variants.length > 0;
     if (hasVariants && !variant) {
@@ -342,9 +379,9 @@ export async function addToCart(productId, variant = null) {
     showToast('✅ ' + t('addedToCart'));
 }
 
-// ============================================================
-// RETIRER / VIDER / QUANTITÉ (patch C pour updateCartQuantity)
-// ============================================================
+/* ============================================================
+   RETIRER / VIDER / QUANTITÉ
+   ============================================================ */
 export function removeFromCart(itemId) {
     cart = cart.filter(i => i.id !== itemId);
     saveCart();
@@ -365,11 +402,9 @@ export function updateCartQuantity(itemId, quantity) {
     if (!item) return;
 
     const products = getProducts();
-    // Comparaison par String (patch C)
     const product = products.find(p => String(p.id) === String(item.productId));
 
-    // T3 : si le produit a disparu du catalogue, retrait propre
-    // (évite les quantités fantômes qui échoueront au checkout)
+    /* Si le produit a disparu du catalogue, retrait propre */
     if (!product) {
         cart = cart.filter(i => i.id !== itemId);
         saveCart();
@@ -402,9 +437,9 @@ export function updateCartQuantity(itemId, quantity) {
     saveCart();
 }
 
-// ============================================================
-// CALCULS DU PANIER (patch C)
-// ============================================================
+/* ============================================================
+   CALCULS DU PANIER
+   ============================================================ */
 export function getCartSubtotal() {
     const products = getProducts();
     return cart.reduce((sum, item) => {
@@ -452,9 +487,9 @@ export function getCartTotal(appliedCoupon = null) {
     return Math.max(0, subtotal - totalDiscount + deliveryFee);
 }
 
-// ============================================================
-// REVALIDATION DES PRIX (patch C)
-// ============================================================
+/* ============================================================
+   REVALIDATION DES PRIX
+   ============================================================ */
 export function revalidateCartPrices() {
     const products = getProducts();
     let changed = false;
@@ -491,9 +526,9 @@ export function revalidateCartPrices() {
     return changes;
 }
 
-// ============================================================
-// CALCUL COUPON
-// ============================================================
+/* ============================================================
+   CALCUL COUPON
+   ============================================================ */
 export function calculateCouponDiscount(coupon, subtotal, deliveryFee) {
     if (!coupon) return 0;
     const type = coupon.type;
@@ -505,9 +540,9 @@ export function calculateCouponDiscount(coupon, subtotal, deliveryFee) {
     return 0;
 }
 
-// ============================================================
-// CHECKOUT — Ouvre une fenêtre immédiatement (Fix Mobile)
-// ============================================================
+/* ============================================================
+   CHECKOUT — Ouvre une fenêtre immédiatement (mobile)
+   ============================================================ */
 export async function checkout(cartItems, deliveryInfo, appliedCoupon = null, waWindow = null) {
     if (!cartItems || cartItems.length === 0) {
         showToast('⚠️ ' + t('cartEmpty'));
@@ -593,15 +628,14 @@ export async function checkout(cartItems, deliveryInfo, appliedCoupon = null, wa
     return { success: true, orderId, redirected: true };
 }
 
-// ============================================================
-// CRÉATION DE COMMANDE (N5 : vendorId par item + vendorIds)
-//
-// ⚠️ Dépendance Firestore Rules (T2-bis) :
-//    L'update produit en transaction DOIT être autorisé pour
-//    les clés ['stock', 'salesCount', 'variants'] (voir firestore.rules §8).
-//    Sans cette règle, toute commande contenant un produit à variante
-//    échoue avec permission-denied.
-// ============================================================
+/* ============================================================
+   CRÉATION DE COMMANDE (T4-bis : B-cart-1, B-cart-2, B-cart-4, B-cart-5)
+
+   Dépendance Firestore Rules (v5.2.0) :
+     §8 products — update client autorisé pour
+        ['stock', 'salesCount', 'variants'] uniquement.
+     §9 orders  — create par propriétaire uniquement.
+   ============================================================ */
 export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
     const user = getCurrentUser();
     if (!user) return { success: false, error: 'NO_USER' };
@@ -617,6 +651,42 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
             const productRefs = items.map(item => doc(db, "products", String(item.productId)));
             const productSnaps = await Promise.all(productRefs.map(ref => transaction.get(ref)));
 
+            /* ---- B-cart-2 : vérifier data.status pour TOUS les produits ---- */
+            productSnaps.forEach((snap, i) => {
+                if (!snap.exists()) {
+                    throw new Error(`Produit ${items[i].productId} introuvable`);
+                }
+                const data = snap.data();
+                /* Legacy : pas de status = OK. Présent et != 'approved' = refus. */
+                if (data.status && data.status !== 'approved') {
+                    throw new Error(`Le produit "${data.nameFr || data.nameEn || 'inconnu'}" n'est plus disponible (${data.status}).`);
+                }
+            });
+
+            /* ---- B-cart-4 : vérifier vendorsPublic pour chaque vendeur unique ---- */
+            const uniqueVendorIds = new Set();
+            productSnaps.forEach(snap => {
+                const data = snap.data();
+                const vid = String(data.vendorId || 'smartswi9a');
+                if (vid !== 'smartswi9a') uniqueVendorIds.add(vid);
+            });
+            if (uniqueVendorIds.size > 0) {
+                const vendorArr = Array.from(uniqueVendorIds);
+                const vendorSnaps = await Promise.all(
+                    vendorArr.map(vid => transaction.get(doc(db, "vendorsPublic", vid)))
+                );
+                vendorSnaps.forEach((vs, idx) => {
+                    const vid = vendorArr[idx];
+                    if (!vs.exists()) {
+                        throw new Error(`Le vendeur "${String(vid).slice(0, 8)}…" est introuvable.`);
+                    }
+                    if (vs.data().status !== 'approved') {
+                        throw new Error(`Le vendeur "${String(vs.data().shopName || vid).slice(0, 40)}" n'est pas actif.`);
+                    }
+                });
+            }
+
+            /* ---- City + coupon reads ---- */
             let citySnap = null;
             if (deliveryInfo.cityId) {
                 const cityRef = doc(db, "cities", String(deliveryInfo.cityId));
@@ -637,23 +707,16 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                 }
             }
 
+            /* ---- Calcul subtotal + items validés ---- */
             let subtotal = 0;
             let discountableItems = 0;
             const validatedItems = [];
             const productUpdates = [];
 
             productSnaps.forEach((snap, i) => {
-                if (!snap.exists()) throw new Error(`Produit ${items[i].productId} introuvable`);
                 const data = snap.data();
                 const qty = Math.max(1, Math.floor(Number(items[i].quantity) || 1));
-
-                // N5-j : bloquer les produits vendeurs non approuvés
                 const productVendorId = String(data.vendorId || 'smartswi9a');
-                if (productVendorId !== 'smartswi9a') {
-                    if (data.status && data.status !== 'approved') {
-                        throw new Error(`Le produit "${data.nameFr || data.nameEn || 'inconnu'}" n'est plus disponible (vendeur suspendu ou produit retiré).`);
-                    }
-                }
 
                 let availableStock = 0;
                 let unitPrice = Number(data.price) || 0;
@@ -666,12 +729,12 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
 
                     const variants = [...(data.variants || [])];
                     availableStock = Number(variants[vIdx].stock) || 0;
-                    unitPrice = Number(variants[vIdx].price) || unitPrice;
+                    const variantPrice = Number(variants[vIdx].price);
+                    unitPrice = Number.isFinite(variantPrice) && variantPrice > 0 ? variantPrice : unitPrice;
 
                     if (availableStock < qty) throw new Error(`Stock insuffisant pour ${data.nameFr} (${itemVariant.size}/${itemVariant.color})`);
 
                     variants[vIdx].stock = Math.max(0, availableStock - qty);
-                    // `variants` doit être autorisé par les règles Firestore T2-bis.
                     updateData.variants = variants;
                     updateData.stock = variants.reduce((s, v) => s + (Number(v.stock) || 0), 0);
                 } else {
@@ -680,12 +743,16 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                     updateData.stock = Math.max(0, availableStock - qty);
                 }
 
+                /* B-cart-1 : refuser un prix <= 0 */
+                if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
+                    throw new Error(`Prix invalide pour ${data.nameFr || 'ce produit'}.`);
+                }
+
                 productUpdates.push({ ref: productRefs[i], data: updateData });
 
                 subtotal += unitPrice * qty;
                 discountableItems += qty;
 
-                // N5-h : conserver vendorId sur chaque item
                 validatedItems.push({
                     id: String(items[i].id),
                     productId: String(items[i].productId),
@@ -698,6 +765,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                 });
             });
 
+            /* ---- City data ---- */
             let cityData = null;
             if (citySnap && citySnap.exists()) {
                 cityData = citySnap.data();
@@ -739,7 +807,6 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
             const orderRef = doc(collection(db, "orders"));
             const cancellableUntil = new Date(Date.now() + CONFIG.ORDERS.CANCELLABLE_HOURS * 3600 * 1000);
 
-            // N5-i : dédupliquer les vendorIds (hors 'smartswi9a')
             const vendorIdsSet = new Set();
             validatedItems.forEach(it => {
                 if (it.vendorId && it.vendorId !== 'smartswi9a') {
@@ -805,6 +872,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
 
             if (couponData) {
                 transaction.update(doc(db, "coupons", appliedCoupon.id), { usedCount: increment(1) });
+                /* B-cart-5 : merge:true pour ne pas écraser l'historique + orderId */
                 transaction.set(doc(db, "coupon_uses", `${appliedCoupon.id}_${user.uid}`), {
                     _test: testMode,
                     _testBatch: testBatchId,
@@ -814,7 +882,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                     orderId: String(orderRef.id),
                     discountApplied: Number(couponDiscount) || 0,
                     usedAt: Timestamp.now()
-                });
+                }, { merge: true });
             }
 
             transaction.set(notifRef, notifData);
@@ -841,9 +909,9 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
     }
 }
 
-// ============================================================
-// MESSAGE WHATSAPP
-// ============================================================
+/* ============================================================
+   MESSAGE WHATSAPP
+   ============================================================ */
 function buildWhatsAppMessage(validatedItems, deliveryInfo, orderId, totals) {
     const productList = validatedItems.map(item => {
         const variantText = item.variant ? ` (${[item.variant.size, item.variant.color].filter(Boolean).join(' - ')})` : '';
@@ -863,9 +931,9 @@ function buildWhatsAppMessage(validatedItems, deliveryInfo, orderId, totals) {
     return msg;
 }
 
-// ============================================================
-// CHARGER LES COMMANDES DU CLIENT
-// ============================================================
+/* ============================================================
+   CHARGER LES COMMANDES DU CLIENT
+   ============================================================ */
 export async function loadUserOrders() {
     const user = getCurrentUser();
     if (!user) return [];
@@ -885,15 +953,14 @@ export async function loadUserOrders() {
     } catch (e) { return []; }
 }
 
-// ============================================================
-// ANNULER UNE COMMANDE
-//
-// ⚠️ Dépendance Firestore Rules (T2-bis) :
-//    L'update orders doit être autorisé pour les clés
-//    ['status', 'cancelledAt', 'updatedAt', 'stockDeducted', 'couponRestored']
-//    dans la branche propriétaire (voir firestore.rules §9).
-//    Sans cette règle, toute annulation client échoue.
-// ============================================================
+/* ============================================================
+   ANNULER UNE COMMANDE
+
+   Dépendance Firestore Rules (v5.2.0) :
+     §9 orders — update propriétaire autorisé pour
+        ['status', 'cancelledAt', 'updatedAt',
+         'stockDeducted', 'couponRestored'].
+   ============================================================ */
 export async function cancelOrder(orderId) {
     const user = getCurrentUser();
     if (!user) return { success: false, error: 'NO_USER' };
@@ -964,9 +1031,9 @@ export async function cancelOrder(orderId) {
     }
 }
 
-// ============================================================
-// PANIER ABANDONNÉ
-// ============================================================
+/* ============================================================
+   PANIER ABANDONNÉ
+   ============================================================ */
 function saveAbandonedCart(items) {
     if (items.length > 0) safeSetItem(CONFIG.STORAGE_KEYS.ABANDONED_CART, { items, timestamp: Date.now() });
     else safeRemoveItem(CONFIG.STORAGE_KEYS.ABANDONED_CART);
@@ -981,7 +1048,7 @@ export function checkAbandonedCart() {
     } catch (e) { return null; }
 }
 
-// ============================================================
-// LOG
-// ============================================================
-console.log('✅ cart.js chargé — v3.8.0 (Marketplace T3, dépend T2-bis)');
+/* ============================================================
+   LOG
+   ============================================================ */
+console.log('✅ cart.js chargé — v3.9.0 (T4-bis : R7 vérifié, B-cart-1..5, pre-check vendorsPublic)');
