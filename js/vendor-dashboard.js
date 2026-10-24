@@ -1,12 +1,17 @@
 // js/vendor-dashboard.js
 // ============================================================
 // LOGIQUE DU DASHBOARD VENDEUR - SMART SWI9A
-// Version 2.0.1 — N6/N7/N8 + module contrat partagé (N10)
+// Version 3.0.0 — Session 3 (T5 + T6 + T7)
+// Correctifs :
+//   - T5 : anti-abus retraits (1 pending max, solde virtuel), validation RIB/phone
+//   - T6 : édition produit (retour en validation), validation 2 MB, motif de refus
+//   - T7 : requête orders (array-contains + orderBy + pagination), calcul commission/net
 // ============================================================
 
 import {
     doc, getDoc, collection, query, where, getDocs, limit,
-    addDoc, serverTimestamp, updateDoc, deleteDoc
+    addDoc, serverTimestamp, updateDoc, deleteDoc,
+    orderBy, startAfter, Timestamp
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { db, storage } from "./firebase.js";
@@ -23,11 +28,15 @@ import {
     VENDOR_STATUS,
     CONTRACT_STATUS,
     LANGUAGES,
-    DEFAULT_LANGUAGE
+    DEFAULT_LANGUAGE,
+    PRODUCT_STATUS,
+    VENDOR_ORDER_STATUS
 } from "./config.js";
 import { showToast, confirmAction } from "./ui-core.js";
 import { signVendorContract, computeContractTextHash } from "./vendor-contract.js";
 import { getContractText } from "./vendor-contract-text.js";
+import { getOrderVendorBreakdown, calculateVendorCommission, getOrderVendorBreakdown as _getBreakdown } from "./orders.js";
+import { calculateVendorCommission as _calcCommission } from "./config.js";
 
 // ============================================================
 // ÉTAT MODULE
@@ -39,6 +48,10 @@ let authBound = false;
 let cachedWithdrawals = [];
 let cachedProducts = [];
 let cachedOrders = [];
+let currentProductIdEditing = null; // null = création, sinon édition
+let ordersLastDoc = null;
+let ordersHasMore = false;
+let ordersLoading = false;
 
 // ============================================================
 // HELPERS
@@ -95,6 +108,18 @@ function applyLanguageDirection() {
     document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
 }
 
+function translateStatus(status) {
+    const map = {
+        'pending': tr('orderStatusPending', 'En attente'),
+        'confirmed': tr('orderStatusConfirmed', 'Confirmée'),
+        'shipping': tr('orderStatusShipping', 'En livraison'),
+        'delivered': tr('orderStatusDelivered', 'Livrée'),
+        'returned': tr('orderStatusReturned', 'Retournée'),
+        'cancelled': tr('orderStatusCancelled', 'Annulée')
+    };
+    return map[status] || status;
+}
+
 // ============================================================
 // ÉTAT DÉRIVÉ
 // ============================================================
@@ -108,11 +133,19 @@ function isVendorApproved() {
     return getVendorStatus() === VENDOR_STATUS.APPROVED
         && getContractStatus() === CONTRACT_STATUS.ACCEPTED;
 }
+function getPendingWithdrawalTotal() {
+    return cachedWithdrawals
+        .filter(w => w.status === 'pending')
+        .reduce((sum, w) => sum + (Number(w.amount) || 0), 0);
+}
+function getVirtualAvailableBalance() {
+    const available = Number(currentWallet?.availableBalance) || 0;
+    return Math.max(0, available - getPendingWithdrawalTotal());
+}
 function canRequestWithdrawal() {
     if (!isVendorApproved()) return false;
     if (!currentWallet) return false;
-    const available = Number(currentWallet.availableBalance) || 0;
-    return available >= CONFIG.VENDOR.MIN_WITHDRAWAL;
+    return getVirtualAvailableBalance() >= CONFIG.VENDOR.MIN_WITHDRAWAL;
 }
 
 // ============================================================
@@ -262,7 +295,7 @@ async function loadVendorData(uid) {
 }
 
 // ============================================================
-// INJECTION DES MODALES (N6, N7, N8)
+// INJECTION DES MODALES
 // ============================================================
 function injectModals() {
     if (document.getElementById('vModalsRoot')) return;
@@ -270,7 +303,7 @@ function injectModals() {
     const root = document.createElement('div');
     root.id = 'vModalsRoot';
     root.innerHTML = `
-        <!-- ====== MODALE RETRAIT (N6) ====== -->
+        <!-- ====== MODALE RETRAIT (T5) ====== -->
         <div class="modal-overlay" id="vWithdrawModal" style="z-index:2500;">
             <div class="modal" style="max-width:480px;">
                 <button class="modal-close" id="closeWithdrawModal">✕</button>
@@ -297,7 +330,8 @@ function injectModals() {
                 </div>
                 <div class="v-field">
                     <label class="v-label">Téléphone / RIB de réception *</label>
-                    <input type="text" id="vWithdrawPhone" class="v-input" placeholder="06XXXXXXXX ou RIB complet">
+                    <input type="text" id="vWithdrawAccount" class="v-input" placeholder="06XXXXXXXX ou RIB complet">
+                    <span class="v-hint" id="vWithdrawHint">6XXXXXXXX pour Wafacash/Cash Plus, 24 chiffres pour RIB.</span>
                 </div>
                 <div id="vWithdrawError" style="color:var(--danger);font-size:0.85rem;min-height:1.2rem;text-align:center;margin:0.5rem 0;"></div>
                 <button type="button" id="vWithdrawSubmitBtn" class="v-btn v-btn-primary v-btn-block">
@@ -306,13 +340,14 @@ function injectModals() {
             </div>
         </div>
 
-        <!-- ====== MODALE PRODUIT (N8-a) ====== -->
+        <!-- ====== MODALE PRODUIT (T6) ====== -->
         <div class="modal-overlay" id="vProductModal" style="z-index:2500;">
-            <div class="modal" style="max-width:600px;">
+            <div class="modal" style="max-width:600px; max-height:90vh; overflow-y:auto;">
                 <button class="modal-close" id="closeProductModal">✕</button>
-                <h2 style="font-family:var(--font-secondary);color:var(--gold);text-align:center;margin-bottom:1rem;">
+                <h2 id="vProductModalTitle" style="font-family:var(--font-secondary);color:var(--gold);text-align:center;margin-bottom:1rem;">
                     ➕ Nouveau produit
                 </h2>
+                <input type="hidden" id="vProdId" value="">
                 <div class="v-field">
                     <label class="v-label">Nom du produit (Français) *</label>
                     <input type="text" id="vProdNameFr" class="v-input" placeholder="Ex: Montre connectée">
@@ -332,7 +367,7 @@ function injectModals() {
                     </div>
                     <div class="v-field">
                         <label class="v-label">Stock initial *</label>
-                        <input type="number" id="vProdStock" class="v-input" min="1" value="1">
+                        <input type="number" id="vProdStock" class="v-input" min="0" value="1">
                     </div>
                 </div>
                 <div class="v-field">
@@ -340,8 +375,9 @@ function injectModals() {
                     <textarea id="vProdDescFr" class="v-input" rows="3" placeholder="Décrivez votre produit..."></textarea>
                 </div>
                 <div class="v-field">
-                    <label class="v-label">Image du produit *</label>
-                    <input type="file" id="vProdImageFile" accept="image/*" class="v-input">
+                    <label class="v-label">Image du produit (max 2 Mo) *</label>
+                    <input type="file" id="vProdImageFile" accept="image/jpeg,image/png,image/webp" class="v-input">
+                    <div id="vProdImagePreview" style="margin-top:0.5rem;"></div>
                 </div>
                 <div id="vProdError" style="color:var(--danger);font-size:0.85rem;min-height:1.2rem;text-align:center;margin:0.5rem 0;"></div>
                 <button type="button" id="vProdSubmitBtn" class="v-btn v-btn-primary v-btn-block">
@@ -350,7 +386,7 @@ function injectModals() {
             </div>
         </div>
 
-        <!-- ====== MODALE CONTRAT (N7) ====== -->
+        <!-- ====== MODALE CONTRAT ====== -->
         <div class="modal-overlay" id="vContractModal" style="z-index:2500;">
             <div class="modal" style="max-width:800px;padding:0;display:flex;flex-direction:column;height:90vh;">
                 <div style="padding:1.5rem;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center;">
@@ -375,14 +411,16 @@ function injectModals() {
 }
 
 // ============================================================
-// N6 — MODALE DE RETRAIT
+// T5 — MODALE DE RETRAIT
 // ============================================================
 function openWithdrawModal() {
     if (!canRequestWithdrawal()) {
-        const available = Number(currentWallet?.availableBalance) || 0;
+        const virtualAvailable = getVirtualAvailableBalance();
         if (!isVendorApproved()) {
             showToast(tr('vendor.wallet.withdrawLockedNotApproved', "Compte non approuvé : retrait verrouillé."));
-        } else if (available < CONFIG.VENDOR.MIN_WITHDRAWAL) {
+        } else if (getPendingWithdrawalTotal() > 0) {
+            showToast("⏳ Vous avez déjà une demande de retrait en cours. Attendez son traitement.", 4000);
+        } else if (virtualAvailable < CONFIG.VENDOR.MIN_WITHDRAWAL) {
             showToast(tr('vendor.wallet.withdrawLockedMin', "Solde insuffisant (minimum : {min}).").replace('{min}', CONFIG.VENDOR.MIN_WITHDRAWAL + ' MAD'));
         }
         return;
@@ -390,9 +428,10 @@ function openWithdrawModal() {
 
     const modal = document.getElementById('vWithdrawModal');
     if (!modal) return;
-    document.getElementById('vWithdrawAvailable').textContent = formatMAD(currentWallet.availableBalance);
+    document.getElementById('vWithdrawAvailable').textContent = formatMAD(getVirtualAvailableBalance());
     document.getElementById('vWithdrawAmount').value = '';
-    document.getElementById('vWithdrawPhone').value = '';
+    document.getElementById('vWithdrawAccount').value = '';
+    document.getElementById('vWithdrawAccount').placeholder = '06XXXXXXXX ou RIB complet';
     document.getElementById('vWithdrawError').textContent = '';
     modal.classList.add('open');
     document.body.style.overflow = 'hidden';
@@ -406,31 +445,61 @@ function closeWithdrawModal() {
     document.body.style.overflow = '';
 }
 
+function handleWithdrawMethodChange() {
+    const method = document.getElementById('vWithdrawMethod')?.value;
+    const input = document.getElementById('vWithdrawAccount');
+    const hint = document.getElementById('vWithdrawHint');
+    if (!input || !hint) return;
+
+    if (method === 'Virement bancaire') {
+        input.placeholder = 'Ex: 007780000012345678901234';
+        hint.textContent = 'RIB marocain (24 chiffres).';
+    } else {
+        input.placeholder = '06XXXXXXXX';
+        hint.textContent = 'Numéro de téléphone marocain (06XXXXXXXX ou 07XXXXXXXX).';
+    }
+}
+
 async function submitWithdrawal() {
     const amountEl = document.getElementById('vWithdrawAmount');
     const methodEl = document.getElementById('vWithdrawMethod');
-    const phoneEl = document.getElementById('vWithdrawPhone');
+    const accountEl = document.getElementById('vWithdrawAccount');
     const errEl = document.getElementById('vWithdrawError');
     const btn = document.getElementById('vWithdrawSubmitBtn');
 
     const amount = parseFloat(amountEl.value);
     const method = methodEl.value;
-    const phone = (phoneEl.value || '').trim();
-    const available = Number(currentWallet?.availableBalance) || 0;
+    const account = (accountEl.value || '').trim();
+    const virtualAvailable = getVirtualAvailableBalance();
 
     errEl.textContent = '';
+
+    // T5 : anti-abus (1 seule demande pending à la fois)
+    if (getPendingWithdrawalTotal() > 0) {
+        errEl.textContent = 'Vous avez déjà une demande en cours de traitement.';
+        return;
+    }
 
     if (!Number.isFinite(amount) || amount < CONFIG.VENDOR.MIN_WITHDRAWAL) {
         errEl.textContent = `Minimum : ${CONFIG.VENDOR.MIN_WITHDRAWAL} MAD.`;
         return;
     }
-    if (amount > available) {
-        errEl.textContent = `Solde insuffisant (${formatMAD(available)} disponibles).`;
+    if (amount > virtualAvailable) {
+        errEl.textContent = `Solde insuffisant (${formatMAD(virtualAvailable)} disponibles).`;
         return;
     }
-    if (phone.length < 6) {
-        errEl.textContent = 'Téléphone ou RIB invalide.';
-        return;
+
+    // T5 : validation stricte du compte de réception
+    if (method === 'Virement bancaire') {
+        if (!/^\d{24}$/.test(account)) {
+            errEl.textContent = 'RIB invalide (24 chiffres attendus).';
+            return;
+        }
+    } else {
+        if (!/^(?:\+212|0)[67]\d{8}$/.test(account)) {
+            errEl.textContent = 'Numéro de téléphone invalide (06XXXXXXXX ou 07XXXXXXXX).';
+            return;
+        }
     }
 
     btn.disabled = true;
@@ -442,9 +511,10 @@ async function submitWithdrawal() {
             vendorName: currentVendor.vendorInfo?.shopName || currentVendor.name || 'Vendeur',
             amount: amount,
             method,
-            phone,
+            account,           // T5 : remplace l'ancien champ "phone"
             status: 'pending',
-            requestedAt: serverTimestamp()
+            requestedAt: serverTimestamp(),
+            createdAt: serverTimestamp()
         });
 
         showToast('✅ Demande de retrait envoyée ! Traitement sous 3 jours ouvrés.');
@@ -479,19 +549,39 @@ async function loadWithdrawals() {
 }
 
 // ============================================================
-// N8-a — MODALE PRODUIT
+// T6 — MODALE PRODUIT (Création + Édition)
 // ============================================================
-function openProductModal() {
+function openProductModal(product = null) {
     const modal = document.getElementById('vProductModal');
     if (!modal) return;
-    ['vProdNameFr', 'vProdNameAr', 'vProdNameEn', 'vProdPrice', 'vProdStock', 'vProdDescFr'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.value = id === 'vProdStock' ? '1' : '';
-    });
+
+    currentProductIdEditing = product ? product.id : null;
+
+    const titleEl = document.getElementById('vProductModalTitle');
+    const submitBtn = document.getElementById('vProdSubmitBtn');
+    if (titleEl) titleEl.textContent = product ? '✏️ Éditer le produit' : '➕ Nouveau produit';
+    if (submitBtn) submitBtn.textContent = product ? '✅ Mettre à jour' : '✅ Envoyer pour validation';
+
+    document.getElementById('vProdId').value = product ? product.id : '';
+    document.getElementById('vProdNameFr').value = product ? (product.nameFr || '') : '';
+    document.getElementById('vProdNameAr').value = product ? (product.nameAr || '') : '';
+    document.getElementById('vProdNameEn').value = product ? (product.nameEn || '') : '';
+    document.getElementById('vProdPrice').value = product ? (product.price || '') : '';
+    document.getElementById('vProdStock').value = product ? (product.stock ?? '1') : '1';
+    document.getElementById('vProdDescFr').value = product ? (product.descFr || '') : '';
     document.getElementById('vProdImageFile').value = '';
+
+    const preview = document.getElementById('vProdImagePreview');
+    if (preview) {
+        if (product && product.img) {
+            preview.innerHTML = `<img src="${safeImageUrl(product.img)}" alt="" style="width:80px;height:80px;object-fit:cover;border-radius:8px;">`;
+        } else {
+            preview.innerHTML = '';
+        }
+    }
+
     document.getElementById('vProdError').textContent = '';
-    document.getElementById('vProdSubmitBtn').disabled = false;
-    document.getElementById('vProdSubmitBtn').textContent = '✅ Envoyer pour validation';
+    submitBtn.disabled = false;
 
     modal.classList.add('open');
     document.body.style.overflow = 'hidden';
@@ -502,6 +592,7 @@ function closeProductModal() {
     const modal = document.getElementById('vProductModal');
     if (modal) modal.classList.remove('open');
     document.body.style.overflow = '';
+    currentProductIdEditing = null;
 }
 
 function generateSlug(str) {
@@ -516,7 +607,7 @@ async function submitProduct() {
     const nameAr = (document.getElementById('vProdNameAr').value || '').trim();
     const nameEn = (document.getElementById('vProdNameEn').value || '').trim();
     const price = parseFloat(document.getElementById('vProdPrice').value);
-    const stock = parseInt(document.getElementById('vProdStock').value);
+    const stock = parseInt(document.getElementById('vProdStock').value, 10);
     const descFr = (document.getElementById('vProdDescFr').value || '').trim();
     const file = document.getElementById('vProdImageFile').files[0];
     const errEl = document.getElementById('vProdError');
@@ -526,67 +617,128 @@ async function submitProduct() {
 
     if (!nameFr || nameFr.length < 2) { errEl.textContent = 'Nom (FR) requis (min 2 caractères).'; return; }
     if (!Number.isFinite(price) || price <= 0) { errEl.textContent = 'Prix invalide.'; return; }
-    if (!Number.isFinite(stock) || stock < 1) { errEl.textContent = 'Stock invalide.'; return; }
-    if (!file) { errEl.textContent = 'Image requise.'; return; }
-    if (file.size > 5 * 1024 * 1024) { errEl.textContent = 'Image trop lourde (max 5 MB).'; return; }
+    if (!Number.isFinite(stock) || stock < 0) { errEl.textContent = 'Stock invalide.'; return; }
+    if (!currentProductIdEditing && !file) { errEl.textContent = 'Image requise.'; return; }
+    if (file && file.size > 2 * 1024 * 1024) { errEl.textContent = 'Image trop lourde (max 2 Mo).'; return; }
 
     btn.disabled = true;
     btn.textContent = '⏳ Upload...';
 
     try {
-        const ts = Date.now();
-        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-        const storageRef = ref(storage, `vendors/${currentUserUid}/products/${ts}_${safeName}`);
-        await uploadBytes(storageRef, file);
-        const imgUrl = await getDownloadURL(storageRef);
+        let imgUrl = null;
+        let oldImagePath = null;
+
+        // Récupération de l'ancien produit si édition
+        if (currentProductIdEditing) {
+            const snap = await getDoc(doc(db, "products", currentProductIdEditing));
+            if (snap.exists()) {
+                const oldData = snap.data();
+                imgUrl = oldData.img || null;
+                if (oldData.img && /firebasestorage\.googleapis\.com/.test(oldData.img)) {
+                    const m = oldData.img.match(/\/o\/([^?]+)/);
+                    if (m && m[1]) oldImagePath = decodeURIComponent(m[1]);
+                }
+            }
+        }
+
+        // Upload nouvelle image si fournie
+        if (file) {
+            const ts = Date.now();
+            const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+            const storageRef = ref(storage, `vendors/${currentUserUid}/products/${ts}_${safeName}`);
+            await uploadBytes(storageRef, file);
+            imgUrl = await getDownloadURL(storageRef);
+
+            // Suppression de l'ancienne image si elle existait (édition)
+            if (oldImagePath && oldImagePath.startsWith(`vendors/${currentUserUid}/`)) {
+                try { await deleteObject(ref(storage, oldImagePath)); } catch (_) { /* ignore */ }
+            }
+        }
 
         btn.textContent = '⏳ Enregistrement...';
 
-        const slug = generateSlug(nameFr) + '-' + ts.toString(36).slice(-4);
-        const productData = {
-            nameFr,
-            nameAr: nameAr || nameFr,
-            nameEn: nameEn || nameFr,
-            slug,
-            sku: `VND-${String(ts).slice(-6)}`,
-            category: 'all',
-            basePrice: price,
-            price: price,
-            oldPrice: 0,
-            purchasePrice: 0,
-            stock: stock,
-            ratingAvg: 0,
-            ratingCount: 0,
-            salesCount: 0,
-            isNew: false,
-            hasSizeGuide: false,
-            dimensions: { weight: 0, length: 0, width: 0, height: 0 },
-            variants: [],
-            descFr: descFr || '',
-            descAr: '',
-            descEn: '',
-            featuresFr: [],
-            featuresAr: [],
-            featuresEn: [],
-            img: imgUrl,
-            gallery: [],
-            vendorId: currentUserUid,
-            status: 'pending_admin_approval',
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp()
-        };
+        if (currentProductIdEditing) {
+            // T6 : si seul le stock change, on peut garder le statut.
+            const snap = await getDoc(doc(db, "products", currentProductIdEditing));
+            const oldData = snap.exists() ? snap.data() : {};
+            const isStockOnly = (
+                oldData.nameFr === nameFr &&
+                oldData.price === price &&
+                oldData.descFr === descFr &&
+                (!file || imgUrl === oldData.img)
+            );
 
-        await addDoc(collection(db, "products"), productData);
+            if (isStockOnly) {
+                // Règle Firestore §8 branche B : stock + updatedAt uniquement
+                await updateDoc(doc(db, "products", currentProductIdEditing), {
+                    stock: stock,
+                    updatedAt: serverTimestamp()
+                });
+                showToast('✅ Stock mis à jour.');
+            } else {
+                // Édition de contenu : retour en validation
+                await updateDoc(doc(db, "products", currentProductIdEditing), {
+                    nameFr,
+                    nameAr: nameAr || nameFr,
+                    nameEn: nameEn || nameFr,
+                    price: price,
+                    basePrice: price,
+                    descFr: descFr,
+                    img: imgUrl,
+                    stock: stock,
+                    status: PRODUCT_STATUS.PENDING_ADMIN_APPROVAL,
+                    updatedAt: serverTimestamp()
+                });
+                showToast('✅ Produit mis à jour et renvoyé pour validation.');
+            }
+        } else {
+            // Création
+            const ts = Date.now();
+            const slug = generateSlug(nameFr) + '-' + ts.toString(36).slice(-4);
+            const productData = {
+                nameFr,
+                nameAr: nameAr || nameFr,
+                nameEn: nameEn || nameFr,
+                slug,
+                sku: `VND-${String(ts).slice(-6)}`,
+                category: 'all',
+                basePrice: price,
+                price: price,
+                oldPrice: 0,
+                purchasePrice: 0,      // jamais lu par le vendeur (masqué par admin)
+                stock: stock,
+                ratingAvg: 0,
+                ratingCount: 0,
+                salesCount: 0,
+                isNew: false,
+                hasSizeGuide: false,
+                dimensions: { weight: 0, length: 0, width: 0, height: 0 },
+                variants: [],
+                descFr: descFr || '',
+                descAr: '',
+                descEn: '',
+                featuresFr: [],
+                featuresAr: [],
+                featuresEn: [],
+                img: imgUrl,
+                gallery: [],
+                vendorId: currentUserUid,
+                status: PRODUCT_STATUS.PENDING_ADMIN_APPROVAL,
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp()
+            };
+            await addDoc(collection(db, "products"), productData);
+            showToast('✅ Produit envoyé pour validation admin.');
+        }
 
-        showToast('✅ Produit envoyé pour validation admin.');
         closeProductModal();
         await loadVendorProducts();
         await renderProducts(document.getElementById('vTabContent'));
     } catch (e) {
-        console.error('❌ Erreur création produit :', e);
+        console.error('❌ Erreur création/édition produit :', e);
         errEl.textContent = 'Erreur : ' + (e.message || 'inconnue');
         btn.disabled = false;
-        btn.textContent = '✅ Envoyer pour validation';
+        btn.textContent = currentProductIdEditing ? '✅ Mettre à jour' : '✅ Envoyer pour validation';
     }
 }
 
@@ -634,7 +786,7 @@ async function deleteVendorProduct(productId) {
 }
 
 // ============================================================
-// N7 — MODALE CONTRAT (Reprise de signature)
+// MODALE CONTRAT (N7 / N10 / T9)
 // ============================================================
 let _contractTextHash = null;
 let _contractLang = DEFAULT_LANGUAGE;
@@ -645,7 +797,6 @@ async function openContractModal() {
     if (!modal) return;
 
     const lang = getCurrentLanguage();
-    // N10 : texte interpolé depuis vendor-contract-text.js (source unique)
     const text = getContractText(lang);
     _contractLang = lang;
 
@@ -733,7 +884,6 @@ async function submitContractSignature() {
     btn.disabled = true;
     btn.textContent = '⏳ Signature...';
 
-    // N10 : texte interpolé depuis le module partagé
     const text = getContractText(_contractLang);
 
     try {
@@ -839,7 +989,7 @@ async function renderProducts(container) {
             tr('vendor.products.empty.title', 'Aucun produit'),
             tr('vendor.products.empty.desc', 'Publiez votre premier produit pour commencer à vendre.')
         );
-        document.getElementById('vNewProductBtn')?.addEventListener('click', openProductModal);
+        document.getElementById('vNewProductBtn')?.addEventListener('click', () => openProductModal(null));
         return;
     }
 
@@ -848,48 +998,79 @@ async function renderProducts(container) {
         const name = escapeHTML(p.nameFr || p.nameEn || '—');
         const price = formatMAD(p.price);
         const stock = Number(p.stock) || 0;
-        const status = p.status || 'pending_admin_approval';
-        const statusBadge = status === 'approved'
-            ? `<span style="background:var(--success-bg);color:var(--success);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;">✅ Approuvé</span>`
-            : status === 'rejected'
-                ? `<span style="background:var(--danger-bg);color:var(--danger);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;">❌ Rejeté</span>`
-                : `<span style="background:var(--warning-bg);color:var(--warning);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;">⏳ En validation</span>`;
+        const status = p.status || PRODUCT_STATUS.PENDING_ADMIN_APPROVAL;
+        let statusBadge = '';
+        let rejectionHtml = '';
+
+        if (status === PRODUCT_STATUS.APPROVED) {
+            statusBadge = `<span class="v-product-status approved">✅ ${escapeHTML(tr('product.status.approved', 'Approuvé'))}</span>`;
+        } else if (status === PRODUCT_STATUS.REJECTED) {
+            statusBadge = `<span class="v-product-status rejected">❌ ${escapeHTML(tr('product.status.rejected', 'Rejeté'))}</span>`;
+            if (p.rejectionReason) {
+                rejectionHtml = `<div style="font-size:0.8rem;color:var(--danger);margin-top:0.3rem;">📝 ${escapeHTML(p.rejectionReason)}</div>`;
+            }
+        } else if (status === PRODUCT_STATUS.SUSPENDED) {
+            statusBadge = `<span class="v-product-status suspended">🚫 ${escapeHTML(tr('product.status.suspended', 'Suspendu'))}</span>`;
+        } else {
+            statusBadge = `<span class="v-product-status pending">⏳ ${escapeHTML(tr('product.status.pending', 'En validation'))}</span>`;
+        }
 
         return `
-            <div class="v-card v-product-card">
-                ${image ? `<img src="${image}" alt="${name}" loading="lazy" style="width:80px;height:80px;object-fit:cover;border-radius:8px;">` : `<div style="width:80px;height:80px;background:#eee;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1.5rem;">📦</div>`}
-                <div style="flex:1; min-width:0;">
-                    <div style="font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${name}</div>
-                    <div style="color:var(--text-muted); font-size:0.9rem;">${price} · Stock : ${stock}</div>
+            <div class="v-product-item">
+                ${image ? `<img src="${image}" alt="${name}" loading="lazy" class="v-product-img">` : `<div class="v-product-img" style="display:flex;align-items:center;justify-content:center;font-size:1.5rem;">📦</div>`}
+                <div class="v-product-info">
+                    <div class="v-product-name">${name}</div>
+                    <div class="v-product-meta">${price} · Stock : ${stock}</div>
                     <div style="margin-top:0.3rem;">${statusBadge}</div>
+                    ${rejectionHtml}
                 </div>
-                <button type="button" class="v-btn v-btn-secondary" data-delete-product="${escapeHTML(p.id)}" style="padding:0.4rem 0.8rem;font-size:0.8rem;">🗑️</button>
+                <div class="v-product-actions">
+                    <button type="button" class="v-btn v-btn-secondary" data-edit-product="${escapeHTML(p.id)}" style="padding:0.4rem 0.8rem;font-size:0.8rem;" title="Éditer">✏️</button>
+                    <button type="button" class="v-btn v-btn-secondary" data-delete-product="${escapeHTML(p.id)}" style="padding:0.4rem 0.8rem;font-size:0.8rem;" title="Supprimer">🗑️</button>
+                </div>
             </div>
         `;
     }).join('');
 
-    container.innerHTML = newBtnHtml + `<div class="v-product-list" style="display:flex; flex-direction:column; gap:12px;">${cards}</div>`;
+    container.innerHTML = newBtnHtml + `<div class="v-product-list">${cards}</div>`;
 
-    document.getElementById('vNewProductBtn')?.addEventListener('click', openProductModal);
+    document.getElementById('vNewProductBtn')?.addEventListener('click', () => openProductModal(null));
+
+    container.querySelectorAll('[data-edit-product]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const pid = btn.dataset.editProduct;
+            const prod = cachedProducts.find(pp => pp.id === pid);
+            openProductModal(prod);
+        });
+    });
+
     container.querySelectorAll('[data-delete-product]').forEach(btn => {
         btn.addEventListener('click', () => deleteVendorProduct(btn.dataset.deleteProduct));
     });
 }
 
 async function renderOrders(container) {
-    container.innerHTML = `<div style="text-align:center;padding:2rem;"><div class="spinner" style="margin:0 auto;"></div></div>`;
-
-    try {
-        const q = query(
-            collection(db, "orders"),
-            where("vendorIds", "array-contains", currentUserUid),
-            limit(100)
-        );
-        const snap = await getDocs(q);
-        cachedOrders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    } catch (e) {
-        console.warn('⚠️ Lecture orders échouée (vendorIds pas encore écrit par orders.js étape 7) :', e);
+    if (!ordersLoading && ordersLastDoc === null) {
+        container.innerHTML = `<div style="text-align:center;padding:2rem;"><div class="spinner" style="margin:0 auto;"></div></div>`;
         cachedOrders = [];
+    }
+
+    if (cachedOrders.length === 0) {
+        try {
+            const q = query(
+                collection(db, "orders"),
+                where("vendorIds", "array-contains", currentUserUid),
+                orderBy("createdAt", "desc"),
+                limit(10)
+            );
+            const snap = await getDocs(q);
+            cachedOrders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            ordersLastDoc = snap.docs[snap.docs.length - 1] || null;
+            ordersHasMore = snap.docs.length === 10;
+        } catch (e) {
+            console.warn('⚠️ Lecture orders échouée :', e);
+            cachedOrders = [];
+        }
     }
 
     if (!cachedOrders.length) {
@@ -904,10 +1085,28 @@ async function renderOrders(container) {
     const rows = cachedOrders.map(o => {
         const shortId = (o.id || '').slice(0, 8).toUpperCase();
         const status = o.status || 'pending';
-        const total = formatMAD(o.total || 0);
-        const date = o.createdAt?.toDate?.()?.toLocaleDateString?.() || '—';
-        const myItems = (o.items || []).filter(it => it.vendorId === currentUserUid);
-        const myTotal = myItems.reduce((s, i) => s + (Number(i.price) || 0) * (Number(i.quantity) || 0), 0);
+        const date = o.createdAt?.toDate?.()?.toLocaleDateString?.('fr-FR') || '—';
+        const myItems = (o.items || []).filter(it => String(it.vendorId) === String(currentUserUid));
+        const myGross = myItems.reduce((s, i) => s + (Number(i.price) || 0) * (Number(i.quantity) || 0), 0);
+
+        let commissionInfo = { commission: 0, netToPay: myGross, commissionRate: CONFIG.VENDOR.COMMISSION_RATE };
+        try {
+            const breakdown = getOrderVendorBreakdown(o);
+            const vendorData = breakdown[currentUserUid];
+            if (vendorData && vendorData.subtotal > 0) {
+                const rate = currentVendor.vendorInfo?.commissionRate ?? CONFIG.VENDOR.COMMISSION_RATE;
+                const commission = Math.round(vendorData.subtotal * rate * 100) / 100;
+                const net = Math.round((vendorData.subtotal - commission) * 100) / 100;
+                commissionInfo = { commission, netToPay: net, commissionRate: rate };
+            }
+        } catch (e) {
+            console.warn('⚠️ Calcul commission échoué :', e);
+        }
+
+        const itemsHtml = myItems.map(i => {
+            const variantText = i.variant ? ` (${[i.variant.size, i.variant.color].filter(Boolean).join('-')})` : '';
+            return `<div style="font-size:0.8rem;color:var(--text-muted);">${escapeHTML(i.name || 'Produit')}${escapeHTML(variantText)} × ${i.quantity}</div>`;
+        }).join('');
 
         return `
             <div class="v-card" style="display:flex;flex-direction:column;gap:0.5rem;">
@@ -916,16 +1115,48 @@ async function renderOrders(container) {
                     <span style="font-size:0.8rem;color:var(--text-muted);">${date}</span>
                 </div>
                 <div style="font-size:0.85rem;color:var(--text-muted);">
-                    Statut : <strong>${escapeHTML(status)}</strong> · Total commande : ${total}
+                    ${escapeHTML(translateStatus(status))} · ${myItems.length} article(s)
                 </div>
-                <div style="font-size:0.85rem;color:var(--text);">
-                    Vos articles : ${myItems.length} · Votre part : <strong>${formatMAD(myTotal)}</strong>
+                <div style="margin:0.5rem 0;">${itemsHtml}</div>
+                <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px dashed var(--border);padding-top:0.5rem;font-size:0.85rem;">
+                    <div>Brut : <strong>${formatMAD(myGross)}</strong></div>
+                    <div>Com. (${Math.round(commissionInfo.commissionRate * 100)}%) : <strong style="color:var(--danger);">-${formatMAD(commissionInfo.commission)}</strong></div>
+                    <div>Net : <strong style="color:var(--success);">${formatMAD(commissionInfo.netToPay)}</strong></div>
                 </div>
             </div>
         `;
     }).join('');
 
-    container.innerHTML = `<div style="display:flex;flex-direction:column;gap:0.8rem;">${rows}</div>`;
+    container.innerHTML = `
+        <div style="display:flex;flex-direction:column;gap:0.8rem;">${rows}</div>
+        ${ordersHasMore ? `<div style="text-align:center;margin-top:1rem;"><button id="loadMoreOrdersBtn" class="v-btn v-btn-secondary">Charger plus</button></div>` : ''}
+    `;
+
+    document.getElementById('loadMoreOrdersBtn')?.addEventListener('click', async (e) => {
+        const btn = e.target;
+        btn.disabled = true;
+        btn.textContent = '⏳...';
+        try {
+            const q = query(
+                collection(db, "orders"),
+                where("vendorIds", "array-contains", currentUserUid),
+                orderBy("createdAt", "desc"),
+                startAfter(ordersLastDoc),
+                limit(10)
+            );
+            const snap = await getDocs(q);
+            const more = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            cachedOrders = [...cachedOrders, ...more];
+            ordersLastDoc = snap.docs[snap.docs.length - 1] || ordersLastDoc;
+            ordersHasMore = snap.docs.length === 10;
+            await renderOrders(container);
+        } catch (err) {
+            console.error(err);
+            showToast('❌ Erreur : ' + err.message);
+            btn.disabled = false;
+            btn.textContent = 'Charger plus';
+        }
+    });
 }
 
 async function renderStock(container) {
@@ -942,23 +1173,31 @@ async function renderWallet(container) {
     const available = formatMAD(currentWallet && currentWallet.availableBalance);
     const pending = formatMAD(currentWallet && currentWallet.pendingBalance);
     const minWithdrawal = formatMAD(CONFIG.VENDOR.MIN_WITHDRAWAL);
-    const canWithdraw = canRequestWithdrawal();
+    const virtualAvailable = formatMAD(getVirtualAvailableBalance());
+    const hasPendingRequest = getPendingWithdrawalTotal() > 0;
+    const canWithdraw = canRequestWithdrawal() && !hasPendingRequest;
     const disabledAttr = canWithdraw ? '' : 'disabled';
-    const reason = !isVendorApproved()
-        ? tr('vendor.wallet.withdrawLockedNotApproved', "Compte non approuvé : retrait verrouillé.")
-        : (currentWallet && Number(currentWallet.availableBalance) < CONFIG.VENDOR.MIN_WITHDRAWAL)
-            ? tr('vendor.wallet.withdrawLockedMin', "Solde insuffisant (minimum : {min}).").replace('{min}', minWithdrawal)
-            : '';
+
+    let reason = '';
+    if (!isVendorApproved()) {
+        reason = tr('vendor.wallet.withdrawLockedNotApproved', "Compte non approuvé : retrait verrouillé.");
+    } else if (hasPendingRequest) {
+        reason = "⏳ Demande de retrait en cours de traitement.";
+    } else if (getVirtualAvailableBalance() < CONFIG.VENDOR.MIN_WITHDRAWAL) {
+        reason = tr('vendor.wallet.withdrawLockedMin', "Solde insuffisant (minimum : {min}).").replace('{min}', minWithdrawal);
+    }
 
     const withdrawalRows = cachedWithdrawals.length
         ? cachedWithdrawals.map(w => {
             const st = w.status || 'pending';
             const statusBadge = st === 'paid'
-                ? `<span style="background:var(--success-bg);color:var(--success);padding:0.15rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;">✅ Payé</span>`
+                ? `<span style="background:var(--success-bg);color:var(--success);padding:0.15rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;">✅ ${escapeHTML(tr('payout.paid', 'Payé'))}</span>`
                 : st === 'rejected'
-                    ? `<span style="background:var(--danger-bg);color:var(--danger);padding:0.15rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;">❌ Rejeté</span>`
-                    : `<span style="background:var(--warning-bg);color:var(--warning);padding:0.15rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;">⏳ En attente</span>`;
-            const date = w.requestedAt?.toDate?.()?.toLocaleDateString?.() || '—';
+                    ? `<span style="background:var(--danger-bg);color:var(--danger);padding:0.15rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;">❌ ${escapeHTML(tr('payout.rejected', 'Rejeté'))}</span>`
+                    : st === 'cancelled'
+                        ? `<span style="background:var(--bg-surface);color:var(--text-muted);padding:0.15rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;">${escapeHTML(tr('payout.cancelled', 'Annulé'))}</span>`
+                        : `<span style="background:var(--warning-bg);color:var(--warning);padding:0.15rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;">⏳ ${escapeHTML(tr('payout.pending', 'En attente'))}</span>`;
+            const date = w.requestedAt?.toDate?.()?.toLocaleDateString?.('fr-FR') || '—';
             return `
                 <div style="display:flex;justify-content:space-between;align-items:center;padding:0.7rem 0;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:0.5rem;">
                     <div>
@@ -976,6 +1215,7 @@ async function renderWallet(container) {
             <div class="v-wallet-amount">${available}</div>
             <div style="margin-top:0.5rem; color:var(--text-muted); font-size:0.9rem;">
                 ${escapeHTML(tr('vendor.wallet.pending', 'En attente'))} : ${pending}
+                ${hasPendingRequest ? `<br><small>Solde virtuel (après demandes en cours) : ${virtualAvailable}</small>` : ''}
             </div>
             <button type="button" id="btnRequestWithdrawal" class="v-btn v-btn-primary" style="margin-top:1rem;" ${disabledAttr}>
                 💸 ${escapeHTML(tr('vendor.wallet.requestWithdrawal', 'Demander un retrait'))}
@@ -1109,18 +1349,37 @@ function createBannerHandlers() {
 // ATTACHE LES LISTENERS DES MODALES
 // ============================================================
 function attachModalListeners() {
+    // Retrait
     document.getElementById('closeWithdrawModal')?.addEventListener('click', closeWithdrawModal);
     document.getElementById('vWithdrawModal')?.addEventListener('click', (e) => {
         if (e.target.id === 'vWithdrawModal') closeWithdrawModal();
     });
     document.getElementById('vWithdrawSubmitBtn')?.addEventListener('click', submitWithdrawal);
+    document.getElementById('vWithdrawMethod')?.addEventListener('change', handleWithdrawMethodChange);
 
+    // Produit
     document.getElementById('closeProductModal')?.addEventListener('click', closeProductModal);
     document.getElementById('vProductModal')?.addEventListener('click', (e) => {
         if (e.target.id === 'vProductModal') closeProductModal();
     });
     document.getElementById('vProdSubmitBtn')?.addEventListener('click', submitProduct);
+    document.getElementById('vProdImageFile')?.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        const preview = document.getElementById('vProdImagePreview');
+        if (!preview) return;
+        if (file && file.size <= 2 * 1024 * 1024) {
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                preview.innerHTML = `<img src="${ev.target.result}" alt="" style="width:80px;height:80px;object-fit:cover;border-radius:8px;">`;
+            };
+            reader.readAsDataURL(file);
+        } else if (file) {
+            preview.innerHTML = '<div style="color:var(--danger);font-size:0.8rem;">Image trop lourde (max 2 Mo).</div>';
+            e.target.value = '';
+        }
+    });
 
+    // Contrat
     document.getElementById('closeContractModal')?.addEventListener('click', closeContractModal);
     document.getElementById('vContractModal')?.addEventListener('click', (e) => {
         if (e.target.id === 'vContractModal') closeContractModal();
