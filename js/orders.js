@@ -1,18 +1,35 @@
-// js/orders.js
-// ============================================================
-// GESTION DES COMMANDES - SMART SWI9A
-// Version 8.0.0 — Marketplace (Session 3 / T3 + T4-ready)
-// Correctifs T3 :
-//   - getVendorCommissionRate : plus de fallback silencieux (throw si introuvable)
-//   - creditVendorWallet : idempotent (marqueur orders.vendorCredits + txId déterministe)
-//   - debitVendorWallet : idempotent + respect MAX_NEGATIVE_BALANCE + flag needsReview
-//   - syncVendorWalletsForOrder : remonte les erreurs (plus de try/catch muet)
-//   - updateOrderStatus : retourne walletSyncError si le crédit wallet échoue
-//   - autoSyncActiveOrders : guard admin (évite les 403 côté client)
-//   - releaseDueVendorFunds (T4) : déblocage pending → available (idempotent)
-//   - deleteOrderCompletely / syncVendorWalletsForOrder : exportés
-//   - Politique remise/coupon documentée (absorbée par Smart Swi9a)
-// ============================================================
+/* ============================================================
+   js/orders.js
+   Gestion des commandes - Smart Swi9a
+   Version 8.1.0 — Marketplace (Session 4 / T4-bis + T5-bis)
+
+   Correctifs T4-bis / T5-bis (par rapport à v8.0.0) :
+     - B1 (P1) : releaseDueVendorFunds — chaque wallet_transactions
+                 est relue DANS la transaction Firestore ; seules
+                 celles encore pending et échues sont traitées.
+                 Empêche le double transfert en exécution concurrente.
+     - B2 (P1) : releaseDueVendorFunds — utilise un Set d'IDs déjà
+                 tentés + une limite d'itérations (15) au lieu
+                 d'une récursion infinie.
+     - B3 (P2) : debitVendorWallet marque reversedAmount (FIFO) sur
+                 les plus anciennes tx sale encore pending quand
+                 une partie du débit est consommée sur pendingBalance.
+                 releaseDueVendorFunds alloue releasedAmount par tx
+                 (FIFO) et pose walletCapped:true en cas de troncature.
+                 → plus de "sale released pour 100" alors que seuls
+                 80 MAD ont réellement bougé.
+     - ALERTE 1 : plus aucun // en début de ligne utile.
+
+   Notes :
+     - R7 (createOrder ne recalcule pas les prix) : dépend de
+       cart.js — T4-bis dédié à cart.js.
+     - B4/B5 (payout) : déjà couverts par admin.js v11.0.0 et
+       firestore.rules v5.2.0.
+
+   Historique :
+     v8.0.0 — Marketplace T3, idempotence wallet, releaseDueVendorFunds.
+     v8.1.0 — T4-bis/T5-bis (B1, B2, B3).
+   ============================================================ */
 
 import {
     collection, doc, getDocs, getDoc, updateDoc, deleteDoc,
@@ -36,25 +53,25 @@ import { getCurrentUser } from "./auth.js";
 import { showToast, confirmAction } from "./ui-core.js";
 import { cancelOrder, loadUserOrders } from "./cart.js";
 
-// ============================================================
-// 🚀 CONFIGURATION SPEEDAF (Via Worker Cloudflare)
-// ============================================================
+/* ============================================================
+   CONFIGURATION SPEEDAF (Via Worker Cloudflare)
+   ============================================================ */
 const SPEEDAF_API_CONFIG = {
     BASE_URL: "https://speedaf-proxy.smartswi9a.workers.dev"
 };
 
-// ============================================================
-// CONFIGURATION EMAILJS
-// ============================================================
+/* ============================================================
+   CONFIGURATION EMAILJS
+   ============================================================ */
 const EMAILJS = {
     SERVICE_ID: 'service_gder468',
     TEMPLATE_ID: 'template_6tp1n35',
     PUBLIC_KEY: '47Wn3We2YOdAoSN2g'
 };
 
-// ============================================================
-// HELPERS EMAILJS
-// ============================================================
+/* ============================================================
+   HELPERS EMAILJS
+   ============================================================ */
 let emailjsSDK = null;
 async function getEmailJS() {
     if (emailjsSDK) return emailjsSDK;
@@ -332,9 +349,9 @@ export async function sendOrderEmail(order, status, recipient) {
     return await sendEmailViaEmailJS(toEmail, toName, subject, html, text);
 }
 
-// ============================================================
-// 🚀 SPEEDAF — HELPERS
-// ============================================================
+/* ============================================================
+   SPEEDAF — HELPERS
+   ============================================================ */
 function cleanMoroccanPhone(phone) {
     if (!phone) return '';
     let cleaned = String(phone).replace(/\D/g, '');
@@ -342,9 +359,9 @@ function cleanMoroccanPhone(phone) {
     return cleaned;
 }
 
-// ============================================================
-// 🚀 SPEEDAF — CREATE ORDER
-// ============================================================
+/* ============================================================
+   SPEEDAF — CREATE ORDER
+   ============================================================ */
 export async function sendToSpeedafAPI(order) {
     if (isTestMode()) {
         console.log('🧪 [TEST] sendToSpeedafAPI MOCK — aucun appel Speedaf');
@@ -471,9 +488,9 @@ export async function sendToSpeedafAPI(order) {
     }
 }
 
-// ============================================================
-// 🚀 SPEEDAF — CANCEL
-// ============================================================
+/* ============================================================
+   SPEEDAF — CANCEL
+   ============================================================ */
 export async function cancelSpeedafShipment(trackingNumber) {
     if (isTestMode()) {
         console.log('🧪 [TEST] cancelSpeedafShipment MOCK');
@@ -508,9 +525,9 @@ export async function cancelSpeedafShipment(trackingNumber) {
     }
 }
 
-// ============================================================
-// 🚀 SPEEDAF — SYNC STATUS
-// ============================================================
+/* ============================================================
+   SPEEDAF — SYNC STATUS
+   ============================================================ */
 export async function syncSpeedafStatus(orderId) {
     if (isTestMode()) {
         console.log('🧪 [TEST] syncSpeedafStatus MOCK');
@@ -571,18 +588,18 @@ export async function syncSpeedafStatus(orderId) {
     }
 }
 
-// ============================================================
-// CACHES & PAGINATION
-// ============================================================
+/* ============================================================
+   CACHES & PAGINATION
+   ============================================================ */
 let adminOrdersCache = [];
 const ADMIN_PAGE_SIZE = 20;
 let adminLastVisible = null;
 let adminHasMore = true;
 let adminLoading = false;
 
-// ============================================================
-// STOCK HELPERS
-// ============================================================
+/* ============================================================
+   STOCK HELPERS
+   ============================================================ */
 async function deductStockInTransaction(transaction, order, productSnaps, productRefs) {
     productSnaps.forEach((snap, i) => {
         if (!snap.exists()) throw new Error(`Produit introuvable`);
@@ -635,21 +652,21 @@ async function restoreStockInTransaction(transaction, order, productSnaps, produ
     });
 }
 
-// ============================================================
-// 🆕 HELPERS VENDEUR (N5 / T3)
-// ============================================================
+/* ============================================================
+   HELPERS VENDEUR (N5 / T3)
+   ============================================================ */
 
 /**
  * Groupe les items d'une commande par vendeur.
  *
- * ⚠️ Politique remise/coupon (T3 — Q1) :
- *   Le `subtotal` retourné est le **prix catalogue** (items.price × qty).
- *   Les remises (coupon, volume) sont **absorbées par Smart Swi9a** :
+ * Politique remise/coupon (T3 — Q1) :
+ *   Le `subtotal` retourné est le prix catalogue (items.price × qty).
+ *   Les remises (coupon, volume) sont absorbées par Smart Swi9a :
  *   la commission vendeur est calculée sur le prix catalogue, la remise
  *   n'est pas répercutée sur le wallet vendeur. Si la politique change
  *   (répartition au prorata), modifier cette fonction + le test manuel.
  *
- * Les produits Smart Swi9a (`vendorId === 'smartswi9a'`) sont exclus :
+ * Les produits Smart Swi9a (vendorId === 'smartswi9a') sont exclus :
  * pas de wallet, pas de commission. Seuls les vendeurs tiers apparaissent.
  */
 export function getOrderVendorBreakdown(order) {
@@ -685,7 +702,7 @@ export function enrichOrderWithVendorIds(order, productMap = {}) {
 
 /**
  * Lit le taux de commission d'un vendeur.
- * T3 : en cas d'échec de lecture, **throw** (plus de fallback silencieux).
+ * T3 : en cas d'échec de lecture, throw (plus de fallback silencieux).
  * Seul cas de retour par défaut : le vendeur n'a pas de `commissionRate`
  * explicite → on utilise CONFIG.VENDOR.COMMISSION_RATE (log un warning).
  */
@@ -720,7 +737,7 @@ async function getVendorCommissionRate(vendorId) {
  */
 async function creditVendorWallet(vendorId, subtotal, order, isSmartProduct) {
     if (!vendorId || subtotal <= 0) return { skipped: true };
-    const rate = await getVendorCommissionRate(vendorId); // throw si introuvable
+    const rate = await getVendorCommissionRate(vendorId);
     const commission = Math.round(subtotal * rate * 100) / 100;
     const netToPay = Math.round((subtotal - commission) * 100) / 100;
     if (netToPay <= 0) return { skipped: true };
@@ -797,8 +814,12 @@ async function creditVendorWallet(vendorId, subtotal, order, isSmartProduct) {
 /**
  * Débite le wallet d'un vendeur en cas de retour.
  * Prélève en cascade : pendingBalance → availableBalance → negativeBalance.
- * T3 : idempotent (marqueur order.vendorDebits[debitId]).
+ *
+ * T3 : idempotent (marqueur order.vendorDebits[debitKey]).
  * T3 : respecte MAX_NEGATIVE_BALANCE + flag needsReview si plafond atteint.
+ * T4-bis (B3) : marque `reversedAmount` (FIFO) sur les plus anciennes
+ * transactions de vente encore pending, pour que le déblocage ultérieur
+ * n'essaie pas de libérer des fonds déjà consommés par le retour.
  */
 async function debitVendorWallet(vendorId, returnedQty, order, returnEntryIndex) {
     const perParcel = Number(CONFIG.VENDOR.RETURN_FEE_SPEEDAF) || 20;
@@ -808,7 +829,32 @@ async function debitVendorWallet(vendorId, returnedQty, order, returnEntryIndex)
     const debitTxId = `${order.id}_${vendorId}_ret${returnEntryIndex}`;
     const debitKey = `${vendorId}_ret${returnEntryIndex}`;
 
+    /* B3 : pré-lecture FIFO des tx sale pending pour marquage reversedAmount.
+       Best-effort : si la lecture échoue, on continue sans reversal tracking
+       (le déblocage FIFO allouera releasedAmount de façon proportionnelle). */
+    let pendingSaleTxIds = [];
+    try {
+        const q = query(
+            collection(db, "wallet_transactions"),
+            where("vendorId", "==", vendorId),
+            where("status", "==", WALLET_TX_STATUS.PENDING),
+            where("type", "==", WALLET_TX_TYPE.SALE),
+            limit(20)
+        );
+        const snap = await getDocs(q);
+        pendingSaleTxIds = snap.docs
+            .map(d => ({
+                id: d.id,
+                createdAt: d.data().createdAt?.toMillis?.() || 0
+            }))
+            .sort((a, b) => a.createdAt - b.createdAt)
+            .map(e => e.id);
+    } catch (e) {
+        console.warn(`⚠️ debitVendorWallet : lecture FIFO pending sale txs échouée pour ${vendorId}`, e.message);
+    }
+
     return await runTransaction(db, async (tx) => {
+        /* === PHASE READS === */
         const orderRef = doc(db, "orders", order.id);
         const orderSnap = await tx.get(orderRef);
         if (!orderSnap.exists()) throw new Error(`Commande ${order.id} introuvable`);
@@ -823,12 +869,22 @@ async function debitVendorWallet(vendorId, returnedQty, order, returnEntryIndex)
         const walletSnap = await tx.get(walletRef);
         if (!walletSnap.exists()) return { skipped: true, reason: 'no_wallet' };
 
+        /* B3 : relire les sale txs FIFO dans la transaction */
+        const saleTxSnaps = [];
+        for (const txId of pendingSaleTxIds) {
+            const s = await tx.get(doc(db, "wallet_transactions", txId));
+            if (s.exists()) saleTxSnaps.push({ id: txId, data: s.data() });
+        }
+
+        /* === PHASE WRITES === */
         const w = walletSnap.data();
         let pendingBalance = Number(w.pendingBalance) || 0;
         let availableBalance = Number(w.availableBalance) || 0;
         let negativeBalance = Number(w.negativeBalance) || 0;
         let remaining = fee;
         let needsReview = !!w.needsReview;
+
+        const consumedFromPending = Math.min(pendingBalance, fee);
 
         if (pendingBalance >= remaining) { pendingBalance -= remaining; remaining = 0; }
         else { remaining -= pendingBalance; pendingBalance = 0; }
@@ -847,6 +903,25 @@ async function debitVendorWallet(vendorId, returnedQty, order, returnEntryIndex)
                 console.warn(`⚠️ Plafond MAX_NEGATIVE_BALANCE atteint pour ${vendorId} — needsReview=true`);
             } else {
                 negativeBalance = newNegative;
+            }
+        }
+
+        /* B3 : FIFO reversal — marquer reversedAmount sur les sale txs pending */
+        if (consumedFromPending > 0 && saleTxSnaps.length > 0) {
+            let remainingReversal = consumedFromPending;
+            for (const sale of saleTxSnaps) {
+                if (remainingReversal <= 0) break;
+                const sd = sale.data;
+                if (sd.status !== WALLET_TX_STATUS.PENDING) continue;
+                const saleAmt = Number(sd.amount) || 0;
+                const saleRev = Number(sd.reversedAmount) || 0;
+                const availableToReverse = Math.max(0, saleAmt - saleRev);
+                if (availableToReverse <= 0) continue;
+                const rev = Math.min(availableToReverse, remainingReversal);
+                remainingReversal -= rev;
+                tx.update(doc(db, "wallet_transactions", sale.id), {
+                    reversedAmount: saleRev + rev
+                });
             }
         }
 
@@ -876,11 +951,12 @@ async function debitVendorWallet(vendorId, returnedQty, order, returnEntryIndex)
                 debitedAt: Timestamp.now(),
                 txId: debitTxId,
                 amount: fee,
-                returnedQty
+                returnedQty,
+                consumedFromPending
             }
         });
 
-        console.log(`💸 Vendeur ${String(vendorId).slice(0, 8)}… débité de ${fee} MAD (retour)`);
+        console.log(`💸 Vendeur ${String(vendorId).slice(0, 8)}… débité de ${fee} MAD (retour, ${consumedFromPending} MAD sur pending)`);
         return { debited: true, amount: fee, needsReview };
     });
 }
@@ -890,12 +966,6 @@ async function debitVendorWallet(vendorId, returnedQty, order, returnEntryIndex)
  * la transition de statut.
  *
  * T3 : ne swallow plus les erreurs — collecte et remonte.
- *
- * isSmartProduct :
- *   - TOUJOURS false dans ce contexte, car `getOrderVendorBreakdown`
- *     exclut déjà les produits Smart Swi9a (vendorId === 'smartswi9a').
- *   - UNLOCK_DAYS_SMART ne s'applique qu'aux produits Smart vendus par
- *     Smart Swi9a elle-même (pas de wallet vendeur dans ce cas).
  */
 export async function syncVendorWalletsForOrder(orderId, previousStatus, newStatus) {
     const results = { success: true, credits: [], debits: [], errors: [] };
@@ -915,7 +985,6 @@ export async function syncVendorWalletsForOrder(orderId, previousStatus, newStat
     }
     const order = { id: orderId, ...orderSnap.data() };
 
-    // ---- Cas 1 : livraison → crédit wallets ----
     if (newStatus === ORDER_STATUS.DELIVERED && previousStatus !== ORDER_STATUS.DELIVERED) {
         const perVendor = getOrderVendorBreakdown(order);
         for (const [vendorId, data] of Object.entries(perVendor)) {
@@ -930,7 +999,6 @@ export async function syncVendorWalletsForOrder(orderId, previousStatus, newStat
         }
     }
 
-    // ---- Cas 2 : retour → débit frais ----
     if (newStatus === ORDER_STATUS.RETURNED && previousStatus !== ORDER_STATUS.RETURNED) {
         const returns = Array.isArray(order.returns) ? order.returns : [];
         const lastReturnIndex = returns.length - 1;
@@ -962,9 +1030,9 @@ export async function syncVendorWalletsForOrder(orderId, previousStatus, newStat
     return results;
 }
 
-// ============================================================
-// UPDATE ORDER STATUS (avec logique vendeur N5 + T3)
-// ============================================================
+/* ============================================================
+   UPDATE ORDER STATUS
+   ============================================================ */
 export async function updateOrderStatus(orderId, newStatus) {
     try {
         const orderRef = doc(db, "orders", orderId);
@@ -1037,7 +1105,6 @@ export async function updateOrderStatus(orderId, newStatus) {
             transaction.update(orderRef, updatePayload);
         });
 
-        // ---- T3 : sync wallets vendeur, remontée d'erreurs ----
         let walletSyncError = null;
         try {
             const walletResult = await syncVendorWalletsForOrder(orderId, previousStatusFinal, normalizedStatus);
@@ -1052,7 +1119,6 @@ export async function updateOrderStatus(orderId, newStatus) {
             walletSyncError = walletErr.message;
         }
 
-        // Speedaf (inchangé)
         if (normalizedStatus === ORDER_STATUS.CONFIRMED && orderForEmail) {
             if (!orderForEmail.speedafTracking) {
                 const spdResult = await sendToSpeedafAPI(orderForEmail);
@@ -1078,7 +1144,6 @@ export async function updateOrderStatus(orderId, newStatus) {
             if (cancelled) showToast('✅ Colis annulé chez Speedaf');
         }
 
-        // Emails (inchangé)
         if (emailStatus && ['confirmed', 'shipping', 'delivered', 'cancelled'].includes(emailStatus)) {
             try {
                 await sendOrderEmail(orderForEmail, emailStatus, 'client');
@@ -1088,7 +1153,6 @@ export async function updateOrderStatus(orderId, newStatus) {
             }
         }
 
-        // Notifications client (inchangé)
         if (normalizedStatus === ORDER_STATUS.DELIVERED && orderForEmail.userId) {
             try {
                 const { createNotification } = await import("./notifications.js");
@@ -1121,9 +1185,9 @@ export async function updateOrderStatus(orderId, newStatus) {
     }
 }
 
-// ============================================================
-// SUPPRESSION COMPLÈTE (T3 : exportée pour admin/tests)
-// ============================================================
+/* ============================================================
+   SUPPRESSION COMPLÈTE
+   ============================================================ */
 export async function deleteOrderCompletely(orderId) {
     const orderSnap = await getDoc(doc(db, "orders", orderId));
     if (!orderSnap.exists()) return { success: false };
@@ -1148,21 +1212,28 @@ export async function deleteOrderCompletely(orderId) {
     batch.delete(doc(db, "orders", orderId));
     await batch.commit();
 
-    // NOTE : les wallet_transactions liées ne sont PAS supprimées (journal comptable immuable).
+    /* Les wallet_transactions liées ne sont PAS supprimées (journal comptable immuable). */
     return { success: true };
 }
 
-// ============================================================
-// 🆕 T4 — RELEASE DES FONDS ÉCHUS (prêt pour worker-cron)
-// ============================================================
+/* ============================================================
+   T4 / T4-bis — RELEASE DES FONDS ÉCHUS
+   ============================================================ */
+
 /**
  * Débloque les fonds échus : transfert pendingBalance → availableBalance
  * pour toutes les wallet_transactions `pending` dont `unlockAt <= now`.
  *
- * Idempotent :
- *   - Les tx déjà `released` sont exclues de la requête.
- *   - Le passage à `released` est fait dans la même transaction que
- *     la mise à jour du wallet.
+ * B1 : la lecture dans la transaction Firestore (tx.get) garantit qu'une
+ *      transaction n'est traitée qu'une seule fois, même en cas d'exécution
+ *      concurrente par 2 admins/onglets (Firestore transaction = serialize).
+ * B2 : au lieu d'une récursion infinie, on utilise un Set d'IDs déjà
+ *      tentés + limite d'itérations (15 → max 6000 tx par appel).
+ *      Les tx orphelines (ex. wallet_missing) restent `pending` et seront
+ *      repris par le prochain run du cron, sans bloquer.
+ * B3 : chaque tx reçoit un `releasedAmount` FIFO exact, déduit de la
+ *      somme disponible. Si la somme est insuffisante, un flag
+ *      `walletCapped: true` est posé et `releasedAmount < eligible`.
  *
  * @param {Object} options - { batchSize?: number (défaut 400), dryRun?: boolean }
  * @returns {Promise<{totalReleased:number, vendorsProcessed:number, transactionsReleased:number, errors:Array}>}
@@ -1171,78 +1242,55 @@ export async function releaseDueVendorFunds(options = {}) {
     const { batchSize = 400, dryRun = false } = options;
     const result = { totalReleased: 0, vendorsProcessed: 0, transactionsReleased: 0, errors: [] };
 
+    const attemptedIds = new Set();
+    const maxIterations = 15;
+    let iterations = 0;
+
     try {
-        const now = Timestamp.now();
-        const q = query(
-            collection(db, "wallet_transactions"),
-            where("status", "==", WALLET_TX_STATUS.PENDING),
-            where("unlockAt", "<=", now),
-            limit(batchSize)
-        );
-        const snap = await getDocs(q);
-        if (snap.empty) return result;
+        while (iterations < maxIterations) {
+            iterations++;
+            const now = Timestamp.now();
+            const q = query(
+                collection(db, "wallet_transactions"),
+                where("status", "==", WALLET_TX_STATUS.PENDING),
+                where("unlockAt", "<=", now),
+                limit(batchSize)
+            );
+            const snap = await getDocs(q);
+            if (snap.empty) break;
 
-        // Regrouper par vendeur
-        const byVendor = {};
-        snap.forEach(d => {
-            const data = d.data();
-            const vid = data.vendorId;
-            if (!vid) return;
-            if (!byVendor[vid]) byVendor[vid] = [];
-            byVendor[vid].push({ id: d.id, ...data });
-        });
+            const fresh = snap.docs.filter(d => !attemptedIds.has(d.id));
+            if (fresh.length === 0) break;
 
-        for (const [vendorId, txs] of Object.entries(byVendor)) {
-            const totalAmount = txs.reduce((s, t) => s + (Number(t.amount) || 0), 0);
-            if (dryRun) {
-                result.totalReleased += totalAmount;
-                result.vendorsProcessed++;
-                result.transactionsReleased += txs.length;
-                continue;
+            const byVendor = {};
+            for (const d of fresh) {
+                const data = d.data();
+                if (!data.vendorId) {
+                    attemptedIds.add(d.id);
+                    continue;
+                }
+                if (!byVendor[data.vendorId]) byVendor[data.vendorId] = [];
+                byVendor[data.vendorId].push({ id: d.id, data });
             }
-            try {
-                await runTransaction(db, async (tx) => {
-                    const walletRef = doc(db, "wallets", vendorId);
-                    const walletSnap = await tx.get(walletRef);
-                    if (!walletSnap.exists()) throw new Error('wallet_missing');
 
-                    const w = walletSnap.data();
-                    const pendingBefore = Number(w.pendingBalance) || 0;
-                    const transfer = Math.min(pendingBefore, totalAmount);
-
-                    // Marquer toutes les tx comme released (même si transfer=0,
-                    // pour ne pas reboucler à l'infini sur des tx orphelines).
-                    txs.forEach(t => tx.update(doc(db, "wallet_transactions", t.id), {
-                        status: WALLET_TX_STATUS.RELEASED,
-                        releasedAt: Timestamp.now(),
-                        releasedAmount: Number(t.amount) || 0
-                    }));
-
-                    if (transfer > 0) {
-                        tx.update(walletRef, {
-                            pendingBalance: Math.max(0, pendingBefore - transfer),
-                            availableBalance: (Number(w.availableBalance) || 0) + transfer,
-                            lastUpdated: Timestamp.now()
-                        });
+            for (const [vendorId, txEntries] of Object.entries(byVendor)) {
+                txEntries.forEach(e => attemptedIds.add(e.id));
+                try {
+                    const r = await releaseVendorFundsTx(vendorId, txEntries, { dryRun });
+                    if (r.success) {
+                        result.totalReleased += r.releasedAmount;
+                        result.vendorsProcessed++;
+                        result.transactionsReleased += r.txsProcessed;
+                    } else {
+                        result.errors.push({ vendorId, error: r.error });
                     }
-                });
-
-                result.totalReleased += totalAmount;
-                result.vendorsProcessed++;
-                result.transactionsReleased += txs.length;
-            } catch (e) {
-                console.error(`❌ release wallet ${vendorId}:`, e);
-                result.errors.push({ vendorId, error: e.message });
+                } catch (e) {
+                    console.error(`❌ release wallet ${vendorId}:`, e);
+                    result.errors.push({ vendorId, error: e.message });
+                }
             }
-        }
 
-        // Continuer si le batch était plein (potentiellement d'autres tx)
-        if (snap.docs.length === batchSize) {
-            const next = await releaseDueVendorFunds({ batchSize, dryRun });
-            result.totalReleased += next.totalReleased;
-            result.vendorsProcessed += next.vendorsProcessed;
-            result.transactionsReleased += next.transactionsReleased;
-            result.errors.push(...next.errors);
+            if (snap.docs.length < batchSize) break;
         }
 
         return result;
@@ -1253,9 +1301,105 @@ export async function releaseDueVendorFunds(options = {}) {
     }
 }
 
-// ============================================================
-// BASCULER LE STATUT DE PAIEMENT (admin)
-// ============================================================
+/**
+ * Débloque les fonds d'UN vendeur dans une transaction Firestore.
+ *
+ * B1 : relit chaque wallet_transactions dans la transaction, ne retient
+ *      que celles encore `pending` et échues. Le montant `transfer` est
+ *      calculé après relecture, jamais à partir d'un état stale.
+ * B3 : allocation FIFO de `releasedAmount` par tx (somme = transfer),
+ *      flag `walletCapped: true` si `releasedAmount < eligible`.
+ */
+async function releaseVendorFundsTx(vendorId, txEntries, { dryRun = false } = {}) {
+    if (dryRun) {
+        const total = txEntries.reduce((s, e) => {
+            const amt = Number(e.data.amount) || 0;
+            const rev = Number(e.data.reversedAmount) || 0;
+            return s + Math.max(0, amt - rev);
+        }, 0);
+        return { success: true, releasedAmount: total, txsProcessed: txEntries.length, dryRun: true };
+    }
+
+    const walletRef = doc(db, "wallets", vendorId);
+
+    return await runTransaction(db, async (tx) => {
+        /* === PHASE READS === */
+        const walletSnap = await tx.get(walletRef);
+        if (!walletSnap.exists()) {
+            return { success: false, error: 'wallet_missing' };
+        }
+        const w = walletSnap.data();
+        const pendingBefore = Number(w.pendingBalance) || 0;
+
+        const reRead = [];
+        for (const entry of txEntries) {
+            const s = await tx.get(doc(db, "wallet_transactions", entry.id));
+            if (!s.exists()) continue;
+            const data = s.data();
+            if (data.status !== WALLET_TX_STATUS.PENDING) continue;
+            const unlockAtMs = data.unlockAt?.toMillis?.()
+                || (data.unlockAt?.seconds ? data.unlockAt.seconds * 1000 : 0);
+            if (unlockAtMs > Date.now()) continue;
+            reRead.push({ id: entry.id, data });
+        }
+
+        if (reRead.length === 0) {
+            return { success: true, releasedAmount: 0, txsProcessed: 0, skipped: 'no_pending_due' };
+        }
+
+        /* === PHASE WRITES === */
+        /* FIFO sort par createdAt */
+        reRead.sort((a, b) => {
+            const ta = a.data.createdAt?.toMillis?.() || 0;
+            const tb = b.data.createdAt?.toMillis?.() || 0;
+            return ta - tb;
+        });
+
+        let remaining = pendingBefore;
+        let releasedTotal = 0;
+        let txsProcessed = 0;
+
+        for (const t of reRead) {
+            const amt = Number(t.data.amount) || 0;
+            const rev = Number(t.data.reversedAmount) || 0;
+            const eligible = Math.max(0, amt - rev);
+
+            let releaseForThis;
+            if (remaining <= 0) {
+                releaseForThis = 0;
+            } else if (eligible <= remaining) {
+                releaseForThis = eligible;
+                remaining -= eligible;
+            } else {
+                releaseForThis = remaining;
+                remaining = 0;
+            }
+
+            tx.update(doc(db, "wallet_transactions", t.id), {
+                status: WALLET_TX_STATUS.RELEASED,
+                releasedAt: Timestamp.now(),
+                releasedAmount: releaseForThis,
+                walletCapped: releaseForThis < eligible
+            });
+            releasedTotal += releaseForThis;
+            txsProcessed++;
+        }
+
+        if (releasedTotal > 0) {
+            tx.update(walletRef, {
+                pendingBalance: Math.max(0, pendingBefore - releasedTotal),
+                availableBalance: (Number(w.availableBalance) || 0) + releasedTotal,
+                lastUpdated: Timestamp.now()
+            });
+        }
+
+        return { success: true, releasedAmount: releasedTotal, txsProcessed };
+    });
+}
+
+/* ============================================================
+   BASCULER LE STATUT DE PAIEMENT (admin)
+   ============================================================ */
 export async function updatePaymentStatus(orderId, newStatus) {
     try {
         const allowed = ['paid', 'unpaid'];
@@ -1274,9 +1418,9 @@ export async function updatePaymentStatus(orderId, newStatus) {
     }
 }
 
-// ============================================================
-// ADMIN : RENDRE LES COMMANDES
-// ============================================================
+/* ============================================================
+   ADMIN : RENDRE LES COMMANDES
+   ============================================================ */
 export async function renderAdminOrders(containerId = 'ordersList') {
     const container = document.getElementById(containerId);
     if (!container) return;
@@ -1398,7 +1542,7 @@ export async function renderAdminOrders(containerId = 'ordersList') {
                     const result = await updateOrderStatus(orderId, value);
                     if (result.success) {
                         if (result.walletSyncError) {
-                            // Toast géré dans updateOrderStatus, on rafraîchit quand même
+                            /* Toast géré dans updateOrderStatus, on rafraîchit quand même */
                         } else {
                             showToast('✅ ' + t('success'));
                         }
@@ -1532,9 +1676,9 @@ export function resetAdminOrdersCache() {
     adminLoading = false;
 }
 
-// ============================================================
-// RETOURS & AVIS
-// ============================================================
+/* ============================================================
+   RETOURS & AVIS
+   ============================================================ */
 async function syncReviewsWithOrderReturn(order, allReturns) {
     if (!order || !order.userId || !Array.isArray(order.items) || order.items.length === 0) {
         return { deleted: 0, unverified: 0 };
@@ -1711,9 +1855,9 @@ async function processReturnTransaction(order, returnsToProcess) {
     });
 }
 
-// ============================================================
-// SYNC AUTOMATIQUE EN ARRIÈRE-PLAN (Throttle 5 min)
-// ============================================================
+/* ============================================================
+   SYNC AUTOMATIQUE EN ARRIÈRE-PLAN (Throttle 5 min)
+   ============================================================ */
 const AUTO_SYNC_THROTTLE_MS = 5 * 60 * 1000;
 const AUTO_SYNC_STORAGE_PREFIX = 'swi9a_sync_';
 
@@ -1811,9 +1955,9 @@ export async function autoSyncActiveOrders(orders, onComplete = null) {
     console.log(`✅ Auto-sync terminé : ${updatedCount}/${ordersToSync.length} mise(s) à jour`);
 }
 
-// ============================================================
-// CLIENT : AFFICHER LES COMMANDES (avec timeline 4 étapes)
-// ============================================================
+/* ============================================================
+   CLIENT : AFFICHER LES COMMANDES (avec timeline 4 étapes)
+   ============================================================ */
 export async function renderUserOrders(containerId = 'tabContent') {
     const container = document.getElementById(containerId);
     if (!container) return;
@@ -1825,7 +1969,6 @@ export async function renderUserOrders(containerId = 'tabContent') {
             return;
         }
 
-        // T3 : auto-sync ne fait rien si non-admin (guard interne)
         autoSyncActiveOrders(orders, () => {
             const c = document.getElementById(containerId);
             if (c) renderUserOrders(containerId);
@@ -1930,9 +2073,9 @@ export async function renderUserOrders(containerId = 'tabContent') {
     }
 }
 
-// ============================================================
-// MODALE DÉTAILS CLIENT
-// ============================================================
+/* ============================================================
+   MODALE DÉTAILS CLIENT
+   ============================================================ */
 export async function openOrderDetails(orderId, isAdmin = false) {
     try {
         const snap = await getDoc(doc(db, "orders", orderId));
@@ -1988,7 +2131,7 @@ export async function openOrderDetails(orderId, isAdmin = false) {
     }
 }
 
-// ============================================================
-// LOG
-// ============================================================
-console.log('✅ orders.js chargé — v8.0.0 (Marketplace T3, idempotence wallet, releaseDueVendorFunds)');
+/* ============================================================
+   LOG
+   ============================================================ */
+console.log('✅ orders.js chargé — v8.1.0 (T4-bis/T5-bis : release relue en transaction + attempt-tracking + FIFO reversal)');
