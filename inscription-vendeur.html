@@ -6,12 +6,19 @@
     <title>Devenir Vendeur | Smart Swi9a</title>
     <meta name="description" content="Rejoignez la marketplace Smart Swi9a et vendez vos produits partout au Maroc.">
     <meta name="robots" content="noindex, nofollow">
+    <meta name="theme-color" content="#0d0d0d">
     <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
 
-    <!-- Perf : Firebase est chargé depuis gstatic -->
+    <!-- Perf : Firebase + Firestore + Storage + Fonts -->
     <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+    <link rel="preconnect" href="https://firebasestorage.googleapis.com" crossorigin>
     <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Perf : précharge le module principal -->
+    <link rel="modulepreload" href="/js/vendor-signup.js">
 
     <!-- Importmap complet — storage inclus (utilisé par js/firebase.js) -->
     <script type="importmap">
@@ -57,7 +64,11 @@
         }
     </style>
 
+    <!-- Traductions de base (chargées avant les modules ES) -->
     <script src="/translations.js"></script>
+
+    <!-- T11 : à activer une fois js/translations-vendor.js publié -->
+    <!-- <script src="/translations-vendor.js" defer></script> -->
 </head>
 <body class="vendor-page">
 
