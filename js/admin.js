@@ -1,13 +1,40 @@
-// js/admin.js
-// ============================================================
-// PANNEAU ADMINISTRATION - SMART SWI9A
-// Version 10.2.1 — Marketplace (T6 workflow produits + T10 déblocage fonds)
-// Correctifs v10.2.1 (Session 3) :
-//   - Retrait imports inutilisés (CATEGORIES, openReturnModal)
-//   - Null-guards sur pickupModal / pickupDate / pickupPackages / pickupWeight / pickupNote
-//   - Commentaire explicite sur wallet_transactions.status = 'released' (payout)
-//   - Aucune fonctionnalité retirée (T4/T6/T10 identiques à v10.2.0)
-// ============================================================
+/* ============================================================
+   js/admin.js
+   Panneau administration - Smart Swi9a
+   Version 11.0.0 — Marketplace (T6 + T9 + T10)
+
+   Correctifs v11.0.0 (Session 4 — T9) :
+     - C1-admin : fetchVendorContract gère l'ID versionné
+                  contract_<uid>_v<semver> + legacy contract_<uid>,
+                  priorité currentContractId, tri semver puis
+                  acceptedAt desc.
+     - C3-admin : modale contrat enrichie : hash complets (copier),
+                  termsSnapshot lisible, source, legacy marker,
+                  bouton « Vérifier l'intégrité » branché sur
+                  verifyContractIntegrity.
+     - C4       : signedAt → acceptedAt (affichage + tri).
+     - C5-admin : handleVendorAction exige la version courante
+                  (ou legacy toléré), écrit currentContractId +
+                  contractVersion, refuse needsResign.
+     - Badges contrat (à jour / obsolète / non signé / legacy)
+       dans la liste vendeurs + filtre « outdated ».
+     - ALERTE 1 : plus aucun // en début de ligne utile.
+
+   Notes T2 (règles Firestore v5.1.0 §1) :
+     - La transition users/{uid} depuis handleVendorAction écrit
+       les 4 clés : contractStatus, currentContractId,
+       contractVersion, updatedAt. Les règles doivent les
+       autoriser via affectedKeys().
+
+   Dépendances :
+     ./firebase.js, ./config.js, ./utils.js, ./orders.js,
+     ./reviews.js, ./ui-core.js,
+     ./vendor-contract.js (signVendorContract, computeContractTextHash,
+                           needsResign, compareVersions,
+                           verifyContractIntegrity),
+     ./vendor-contract-text.js (getContractText,
+                                getSupportedContractVersions)
+   ============================================================ */
 
 import { auth, db, storage } from "./firebase.js";
 import {
@@ -36,10 +63,19 @@ import {
 } from "./orders.js";
 import { renderAdminReviews } from "./reviews.js";
 import { showToast, confirmAction } from "./ui-core.js";
+import {
+    needsResign,
+    compareVersions,
+    verifyContractIntegrity
+} from "./vendor-contract.js";
+import {
+    getContractText,
+    getSupportedContractVersions
+} from "./vendor-contract-text.js";
 
-// ============================================================
-// 🧪 MODE TEST — CONFIGURATION
-// ============================================================
+/* ============================================================
+   MODE TEST — CONFIGURATION
+   ============================================================ */
 const PROTECTED_USER_EMAILS = [
     "asaminfo20@gmail.com"
 ];
@@ -63,9 +99,9 @@ const COLLECTIONS_TO_SNAPSHOT = [
     "wallet_transactions"
 ];
 
-// ============================================================
-// ÉTAT LOCAL
-// ============================================================
+/* ============================================================
+   ÉTAT LOCAL
+   ============================================================ */
 let currentAdmin = null;
 let cachedProducts = [];
 let cachedUsers = [];
@@ -82,7 +118,7 @@ let lastProductsLoadTime = 0;
 let simulatorListenersAttached = false;
 let alertInterval = null;
 let tempStockFilter = null;
-let tempStatusFilter = null; // T6 : 'pending_admin_approval' | 'rejected' | 'suspended' | null
+let tempStatusFilter = null; /* T6 : 'pending_admin_approval' | 'rejected' | 'suspended' | null */
 let isSyncingAllSpeedaf = false;
 
 let revenueChartInstance = null;
@@ -96,9 +132,9 @@ let blogCurrentPage = 1;
 
 let pendingLoginError = null;
 
-// ============================================================
-// HELPERS i18n
-// ============================================================
+/* ============================================================
+   HELPERS i18n
+   ============================================================ */
 const BLOG_CAT_KEY_MAP = {
     conseils: 'blogCatConseils', tendances: 'blogCatTendances',
     tests: 'blogCatTests', tutoriels: 'blogCatTutoriels',
@@ -113,9 +149,9 @@ const COUPON_TYPES = {
     free_shipping: { label: 'Livraison gratuite', emoji: '🚚', cssClass: 'coupon-type-free_shipping' }
 };
 
-// ============================================================
-// HELPERS COMPTABILITÉ & DATES
-// ============================================================
+/* ============================================================
+   HELPERS COMPTABILITÉ & DATES
+   ============================================================ */
 function formatMAD(n) {
     const num = Number(n) || 0;
     return new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2, useGrouping: true })
@@ -147,9 +183,9 @@ function generateUniqueSku(category) {
     return `SW-${catPrefix}-${dateStr}-${randomStr}`;
 }
 
-// ============================================================
-// STORAGE HELPERS
-// ============================================================
+/* ============================================================
+   STORAGE HELPERS
+   ============================================================ */
 async function deleteStorageImage(url) {
     if (!isStorageUrl(url)) return false;
     const path = getStoragePathFromUrl(url);
@@ -161,9 +197,9 @@ async function deleteStorageImages(urls) {
     await Promise.allSettled(urls.map(url => deleteStorageImage(url)));
 }
 
-// ============================================================
-// T10 : NOTIFICATION VENDEUR (in-app)
-// ============================================================
+/* ============================================================
+   NOTIFICATION VENDEUR (in-app)
+   ============================================================ */
 async function notifyUser(userId, type, title, message, extra = {}) {
     if (!userId) return;
     try {
@@ -181,9 +217,37 @@ async function notifyUser(userId, type, title, message, extra = {}) {
     }
 }
 
-// ============================================================
-// 🧪 MODE TEST — COLLECTE ET SUPPRESSION DES FICHIERS STORAGE
-// ============================================================
+/* ============================================================
+   HELPERS PRESSE-PAPIER (T9 : copier les hash)
+   ============================================================ */
+async function copyToClipboard(text, successMsg = '✅ Copié') {
+    try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+            showToast(successMsg);
+            return true;
+        }
+        /* Fallback : textarea temporaire */
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        showToast(successMsg);
+        return true;
+    } catch (e) {
+        console.error('copyToClipboard :', e);
+        showToast('❌ Copie impossible');
+        return false;
+    }
+}
+
+/* ============================================================
+   MODE TEST — COLLECTE ET SUPPRESSION DES FICHIERS STORAGE
+   ============================================================ */
 async function collectTestFiles(batchId) {
     const urlsToDelete = new Set();
     const FILE_FIELDS = { products: ['img', 'gallery'], reviews: ['photos'], blog: ['image'] };
@@ -231,9 +295,9 @@ async function deleteStorageFiles(urls) {
     return { deleted, failed };
 }
 
-// ============================================================
-// 🧪 MODE TEST — INITIALISATION & ROLLBACK
-// ============================================================
+/* ============================================================
+   MODE TEST — INITIALISATION & ROLLBACK
+   ============================================================ */
 function initTestMode() {
     const saved = localStorage.getItem('swi9a_app_mode');
     if (saved === 'test' || saved === 'production') {
@@ -421,9 +485,9 @@ function showLoginBox() {
     }
 }
 
-// ============================================================
-// LOGIN & INITIALISATION
-// ============================================================
+/* ============================================================
+   LOGIN & INITIALISATION
+   ============================================================ */
 async function handleLogin() {
     const email = document.getElementById('adminEmail').value.trim();
     const password = document.getElementById('adminPassword').value;
@@ -551,9 +615,9 @@ function initAdmin() {
     attachAllRemainingEvents();
 }
 
-// ============================================================
-// CHARGEMENT DONNÉES
-// ============================================================
+/* ============================================================
+   CHARGEMENT DONNÉES
+   ============================================================ */
 async function loadAllData() {
     await loadProducts(); await loadStats(); await loadUsers(); await loadCoupons();
     await loadBlogPosts(); await loadReviews();
@@ -593,8 +657,6 @@ async function loadStats() {
         const elR = document.getElementById('statReviewsPending');
         if (elR) elR.textContent = cr.data().count;
 
-        // T6 : compteur de produits à valider (index products(vendorId, status) requis pour loadVendors,
-        // mais cet appel ne fait qu'un count global — index single-field status suffit)
         const cPending = await getCountFromServer(query(collection(db, "products"), where("status", "==", PRODUCT_STATUS.PENDING_ADMIN_APPROVAL)));
         const elPP = document.getElementById('statProductsPending');
         if (elPP) elPP.textContent = cPending.data().count;
@@ -610,9 +672,9 @@ async function loadStats() {
 async function loadOrders() { await renderAdminOrders('adminOrdersList'); }
 async function loadReviews() { await renderAdminReviews('reviewsList', 'all'); }
 
-// ============================================================
-// PRODUITS
-// ============================================================
+/* ============================================================
+   PRODUITS
+   ============================================================ */
 async function loadProducts(force = false) {
     const container = document.getElementById('adminProductsList');
     const now = Date.now();
@@ -677,7 +739,6 @@ function renderProductsList(products) {
     const container = document.getElementById('adminProductsList');
     if (!container) return;
 
-    // T6 : filtres actifs (stock + statut)
     let filterIndicator = '';
     const filtersActive = tempStockFilter === 'out' || tempStockFilter === 'low' || tempStatusFilter;
     if (filtersActive) {
@@ -695,7 +756,6 @@ function renderProductsList(products) {
         `;
     }
 
-    // T6 : barre "À valider" — compteur dynamique
     const pendingCount = cachedProducts.filter(p => p.status === PRODUCT_STATUS.PENDING_ADMIN_APPROVAL).length;
     let pendingBar = '';
     if (pendingCount > 0 && tempStatusFilter !== PRODUCT_STATUS.PENDING_ADMIN_APPROVAL) {
@@ -742,7 +802,6 @@ function renderProductsList(products) {
             ? `<span style="background:#3498db;color:#fff;font-size:0.6rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;">🏪</span>`
             : '';
 
-        // T6 : badge + actions selon statut
         const productStatus = p.status || 'legacy';
         let statusBadge = '';
         let productActionsExtra = '';
@@ -864,9 +923,9 @@ function filterProductsList(resetPage = true) {
     renderProductsList(filtered);
 }
 
-// ============================================================
-// T6 — WORKFLOW DE VALIDATION DES PRODUITS
-// ============================================================
+/* ============================================================
+   T6 — WORKFLOW DE VALIDATION DES PRODUITS
+   ============================================================ */
 async function approveProduct(productId) {
     const prod = cachedProducts.find(p => p.id === productId);
     if (!prod) return;
@@ -1010,9 +1069,9 @@ async function suspendProduct(productId) {
     }
 }
 
-// ============================================================
-// RESTOCK & FORMULAIRE PRODUIT
-// ============================================================
+/* ============================================================
+   RESTOCK & FORMULAIRE PRODUIT
+   ============================================================ */
 async function openRestockModal(productId) {
     let product = cachedProducts.find(p => p.id === productId);
     if (!product) {
@@ -1471,9 +1530,9 @@ async function deleteProduct(id) {
     } catch (e) { showToast('❌ Erreur'); }
 }
 
-// ============================================================
-// CLIENTS
-// ============================================================
+/* ============================================================
+   CLIENTS
+   ============================================================ */
 async function loadUsers() {
     const container = document.getElementById('adminUsersList');
     if (!container) return;
@@ -1579,9 +1638,9 @@ function filterUsersList() {
     renderUsersList(filtered);
 }
 
-// ============================================================
-// 🆕 VENDEURS — loadVendors / filterVendorsList / renderVendorsList
-// ============================================================
+/* ============================================================
+   VENDEURS — loadVendors / filterVendorsList / renderVendorsList
+   ============================================================ */
 const VENDOR_STATUS_ORDER = {
     [VENDOR_STATUS.PENDING]: 0,
     [VENDOR_STATUS.APPROVED]: 1,
@@ -1589,29 +1648,84 @@ const VENDOR_STATUS_ORDER = {
     [VENDOR_STATUS.REJECTED]: 3
 };
 
-// T10 : recherche le contrat actif (legacy contract_<uid> OU versionné contract_<uid>_v<X.Y.Z>)
+/* T9 : recherche le contrat actif.
+   Priorité :
+     1. vendorInfo.currentContractId (déjà stocké)
+     2. ID versionné contract_<uid>_v<CONFIG.VENDOR.CONTRACT_VERSION>
+     3. Query contracts where vendorId == uid, tri semver desc puis acceptedAt desc
+     4. Legacy contract_<uid>
+   Retourne un objet { exists, id, data, isLegacy, isOutdated, isUnverifiable }. */
 async function fetchVendorContract(vendorId) {
-    // 1. Essaie le doc direct (legacy)
-    try {
-        const legacySnap = await getDoc(doc(db, "contracts", `contract_${vendorId}`));
-        if (legacySnap.exists()) {
-            return { exists: true, id: legacySnap.id, data: legacySnap.data() };
-        }
-    } catch (e) { /* ignore */ }
+    if (!vendorId) return { exists: false, id: null, data: null, isLegacy: false, isOutdated: false, isUnverifiable: false };
 
-    // 2. Cherche dans les contrats versionnés via query
+    const currentVersion = CONFIG.VENDOR.CONTRACT_VERSION;
+    const candidates = [];
+
+    /* 1. vendorInfo.currentContractId si présent sur le profil en cache */
+    try {
+        const cachedVendor = cachedVendors.find(v => v.id === vendorId);
+        const currentId = cachedVendor?.vendorInfo?.currentContractId;
+        if (currentId && typeof currentId === 'string') candidates.push(currentId);
+    } catch (_) { /* ignore */ }
+
+    /* 2. ID versionné attendu */
+    candidates.push(`contract_${vendorId}_v${currentVersion}`);
+
+    /* 3. Lecture directe des candidats */
+    for (const id of candidates) {
+        try {
+            const snap = await getDoc(doc(db, "contracts", id));
+            if (snap.exists()) {
+                return decorateContract({ id: snap.id, data: snap.data() });
+            }
+        } catch (e) { /* ignore */ }
+    }
+
+    /* 4. Query contracts where vendorId == uid, on trie par version puis acceptedAt */
     try {
         const q = query(collection(db, "contracts"), where("vendorId", "==", vendorId));
         const snap = await getDocs(q);
         if (!snap.empty) {
-            const sorted = snap.docs
-                .map(d => ({ id: d.id, ...d.data() }))
-                .sort((a, b) => safeDate(b.signedAt || b.createdAt) - safeDate(a.signedAt || a.createdAt));
-            return { exists: true, id: sorted[0].id, data: sorted[0] };
+            const docs = snap.docs.map(d => ({ id: d.id, data: d.data() }));
+            docs.sort((a, b) => {
+                const va = a.data?.version || '0.0.0';
+                const vb = b.data?.version || '0.0.0';
+                const c = compareVersions(vb, va); /* desc */
+                if (c !== 0) return c;
+                return safeDate(b.data?.acceptedAt) - safeDate(a.data?.acceptedAt);
+            });
+            return decorateContract(docs[0]);
         }
     } catch (e) { /* ignore */ }
 
-    return { exists: false, id: null, data: null };
+    /* 5. Legacy */
+    try {
+        const legacySnap = await getDoc(doc(db, "contracts", `contract_${vendorId}`));
+        if (legacySnap.exists()) {
+            return decorateContract({ id: legacySnap.id, data: legacySnap.data() });
+        }
+    } catch (e) { /* ignore */ }
+
+    return { exists: false, id: null, data: null, isLegacy: false, isOutdated: false, isUnverifiable: false };
+}
+
+/* T9 : décore le contrat avec les drapeaux isLegacy / isOutdated / isUnverifiable */
+function decorateContract(docObj) {
+    const data = docObj.data || {};
+    const isLegacy = !data.version && !data.termsSnapshot;
+    const isUnverifiable = isLegacy;
+    let isOutdated = false;
+    if (!isLegacy && data.version) {
+        isOutdated = needsResign({ contractVersion: data.version });
+    }
+    return {
+        exists: true,
+        id: docObj.id,
+        data,
+        isLegacy,
+        isOutdated,
+        isUnverifiable
+    };
 }
 
 async function loadVendors() {
@@ -1623,9 +1737,9 @@ async function loadVendors() {
         const snap = await getDocs(q);
         cachedVendors = snap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-        // T10 : enrichir avec contrat (versionné ou legacy), wallet, produits en attente.
-        // ⚠️ L'appel getCountFromServer sur products(where vendorId + where status) requiert
-        // l'index composite products(vendorId ASC, status ASC) — fourni dans firestore.indexes.json v5.0.1.
+        /* T9 : enrichir avec contrat (versionné ou legacy), wallet, produits en attente.
+           Nécessite l'index composite products(vendorId ASC, status ASC) — présent
+           dans firestore.indexes.json. */
         const enriched = await Promise.all(cachedVendors.map(async (v) => {
             const [contractRes, walletRes, productsPendingSnap] = await Promise.allSettled([
                 fetchVendorContract(v.id),
@@ -1643,6 +1757,10 @@ async function loadVendors() {
                 _contractData: contract.data,
                 _contractStatus: contract.exists ? (contract.data?.status || 'pending') : null,
                 _contractVersion: contract.exists ? (contract.data?.version || null) : null,
+                _contractIsLegacy: contract.exists ? !!contract.isLegacy : false,
+                _contractIsOutdated: contract.exists ? !!contract.isOutdated : false,
+                _contractIsUnverifiable: contract.exists ? !!contract.isUnverifiable : false,
+                _contractId: contract.exists ? contract.id : null,
                 _wallet: wallet,
                 _pendingProducts: pendingProducts
             };
@@ -1674,7 +1792,12 @@ function filterVendorsList() {
 
     let filtered = cachedVendors;
     if (statusFilter !== 'all') {
-        filtered = filtered.filter(v => (v.vendorInfo?.status || 'pending') === statusFilter);
+        if (statusFilter === 'outdated') {
+            /* T9 : filtre « contrat obsolète » (contrat accepté mais version < courante) */
+            filtered = filtered.filter(v => v._contractExists && !v._contractIsLegacy && v._contractIsOutdated);
+        } else {
+            filtered = filtered.filter(v => (v.vendorInfo?.status || 'pending') === statusFilter);
+        }
     }
     if (search) {
         filtered = filtered.filter(v => {
@@ -1696,6 +1819,7 @@ function renderVendorsList(vendors) {
         return;
     }
 
+    const currentVersion = CONFIG.VENDOR.CONTRACT_VERSION;
     let html = '';
     vendors.forEach(v => {
         const shopName = escapeHTML(v.vendorInfo?.shopName || v.name || 'Boutique');
@@ -1708,9 +1832,9 @@ function renderVendorsList(vendors) {
         const createdAt = toDate(v.createdAt)?.toLocaleDateString('fr-FR') || '—';
         const delayCount = Number(v.vendorInfo?.delayCount) || 0;
 
-        // T10 : statut CONTRAT réel (versionné ou legacy)
         const contractStatus = v._contractStatus || v.vendorInfo?.contractStatus || 'pending';
-        const canApprove = contractStatus === 'accepted';
+        const contractAccepted = contractStatus === 'accepted';
+        const canApprove = contractAccepted && !v._contractIsOutdated;
 
         let statusBadge = '';
         if (status === 'pending') statusBadge = `<span style="background:var(--warning-bg);color:var(--warning);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">⏳ En attente</span>`;
@@ -1718,19 +1842,21 @@ function renderVendorsList(vendors) {
         else if (status === 'rejected') statusBadge = `<span style="background:var(--danger-bg);color:var(--danger);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">❌ Rejeté</span>`;
         else if (status === 'suspended') statusBadge = `<span style="background:var(--danger-bg);color:var(--danger);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">🚫 Suspendu</span>`;
 
+        /* T9 : badges contrat à jour / obsolète / non signé / legacy */
         let contractBadge = '';
-        if (contractStatus === 'accepted') {
-            const ver = v._contractVersion ? ` (v${escapeHTML(v._contractVersion)})` : '';
-            contractBadge = `<span style="background:var(--success-bg);color:var(--success);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;">📜 Contrat signé${ver}</span>`;
-        } else if (contractStatus === 'revoked') {
-            contractBadge = `<span style="background:var(--danger-bg);color:var(--danger);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;">📜 Contrat révoqué</span>`;
-        } else if (!v._contractExists) {
-            contractBadge = `<span style="background:var(--warning-bg);color:var(--warning);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;">📜 Aucun contrat</span>`;
+        if (!v._contractExists) {
+            contractBadge = `<span style="background:var(--warning-bg);color:var(--warning);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;">📜 Non signé</span>`;
+        } else if (v._contractIsLegacy) {
+            contractBadge = `<span style="background:#e0e0e0;color:#333;padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;" title="Contrat legacy (sans version ni snapshot) — non vérifiable">📜 Legacy</span>`;
+        } else if (contractStatus !== 'accepted') {
+            contractBadge = `<span style="background:var(--warning-bg);color:var(--warning);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;">📜 Non signé</span>`;
+        } else if (v._contractIsOutdated) {
+            contractBadge = `<span style="background:#fde2e4;color:#b02a37;padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;" title="Version obsolète : ${escapeHTML(v._contractVersion || '?')} (courante : ${escapeHTML(currentVersion)})">📜 Obsolète</span>`;
         } else {
-            contractBadge = `<span style="background:var(--warning-bg);color:var(--warning);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;">📜 Contrat non signé</span>`;
+            const ver = v._contractVersion ? ` (v${escapeHTML(v._contractVersion)})` : '';
+            contractBadge = `<span style="background:var(--success-bg);color:var(--success);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;">📜 Contrat à jour${ver}</span>`;
         }
 
-        // T10 : badges complémentaires
         const delayBadge = delayCount > 0
             ? `<span style="background:var(--danger);color:#fff;padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;" title="Retards de dépôt">⏰ ${delayCount} retard${delayCount > 1 ? 's' : ''}</span>`
             : '';
@@ -1749,7 +1875,7 @@ function renderVendorsList(vendors) {
             actionsHtml += `<button class="admin-btn-secondary" data-action="vendor-view-contract" data-id="${v.id}" style="font-size:0.75rem; padding:0.3rem 0.6rem;">📜 Voir contrat</button>`;
         }
         if (status === 'pending') {
-            const approveDisabledAttr = canApprove ? '' : 'disabled title="Le contrat doit être signé avant approbation"';
+            const approveDisabledAttr = canApprove ? '' : 'disabled title="Le contrat doit être signé (version courante) avant approbation"';
             const approveStyle = canApprove ? '' : 'opacity:0.5;cursor:not-allowed;';
             actionsHtml += `
                 <button class="admin-btn-approve" data-action="vendor-approve" data-id="${v.id}" ${approveDisabledAttr} style="${approveStyle}">✅ Approuver</button>
@@ -1758,7 +1884,7 @@ function renderVendorsList(vendors) {
         } else if (status === 'approved') {
             actionsHtml += `<button class="admin-btn-icon admin-btn-danger" data-action="vendor-suspend" data-id="${v.id}">🚫 Suspendre</button>`;
         } else if (status === 'suspended' || status === 'rejected') {
-            const approveDisabledAttr = canApprove ? '' : 'disabled title="Le contrat doit être signé avant approbation"';
+            const approveDisabledAttr = canApprove ? '' : 'disabled title="Le contrat doit être signé (version courante) avant approbation"';
             const approveStyle = canApprove ? '' : 'opacity:0.5;cursor:not-allowed;';
             actionsHtml += `<button class="admin-btn-approve" data-action="vendor-approve" data-id="${v.id}" ${approveDisabledAttr} style="${approveStyle}">✅ Réactiver</button>`;
         }
@@ -1805,8 +1931,21 @@ async function handleVendorAction(vendorId, newStatus) {
     if (!confirmed) return;
 
     try {
-        // T10 : rechercher le contrat versionné OU legacy avant la transaction
+        /* T9 : rechercher le contrat AVANT la transaction (validation stricte) */
         const contract = await fetchVendorContract(vendorId);
+
+        if (newStatus === VENDOR_STATUS.APPROVED) {
+            if (!contract.exists) {
+                throw new Error("Aucun contrat signé trouvé pour ce vendeur. Approbation refusée.");
+            }
+            if ((contract.data?.status || 'pending') !== 'accepted') {
+                throw new Error(`Contrat non signé (statut "${contract.data?.status || 'pending'}"). Approbation refusée.`);
+            }
+            /* Version courante exigée (sauf legacy toléré explicitement) */
+            if (!contract.isLegacy && needsResign({ contractVersion: contract.data?.version })) {
+                throw new Error(`Contrat obsolète (version ${contract.data?.version || '?'} signée, version courante ${CONFIG.VENDOR.CONTRACT_VERSION}). Le vendeur doit re-signer avant approbation.`);
+            }
+        }
 
         await runTransaction(db, async (tx) => {
             const userRef = doc(db, "users", vendorId);
@@ -1816,23 +1955,18 @@ async function handleVendorAction(vendorId, newStatus) {
             const data = userSnap.data();
             const vendorInfo = data.vendorInfo || {};
 
-            if (newStatus === VENDOR_STATUS.APPROVED) {
-                if (contract.exists) {
-                    const contractStatus = contract.data?.status || 'pending';
-                    if (contractStatus !== 'accepted') {
-                        throw new Error(`Contrat non signé (statut "${contractStatus}"). Approbation refusée.`);
-                    }
-                } else if (vendorInfo.contractStatus !== 'accepted') {
-                    throw new Error(`Aucun contrat trouvé. Approbation refusée.`);
-                }
-            }
-
             const userUpdate = {
                 "vendorInfo.status": newStatus,
                 "vendorInfo.updatedAt": serverTimestamp()
             };
+            /* T9 C5-admin : écrit contractStatus + currentContractId + contractVersion
+               (exactement les 4 clés autorisées par les règles v5.1.0 §1). */
             if (newStatus === VENDOR_STATUS.APPROVED) {
-                userUpdate["vendorInfo.contractStatus"] = 'accepted';
+                userUpdate["vendorInfo.contractStatus"] = CONTRACT_STATUS.ACCEPTED;
+                userUpdate["vendorInfo.currentContractId"] = contract.id;
+                if (contract.data?.version) {
+                    userUpdate["vendorInfo.contractVersion"] = contract.data.version;
+                }
             }
             tx.update(userRef, userUpdate);
 
@@ -1847,7 +1981,6 @@ async function handleVendorAction(vendorId, newStatus) {
             }, { merge: true });
         });
 
-        // T10 : notification in-app au vendeur
         const notifMessages = {
             approved: { title: '✅ Compte vendeur approuvé', msg: 'Votre compte vendeur a été approuvé. Vous pouvez commencer à publier vos produits.' },
             rejected: { title: '❌ Inscription refusée', msg: 'Votre inscription a été refusée. Contactez le support pour plus d\'informations.' },
@@ -1867,7 +2000,9 @@ async function handleVendorAction(vendorId, newStatus) {
     }
 }
 
-// T10 : modale contrat vendeur
+/* ============================================================
+   T9 : modale contrat vendeur — hash complets, snapshot, vérifier
+   ============================================================ */
 async function openVendorContractModal(vendorId) {
     try {
         const contract = await fetchVendorContract(vendorId);
@@ -1875,7 +2010,7 @@ async function openVendorContractModal(vendorId) {
             showToast('⚠️ Aucun contrat trouvé pour ce vendeur');
             return;
         }
-        const c = contract.data;
+        const c = contract.data || {};
         const vendor = cachedVendors.find(v => v.id === vendorId);
         const shopName = escapeHTML(vendor?.vendorInfo?.shopName || vendor?.name || 'Vendeur');
         const version = escapeHTML(c.version || '—');
@@ -1883,32 +2018,87 @@ async function openVendorContractModal(vendorId) {
         const status = escapeHTML(c.status || '—');
         const ipAddress = escapeHTML(c.ipAddress || '—');
         const ipSource = escapeHTML(c.ipSource || '—');
-        const userAgent = escapeHTML((c.userAgent || '—').slice(0, 120));
-        const textHash = escapeHTML((c.textHash || '—').slice(0, 24) + '…');
-        const contractHash = escapeHTML((c.contractHash || '—').slice(0, 24) + '…');
-        const signedAt = c.signedAt ? toDate(c.signedAt)?.toLocaleString('fr-FR') : '—';
+        const source = escapeHTML(c.source || '—');
+        const userAgent = escapeHTML((c.userAgent || '—').slice(0, 300));
+        const textHash = c.textHash || '';
+        const contractHash = c.contractHash || '';
+        const acceptedAt = c.acceptedAt ? toDate(c.acceptedAt)?.toLocaleString('fr-FR') : '—';
+
+        /* T9 : snapshot lisible */
+        const snapshot = c.termsSnapshot || null;
+        let snapshotHtml = '';
+        if (snapshot) {
+            const keys = [
+                ['commissionRate', 'Commission'],
+                ['commissionRateMin', 'Commission min'],
+                ['commissionRateMax', 'Commission max'],
+                ['dropoffDeadlineHoursNew', 'Délai dépôt (nouveau)'],
+                ['dropoffDeadlineHoursEstablished', 'Délai dépôt (mature)'],
+                ['unlockDaysVendor', 'Déblocage vendeur (j)'],
+                ['unlockDaysSmart', 'Déblocage Smart (j)'],
+                ['minWithdrawal', 'Retrait min'],
+                ['returnFeeSpeedaf', 'Frais retour Speedaf']
+            ];
+            let rows = '';
+            keys.forEach(([k, label]) => {
+                if (snapshot[k] !== undefined && snapshot[k] !== null) {
+                    let val = String(snapshot[k]);
+                    if (k.startsWith('commissionRate')) val = (Number(snapshot[k]) * 100).toFixed(0) + ' %';
+                    if (k === 'minWithdrawal' || k === 'returnFeeSpeedaf') val = val + ' MAD';
+                    rows += `<div><strong>${escapeHTML(label)} :</strong> ${escapeHTML(val)}</div>`;
+                }
+            });
+            snapshotHtml = `
+                <details style="margin-top:0.6rem;">
+                    <summary style="cursor:pointer;font-weight:700;color:var(--gold);">🧾 Snapshot des conditions (immuable)</summary>
+                    <div style="font-size:0.8rem;line-height:1.7;padding:0.6rem 0;color:var(--text-muted);">${rows}</div>
+                </details>
+            `;
+        }
+
+        const legacyBanner = contract.isLegacy
+            ? `<div style="background:var(--warning-bg);color:var(--warning);padding:0.6rem;border-radius:var(--radius-sm);font-size:0.8rem;margin-bottom:0.6rem;">⚠️ Contrat legacy (sans version ni snapshot) — non vérifiable cryptographiquement.</div>`
+            : '';
+
+        const outdatedBanner = (!contract.isLegacy && contract.isOutdated)
+            ? `<div style="background:#fde2e4;color:#b02a37;padding:0.6rem;border-radius:var(--radius-sm);font-size:0.8rem;margin-bottom:0.6rem;">⚠️ Version obsolète (${escapeHTML(c.version || '?')}). Version courante : ${escapeHTML(CONFIG.VENDOR.CONTRACT_VERSION)}. Le vendeur doit re-signer.</div>`
+            : '';
 
         document.getElementById('vendorContractModal')?.remove();
         const modalHtml = `
             <div class="modal-overlay open" id="vendorContractModal" style="z-index:2200;">
-                <div class="modal" style="max-width:600px;">
+                <div class="modal" style="max-width:720px;max-height:90vh;overflow-y:auto;">
                     <button class="modal-close" id="closeVendorContractBtn">✕</button>
                     <h2 style="font-family:var(--font-secondary);color:var(--gold);text-align:center;margin-bottom:1rem;">
                         📜 Contrat — ${shopName}
                     </h2>
+                    ${legacyBanner}
+                    ${outdatedBanner}
                     <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:1rem;font-size:0.85rem;line-height:1.8;">
                         <div><strong>Version :</strong> ${version}</div>
                         <div><strong>Langue :</strong> ${language}</div>
                         <div><strong>Statut :</strong> ${status}</div>
-                        <div><strong>Signé le :</strong> ${signedAt}</div>
+                        <div><strong>Source :</strong> ${source}</div>
+                        <div><strong>Signé le :</strong> ${escapeHTML(acceptedAt)}</div>
                         <div><strong>IP :</strong> <code>${ipAddress}</code> <span style="color:var(--text-muted);">(${ipSource})</span></div>
                         <div style="word-break:break-all;"><strong>User-Agent :</strong> <span style="font-size:0.75rem;color:var(--text-muted);">${userAgent}</span></div>
-                        <div style="word-break:break-all;"><strong>TextHash :</strong> <code style="font-size:0.75rem;">${textHash}</code></div>
-                        <div style="word-break:break-all;"><strong>ContractHash :</strong> <code style="font-size:0.75rem;">${contractHash}</code></div>
+                        <div style="word-break:break-all;margin-top:0.4rem;">
+                            <strong>TextHash (SHA-256) :</strong><br>
+                            <code style="font-size:0.72rem;background:#fff;padding:0.2rem 0.4rem;border-radius:4px;">${escapeHTML(textHash || '—')}</code>
+                            <button type="button" class="admin-btn-icon" data-copy="textHash" title="Copier" style="padding:0.2rem 0.4rem;font-size:0.7rem;">📋</button>
+                        </div>
+                        <div style="word-break:break-all;margin-top:0.4rem;">
+                            <strong>ContractHash (SHA-256) :</strong><br>
+                            <code style="font-size:0.72rem;background:#fff;padding:0.2rem 0.4rem;border-radius:4px;">${escapeHTML(contractHash || '—')}</code>
+                            <button type="button" class="admin-btn-icon" data-copy="contractHash" title="Copier" style="padding:0.2rem 0.4rem;font-size:0.7rem;">📋</button>
+                        </div>
+                        ${snapshotHtml}
                     </div>
-                    <p style="font-size:0.75rem;color:var(--text-muted);text-align:center;margin-top:1rem;">
-                        Empreintes SHA-256 tronquées à 24 caractères pour l'affichage. Vérification complète prévue en T9.
-                    </p>
+                    <div id="vendorContractIntegrityResult" style="font-size:0.85rem;margin-top:0.8rem;"></div>
+                    <div style="display:flex;gap:0.5rem;justify-content:center;margin-top:1rem;flex-wrap:wrap;">
+                        <button id="vendorContractVerifyBtn" class="admin-btn-primary" type="button" style="padding:0.6rem 1rem;">🔍 Vérifier l'intégrité</button>
+                        <button id="closeVendorContractBtn2" class="admin-btn-secondary" type="button" style="padding:0.6rem 1rem;">Fermer</button>
+                    </div>
                 </div>
             </div>
         `;
@@ -1916,16 +2106,47 @@ async function openVendorContractModal(vendorId) {
         const modal = document.getElementById('vendorContractModal');
         const closeModal = () => modal?.remove();
         document.getElementById('closeVendorContractBtn').addEventListener('click', closeModal);
+        document.getElementById('closeVendorContractBtn2').addEventListener('click', closeModal);
         modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
+        /* Copier les hash */
+        modal.querySelectorAll('[data-copy]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const key = btn.dataset.copy;
+                const val = key === 'textHash' ? textHash : contractHash;
+                if (val) copyToClipboard(val, '✅ ' + (key === 'textHash' ? 'TextHash' : 'ContractHash') + ' copié');
+            });
+        });
+
+        /* T9 : bouton Vérifier l'intégrité */
+        const verifyBtn = document.getElementById('vendorContractVerifyBtn');
+        const resultEl = document.getElementById('vendorContractIntegrityResult');
+        verifyBtn?.addEventListener('click', async () => {
+            verifyBtn.disabled = true;
+            verifyBtn.textContent = '⏳ Vérification...';
+            resultEl.innerHTML = '';
+            const result = await verifyContractIntegrity(c);
+            if (result.ok) {
+                resultEl.innerHTML = `<div style="background:var(--success-bg);color:var(--success);padding:0.6rem;border-radius:var(--radius-sm);text-align:center;font-weight:700;">✅ Intégrité vérifiée</div>`;
+            } else {
+                const reason = escapeHTML(result.reason || 'inconnue');
+                resultEl.innerHTML = `<div style="background:var(--danger-bg);color:var(--danger);padding:0.6rem;border-radius:var(--radius-sm);text-align:center;">
+                    ❌ Vérification échouée — <strong>${reason}</strong><br>
+                    <span style="font-size:0.75rem;">textHash OK : ${result.textHashOk ? '✅' : '❌'} · contractHash OK : ${result.contractHashOk ? '✅' : '❌'}</span>
+                </div>`;
+            }
+            verifyBtn.disabled = false;
+            verifyBtn.textContent = '🔍 Vérifier l\'intégrité';
+        });
     } catch (e) {
         console.error(e);
         showToast('❌ Erreur lecture contrat');
     }
 }
 
-// ============================================================
-// 🆕 RETRAITS / PAYOUTS (T5/T4) + Déblocage des fonds échus
-// ============================================================
+/* ============================================================
+   RETRAITS / PAYOUTS (T5/T4) + Déblocage des fonds échus
+   ============================================================ */
 async function loadPayouts() {
     const container = document.getElementById('payoutsList');
     if (!container) return;
@@ -1971,7 +2192,6 @@ function renderPayoutsList(payouts) {
     const container = document.getElementById('payoutsList');
     if (!container) return;
 
-    // T4 : bandeau + bouton "Débloquer les fonds échus"
     const releaseBanner = `
         <div style="background:rgba(46,204,113,0.08);border:1px solid var(--success);border-radius:var(--radius-sm);padding:0.8rem 1rem;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">
             <div style="font-size:0.85rem;">
@@ -2050,7 +2270,6 @@ function attachReleaseDueFundsListener() {
     btn.addEventListener('click', handleReleaseDueFunds);
 }
 
-// T4 : déblocage des fonds échus
 async function handleReleaseDueFunds() {
     const btn = document.getElementById('releaseDueFundsBtn');
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Déblocage...'; }
@@ -2117,12 +2336,9 @@ async function handlePayoutPaid(payoutId, vendorId, amount) {
                 paidBy: currentAdmin?.uid || 'admin'
             });
 
-            // NOTE V4 : `status: 'released'` — sémantiquement discutable pour un payout
-            // (le terme 'released' désigne normalement le déblocage pendingBalance → availableBalance),
-            // MAIS le Worker Cron T4 filtre uniquement `status === 'pending' && unlockAt <= now`,
-            // donc aucun risque de re-débit. On garde 'released' pour rester compatible avec
-            // l'énumération WALLET_TX_STATUS (pending | released | cancelled) et éviter les
-            // documents "orphelins" à statut inconnu du dashboard vendeur.
+            /* Note : status 'released' pour la transaction wallet = payout débité.
+               Le Worker Cron T4 filtre uniquement (status='pending' & unlockAt<=now),
+               donc aucun risque de re-débit. */
             const txRef = doc(collection(db, "wallet_transactions"));
             transaction.set(txRef, {
                 vendorId: vendorId,
@@ -2181,9 +2397,9 @@ async function handlePayoutReject(payoutId) {
     }
 }
 
-// ============================================================
-// BLOG
-// ============================================================
+/* ============================================================
+   BLOG
+   ============================================================ */
 async function loadBlogPosts() {
     const container = document.getElementById('adminBlogList');
     if (!container) return;
@@ -2421,9 +2637,9 @@ async function deleteBlogPost(id) {
     } catch (e) { showToast('❌ Erreur'); }
 }
 
-// ============================================================
-// COUPONS
-// ============================================================
+/* ============================================================
+   COUPONS
+   ============================================================ */
 async function loadCoupons() {
     const container = document.getElementById('couponsList');
     if (!container) return;
@@ -2682,9 +2898,9 @@ function filterCouponsList() {
     renderCouponsList(filtered);
 }
 
-// ============================================================
-// SPEEDAF
-// ============================================================
+/* ============================================================
+   SPEEDAF
+   ============================================================ */
 async function loadSpeedafTab() {
     const container = document.getElementById('adminSpeedafList');
     if (!container) return;
@@ -2861,7 +3077,7 @@ async function handleSyncAllSpeedaf() {
 }
 
 async function handleConfirmPickup() {
-    // A3 : null-guards (si admin.html n'a pas le formulaire pickup, on sort proprement)
+    /* null-guards si admin.html n'a pas le formulaire pickup */
     const dateEl = document.getElementById('pickupDate');
     if (!dateEl) { showToast('❌ Formulaire de pickup absent du HTML'); return; }
     const dateVal = dateEl.value;
@@ -2881,7 +3097,6 @@ async function handleConfirmPickup() {
             createdAt: Timestamp.now()
         });
         showToast(isTestMode() ? '🧪 [TEST] Demande enregistrée (rollback à la fin)' : '✅ Demande enregistrée (à confirmer avec Speedaf)');
-        // A2 : null-guard sur pickupModal (sinon le pickup est créé mais la modale reste ouverte)
         document.getElementById('pickupModal')?.classList.remove('open');
     } catch (e) {
         showToast('❌ Erreur : ' + e.message);
@@ -2890,9 +3105,9 @@ async function handleConfirmPickup() {
     }
 }
 
-// ============================================================
-// ALERTES BANNER
-// ============================================================
+/* ============================================================
+   ALERTES BANNER
+   ============================================================ */
 function formatTooltipList(arr, max = 5) {
     if (!arr || arr.length === 0) return '';
     if (arr.length <= max) return arr.join(', ');
@@ -2913,7 +3128,6 @@ function initAdminAlerts() {
     document.getElementById('alertReviewsBtn')?.addEventListener('click', () => document.querySelector('[data-tab="reviews"]')?.click());
     document.getElementById('alertStockOutBtn')?.addEventListener('click', () => { tempStockFilter = 'out'; document.querySelector('[data-tab="products"]')?.click(); });
     document.getElementById('alertStockLowBtn')?.addEventListener('click', () => { tempStockFilter = 'low'; document.querySelector('[data-tab="products"]')?.click(); });
-    // Optionnel : bouton "produits à valider" dans la bannière d'alertes (si présent dans admin.html)
     document.getElementById('alertProductsPendingBtn')?.addEventListener('click', () => {
         tempStatusFilter = PRODUCT_STATUS.PENDING_ADMIN_APPROVAL;
         document.querySelector('[data-tab="products"]')?.click();
@@ -2960,7 +3174,7 @@ async function refreshAdminAlerts() {
         const btnR = document.getElementById('alertReviewsBtn');
         const btnSO = document.getElementById('alertStockOutBtn');
         const btnSL = document.getElementById('alertStockLowBtn');
-        const btnPP = document.getElementById('alertProductsPendingBtn'); // optionnel
+        const btnPP = document.getElementById('alertProductsPendingBtn');
 
         let hasAlerts = false;
         if (btnO) { if (pendingOrdersCount > 0) { document.getElementById('alertOrdersCount').textContent = pendingOrdersCount; btnO.style.display = 'inline-flex'; hasAlerts = true; } else btnO.style.display = 'none'; }
@@ -2987,9 +3201,9 @@ async function refreshAdminAlerts() {
     } catch (e) { console.warn('⚠️ Alertes :', e); }
 }
 
-// ============================================================
-// CHART REVENUS
-// ============================================================
+/* ============================================================
+   CHART REVENUS
+   ============================================================ */
 function attachChartListeners() {
     if (chartListenersAttached) return;
     chartListenersAttached = true;
@@ -3051,9 +3265,9 @@ async function renderRevenueChart(period = 7, preloadedOrders = null) {
     } catch (e) { console.error(e); }
 }
 
-// ============================================================
-// COMPTABILITÉ
-// ============================================================
+/* ============================================================
+   COMPTABILITÉ
+   ============================================================ */
 async function loadPurchases() {
     try {
         const snap = await getDocs(query(collection(db, "purchases"), orderBy("date", "desc"), limit(500)));
@@ -3226,9 +3440,9 @@ function updateReportDates() {
     }
 }
 
-// ============================================================
-// ACHATS / DÉPENSES / TRANSACTIONS — CRUD
-// ============================================================
+/* ============================================================
+   ACHATS / DÉPENSES / TRANSACTIONS — CRUD
+   ============================================================ */
 async function saveNewPurchase() {
     const productId = document.getElementById('purProductId').value;
     const qty = parseInt(document.getElementById('purQty').value);
@@ -3426,9 +3640,9 @@ async function renderTransactionsList() {
     container.innerHTML = html;
 }
 
-// ============================================================
-// RAPPORTS
-// ============================================================
+/* ============================================================
+   RAPPORTS
+   ============================================================ */
 async function generateReport() {
     const startVal = document.getElementById('reportStart').value;
     const endVal = document.getElementById('reportEnd').value;
@@ -3537,9 +3751,9 @@ async function exportProductsCSV() {
     } catch (e) { showToast('❌ ' + e.message); }
 }
 
-// ============================================================
-// SIMULATEUR
-// ============================================================
+/* ============================================================
+   SIMULATEUR
+   ============================================================ */
 function renderFinanceProductSelection() {
     const container = document.getElementById('financeProductSelector');
     if (!container) return;
@@ -3699,9 +3913,9 @@ function calculateFinances() {
     tbody.innerHTML = rows;
 }
 
-// ============================================================
-// OUTILS — MIGRATIONS
-// ============================================================
+/* ============================================================
+   OUTILS — MIGRATIONS
+   ============================================================ */
 async function handleMigrateCities() {
     const btn = document.getElementById('migrateCitiesBtn');
     const logEl = document.getElementById('migrationLog');
@@ -3902,17 +4116,17 @@ async function loadCollectionsStatus() {
     }
 }
 
-// ============================================================
-// ATTACH ALL REMAINING EVENTS
-// ============================================================
+/* ============================================================
+   ATTACH ALL REMAINING EVENTS
+   ============================================================ */
 function attachAllRemainingEvents() {
     attachProductFormEvents();
 
-    // Produits
+    /* Produits */
     document.getElementById('productSearchAdmin')?.addEventListener('input', () => { tempStockFilter = null; tempStatusFilter = null; productsCurrentPage = 1; filterProductsList(); });
     document.getElementById('productCategoryFilter')?.addEventListener('change', () => { tempStockFilter = null; tempStatusFilter = null; productsCurrentPage = 1; filterProductsList(); });
 
-    // Clients
+    /* Clients */
     document.getElementById('userSearchAdmin')?.addEventListener('input', filterUsersList);
     document.querySelectorAll('[data-signup-filter]').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -3922,7 +4136,7 @@ function attachAllRemainingEvents() {
         });
     });
 
-    // Vendeurs
+    /* Vendeurs — filtre status (pending/approved/rejected/suspended) + filtre « outdated » (T9) */
     document.getElementById('vendorSearchAdmin')?.addEventListener('input', filterVendorsList);
     document.querySelectorAll('[data-vendor-filter]').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -3932,7 +4146,7 @@ function attachAllRemainingEvents() {
         });
     });
 
-    // Retraits
+    /* Retraits */
     document.getElementById('payoutSearchAdmin')?.addEventListener('input', filterPayoutsList);
     document.querySelectorAll('[data-payout-filter]').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -3942,18 +4156,17 @@ function attachAllRemainingEvents() {
         });
     });
 
-    // Blog
+    /* Blog */
     document.getElementById('blogSearchAdmin')?.addEventListener('input', () => { blogCurrentPage = 1; filterBlogList(); });
 
-    // Coupons
+    /* Coupons */
     document.getElementById('couponSearchAdmin')?.addEventListener('input', filterCouponsList);
 
-    // Speedaf
+    /* Speedaf */
     document.getElementById('speedafSearchAdmin')?.addEventListener('input', renderSpeedafList);
     document.getElementById('speedafStatusFilter')?.addEventListener('change', renderSpeedafList);
     document.getElementById('syncAllSpeedafBtn')?.addEventListener('click', handleSyncAllSpeedaf);
     document.getElementById('pickupSpeedafBtn')?.addEventListener('click', () => {
-        // A3 : null-guards pickup
         const pickupDateEl = document.getElementById('pickupDate');
         if (pickupDateEl) pickupDateEl.valueAsDate = new Date();
         document.getElementById('pickupModal')?.classList.add('open');
@@ -3961,13 +4174,13 @@ function attachAllRemainingEvents() {
     document.getElementById('closePickupModalBtn')?.addEventListener('click', () => document.getElementById('pickupModal')?.classList.remove('open'));
     document.getElementById('confirmPickupBtn')?.addEventListener('click', handleConfirmPickup);
 
-    // Outils
+    /* Outils */
     document.getElementById('migrateCitiesBtn')?.addEventListener('click', handleMigrateCities);
     document.getElementById('migrateLegacyCategoriesBtn')?.addEventListener('click', handleMigrateLegacyCategories);
     document.getElementById('migrateSkuBtn')?.addEventListener('click', handleMigrateSku);
     document.getElementById('refreshCollectionsBtn')?.addEventListener('click', loadCollectionsStatus);
 
-    // Comptabilité
+    /* Comptabilité */
     document.getElementById('accRefreshBtn')?.addEventListener('click', refreshAccOverview);
     document.getElementById('accPeriod')?.addEventListener('change', (e) => {
         const startEl = document.getElementById('accStart');
@@ -4005,8 +4218,8 @@ function attachAllRemainingEvents() {
     attachCouponFormEvents();
 }
 
-// ============================================================
-// DÉMARRAGE
-// ============================================================
+/* ============================================================
+   DÉMARRAGE
+   ============================================================ */
 initAdmin();
-console.log('✅ admin.js chargé — v10.2.1 (T6 workflow produits + T10 déblocage fonds, imports nettoyés, null-guards pickup)');
+console.log('✅ admin.js chargé — v11.0.0 (T6 + T9 + T10, hash complets, vérification intégrité, badge contrat)');
