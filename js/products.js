@@ -1,10 +1,13 @@
 // js/products.js
 // ============================================================
 // GESTION DES PRODUITS - SMART SWI9A
-// Version 8.2.0 — Marketplace (correctifs E10/E13/IDs strings + stats avis)
+// Version 8.3.0 — Correction R3 (filtre serveur status='approved')
 //   - P1-b : getProductStatsBatch accepte IDs Number ET String
 //   - stats[String(pid)] uniformisé dans le rendu
 //   - listener review-submitted invalide cache sous forme normalisée
+//   - R3 : loadProductsFromFirestore utilise where("status", "==", "approved")
+//          en priorité, avec fallback complet si la migration n'est pas
+//          encore lancée (compat anciennes règles Firestore)
 // ============================================================
 
 import {
@@ -174,48 +177,94 @@ function restoreScrollPosition(row, savedValue, shouldReset) {
 }
 
 // ============================================================
-// CHARGEMENT DES PRODUITS
+// CHARGEMENT DES PRODUITS — R3 : stratégie filtrée + fallback
 // ============================================================
-export async function loadProductsFromFirestore() {
-    try {
-        const snapshot = await firestoreWithRetry(async () => await getDocs(collection(db, "products")));
 
-        const raw = [];
-        snapshot.forEach(doc => {
-            const data = doc.data();
+/** Transforme un snapshot Firestore en tableau de produits normalisé. */
+function processSnapshot(snapshot) {
+    const raw = [];
+    snapshot.forEach(doc => {
+        const data = doc.data();
 
-            // Filtre 1 : seuls les produits vendeurs APPROUVÉS
-            if (data.vendorId && data.vendorId !== 'smartswi9a' && data.status !== 'approved') return;
+        // Filtre : seuls les produits vendeurs APPROUVÉS
+        if (data.vendorId && data.vendorId !== 'smartswi9a' && data.status !== 'approved') return;
 
-            raw.push({
-                id: doc.id,
-                ...data,
-                price: Number(data.price) || 0,
-                oldPrice: Number(data.oldPrice) || 0,
-                stock: Number(data.stock) || 0,
-                salesCount: Number(data.salesCount) || 0,
-                ratingAvg: Number(data.ratingAvg) || 0,
-                ratingCount: Number(data.ratingCount) || 0
-            });
+        raw.push({
+            id: doc.id,
+            ...data,
+            price: Number(data.price) || 0,
+            oldPrice: Number(data.oldPrice) || 0,
+            stock: Number(data.stock) || 0,
+            salesCount: Number(data.salesCount) || 0,
+            ratingAvg: Number(data.ratingAvg) || 0,
+            ratingCount: Number(data.ratingCount) || 0
         });
+    });
+    return raw;
+}
 
-        // Filtre 2 : exclure les produits des vendeurs suspendus/rejetés.
-        let products = raw;
-        try {
-            await preloadVendorsForProducts(raw);
-            products = raw.filter(p => {
-                const label = getProductVendorLabelSync(p);
-                if (label.type === 'smart') return true;
-                return label.status !== 'suspended' && label.status !== 'rejected';
-            });
-        } catch (e) {
-            console.warn('⚠️ [products] Préchargement vendeurs indisponible, filtrage vendeurs ignoré :', e?.code || e);
+/** Applique le filtrage vendeurs (suspendus/rejetés exclus). */
+async function filterVendors(raw) {
+    let products = raw;
+    try {
+        await preloadVendorsForProducts(raw);
+        products = raw.filter(p => {
+            const label = getProductVendorLabelSync(p);
+            if (label.type === 'smart') return true;
+            return label.status !== 'suspended' && label.status !== 'rejected';
+        });
+    } catch (e) {
+        console.warn('⚠️ [products] Préchargement vendeurs indisponible :', e?.code || e);
+    }
+    return products;
+}
+
+export async function loadProductsFromFirestore() {
+    // ============================================================
+    // TENTATIVE 1 : Requête filtrée (compatible avec les nouvelles
+    // règles Firestore qui exigent status == 'approved').
+    // ============================================================
+    try {
+        const q = query(
+            collection(db, "products"),
+            where("status", "==", "approved")
+        );
+        const snapshot = await firestoreWithRetry(async () => await getDocs(q));
+
+        if (snapshot.size > 0) {
+            const raw = processSnapshot(snapshot);
+            const products = await filterVendors(raw);
+            console.log(`✅ [products] Chargé ${products.length} produit(s) approuvés (requête filtrée)`);
+            setProducts(products);
+            return products;
         }
 
+        // snapshot.size === 0 → soit aucun produit approuvé, soit migration pas faite
+        console.warn('⚠️ [products] Requête filtrée vide — passage au fallback complet');
+    } catch (e) {
+        console.warn('⚠️ [products] Requête filtrée échouée :', e?.code || e?.message);
+    }
+
+    // ============================================================
+    // TENTATIVE 2 : Fallback complet (anciennes règles Firestore,
+    // ou migration pas encore lancée).
+    // ============================================================
+    try {
+        console.warn('⚠️ [products] FALLBACK — Lance la migration "handleMigrateProductStatus" depuis /admin.html (onglet Outils) pour optimiser.');
+        const snapshot = await getDocs(collection(db, "products"));
+
+        if (snapshot.size === 0) {
+            setProducts([]);
+            return [];
+        }
+
+        const raw = processSnapshot(snapshot);
+        const products = await filterVendors(raw);
+        console.log(`✅ [products] Chargé ${products.length} produit(s) (fallback complet)`);
         setProducts(products);
         return products;
     } catch (e) {
-        console.error('❌ Erreur chargement Firestore :', e);
+        console.error('❌ [products] Fallback complet aussi échoué :', e?.code || e?.message);
         return await loadProductsFromJSON();
     }
 }
@@ -365,16 +414,10 @@ export function getPromoProducts(onlyInStock = true) {
 
 // ============================================================
 // STATS AVIS (fix P1-b : supporte IDs Number ET String)
-// ------------------------------------------------------------
-// Firestore `where("productId", "in", [...])` accepte les types mixtes
-// (Number ET String) tant que la liste ≤ 30 items.
-// Cache : clé = String(normalizedPid) pour unifier Number ET String.
-// Retourne : objet indexé par String(pid) → { avg, count }
 // ============================================================
 export async function getProductStatsBatch(productIds) {
     if (!Array.isArray(productIds) || productIds.length === 0) return {};
 
-    // Normaliser, dédupliquer, borner à 30 (limite Firestore `in`)
     const normalizedIds = [];
     const seen = new Set();
     for (const id of productIds) {
@@ -392,7 +435,6 @@ export async function getProductStatsBatch(productIds) {
     const toFetch = [];
     const result = {};
 
-    // Servir depuis le cache
     for (const pid of normalizedIds) {
         const key = String(pid);
         const cached = _statsCache.get(key);
@@ -413,7 +455,6 @@ export async function getProductStatsBatch(productIds) {
         );
         const snap = await getDocs(q);
 
-        // Initialiser compteurs pour tous les IDs demandés
         const ratings = {};
         for (const pid of toFetch) {
             ratings[String(pid)] = { sum: 0, count: 0 };
@@ -436,7 +477,6 @@ export async function getProductStatsBatch(productIds) {
                 : { avg: null, count: 0 };
             result[key] = stats;
 
-            // Éviction FIFO si cache plein
             if (_statsCache.size >= STATS_CACHE_MAX) {
                 const firstKey = _statsCache.keys().next().value;
                 if (firstKey !== undefined) _statsCache.delete(firstKey);
@@ -447,7 +487,6 @@ export async function getProductStatsBatch(productIds) {
         return result;
     } catch (e) {
         console.warn('⚠️ getProductStatsBatch error:', e?.code || e);
-        // Fallback : retourner { avg: null, count: 0 } pour ne rien bloquer
         for (const pid of toFetch) {
             if (!result[String(pid)]) result[String(pid)] = { avg: null, count: 0 };
         }
@@ -477,10 +516,8 @@ export async function renderProducts() {
     const totalPages = getTotalPages();
     const currentPage = getPagination().currentPage;
 
-    // Préchargement défensif des vendeurs de la page courante.
     try { await preloadVendorsForProducts(pageProducts); } catch (_) { /* ignore */ }
 
-    // P1-b : passer les IDs NORMALISÉS (Number ou String), pas seulement Number
     const productIds = pageProducts
         .map(p => normalizeProductId(p.id))
         .filter(id => id != null);
@@ -514,7 +551,6 @@ export async function renderProducts() {
         const isNew = p.isNew || false;
         const discountPercent = getDiscountPercent(oldPrice, price);
 
-        // Attribution vendeur
         const vendorInfo = getProductVendorLabelSync(p);
         const vendorOwner = p.vendorId && p.vendorId !== 'smartswi9a' ? p.vendorId : null;
 
@@ -530,7 +566,6 @@ export async function renderProducts() {
         const hasVariants = Array.isArray(p.variants) && p.variants.length > 0;
         const optionsBadge = hasVariants ? `<span class="badge" style="background:var(--info);color:#fff;font-size:0.6rem;padding:0.15rem 0.4rem;border-radius:30px;position:absolute;top:0.5rem;right:0.5rem;z-index:2;">⚙️ Options</span>` : '';
 
-        // P1-b : lookup unifié par String(pid) — fonctionne pour Number ET String
         const r = stats[String(pid)] || { avg: null, count: 0 };
         const hasReviews = r.count > 0;
         const avgRating = hasReviews ? r.avg : '--';
@@ -737,4 +772,4 @@ export function openProductPage(slug) {
     window.location.href = `/produit?slug=${encodeURIComponent(slug)}`;
 }
 
-console.log('✅ products.js chargé — v8.2.0 (Marketplace + stats vendeurs)');
+console.log('✅ products.js chargé — v8.3.0 (R3 : filtre status=approved + fallback intelligent)');
