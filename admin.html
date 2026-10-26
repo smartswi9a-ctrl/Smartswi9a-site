@@ -38,9 +38,6 @@
     <link rel="stylesheet" href="/style-patches.css">
     <script src="/translations.js"></script>
 
-    <!-- T11 : à activer une fois js/translations-vendor.js publié -->
-    <!-- <script src="/translations-vendor.js" defer></script> -->
-
     <style>
         body { padding-top: 1rem; padding-bottom: 4rem; }
         .admin-container { max-width: 1300px; margin: 2rem auto; padding: 0 1rem; }
@@ -410,7 +407,6 @@
 </head>
 <body>
 
-    <!-- ÉCRAN DE CHOIX MODE -->
     <div id="modeChoiceScreen">
         <h1>⚙️ Administration Smart Swi9a</h1>
         <p>Choisissez votre mode de travail</p>
@@ -429,13 +425,11 @@
         </p>
     </div>
 
-    <!-- BANNIÈRE MODE TEST -->
     <div id="testModeBanner">
         <span>🔴 MODE TEST — Speedaf DÉSACTIVÉ — Toutes les actions seront annulées</span>
         <button id="endTestBtn" type="button">🟢 Test Terminé (Rollback)</button>
     </div>
 
-    <!-- LOGIN -->
     <div class="admin-login-box" id="adminLoginBox">
         <h2>🔐 Administration</h2>
         <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:1.5rem;">Connectez-vous avec votre compte administrateur</p>
@@ -448,7 +442,6 @@
         </p>
     </div>
 
-    <!-- PANNEAU ADMIN -->
     <div class="admin-container" id="adminPanel" style="display:none;">
 
         <div class="admin-header">
@@ -475,9 +468,8 @@
             <button data-tab="tools">🛠️ Outils</button>
         </div>
 
-        <!-- TABLEAU DE BORD -->
         <div class="admin-content active" id="tab-dashboard">
-            <div class="admin-stats" id="adminStats">
+                        <div class="admin-stats" id="adminStats">
                 <div class="admin-stat-card"><span class="stat-value" id="statProducts">—</span><span class="stat-label">📦 Produits</span></div>
                 <div class="admin-stat-card"><span class="stat-value" id="statProductsPending">—</span><span class="stat-label">⏳ Produits à valider</span></div>
                 <div class="admin-stat-card"><span class="stat-value" id="statOrders">—</span><span class="stat-label">📋 Commandes</span></div>
@@ -489,7 +481,6 @@
             </div>
         </div>
 
-        <!-- PRODUITS -->
         <div class="admin-content" id="tab-products">
             <div class="admin-form">
                 <h3 id="productFormTitle">➕ Ajouter un produit</h3>
@@ -621,7 +612,6 @@
             <div id="adminProductsList"><div class="admin-loading">⏳ Chargement...</div></div>
         </div>
 
-        <!-- COMMANDES -->
         <div class="admin-content" id="tab-orders">
             <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.8rem;margin-bottom:1rem;">
                 <h3 style="font-family:var(--font-secondary);color:var(--gold);margin:0;">📋 Commandes</h3>
@@ -630,7 +620,6 @@
             <div id="adminOrdersList"><div class="admin-loading">⏳ Chargement...</div></div>
         </div>
 
-        <!-- VENDEURS -->
         <div class="admin-content" id="tab-vendors">
             <h3 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;">🏪 Gestion des Vendeurs</h3>
             <div class="admin-signup-filters" id="vendorStatusFilters">
@@ -647,7 +636,6 @@
             <div id="adminVendorsList"><div class="admin-loading">⏳ Chargement des vendeurs...</div></div>
         </div>
 
-        <!-- SPEEDAF -->
         <div class="admin-content" id="tab-speedaf">
             <div class="admin-header" style="margin-bottom:1rem; padding:1rem; display:flex; justify-content:space-between; flex-wrap:wrap; gap:1rem;">
                 <h2 style="font-family:var(--font-secondary);color:var(--gold);margin:0;">🚀 Livraisons Speedaf</h2>
@@ -677,7 +665,6 @@
             <div id="adminSpeedafList"><div class="admin-loading">⏳ Chargement...</div></div>
         </div>
 
-        <!-- CLIENTS -->
         <div class="admin-content" id="tab-users">
             <h3 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;">👥 Clients</h3>
             <div class="admin-signup-filters">
@@ -692,13 +679,11 @@
             <div id="adminUsersList"><div class="admin-loading">⏳ Chargement...</div></div>
         </div>
 
-        <!-- AVIS -->
         <div class="admin-content" id="tab-reviews">
             <h3 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;">⭐ Avis</h3>
             <div id="reviewsList"><div class="admin-loading">⏳ Chargement...</div></div>
         </div>
 
-        <!-- BLOG -->
         <div class="admin-content" id="tab-blog">
             <div class="admin-form">
                 <h3 id="blogFormTitle">➕ Nouvel article</h3>
@@ -732,7 +717,6 @@
             <div id="adminBlogList"><div class="admin-loading">⏳ Chargement...</div></div>
         </div>
 
-        <!-- CODES PROMO -->
         <div class="admin-content" id="tab-coupons">
             <div class="admin-form">
                 <h3 id="couponFormTitle">➕ Créer un code</h3>
@@ -778,7 +762,6 @@
             <div id="couponsList"><div class="admin-loading">⏳ Chargement...</div></div>
         </div>
 
-        <!-- COMPTABILITÉ -->
         <div class="admin-content" id="tab-finances">
             <h2 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;">💰 Comptabilité</h2>
 
@@ -822,10 +805,6 @@
                         <button class="admin-btn-secondary chart-period-btn" data-chart-period="90">90j</button>
                     </div>
                     <div style="position:relative;height:320px;"><canvas id="revenueChart"></canvas></div>
-                </div>
-                <h3 style="font-family:var(--font-secondary);color:var(--gold);margin:1.5rem 0 1rem;">🕐 Activité récente</h3>
-                <div id="accRecentActivity">
-                    <div class="admin-empty" style="font-size:0.85rem;padding:1rem;">ℹ️ Fonctionnalité à venir — les dernières commandes, dépenses et achats s'afficheront ici.</div>
                 </div>
             </div>
 
@@ -974,13 +953,11 @@
                         <div class="admin-stat-card"><span class="stat-value" id="finTotalROI">0%</span><span class="stat-label">📈 ROI global</span></div>
                         <div class="admin-stat-card" style="border-color:var(--gold);"><span class="stat-value" id="finBreakEven" style="color:var(--gold);">0</span><span class="stat-label">🎯 Point mort</span></div>
                     </div>
-
                     <div class="admin-stats" style="margin-bottom:1.5rem;">
                         <div class="admin-stat-card"><span class="stat-value" id="finTotalProducts">0</span><span class="stat-label">📦 Produits sélectionnés</span></div>
                         <div class="admin-stat-card"><span class="stat-value" id="finTotalUnits">0</span><span class="stat-label">📊 Unités en stock</span></div>
                         <div class="admin-stat-card"><span class="stat-value" id="finStockSaleValue" style="color:var(--gold);">0 MAD</span><span class="stat-label">💎 Valeur stock (prix vente)</span></div>
                     </div>
-
                     <div id="finRecommendations" style="margin-bottom:1.5rem;"></div>
                     <h4 style="color:var(--gold);margin:1.5rem 0 1rem;">📦 Détail par produit</h4>
                     <div style="overflow-x:auto;background:var(--bg-card);border-radius:var(--radius-md);">
@@ -996,7 +973,6 @@
             </div>
         </div>
 
-        <!-- RETRAITS -->
         <div class="admin-content" id="tab-wallets">
             <h3 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;">💸 Demandes de Virement</h3>
             <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:1rem;">Validez les retraits Wafacash des vendeurs après avoir effectué le virement.</p>
@@ -1012,7 +988,6 @@
             <div id="payoutsList"><div class="admin-loading">⏳ Chargement des demandes...</div></div>
         </div>
 
-        <!-- OUTILS -->
         <div class="admin-content" id="tab-tools">
             <h3 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;">🛠️ Outils</h3>
 
@@ -1038,6 +1013,13 @@
             </div>
 
             <div class="admin-tool-card">
+                <h4>🔧 Migration statut Produits</h4>
+                <p>Ajoute <code>status: 'approved'</code> aux anciens produits (indispensable avant publication des nouvelles règles Firestore).</p>
+                <button class="admin-btn-primary" id="migrateProductsStatusBtn">🚀 Lancer la migration</button>
+                <div class="admin-tool-log" id="productStatusMigrationLog"></div>
+            </div>
+
+            <div class="admin-tool-card">
                 <h4>📊 État des collections</h4>
                 <div id="collectionsStatus" style="font-size:0.85rem;line-height:2;">
                     <div>📦 <strong>products</strong> : <span id="countProducts">—</span></div>
@@ -1053,7 +1035,6 @@
         </div>
     </div>
 
-    <!-- BANNIÈRE D'ALERTES ADMIN -->
     <div id="adminAlertBanner" class="admin-alert-banner" style="display: none;">
         <div class="admin-alert-content">
             <span class="admin-alert-title">⚠️ Action requise :</span>
@@ -1068,7 +1049,6 @@
         </div>
     </div>
 
-    <!-- MODALE RAMASSAGE SPEEDAF -->
     <div class="modal-overlay" id="pickupModal" style="z-index:2500;">
         <div class="modal" style="max-width:450px;">
             <button class="modal-close" id="closePickupModalBtn">✕</button>
