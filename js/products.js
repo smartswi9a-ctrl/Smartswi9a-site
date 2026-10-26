@@ -1,23 +1,38 @@
-// js/products.js
-// ============================================================
-// GESTION DES PRODUITS - SMART SWI9A
-// Version 8.3.0 — Correction R3 (filtre serveur status='approved')
-//   - P1-b : getProductStatsBatch accepte IDs Number ET String
-//   - stats[String(pid)] uniformisé dans le rendu
-//   - listener review-submitted invalide cache sous forme normalisée
-//   - R3 : loadProductsFromFirestore utilise where("status", "==", "approved")
-//          en priorité, avec fallback complet si la migration n'est pas
-//          encore lancée (compat anciennes règles Firestore)
-// ============================================================
+/* ============================================================
+   js/products.js
+   GESTION DES PRODUITS - SMART SWI9A
+   Version 9.0.0 - Lot 9/30 : corrections critiques + fallback stats
+
+   CHANGEMENTS v9.0.0 :
+     - B1 (P0) : getProductStatsBatch — fallback automatique sur query
+       simple (limit 500) si l'index Firestore (productId + status)
+       est manquant (code failed-precondition). Warning émis une seule
+       fois par session. Notes étoiles visibles même sans index.
+     - P0-5 (P0) : loadProductsFromFirestore — messages structurés pour
+       guider l'admin si le catalogue est vide (migration produits non
+       faite + règles Firestore strictes = silence radio).
+     - P1-9 (P2) : fallback complet limité à 1000 produits (évite la
+       surcharge Firestore sur grosse base).
+     - X1 (P1) : processSnapshot filtre les Smart products avec status
+       présent et != 'approved' (cohérent avec vendeurs). Legacy sans
+       status conservé.
+     - Dead code retiré : imports getProductOwner, CATEGORIES,
+       normalizeCategory (non utilisés).
+     - JSDoc sur exports publics.
+     - Bump version 8.3.0 -> 9.0.0.
+
+   ALERTE 1 : plus aucun commentaire de ligne (//) en début de ligne
+   utile. Tout est en bloc.
+   ============================================================ */
 
 import {
-    collection, getDocs, query, where, doc, updateDoc, arrayUnion, arrayRemove
+    collection, getDocs, query, where, doc, updateDoc, arrayUnion, arrayRemove,
+    limit
 } from "firebase/firestore";
 import { db } from "./firebase.js";
 import {
-    CONFIG, CATEGORIES, SORT_OPTIONS, CATEGORY_GROUPS,
-    productMatchesCategory, getCategoryById, normalizeCategory,
-    getProductOwner
+    CONFIG, SORT_OPTIONS, CATEGORY_GROUPS,
+    productMatchesCategory, getCategoryById
 } from "./config.js";
 import {
     t, escapeHTML, getProductName, getProductDesc, getProductImageUrl,
@@ -37,25 +52,33 @@ import {
     getProductVendorLabelSync
 } from "./vendor-attribution.js";
 
-// ============================================================
-// CACHE STATS AVIS
-// Clé = String(normalizedPid) pour supporter Number ET String
-// ============================================================
+/* ============================================================
+   CACHE STATS AVIS
+   ============================================================
+   Clé = String(normalizedPid) pour supporter Number ET String.
+   TTL = 60s. MAX = 100 entrées (éviction FIFO).
+   ============================================================ */
 const _statsCache = new Map();
 const STATS_CACHE_TTL = 60 * 1000;
 const STATS_CACHE_MAX = 100;
 
+/* B1 : flag pour n'émettre le warning "index manquant" qu'une seule
+   fois par session (évite de spammer la console). */
+let _statsIndexWarned = false;
+
+/* Guards de render concurrent. */
 let _renderRequestId = 0;
 let _lastRenderedParentId = null;
 let _lastRenderedLang = null;
 
-// ============================================================
-// NORMALISATION D'ID PRODUIT
-// - "42" (chaîne numérique) → 42 (Number) — compat favoris/avis historiques
-// - "abc123" (auto-ID Firestore vendeur) → "abc123" (String)
-// - null/undefined/"" → null
-// Doit rester IDENTIQUE à reviews.js / product-detail.js / boutique.js
-// ============================================================
+/* ============================================================
+   NORMALISATION D'ID PRODUIT
+   ============================================================
+   - "42" (chaîne numérique) -> 42 (Number) - compat favoris/avis
+   - "abc123" (auto-ID Firestore vendeur) -> "abc123" (String)
+   - null/undefined/"" -> null
+   Doit rester IDENTIQUE à reviews.js / product-detail.js / boutique.js.
+   ============================================================ */
 function normalizeProductId(id) {
     if (id == null || id === '') return null;
     const n = Number(id);
@@ -66,16 +89,15 @@ if (typeof document !== 'undefined') {
     document.addEventListener('review-submitted', (e) => {
         const pid = normalizeProductId(e.detail?.productId);
         if (pid != null) {
-            // Nouvelle clé (String) + ancienne clé (Number) pour nettoyage legacy
             _statsCache.delete(String(pid));
             _statsCache.delete(Number(pid));
         }
     });
 }
 
-// ============================================================
-// CSS INJECTION (scroll horizontal des catégories)
-// ============================================================
+/* ============================================================
+   CSS INJECTION (scroll horizontal des catégories)
+   ============================================================ */
 const CATEGORIES_SCROLL_CSS_ID = 'categories-scroll-css';
 
 function injectCategoriesScrollCSS() {
@@ -112,9 +134,9 @@ function injectCategoriesScrollCSS() {
     document.head.appendChild(style);
 }
 
-// ============================================================
-// SCROLL BUTTONS
-// ============================================================
+/* ============================================================
+   SCROLL BUTTONS
+   ============================================================ */
 const SCROLL_STEP = 300;
 let _globalScrollListenersAttached = false;
 
@@ -176,9 +198,23 @@ function restoreScrollPosition(row, savedValue, shouldReset) {
     });
 }
 
-// ============================================================
-// CHARGEMENT DES PRODUITS — R3 : stratégie filtrée + fallback
-// ============================================================
+/* ============================================================
+   CHARGEMENT DES PRODUITS
+   ============================================================
+   Stratégie 3 tentatives :
+     1. Requête filtrée (compatible nouvelles règles Firestore).
+     2. Fallback complet (anciennes règles, ou migration produits
+        pas encore lancée). Limité à 1000 produits.
+     3. JSON local (fallback ultime si Firestore totalement HS).
+
+   SCÉNARIO CATASTROPHE documenté :
+     - Nouvelles règles Firestore exigent status='approved'.
+     - Migration produits (admin.html -> Outils) NON lancée.
+     - Tentative 1 retourne 0 produit.
+     - Tentative 2 échoue avec permission-denied.
+     - Tentative 3 JSON vide.
+     => Catalogue vide, message admin EXPLICITE dans la console.
+   ============================================================ */
 
 /** Transforme un snapshot Firestore en tableau de produits normalisé. */
 function processSnapshot(snapshot) {
@@ -186,8 +222,14 @@ function processSnapshot(snapshot) {
     snapshot.forEach(doc => {
         const data = doc.data();
 
-        // Filtre : seuls les produits vendeurs APPROUVÉS
-        if (data.vendorId && data.vendorId !== 'smartswi9a' && data.status !== 'approved') return;
+        const isVendor = data.vendorId && data.vendorId !== 'smartswi9a';
+
+        /* Filtre vendeur : seul 'approved' passe. */
+        if (isVendor && data.status !== 'approved') return;
+
+        /* X1 : filtre Smart - status présent et != 'approved' -> exclu.
+           Legacy sans status = OK (produits créés avant la migration). */
+        if (!isVendor && data.status && data.status !== 'approved') return;
 
         raw.push({
             id: doc.id,
@@ -214,16 +256,19 @@ async function filterVendors(raw) {
             return label.status !== 'suspended' && label.status !== 'rejected';
         });
     } catch (e) {
-        console.warn('⚠️ [products] Préchargement vendeurs indisponible :', e?.code || e);
+        console.warn('[products] Préchargement vendeurs indisponible :', e?.code || e);
     }
     return products;
 }
 
+/**
+ * Charge les produits depuis Firestore (stratégie filtrée + fallback).
+ * @returns {Promise<Array>}
+ */
 export async function loadProductsFromFirestore() {
-    // ============================================================
-    // TENTATIVE 1 : Requête filtrée (compatible avec les nouvelles
-    // règles Firestore qui exigent status == 'approved').
-    // ============================================================
+    /* ============================================================
+       TENTATIVE 1 : requête filtrée (règles Firestore modernes).
+       ============================================================ */
     try {
         const q = query(
             collection(db, "products"),
@@ -234,60 +279,90 @@ export async function loadProductsFromFirestore() {
         if (snapshot.size > 0) {
             const raw = processSnapshot(snapshot);
             const products = await filterVendors(raw);
-            console.log(`✅ [products] Chargé ${products.length} produit(s) approuvés (requête filtrée)`);
+            console.log(`[products] Chargé ${products.length} produit(s) approuvés (requête filtrée)`);
             setProducts(products);
             return products;
         }
 
-        // snapshot.size === 0 → soit aucun produit approuvé, soit migration pas faite
-        console.warn('⚠️ [products] Requête filtrée vide — passage au fallback complet');
+        /* snapshot.size === 0 : soit aucun produit approuvé, soit
+           migration pas faite. On tente le fallback. */
+        console.warn('[products] Requête filtrée vide - passage au fallback complet');
     } catch (e) {
-        console.warn('⚠️ [products] Requête filtrée échouée :', e?.code || e?.message);
+        console.warn('[products] Requête filtrée échouée :', e?.code || e?.message);
     }
 
-    // ============================================================
-    // TENTATIVE 2 : Fallback complet (anciennes règles Firestore,
-    // ou migration pas encore lancée).
-    // ============================================================
+    /* ============================================================
+       TENTATIVE 2 : fallback complet (anciennes règles, ou migration
+       pas encore lancée). Limité à 1000 produits.
+       ============================================================ */
     try {
-        console.warn('⚠️ [products] FALLBACK — Lance la migration "handleMigrateProductStatus" depuis /admin.html (onglet Outils) pour optimiser.');
-        const snapshot = await getDocs(collection(db, "products"));
+        /* P0-5 : message structuré pour guider l'admin. */
+        console.warn(
+            '[products] FALLBACK COMPLET (limite 1000).\n' +
+            '  Si le catalogue reste vide sur le site :\n' +
+            '  -> Lancer la migration "handleMigrateProductStatus" depuis /admin.html (onglet Outils).\n' +
+            '  -> Sans cette migration, les nouvelles règles Firestore bloqueront la requête.'
+        );
+
+        const q = query(collection(db, "products"), limit(1000));
+        const snapshot = await getDocs(q);
 
         if (snapshot.size === 0) {
+            console.warn('[products] Fallback complet : 0 produit. Migration requise.');
             setProducts([]);
             return [];
         }
 
         const raw = processSnapshot(snapshot);
         const products = await filterVendors(raw);
-        console.log(`✅ [products] Chargé ${products.length} produit(s) (fallback complet)`);
+        console.log(`[products] Chargé ${products.length} produit(s) (fallback complet)`);
         setProducts(products);
         return products;
     } catch (e) {
-        console.error('❌ [products] Fallback complet aussi échoué :', e?.code || e?.message);
+        console.error(
+            '[products] Fallback complet aussi échoué :', e?.code || e?.message,
+            '\n  => CATALOGUE VIDE. Scénario probable :\n' +
+            '     1) Les nouvelles règles Firestore sont publiées.\n' +
+            '     2) La migration produits (status=approved) N\'a PAS été lancée.\n' +
+            '     Action : lancer /admin.html -> Outils -> "Migration statut Produits".'
+        );
         return await loadProductsFromJSON();
     }
 }
 
+/**
+ * Charge les produits depuis le fichier JSON local (fallback ultime).
+ * @returns {Promise<Array>}
+ */
 export async function loadProductsFromJSON() {
     try {
         const res = await fetchWithRetry('/produits.json');
         const data = await res.json();
-        setProducts(data);
-        return data;
+        setProducts(Array.isArray(data) ? data : []);
+        return Array.isArray(data) ? data : [];
     } catch (e) {
         setProducts([]);
         return [];
     }
 }
 
+/**
+ * Point d'entrée principal du chargement des produits.
+ * Délègue à loadProductsFromFirestore().
+ * @returns {Promise<Array>}
+ */
 export async function loadAllProducts() {
     return await loadProductsFromFirestore();
 }
 
-// ============================================================
-// FILTRAGE ET TRI
-// ============================================================
+/* ============================================================
+   FILTRAGE ET TRI
+   ============================================================ */
+
+/**
+ * Retourne la liste filtrée et triée des produits selon les filtres actifs.
+ * @returns {Array}
+ */
 export function getFilteredProducts() {
     const products = getProducts();
     const filters = getFilters();
@@ -341,6 +416,10 @@ export function getFilteredProducts() {
     return list;
 }
 
+/**
+ * Retourne la page courante de produits filtrés.
+ * @returns {Array}
+ */
 export function getPaginatedProducts() {
     const filtered = getFilteredProducts();
     const pagination = getPagination();
@@ -349,12 +428,20 @@ export function getPaginatedProducts() {
     return filtered.slice(start, start + perPage);
 }
 
+/**
+ * Retourne le nombre total de pages.
+ * @returns {number}
+ */
 export function getTotalPages() {
     const total = getFilteredProducts().length;
     const perPage = getPagination().perPage || CONFIG.PRODUCTS.PER_PAGE;
     return Math.max(1, Math.ceil(total / perPage));
 }
 
+/**
+ * Navigue vers une page de produits.
+ * @param {number} page
+ */
 export function goToPage(page) {
     const total = getTotalPages();
     if (page < 1 || page > total) return;
@@ -362,9 +449,11 @@ export function goToPage(page) {
     renderProducts();
 }
 
-// ============================================================
-// SETTERS DE FILTRES
-// ============================================================
+/* ============================================================
+   SETTERS DE FILTRES
+   ============================================================ */
+
+/** Change la catégorie active et re-render. */
 export function setCategory(category) {
     setFilters({ category });
     setPagination({ currentPage: 1 });
@@ -372,12 +461,22 @@ export function setCategory(category) {
     renderCategoryFilters();
 }
 
+/** Change le tri actif et re-render. */
 export function setSort(sort) { setFilters({ sort }); setPagination({ currentPage: 1 }); renderProducts(); }
+
+/** Change la recherche et re-render. */
 export function setSearch(search) { setFilters({ search }); setPagination({ currentPage: 1 }); renderProducts(); }
+
+/** Active/désactive le filtre "en stock" et re-render. */
 export function setInStock(inStock) { setFilters({ inStock }); setPagination({ currentPage: 1 }); renderProducts(); }
+
+/** Active/désactive le filtre "en promo" et re-render. */
 export function setPromos(promos) { setFilters({ promos }); setPagination({ currentPage: 1 }); renderProducts(); }
+
+/** Change la plage de prix et re-render. */
 export function setPriceRange(min, max) { setFilters({ priceMin: min, priceMax: max }); setPagination({ currentPage: 1 }); renderProducts(); }
 
+/** Réinitialise tous les filtres. */
 export function clearAllFilters() {
     resetFilters();
     setPagination({ currentPage: 1 });
@@ -385,23 +484,29 @@ export function clearAllFilters() {
     renderCategoryFilters();
 }
 
-// ============================================================
-// HELPERS PRODUITS
-// ============================================================
+/* ============================================================
+   HELPERS PRODUITS
+   ============================================================ */
+
+/** Retourne un produit par slug (ou null). */
 export function getProductBySlug(slug) { return !slug ? null : getProducts().find(p => p.slug === slug) || null; }
+
+/** Retourne un produit par ID (Number ou String). */
 export function getProductById(id) {
     if (id == null) return null;
     const target = normalizeProductId(id);
     return getProducts().find(p => normalizeProductId(p.id) === target) || null;
 }
 
-export function getNewProducts(limit = 10, onlyInStock = true) {
+/** Retourne les N derniers produits marqués isNew. */
+export function getNewProducts(limitCount = 10, onlyInStock = true) {
     let products = getProducts().filter(p => p.isNew === true);
     if (onlyInStock) products = products.filter(p => Array.isArray(p.variants) && p.variants.length > 0 ? p.variants.some(v => (Number(v.stock) || 0) > 0) : (Number(p.stock) || 0) > 0);
     products.sort((a, b) => (toDate(b.createdAt)?.getTime() || 0) - (toDate(a.createdAt)?.getTime() || 0));
-    return products.slice(0, limit);
+    return products.slice(0, limitCount);
 }
 
+/** Retourne les produits en promotion, triés par % de remise décroissant. */
 export function getPromoProducts(onlyInStock = true) {
     let products = getProducts().filter(p => p.oldPrice && Number(p.oldPrice) > Number(p.price));
     if (onlyInStock) products = products.filter(p => Array.isArray(p.variants) && p.variants.length > 0 ? p.variants.some(v => (Number(v.stock) || 0) > 0) : (Number(p.stock) || 0) > 0);
@@ -412,9 +517,82 @@ export function getPromoProducts(onlyInStock = true) {
     });
 }
 
-// ============================================================
-// STATS AVIS (fix P1-b : supporte IDs Number ET String)
-// ============================================================
+/* ============================================================
+   STATS AVIS (batch)
+   ============================================================
+   B1 : si l'index Firestore reviews(productId + status) est
+   manquant, on bascule automatiquement sur une query simple
+   (status == 'approved', limit 500) puis on filtre côté client.
+   Le warning n'est émis qu'une seule fois par session.
+   ============================================================ */
+
+/**
+ * Fallback : charge les 500 derniers avis approuvés et filtre
+ * côté client. Moins efficace que la query indexée mais fonctionne
+ * sans index Firestore.
+ * @param {Array<number|string>} productIds
+ * @returns {Promise<Object>} Map<String(pid), { avg, count }>
+ */
+async function getProductStatsBatchFallback(productIds) {
+    const result = {};
+    productIds.forEach(pid => {
+        result[String(pid)] = { avg: null, count: 0 };
+    });
+
+    try {
+        const q = query(
+            collection(db, "reviews"),
+            where("status", "==", "approved"),
+            limit(500)
+        );
+        const snap = await getDocs(q);
+
+        const idsSet = new Set(productIds.map(pid => String(pid)));
+        const ratings = {};
+        productIds.forEach(pid => {
+            ratings[String(pid)] = { sum: 0, count: 0 };
+        });
+
+        snap.forEach(d => {
+            const r = d.data();
+            if (r.productId == null) return;
+            const key = String(r.productId);
+            if (!idsSet.has(key)) return;
+            ratings[key].sum += Number(r.rating) || 0;
+            ratings[key].count++;
+        });
+
+        const now = Date.now();
+        for (const pid of productIds) {
+            const key = String(pid);
+            const stat = ratings[key];
+            const stats = stat.count > 0
+                ? { avg: (stat.sum / stat.count).toFixed(1), count: stat.count }
+                : { avg: null, count: 0 };
+            result[key] = stats;
+
+            if (_statsCache.size >= STATS_CACHE_MAX) {
+                const firstKey = _statsCache.keys().next().value;
+                if (firstKey !== undefined) _statsCache.delete(firstKey);
+            }
+            _statsCache.set(key, { stats, timestamp: now });
+        }
+
+        return result;
+    } catch (fallbackErr) {
+        console.warn('[products] Fallback stats échoué aussi :', fallbackErr?.code || fallbackErr);
+        return result;
+    }
+}
+
+/**
+ * Récupère en batch les stats d'avis (moyenne + nombre) pour une liste
+ * d'IDs produits. Utilise un cache local (TTL 60s) + fallback si l'index
+ * Firestore est manquant.
+ *
+ * @param {Array<number|string>} productIds - IDs produits.
+ * @returns {Promise<Object>} Map<String(pid), { avg, count }>.
+ */
 export async function getProductStatsBatch(productIds) {
     if (!Array.isArray(productIds) || productIds.length === 0) return {};
 
@@ -486,7 +664,21 @@ export async function getProductStatsBatch(productIds) {
 
         return result;
     } catch (e) {
-        console.warn('⚠️ getProductStatsBatch error:', e?.code || e);
+        /* B1 : index Firestore manquant -> fallback côté client.
+           Le code exact de Firestore pour "index requis" est
+           'failed-precondition'. */
+        if (e?.code === 'failed-precondition') {
+            if (!_statsIndexWarned) {
+                _statsIndexWarned = true;
+                console.warn(
+                    '[products] Index Firestore manquant pour reviews(productId + status).\n' +
+                    '  -> Fallback activé : notes étoiles calculées côté client.\n' +
+                    '  -> Pour supprimer ce warning : ajouter l\'index dans firestore.indexes.json (Lot 48).'
+                );
+            }
+            return await getProductStatsBatchFallback(toFetch);
+        }
+        console.warn('[products] getProductStatsBatch erreur :', e?.code || e);
         for (const pid of toFetch) {
             if (!result[String(pid)]) result[String(pid)] = { avg: null, count: 0 };
         }
@@ -494,9 +686,14 @@ export async function getProductStatsBatch(productIds) {
     }
 }
 
-// ============================================================
-// RENDU DE LA GRILLE
-// ============================================================
+/* ============================================================
+   RENDU DE LA GRILLE
+   ============================================================ */
+
+/**
+ * Re-render la grille de produits (page d'accueil principalement).
+ * @returns {Promise<void>}
+ */
 export async function renderProducts() {
     const grid = document.getElementById('productsGrid');
     if (!grid) return;
@@ -627,9 +824,9 @@ export async function renderProducts() {
     paginationEl.innerHTML = pgHtml;
 }
 
-// ============================================================
-// RENDU DES CATÉGORIES
-// ============================================================
+/* ============================================================
+   RENDU DES CATÉGORIES
+   ============================================================ */
 export function renderCategoryFilters() {
     const mainContainer = document.getElementById('filtersCategories');
     if (!mainContainer) return;
@@ -732,10 +929,14 @@ export function renderSortOptions() {
     if ([...select.options].some(o => o.value === currentValue)) select.value = currentValue;
 }
 
+/**
+ * Ajoute ou retire un produit des favoris de l'utilisateur connecté.
+ * @param {number|string} productId
+ */
 export async function toggleFavorite(productId) {
     const user = getCurrentUser();
     if (!user || !user.uid) {
-        showToast('🔒 ' + t('loginRequired'));
+        showToast(t('loginRequired'));
         document.dispatchEvent(new CustomEvent('open-account'));
         return;
     }
@@ -763,13 +964,17 @@ export async function toggleFavorite(productId) {
 
         if (document.getElementById('productsGrid')) await renderProducts();
     } catch (e) {
-        showToast('❌ ' + t('error'));
+        showToast(t('error'));
     }
 }
 
+/**
+ * Navigue vers la page détail d'un produit.
+ * @param {string} slug
+ */
 export function openProductPage(slug) {
     if (!slug) return;
     window.location.href = `/produit?slug=${encodeURIComponent(slug)}`;
 }
 
-console.log('✅ products.js chargé — v8.3.0 (R3 : filtre status=approved + fallback intelligent)');
+console.log('✅ products.js chargé - v9.0.0 (Lot 9 : fallback stats + filtre X1 + messages admin)');
