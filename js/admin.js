@@ -1,40 +1,8 @@
-/* ============================================================
-   js/admin.js
-   Panneau administration - Smart Swi9a
-   Version 11.0.0 — Marketplace (T6 + T9 + T10)
-
-   Correctifs v11.0.0 (Session 4 — T9) :
-     - C1-admin : fetchVendorContract gère l'ID versionné
-                  contract_<uid>_v<semver> + legacy contract_<uid>,
-                  priorité currentContractId, tri semver puis
-                  acceptedAt desc.
-     - C3-admin : modale contrat enrichie : hash complets (copier),
-                  termsSnapshot lisible, source, legacy marker,
-                  bouton « Vérifier l'intégrité » branché sur
-                  verifyContractIntegrity.
-     - C4       : signedAt → acceptedAt (affichage + tri).
-     - C5-admin : handleVendorAction exige la version courante
-                  (ou legacy toléré), écrit currentContractId +
-                  contractVersion, refuse needsResign.
-     - Badges contrat (à jour / obsolète / non signé / legacy)
-       dans la liste vendeurs + filtre « outdated ».
-     - ALERTE 1 : plus aucun // en début de ligne utile.
-
-   Notes T2 (règles Firestore v5.1.0 §1) :
-     - La transition users/{uid} depuis handleVendorAction écrit
-       les 4 clés : contractStatus, currentContractId,
-       contractVersion, updatedAt. Les règles doivent les
-       autoriser via affectedKeys().
-
-   Dépendances :
-     ./firebase.js, ./config.js, ./utils.js, ./orders.js,
-     ./reviews.js, ./ui-core.js,
-     ./vendor-contract.js (signVendorContract, computeContractTextHash,
-                           needsResign, compareVersions,
-                           verifyContractIntegrity),
-     ./vendor-contract-text.js (getContractText,
-                                getSupportedContractVersions)
-   ============================================================ */
+// js/admin.js
+// ============================================================
+// PANNEAU ADMINISTRATION - SMART SWI9A
+// Version 11.0.0 — Marketplace (Vendeurs + Payouts + Migration R3)
+// ============================================================
 
 import { auth, db, storage } from "./firebase.js";
 import {
@@ -43,70 +11,46 @@ import {
 import {
     collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
     query, where, writeBatch, Timestamp, getCountFromServer,
-    orderBy, limit, increment, addDoc, deleteField, runTransaction,
-    serverTimestamp
+    orderBy, limit, increment, addDoc, deleteField,
+    runTransaction, serverTimestamp
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import {
-    ROLES, ORDER_STATUS, CATEGORY_GROUPS, CONFIG, normalizeOrderStatus,
+    ROLES, ORDER_STATUS, CATEGORIES, CATEGORY_GROUPS, CONFIG, normalizeOrderStatus,
     normalizeCategory, getCategoryById, APP_MODE, isTestMode,
-    VENDOR_STATUS, PAYOUT_STATUS, WALLET_TX_TYPE, WALLET_TX_STATUS, CONTRACT_STATUS,
-    PRODUCT_STATUS
+    VENDOR_STATUS, PAYOUT_STATUS, WALLET_TX_TYPE, WALLET_TX_STATUS,
+    CONTRACT_STATUS, PRODUCT_STATUS
 } from "./config.js";
 import {
     escapeHTML, slugify, getStoragePathFromUrl, isStorageUrl,
     getSignupMethodLabel, getSignupMethodEmoji, toDate, t, getCityName
 } from "./utils.js";
 import {
-    renderAdminOrders, resetAdminOrdersCache, syncSpeedafStatus,
+    renderAdminOrders, resetAdminOrdersCache, openReturnModal, syncSpeedafStatus,
     releaseDueVendorFunds
 } from "./orders.js";
 import { renderAdminReviews } from "./reviews.js";
 import { showToast, confirmAction } from "./ui-core.js";
-import {
-    needsResign,
-    compareVersions,
-    verifyContractIntegrity
-} from "./vendor-contract.js";
-import {
-    getContractText,
-    getSupportedContractVersions
-} from "./vendor-contract-text.js";
 
-/* ============================================================
-   MODE TEST — CONFIGURATION
-   ============================================================ */
-const PROTECTED_USER_EMAILS = [
-    "asaminfo20@gmail.com"
-];
-
+// ============================================================
+// MODE TEST — CONFIGURATION
+// ============================================================
+const PROTECTED_USER_EMAILS = ["asaminfo20@gmail.com"];
 const TEST_SNAPSHOT_ROOT = "_test_snapshots";
-
 const COLLECTIONS_TO_SNAPSHOT = [
-    "products",
-    "orders",
-    "coupons",
-    "coupon_uses",
-    "reviews",
-    "notifications",
-    "speedaf_pickups",
-    "users",
-    "blog",
-    "vendorsPublic",
-    "wallets",
-    "contracts",
-    "payout_requests",
-    "wallet_transactions"
+    "products", "orders", "coupons", "coupon_uses", "reviews",
+    "notifications", "speedaf_pickups", "users", "blog",
+    "vendorsPublic", "wallets", "contracts", "payout_requests", "wallet_transactions"
 ];
 
-/* ============================================================
-   ÉTAT LOCAL
-   ============================================================ */
+// ============================================================
+// ÉTAT LOCAL
+// ============================================================
 let currentAdmin = null;
 let cachedProducts = [];
-let cachedUsers = [];
 let cachedVendors = [];
 let cachedPayouts = [];
+let cachedUsers = [];
 let cachedBlogPosts = [];
 let cachedPurchases = [];
 let cachedExpenses = [];
@@ -114,27 +58,29 @@ let cachedTransactions = [];
 let cachedCoupons = [];
 let speedafOrdersCache = [];
 let lastProductsLoadTime = 0;
-
 let simulatorListenersAttached = false;
 let alertInterval = null;
 let tempStockFilter = null;
-let tempStatusFilter = null; /* T6 : 'pending_admin_approval' | 'rejected' | 'suspended' | null */
 let isSyncingAllSpeedaf = false;
-
 let revenueChartInstance = null;
 let currentChartPeriod = 7;
 let chartListenersAttached = false;
-
 const PRODUCTS_PER_PAGE = 20;
 let productsCurrentPage = 1;
 const BLOG_PER_PAGE = 15;
 let blogCurrentPage = 1;
-
 let pendingLoginError = null;
 
-/* ============================================================
-   HELPERS i18n
-   ============================================================ */
+const VENDOR_STATUS_ORDER = {
+    [VENDOR_STATUS.PENDING]: 0,
+    [VENDOR_STATUS.APPROVED]: 1,
+    [VENDOR_STATUS.SUSPENDED]: 2,
+    [VENDOR_STATUS.REJECTED]: 3
+};
+
+// ============================================================
+// HELPERS i18n
+// ============================================================
 const BLOG_CAT_KEY_MAP = {
     conseils: 'blogCatConseils', tendances: 'blogCatTendances',
     tests: 'blogCatTests', tutoriels: 'blogCatTutoriels',
@@ -149,9 +95,9 @@ const COUPON_TYPES = {
     free_shipping: { label: 'Livraison gratuite', emoji: '🚚', cssClass: 'coupon-type-free_shipping' }
 };
 
-/* ============================================================
-   HELPERS COMPTABILITÉ & DATES
-   ============================================================ */
+// ============================================================
+// HELPERS COMPTABILITÉ & DATES
+// ============================================================
 function formatMAD(n) {
     const num = Number(n) || 0;
     return new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2, useGrouping: true })
@@ -183,9 +129,9 @@ function generateUniqueSku(category) {
     return `SW-${catPrefix}-${dateStr}-${randomStr}`;
 }
 
-/* ============================================================
-   STORAGE HELPERS
-   ============================================================ */
+// ============================================================
+// STORAGE HELPERS
+// ============================================================
 async function deleteStorageImage(url) {
     if (!isStorageUrl(url)) return false;
     const path = getStoragePathFromUrl(url);
@@ -197,61 +143,12 @@ async function deleteStorageImages(urls) {
     await Promise.allSettled(urls.map(url => deleteStorageImage(url)));
 }
 
-/* ============================================================
-   NOTIFICATION VENDEUR (in-app)
-   ============================================================ */
-async function notifyUser(userId, type, title, message, extra = {}) {
-    if (!userId) return;
-    try {
-        await addDoc(collection(db, "notifications"), {
-            userId,
-            type,
-            title: String(title).slice(0, 200),
-            message: String(message).slice(0, 500),
-            read: false,
-            createdAt: Timestamp.now(),
-            ...extra
-        });
-    } catch (e) {
-        console.warn('⚠️ Notification échouée (non bloquant) :', e);
-    }
-}
-
-/* ============================================================
-   HELPERS PRESSE-PAPIER (T9 : copier les hash)
-   ============================================================ */
-async function copyToClipboard(text, successMsg = '✅ Copié') {
-    try {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-            await navigator.clipboard.writeText(text);
-            showToast(successMsg);
-            return true;
-        }
-        /* Fallback : textarea temporaire */
-        const ta = document.createElement('textarea');
-        ta.value = text;
-        ta.style.position = 'fixed';
-        ta.style.left = '-9999px';
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-        showToast(successMsg);
-        return true;
-    } catch (e) {
-        console.error('copyToClipboard :', e);
-        showToast('❌ Copie impossible');
-        return false;
-    }
-}
-
-/* ============================================================
-   MODE TEST — COLLECTE ET SUPPRESSION DES FICHIERS STORAGE
-   ============================================================ */
+// ============================================================
+// MODE TEST — COLLECTE ET SUPPRESSION DES FICHIERS STORAGE
+// ============================================================
 async function collectTestFiles(batchId) {
     const urlsToDelete = new Set();
     const FILE_FIELDS = { products: ['img', 'gallery'], reviews: ['photos'], blog: ['image'] };
-
     for (const [coll, fields] of Object.entries(FILE_FIELDS)) {
         try {
             const snapDocs = await getDocs(collection(db, TEST_SNAPSHOT_ROOT, batchId, coll));
@@ -264,15 +161,12 @@ async function collectTestFiles(batchId) {
                     else if (Array.isArray(v)) v.forEach(u => u && snapshotUrls.add(u));
                 });
             });
-
             const curDocs = await getDocs(collection(db, coll));
             curDocs.forEach(d => {
                 const data = d.data();
                 fields.forEach(f => {
                     const v = data[f];
-                    const addIfNew = (u) => {
-                        if (u && typeof u === 'string' && u.startsWith('http') && !snapshotUrls.has(u)) urlsToDelete.add(u);
-                    };
+                    const addIfNew = (u) => { if (u && typeof u === 'string' && u.startsWith('http') && !snapshotUrls.has(u)) urlsToDelete.add(u); };
                     if (typeof v === 'string') addIfNew(v);
                     else if (Array.isArray(v)) v.forEach(addIfNew);
                 });
@@ -295,9 +189,9 @@ async function deleteStorageFiles(urls) {
     return { deleted, failed };
 }
 
-/* ============================================================
-   MODE TEST — INITIALISATION & ROLLBACK
-   ============================================================ */
+// ============================================================
+// MODE TEST — INITIALISATION & ROLLBACK
+// ============================================================
 function initTestMode() {
     const saved = localStorage.getItem('swi9a_app_mode');
     if (saved === 'test' || saved === 'production') {
@@ -310,17 +204,12 @@ function initTestMode() {
 }
 
 function showModeChoiceScreen() {
-    const loginBox = document.getElementById('adminLoginBox');
-    const panel = document.getElementById('adminPanel');
-    const choice = document.getElementById('modeChoiceScreen');
-    if (loginBox) loginBox.style.display = 'none';
-    if (panel) panel.style.display = 'none';
-    if (choice) choice.style.display = 'flex';
+    document.getElementById('adminLoginBox').style.display = 'none';
+    document.getElementById('adminPanel').style.display = 'none';
+    document.getElementById('modeChoiceScreen').style.display = 'flex';
     document.body.style.paddingTop = '';
-    const realBtn = document.getElementById('chooseRealModeBtn');
-    const testBtn = document.getElementById('chooseTestModeBtn');
-    if (realBtn) realBtn.onclick = () => chooseMode('production');
-    if (testBtn) testBtn.onclick = () => chooseMode('test');
+    document.getElementById('chooseRealModeBtn').onclick = () => chooseMode('production');
+    document.getElementById('chooseTestModeBtn').onclick = () => chooseMode('test');
 }
 
 async function chooseMode(mode) {
@@ -331,10 +220,8 @@ async function chooseMode(mode) {
         );
         if (!ok) return;
         const btn = document.getElementById('chooseTestModeBtn');
-        if (btn) {
-            btn.disabled = true;
-            btn.innerHTML = '<div style="font-size:1.5rem;font-weight:800;margin-bottom:0.3rem;">⏳ Snapshot...</div>';
-        }
+        btn.disabled = true;
+        btn.innerHTML = '<div style="font-size:1.5rem;font-weight:800;margin-bottom:0.3rem;">⏳ Snapshot...</div>';
         await startTestBatch(btn);
     } else {
         APP_MODE.current = 'production';
@@ -362,7 +249,9 @@ async function startTestBatch(btn) {
                 }
             } catch (e) {}
         }
-        await setDoc(doc(db, TEST_SNAPSHOT_ROOT, batchId), { batchId, startedAt: Timestamp.now(), collections: COLLECTIONS_TO_SNAPSHOT, totalDocs, status: 'active' });
+        await setDoc(doc(db, TEST_SNAPSHOT_ROOT, batchId), {
+            batchId, startedAt: Timestamp.now(), collections: COLLECTIONS_TO_SNAPSHOT, totalDocs, status: 'active'
+        });
         APP_MODE.current = 'test';
         APP_MODE.testBatchId = batchId;
         localStorage.setItem('swi9a_app_mode', 'test');
@@ -380,7 +269,6 @@ async function endTestBatch() {
     if (!batchId) { showToast('⚠️ Aucun batch actif'); return; }
     const ok = await confirmAction('🟢 ROLLBACK COMPLET\n\nTOUT sera restauré à l\'état d\'avant le test.\n\nContinuer ?', { title: '🟢 Test Terminé', confirmText: 'TOUT RESTAURER', cancelText: 'Annuler', variant: 'danger' });
     if (!ok) return;
-
     const btn = document.getElementById('endTestBtn');
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Rollback...'; }
     APP_MODE.current = 'production';
@@ -388,9 +276,7 @@ async function endTestBatch() {
     localStorage.setItem('swi9a_app_mode', 'production');
     localStorage.removeItem('swi9a_test_batch');
     updateTestModeUI();
-
     let totalDeleted = 0, totalRestored = 0, filesDeleted = 0, filesFailed = 0;
-
     try {
         const testFiles = await collectTestFiles(batchId);
         for (const coll of COLLECTIONS_TO_SNAPSHOT) {
@@ -452,16 +338,10 @@ function updateTestModeUI() {
 }
 
 function activateAdminPanel() {
-    const choice = document.getElementById('modeChoiceScreen');
-    const loginBox = document.getElementById('adminLoginBox');
-    const panel = document.getElementById('adminPanel');
-    if (choice) choice.style.display = 'none';
-    if (loginBox) loginBox.style.display = 'none';
-    if (panel) panel.style.display = 'block';
-    if (currentAdmin) {
-        const emailEl = document.getElementById('adminUserEmail');
-        if (emailEl) emailEl.textContent = currentAdmin.email;
-    }
+    document.getElementById('modeChoiceScreen').style.display = 'none';
+    document.getElementById('adminLoginBox').style.display = 'none';
+    document.getElementById('adminPanel').style.display = 'block';
+    if (currentAdmin) document.getElementById('adminUserEmail').textContent = currentAdmin.email;
     updateTestModeUI();
     if (isTestMode()) {
         const endBtn = document.getElementById('endTestBtn');
@@ -471,12 +351,9 @@ function activateAdminPanel() {
 }
 
 function showLoginBox() {
-    const loginBox = document.getElementById('adminLoginBox');
-    const choice = document.getElementById('modeChoiceScreen');
-    const panel = document.getElementById('adminPanel');
-    if (loginBox) loginBox.style.display = 'block';
-    if (choice) choice.style.display = 'none';
-    if (panel) panel.style.display = 'none';
+    document.getElementById('adminLoginBox').style.display = 'block';
+    document.getElementById('modeChoiceScreen').style.display = 'none';
+    document.getElementById('adminPanel').style.display = 'none';
     const msgEl = document.getElementById('adminLoginMsg');
     if (msgEl) {
         const displayMsg = pendingLoginError || '';
@@ -485,20 +362,18 @@ function showLoginBox() {
     }
 }
 
-/* ============================================================
-   LOGIN & INITIALISATION
-   ============================================================ */
+// ============================================================
+// LOGIN
+// ============================================================
 async function handleLogin() {
     const email = document.getElementById('adminEmail').value.trim();
     const password = document.getElementById('adminPassword').value;
     const msgEl = document.getElementById('adminLoginMsg');
     const btn = document.getElementById('adminLoginBtn');
     pendingLoginError = null;
-
     if (!email || !password) { if (msgEl) { msgEl.textContent = '⚠️ Email et mot de passe requis'; msgEl.style.color = 'var(--danger)'; } return; }
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Connexion...'; }
     if (msgEl) { msgEl.textContent = '⏳ Connexion en cours...'; msgEl.style.color = 'var(--text-muted)'; }
-
     try {
         await signInWithEmailAndPassword(auth, email, password);
     } catch (e) {
@@ -516,6 +391,9 @@ async function handleLogin() {
     }
 }
 
+// ============================================================
+// INITIALISATION
+// ============================================================
 function initAdmin() {
     onAuthStateChanged(auth, async (user) => {
         if (user) {
@@ -548,15 +426,14 @@ function initAdmin() {
         } else {
             currentAdmin = null;
             showLoginBox();
-            const banner = document.getElementById('adminAlertBanner');
-            if (banner) banner.style.display = 'none';
+            const b = document.getElementById('adminAlertBanner'); if (b) b.style.display = 'none';
             if (alertInterval) clearInterval(alertInterval);
         }
     });
 
     document.getElementById('adminLoginBtn')?.addEventListener('click', handleLogin);
-    document.getElementById('adminEmail')?.addEventListener('input', () => { pendingLoginError = null; const msgEl = document.getElementById('adminLoginMsg'); if (msgEl && msgEl.textContent) msgEl.textContent = ''; });
-    document.getElementById('adminPassword')?.addEventListener('input', () => { pendingLoginError = null; const msgEl = document.getElementById('adminLoginMsg'); if (msgEl && msgEl.textContent) msgEl.textContent = ''; });
+    document.getElementById('adminEmail')?.addEventListener('input', () => { pendingLoginError = null; const m = document.getElementById('adminLoginMsg'); if (m && m.textContent) m.textContent = ''; });
+    document.getElementById('adminPassword')?.addEventListener('input', () => { pendingLoginError = null; const m = document.getElementById('adminLoginMsg'); if (m && m.textContent) m.textContent = ''; });
     document.getElementById('adminPassword')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); handleLogin(); } });
 
     document.getElementById('adminLogoutBtn')?.addEventListener('click', async () => {
@@ -578,18 +455,17 @@ function initAdmin() {
             const tab = btn.dataset.tab;
             document.getElementById(`tab-${tab}`)?.classList.add('active');
             refreshAdminAlerts();
-
             if (tab === 'tools') loadCollectionsStatus();
             else if (tab === 'blog') loadBlogPosts();
             else if (tab === 'products') { await loadProducts(); await loadStats(); }
             else if (tab === 'orders') await loadOrders();
-            else if (tab === 'vendors') await loadVendors();
-            else if (tab === 'wallets') await loadPayouts();
             else if (tab === 'speedaf') await loadSpeedafTab();
             else if (tab === 'coupons') await loadCoupons();
             else if (tab === 'finances') await loadFinancesTab();
             else if (tab === 'users') await loadUsers();
             else if (tab === 'reviews') await loadReviews();
+            else if (tab === 'vendors') await loadVendors();
+            else if (tab === 'wallets') await loadPayouts();
         });
     });
 
@@ -615,56 +491,48 @@ function initAdmin() {
     attachAllRemainingEvents();
 }
 
-/* ============================================================
-   CHARGEMENT DONNÉES
-   ============================================================ */
+// ============================================================
+// CHARGEMENT DONNÉES
+// ============================================================
 async function loadAllData() {
-    await loadProducts(); await loadStats(); await loadUsers(); await loadCoupons();
-    await loadBlogPosts(); await loadReviews();
+    await loadProducts();
+    await loadStats();
+    await loadUsers();
+    await loadCoupons();
+    await loadBlogPosts();
+    await loadReviews();
+    try { await Promise.all([loadVendors(), loadPayouts()]); } catch (e) {}
     try { await Promise.all([loadPurchases(), loadExpenses(), loadTransactions()]); } catch (e) {}
 }
 
 async function loadStats() {
     try {
         const c = await getCountFromServer(collection(db, "products"));
-        const el = document.getElementById('statProducts');
-        if (el) el.textContent = c.data().count;
-
+        const el = document.getElementById('statProducts'); if (el) el.textContent = c.data().count;
         const [ordersSnap, pendingOrdersSnap] = await Promise.allSettled([
             getCountFromServer(collection(db, "orders")),
             getCountFromServer(query(collection(db, "orders"), where("status", "==", "pending")))
         ]);
-
         let revenue = 0;
         try {
             const qRev = query(collection(db, "orders"), where("status", "in", ["delivered", "received"]), limit(500));
             const revSnap = await getDocs(qRev);
             revSnap.forEach(d => { revenue += Number(d.data().total) || 0; });
         } catch(e) {}
-
-        const sO = document.getElementById('statOrders');
-        const sOP = document.getElementById('statOrdersPending');
-        const sR = document.getElementById('statRevenue');
-        if (sO) sO.textContent = ordersSnap.value?.data().count || 0;
-        if (sOP) sOP.textContent = pendingOrdersSnap.value?.data().count || 0;
-        if (sR) sR.textContent = `${revenue} MAD`;
-
+        const sO = document.getElementById('statOrders'); if (sO) sO.textContent = ordersSnap.value?.data().count || 0;
+        const sOP = document.getElementById('statOrdersPending'); if (sOP) sOP.textContent = pendingOrdersSnap.value?.data().count || 0;
+        const sR = document.getElementById('statRevenue'); if (sR) sR.textContent = `${revenue} MAD`;
         const cu = await getCountFromServer(collection(db, "users"));
-        const elU = document.getElementById('statUsers');
-        if (elU) elU.textContent = cu.data().count;
-
+        const elU = document.getElementById('statUsers'); if (elU) elU.textContent = cu.data().count;
         const cr = await getCountFromServer(query(collection(db, "reviews"), where("status", "==", "pending")));
-        const elR = document.getElementById('statReviewsPending');
-        if (elR) elR.textContent = cr.data().count;
-
-        const cPending = await getCountFromServer(query(collection(db, "products"), where("status", "==", PRODUCT_STATUS.PENDING_ADMIN_APPROVAL)));
-        const elPP = document.getElementById('statProductsPending');
-        if (elPP) elPP.textContent = cPending.data().count;
-
+        const elR = document.getElementById('statReviewsPending'); if (elR) elR.textContent = cr.data().count;
+        try {
+            const cPending = await getCountFromServer(query(collection(db, "products"), where("status", "==", "pending_admin_approval")));
+            const elPP = document.getElementById('statProductsPending'); if (elPP) elPP.textContent = cPending.data().count;
+        } catch (e) {}
         try {
             const cc = await getCountFromServer(collection(db, "cities"));
-            const elC = document.getElementById('statCities');
-            if (elC) elC.textContent = cc.data().count;
+            const elC = document.getElementById('statCities'); if (elC) elC.textContent = cc.data().count;
         } catch (e) { if (document.getElementById('statCities')) document.getElementById('statCities').textContent = '—'; }
     } catch (e) { console.error('❌ loadStats:', e); }
 }
@@ -672,9 +540,9 @@ async function loadStats() {
 async function loadOrders() { await renderAdminOrders('adminOrdersList'); }
 async function loadReviews() { await renderAdminReviews('reviewsList', 'all'); }
 
-/* ============================================================
-   PRODUITS
-   ============================================================ */
+// ============================================================
+// PRODUITS
+// ============================================================
 async function loadProducts(force = false) {
     const container = document.getElementById('adminProductsList');
     const now = Date.now();
@@ -702,14 +570,11 @@ function populateCategoriesFilter() {
         let html = `<option value="all">Toutes catégories</option>`;
         CATEGORY_GROUPS.forEach(group => {
             html += `<option value="${group.id}" style="font-weight:bold;">📁 ${t(group.label)}</option>`;
-            group.children.forEach(cat => {
-                html += `<option value="${cat.id}">&nbsp;&nbsp;&nbsp;↳ ${cat.emoji} ${t(cat.label)}</option>`;
-            });
+            group.children.forEach(cat => { html += `<option value="${cat.id}">&nbsp;&nbsp;&nbsp;↳ ${cat.emoji} ${t(cat.label)}</option>`; });
         });
         selectFilter.innerHTML = html;
         selectFilter._populated = true;
     }
-
     const parentSelect = document.getElementById('pParentCategory');
     const childSelect = document.getElementById('pCategory');
     if (parentSelect && !parentSelect._populated) {
@@ -732,55 +597,24 @@ function attachClearTempFilterListener() {
     const btn = document.getElementById('clearTempFilterBtn');
     if (!btn || btn._listenerAttached) return;
     btn._listenerAttached = true;
-    btn.addEventListener('click', () => { tempStockFilter = null; tempStatusFilter = null; filterProductsList(); });
+    btn.addEventListener('click', () => { tempStockFilter = null; filterProductsList(); });
 }
 
 function renderProductsList(products) {
     const container = document.getElementById('adminProductsList');
     if (!container) return;
-
     let filterIndicator = '';
-    const filtersActive = tempStockFilter === 'out' || tempStockFilter === 'low' || tempStatusFilter;
-    if (filtersActive) {
-        const labels = [];
-        if (tempStockFilter === 'out') labels.push('❌ Ruptures');
-        if (tempStockFilter === 'low') labels.push('🟠 Stocks bas');
-        if (tempStatusFilter === PRODUCT_STATUS.PENDING_ADMIN_APPROVAL) labels.push('⏳ À valider');
-        if (tempStatusFilter === PRODUCT_STATUS.REJECTED) labels.push('❌ Rejetés');
-        if (tempStatusFilter === PRODUCT_STATUS.SUSPENDED) labels.push('🚫 Suspendus');
-        filterIndicator = `
-            <div style="background:rgba(212,175,55,0.1);border:1px solid var(--border-gold);border-radius:var(--radius-sm);padding:0.6rem 1rem;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;font-size:0.85rem;">
-                <span>🔍 <strong>Filtre actif :</strong> ${labels.join(' + ')} (<strong>${products.length}</strong> produit${products.length > 1 ? 's' : ''})</span>
-                <button id="clearTempFilterBtn" class="admin-btn-secondary" style="padding:0.3rem 0.8rem;font-size:0.75rem;">✖️ Enlever le filtre</button>
-            </div>
-        `;
+    if (tempStockFilter === 'out' || tempStockFilter === 'low') {
+        const label = tempStockFilter === 'out' ? '❌ Ruptures de stock' : '🟠 Stocks bas (< 5)';
+        filterIndicator = `<div style="background:rgba(212,175,55,0.1);border:1px solid var(--border-gold);border-radius:var(--radius-sm);padding:0.6rem 1rem;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;font-size:0.85rem;"><span>🔍 <strong>Filtre actif :</strong> ${label} (<strong>${products.length}</strong> produit${products.length > 1 ? 's' : ''})</span><button id="clearTempFilterBtn" class="admin-btn-secondary" style="padding:0.3rem 0.8rem;font-size:0.75rem;">✖️ Enlever le filtre</button></div>`;
     }
-
-    const pendingCount = cachedProducts.filter(p => p.status === PRODUCT_STATUS.PENDING_ADMIN_APPROVAL).length;
-    let pendingBar = '';
-    if (pendingCount > 0 && tempStatusFilter !== PRODUCT_STATUS.PENDING_ADMIN_APPROVAL) {
-        pendingBar = `
-            <div style="background:rgba(255,193,7,0.15);border:1px solid #ffc107;border-radius:var(--radius-sm);padding:0.8rem 1rem;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">
-                <span>⏳ <strong>${pendingCount}</strong> produit${pendingCount > 1 ? 's' : ''} en attente de validation</span>
-                <button id="showPendingProductsBtn" class="admin-btn-primary" style="padding:0.4rem 1rem;font-size:0.8rem;">Voir les produits à valider</button>
-            </div>
-        `;
-    }
-
-    if (products.length === 0) {
-        container.innerHTML = filterIndicator + pendingBar + `<div class="admin-empty">Aucun produit trouvé.</div>`;
-        attachClearTempFilterListener();
-        return;
-    }
-
+    if (products.length === 0) { container.innerHTML = filterIndicator + `<div class="admin-empty">Aucun produit trouvé.</div>`; attachClearTempFilterListener(); return; }
     const totalPages = Math.max(1, Math.ceil(products.length / PRODUCTS_PER_PAGE));
     if (productsCurrentPage > totalPages) productsCurrentPage = totalPages;
     const start = (productsCurrentPage - 1) * PRODUCTS_PER_PAGE;
     const pageProducts = products.slice(start, start + PRODUCTS_PER_PAGE);
-
-    let html = filterIndicator + pendingBar;
+    let html = filterIndicator;
     if (totalPages > 1) html += `<div style="text-align:center;font-size:0.8rem;color:var(--text-muted);margin-bottom:0.5rem;">${productsCurrentPage} / ${totalPages} — ${products.length}</div>`;
-
     pageProducts.forEach(p => {
         const name = escapeHTML(p.nameFr || p.nameEn || 'Sans nom');
         const price = Number(p.price) || 0;
@@ -798,60 +632,22 @@ function renderProductsList(products) {
         const videoBadge = hasVideo ? `<span style="background:var(--gold);color:#fff;font-size:0.65rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;">🎥</span>` : '';
         const hasVariants = p.variants && p.variants.length > 0;
         const variantBadge = hasVariants ? `<span style="background:var(--info);color:#fff;font-size:0.65rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;">🎨</span>` : '';
-        const vendorBadge = p.vendorId && p.vendorId !== 'smartswi9a'
-            ? `<span style="background:#3498db;color:#fff;font-size:0.6rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;">🏪</span>`
-            : '';
-
+        const vendorBadge = p.vendorId && p.vendorId !== 'smartswi9a' ? `<span style="background:#3498db;color:#fff;font-size:0.6rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;">🏪</span>` : '';
         const productStatus = p.status || 'legacy';
         let statusBadge = '';
-        let productActionsExtra = '';
-        let rejectionHtml = '';
-
-        if (productStatus === PRODUCT_STATUS.PENDING_ADMIN_APPROVAL || productStatus === 'pending') {
-            const createdAtDate = toDate(p.createdAt);
-            const hoursWaiting = createdAtDate ? (Date.now() - createdAtDate.getTime()) / 3600000 : 0;
-            const isLate = hoursWaiting > (CONFIG.VENDOR.PRODUCT_VALIDATION_HOURS || 48);
-            const lateBadge = isLate
-                ? `<span style="background:var(--danger);color:#fff;font-size:0.6rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;" title="En attente depuis ${Math.round(hoursWaiting)}h">⏰ Retard</span>`
-                : '';
-            statusBadge = `<span style="background:var(--warning);color:#fff;font-size:0.65rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;">⏳ À valider</span>${lateBadge}`;
-            productActionsExtra = `
-                <button class="admin-btn-approve" data-action="product-approve" data-id="${p.id}" title="Approuver">✅</button>
-                <button class="admin-btn-icon admin-btn-danger" data-action="product-reject" data-id="${p.id}" title="Rejeter avec motif">❌</button>
-            `;
-        } else if (productStatus === PRODUCT_STATUS.APPROVED) {
+        if (productStatus === 'pending_admin_approval' || productStatus === 'pending') {
+            statusBadge = `<span style="background:var(--warning);color:#fff;font-size:0.65rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;">⏳ À valider</span>`;
+        } else if (productStatus === 'approved') {
             statusBadge = `<span style="background:var(--success-bg);color:var(--success);font-size:0.65rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;">✅ Approuvé</span>`;
-            if (p.vendorId && p.vendorId !== 'smartswi9a') {
-                productActionsExtra = `<button class="admin-btn-icon admin-btn-danger" data-action="product-suspend" data-id="${p.id}" title="Suspendre">🚫</button>`;
-            }
-        } else if (productStatus === PRODUCT_STATUS.REJECTED) {
+        } else if (productStatus === 'rejected') {
             statusBadge = `<span style="background:var(--danger-bg);color:var(--danger);font-size:0.65rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;">❌ Rejeté</span>`;
-            if (p.rejectionReason) {
-                rejectionHtml = `<div style="font-size:0.75rem;color:var(--danger);margin-top:0.2rem;">📝 Motif : ${escapeHTML(p.rejectionReason)}</div>`;
-            }
-            productActionsExtra = `<button class="admin-btn-approve" data-action="product-approve" data-id="${p.id}" title="Réactiver">✅</button>`;
-        } else if (productStatus === PRODUCT_STATUS.SUSPENDED) {
+        } else if (productStatus === 'suspended') {
             statusBadge = `<span style="background:var(--danger-bg);color:var(--danger);font-size:0.65rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;">🚫 Suspendu</span>`;
-            productActionsExtra = `<button class="admin-btn-approve" data-action="product-approve" data-id="${p.id}" title="Réactiver">✅</button>`;
+        } else if (productStatus === 'legacy') {
+            statusBadge = `<span style="background:#f8d7da;color:#721c24;font-size:0.65rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;">⚠️ Legacy</span>`;
         }
-
-        html += `
-            <div class="admin-list-item" data-product-id="${p.id}">
-                <div class="admin-list-item-info">
-                    <strong>${name}${videoBadge}${variantBadge}${vendorBadge}${statusBadge}${sku}</strong>
-                    <div style="font-size:0.8rem;color:var(--text-muted);margin-top:0.2rem;">📂 ${categoryLabel} · 💰 ${price} MAD ${isPromo ? `<small style="text-decoration:line-through;color:var(--text-dim);">${oldPrice}</small>` : ''} · <span style="color:${stockColor};font-weight:700;">${stockEmoji} ${stock}</span></div>
-                    ${rejectionHtml}
-                </div>
-                <div class="admin-list-item-actions">
-                    ${productActionsExtra}
-                    <button class="admin-btn-restock" data-action="restock-product" data-id="${p.id}">➕</button>
-                    <button class="admin-btn-icon" data-action="edit-product" data-id="${p.id}">✏️</button>
-                    <button class="admin-btn-icon admin-btn-danger" data-action="delete-product" data-id="${p.id}">🗑️</button>
-                </div>
-            </div>
-        `;
+        html += `<div class="admin-list-item" data-product-id="${p.id}"><div class="admin-list-item-info"><strong>${name}${videoBadge}${variantBadge}${vendorBadge}${statusBadge}${sku}</strong><div style="font-size:0.8rem;color:var(--text-muted);margin-top:0.2rem;">📂 ${categoryLabel} · 💰 ${price} MAD ${isPromo ? `<small style="text-decoration:line-through;color:var(--text-dim);">${oldPrice}</small>` : ''} · <span style="color:${stockColor};font-weight:700;">${stockEmoji} ${stock}</span></div></div><div class="admin-list-item-actions"><button class="admin-btn-restock" data-action="restock-product" data-id="${p.id}">➕</button><button class="admin-btn-icon" data-action="edit-product" data-id="${p.id}">✏️</button><button class="admin-btn-icon admin-btn-danger" data-action="delete-product" data-id="${p.id}">🗑️</button></div></div>`;
     });
-
     if (totalPages > 1) {
         html += `<div style="display:flex;justify-content:center;gap:0.3rem;margin-top:1rem;flex-wrap:wrap;">`;
         html += `<button class="admin-btn-icon" data-page="prev" ${productsCurrentPage === 1 ? 'disabled' : ''}>‹</button>`;
@@ -860,17 +656,6 @@ function renderProductsList(products) {
     }
     container.innerHTML = html;
     attachClearTempFilterListener();
-
-    document.getElementById('showPendingProductsBtn')?.addEventListener('click', () => {
-        tempStatusFilter = PRODUCT_STATUS.PENDING_ADMIN_APPROVAL;
-        tempStockFilter = null;
-        productsCurrentPage = 1;
-        filterProductsList();
-    });
-
-    container.querySelectorAll('[data-action="product-approve"]').forEach(btn => btn.addEventListener('click', () => approveProduct(btn.dataset.id)));
-    container.querySelectorAll('[data-action="product-reject"]').forEach(btn => btn.addEventListener('click', () => openRejectProductModal(btn.dataset.id)));
-    container.querySelectorAll('[data-action="product-suspend"]').forEach(btn => btn.addEventListener('click', () => suspendProduct(btn.dataset.id)));
     container.querySelectorAll('[data-action="restock-product"]').forEach(btn => btn.addEventListener('click', () => openRestockModal(btn.dataset.id)));
     container.querySelectorAll('[data-action="edit-product"]').forEach(btn => btn.addEventListener('click', () => editProduct(btn.dataset.id)));
     container.querySelectorAll('[data-action="delete-product"]').forEach(btn => btn.addEventListener('click', () => deleteProduct(btn.dataset.id)));
@@ -891,7 +676,6 @@ function filterProductsList(resetPage = true) {
     const search = document.getElementById('productSearchAdmin')?.value.toLowerCase().trim() || '';
     const category = document.getElementById('productCategoryFilter')?.value || 'all';
     let filtered = cachedProducts;
-
     if (category !== 'all') {
         const isParent = CATEGORY_GROUPS.some(g => g.id === category);
         if (isParent) {
@@ -901,177 +685,17 @@ function filterProductsList(resetPage = true) {
             filtered = filtered.filter(p => p.category === category);
         }
     }
-
     if (search) filtered = filtered.filter(p => {
         const name = (p.nameFr || p.nameEn || p.nameAr || '').toLowerCase();
         const slug = (p.slug || '').toLowerCase();
         return name.includes(search) || slug.includes(search);
     });
-
     if (tempStockFilter === 'out') filtered = filtered.filter(p => (Number(p.stock) || 0) === 0);
     else if (tempStockFilter === 'low') filtered = filtered.filter(p => { const s = Number(p.stock) || 0; return s > 0 && s <= 4; });
-
-    if (tempStatusFilter === PRODUCT_STATUS.PENDING_ADMIN_APPROVAL) {
-        filtered = filtered.filter(p => p.status === PRODUCT_STATUS.PENDING_ADMIN_APPROVAL || p.status === 'pending');
-    } else if (tempStatusFilter === PRODUCT_STATUS.REJECTED) {
-        filtered = filtered.filter(p => p.status === PRODUCT_STATUS.REJECTED);
-    } else if (tempStatusFilter === PRODUCT_STATUS.SUSPENDED) {
-        filtered = filtered.filter(p => p.status === PRODUCT_STATUS.SUSPENDED);
-    }
-
     if (resetPage) productsCurrentPage = 1;
     renderProductsList(filtered);
 }
 
-/* ============================================================
-   T6 — WORKFLOW DE VALIDATION DES PRODUITS
-   ============================================================ */
-async function approveProduct(productId) {
-    const prod = cachedProducts.find(p => p.id === productId);
-    if (!prod) return;
-    const ok = await confirmAction(`Approuver le produit "${prod.nameFr || prod.nameEn || '—'}" ? Il sera immédiatement visible en boutique.`, {
-        title: '✅ Approuver le produit', confirmText: 'Approuver', cancelText: 'Annuler', variant: 'primary'
-    });
-    if (!ok) return;
-
-    try {
-        await updateDoc(doc(db, "products", productId), {
-            status: PRODUCT_STATUS.APPROVED,
-            reviewedAt: Timestamp.now(),
-            reviewedBy: currentAdmin?.uid || 'admin',
-            rejectionReason: deleteField()
-        });
-
-        if (prod.vendorId && prod.vendorId !== 'smartswi9a') {
-            await notifyUser(
-                prod.vendorId,
-                'product_approved',
-                '✅ Produit approuvé',
-                `Votre produit "${prod.nameFr || prod.nameEn}" est maintenant visible en boutique.`,
-                { productId }
-            );
-        }
-
-        showToast('✅ Produit approuvé et publié');
-        await loadProducts(true);
-        await loadStats();
-    } catch (e) {
-        console.error(e);
-        showToast('❌ ' + (e.message || 'Erreur'));
-    }
-}
-
-function openRejectProductModal(productId) {
-    document.getElementById('rejectProductModal')?.remove();
-    const prod = cachedProducts.find(p => p.id === productId);
-    const name = escapeHTML(prod?.nameFr || prod?.nameEn || 'Produit');
-
-    const modalHtml = `
-        <div class="modal-overlay open" id="rejectProductModal" style="z-index:2200;">
-            <div class="modal" style="max-width:480px;">
-                <button class="modal-close" id="closeRejectModalBtn">✕</button>
-                <h2 style="font-family:var(--font-secondary);color:var(--danger);text-align:center;margin-bottom:0.5rem;">❌ Rejeter le produit</h2>
-                <p style="text-align:center;font-size:0.85rem;color:var(--text-muted);margin-bottom:1.2rem;"><strong>${name}</strong></p>
-                <label style="display:block;font-size:0.85rem;color:var(--text-muted);margin-bottom:0.4rem;">Motif du rejet (visible par le vendeur) *</label>
-                <textarea id="rejectReasonInput" rows="4" style="width:100%;padding:0.8rem;border:2px solid var(--border);border-radius:var(--radius-sm);font-family:inherit;font-size:0.9rem;margin-bottom:1rem;" placeholder="Ex : Image de mauvaise qualité, description incomplète, prix anormalement élevé..."></textarea>
-                <div id="rejectError" style="color:var(--danger);font-size:0.8rem;min-height:1rem;text-align:center;margin-bottom:0.5rem;"></div>
-                <div style="display:flex;gap:0.5rem;justify-content:center;">
-                    <button id="cancelRejectBtn" style="padding:0.7rem 1.2rem;background:transparent;border:1px solid var(--border);border-radius:30px;cursor:pointer;">Annuler</button>
-                    <button id="confirmRejectBtn" style="padding:0.7rem 1.2rem;background:linear-gradient(135deg,#dc3545,#a02030);color:#fff;border:none;border-radius:30px;font-weight:700;cursor:pointer;">❌ Confirmer le rejet</button>
-                </div>
-            </div>
-        </div>
-    `;
-    document.body.insertAdjacentHTML('beforeend', modalHtml);
-
-    const modal = document.getElementById('rejectProductModal');
-    const reasonInput = document.getElementById('rejectReasonInput');
-    const closeModal = () => modal?.remove();
-    document.getElementById('closeRejectModalBtn').addEventListener('click', closeModal);
-    document.getElementById('cancelRejectBtn').addEventListener('click', closeModal);
-    modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
-    setTimeout(() => reasonInput.focus(), 100);
-
-    document.getElementById('confirmRejectBtn').addEventListener('click', async () => {
-        const reason = (reasonInput.value || '').trim();
-        if (reason.length < 5) {
-            document.getElementById('rejectError').textContent = 'Motif obligatoire (min 5 caractères).';
-            return;
-        }
-        const btn = document.getElementById('confirmRejectBtn');
-        btn.disabled = true; btn.textContent = '⏳...';
-        try {
-            await rejectProduct(productId, reason);
-            closeModal();
-        } catch (e) {
-            document.getElementById('rejectError').textContent = e.message || 'Erreur';
-            btn.disabled = false; btn.textContent = '❌ Confirmer le rejet';
-        }
-    });
-}
-
-async function rejectProduct(productId, reason) {
-    const prod = cachedProducts.find(p => p.id === productId);
-    if (!prod) throw new Error('Produit introuvable');
-
-    await updateDoc(doc(db, "products", productId), {
-        status: PRODUCT_STATUS.REJECTED,
-        rejectionReason: reason,
-        reviewedAt: Timestamp.now(),
-        reviewedBy: currentAdmin?.uid || 'admin'
-    });
-
-    if (prod.vendorId && prod.vendorId !== 'smartswi9a') {
-        await notifyUser(
-            prod.vendorId,
-            'product_rejected',
-            '❌ Produit rejeté',
-            `Votre produit "${prod.nameFr || prod.nameEn}" a été rejeté. Motif : ${reason}`,
-            { productId }
-        );
-    }
-
-    showToast('❌ Produit rejeté');
-    await loadProducts(true);
-    await loadStats();
-}
-
-async function suspendProduct(productId) {
-    const prod = cachedProducts.find(p => p.id === productId);
-    if (!prod) return;
-    const ok = await confirmAction(`Suspendre le produit "${prod.nameFr || prod.nameEn || '—'}" ? Il ne sera plus visible en boutique.`, {
-        title: '🚫 Suspendre le produit', confirmText: 'Suspendre', cancelText: 'Annuler', variant: 'danger'
-    });
-    if (!ok) return;
-
-    try {
-        await updateDoc(doc(db, "products", productId), {
-            status: PRODUCT_STATUS.SUSPENDED,
-            reviewedAt: Timestamp.now(),
-            reviewedBy: currentAdmin?.uid || 'admin'
-        });
-
-        if (prod.vendorId && prod.vendorId !== 'smartswi9a') {
-            await notifyUser(
-                prod.vendorId,
-                'product_suspended',
-                '🚫 Produit suspendu',
-                `Votre produit "${prod.nameFr || prod.nameEn}" a été suspendu par l'administration.`,
-                { productId }
-            );
-        }
-
-        showToast('🚫 Produit suspendu');
-        await loadProducts(true);
-    } catch (e) {
-        console.error(e);
-        showToast('❌ ' + (e.message || 'Erreur'));
-    }
-}
-
-/* ============================================================
-   RESTOCK & FORMULAIRE PRODUIT
-   ============================================================ */
 async function openRestockModal(productId) {
     let product = cachedProducts.find(p => p.id === productId);
     if (!product) {
@@ -1079,56 +703,25 @@ async function openRestockModal(productId) {
         if (!snap.exists()) { showToast('❌ Produit introuvable'); return; }
         product = { id: snap.id, ...snap.data() };
     }
-
     if (product.variants && product.variants.length > 0) {
         showToast('ℹ️ Ce produit a des variantes. Modifiez les stocks via l\'édition.');
         await editProduct(productId);
         return;
     }
-
     document.getElementById('restockModal')?.remove();
     const name = escapeHTML(product.nameFr || 'Sans nom');
     const currentStock = Math.max(0, Number(product.stock) || 0);
-
-    const modalHtml = `
-        <div class="modal-overlay open" id="restockModal" style="z-index:2200;">
-            <div class="modal" style="max-width:420px;">
-                <button class="modal-close" id="closeRestockModalBtn">✕</button>
-                <h2 style="font-family:var(--font-secondary);color:var(--gold);text-align:center;margin-bottom:0.5rem;">➕ Restocker</h2>
-                <p style="text-align:center;font-size:0.85rem;color:var(--text-muted);margin-bottom:1.2rem;"><strong>${name}</strong></p>
-                <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.8rem;margin-bottom:1rem;text-align:center;">
-                    <div style="font-size:0.8rem;color:var(--text-muted);">Stock actuel</div>
-                    <div style="font-size:1.6rem;font-weight:800;">${currentStock}</div>
-                </div>
-                <label style="display:block;font-size:0.85rem;color:var(--text-muted);margin-bottom:0.4rem;">Combien à ajouter ?</label>
-                <input type="number" id="restockQuantityInput" min="1" value="1" style="width:100%;padding:0.8rem;border:2px solid var(--border-gold);border-radius:var(--radius-sm);text-align:center;font-weight:700;font-size:1.4rem;margin-bottom:1rem;">
-                <div style="background:rgba(46,204,113,0.08);border:1px solid rgba(46,204,113,0.3);border-radius:var(--radius-sm);padding:0.8rem;margin-bottom:1.2rem;text-align:center;">
-                    <div style="font-size:0.75rem;color:var(--text-muted);">Nouveau stock</div>
-                    <div style="font-size:1.8rem;font-weight:800;color:var(--success);" id="restockNewStockPreview">${currentStock + 1}</div>
-                </div>
-                <div style="display:flex;gap:0.5rem;justify-content:center;">
-                    <button id="cancelRestockBtn" style="padding:0.7rem 1.2rem;background:transparent;border:1px solid var(--border);border-radius:30px;cursor:pointer;">Annuler</button>
-                    <button id="confirmRestockBtn" style="padding:0.7rem 1.2rem;background:linear-gradient(135deg,var(--gold),#7d5a1d);color:#fff;border:none;border-radius:30px;font-weight:700;cursor:pointer;">✅ Ajouter</button>
-                </div>
-            </div>
-        </div>
-    `;
+    const modalHtml = `<div class="modal-overlay open" id="restockModal" style="z-index:2200;"><div class="modal" style="max-width:420px;"><button class="modal-close" id="closeRestockModalBtn">✕</button><h2 style="font-family:var(--font-secondary);color:var(--gold);text-align:center;margin-bottom:0.5rem;">➕ Restocker</h2><p style="text-align:center;font-size:0.85rem;color:var(--text-muted);margin-bottom:1.2rem;"><strong>${name}</strong></p><div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.8rem;margin-bottom:1rem;text-align:center;"><div style="font-size:0.8rem;color:var(--text-muted);">Stock actuel</div><div style="font-size:1.6rem;font-weight:800;">${currentStock}</div></div><label style="display:block;font-size:0.85rem;color:var(--text-muted);margin-bottom:0.4rem;">Combien à ajouter ?</label><input type="number" id="restockQuantityInput" min="1" value="1" style="width:100%;padding:0.8rem;border:2px solid var(--border-gold);border-radius:var(--radius-sm);text-align:center;font-weight:700;font-size:1.4rem;margin-bottom:1rem;"><div style="background:rgba(46,204,113,0.08);border:1px solid rgba(46,204,113,0.3);border-radius:var(--radius-sm);padding:0.8rem;margin-bottom:1.2rem;text-align:center;"><div style="font-size:0.75rem;color:var(--text-muted);">Nouveau stock</div><div style="font-size:1.8rem;font-weight:800;color:var(--success);" id="restockNewStockPreview">${currentStock + 1}</div></div><div style="display:flex;gap:0.5rem;justify-content:center;"><button id="cancelRestockBtn" style="padding:0.7rem 1.2rem;background:transparent;border:1px solid var(--border);border-radius:30px;cursor:pointer;">Annuler</button><button id="confirmRestockBtn" style="padding:0.7rem 1.2rem;background:linear-gradient(135deg,var(--gold),#7d5a1d);color:#fff;border:none;border-radius:30px;font-weight:700;cursor:pointer;">✅ Ajouter</button></div></div></div>`;
     document.body.insertAdjacentHTML('beforeend', modalHtml);
     const modal = document.getElementById('restockModal');
     const qtyInput = document.getElementById('restockQuantityInput');
     const preview = document.getElementById('restockNewStockPreview');
     const closeModal = () => modal?.remove();
-
     document.getElementById('closeRestockModalBtn').addEventListener('click', closeModal);
     document.getElementById('cancelRestockBtn').addEventListener('click', closeModal);
     modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
-    qtyInput.addEventListener('input', () => {
-        let q = parseInt(qtyInput.value) || 1;
-        if (q < 1) q = 1;
-        preview.textContent = currentStock + q;
-    });
+    qtyInput.addEventListener('input', () => { let q = parseInt(qtyInput.value) || 1; if (q < 1) q = 1; preview.textContent = currentStock + q; });
     setTimeout(() => { qtyInput.focus(); qtyInput.select(); }, 100);
-
     document.getElementById('confirmRestockBtn').addEventListener('click', async () => {
         const qty = parseInt(qtyInput.value) || 1;
         if (qty < 1) { showToast('⚠️ Quantité invalide'); return; }
@@ -1151,30 +744,21 @@ function attachProductFormEvents() {
     const pNameFr = document.getElementById('pNameFr');
     const pSlug = document.getElementById('pSlug');
     if (pNameFr && pSlug) {
-        pNameFr.addEventListener('input', () => {
-            if (!document.getElementById('productEditId').value) pSlug.value = slugify(pNameFr.value);
-        });
+        pNameFr.addEventListener('input', () => { if (!document.getElementById('productEditId').value) pSlug.value = slugify(pNameFr.value); });
     }
-
     document.getElementById('generateSkuBtn')?.addEventListener('click', () => {
         const category = document.getElementById('pCategory').value;
         document.getElementById('pSku').value = generateUniqueSku(category);
     });
-
     const imgUrl = document.getElementById('pImg');
     const imgPreview = document.getElementById('pImgPreview');
     if (imgUrl && imgPreview) {
-        imgUrl.addEventListener('input', () => {
-            const url = imgUrl.value.trim();
-            if (url) { imgPreview.src = url; imgPreview.style.display = 'block'; }
-            else imgPreview.style.display = 'none';
-        });
+        imgUrl.addEventListener('input', () => { const url = imgUrl.value.trim(); if (url) { imgPreview.src = url; imgPreview.style.display = 'block'; } else imgPreview.style.display = 'none'; });
     }
     const imgFile = document.getElementById('pImgFile');
     if (imgFile && imgPreview) {
         imgFile.addEventListener('change', () => {
-            const file = imgFile.files[0];
-            if (!file) return;
+            const file = imgFile.files[0]; if (!file) return;
             const r = new FileReader();
             r.onload = (e) => { imgPreview.src = e.target.result; imgPreview.style.display = 'block'; };
             r.readAsDataURL(file);
@@ -1187,21 +771,12 @@ function attachProductFormEvents() {
             galleryPreview.innerHTML = '';
             Array.from(galleryFiles.files).forEach(file => {
                 const r = new FileReader();
-                r.onload = (e) => {
-                    const img = document.createElement('img');
-                    img.src = e.target.result;
-                    galleryPreview.appendChild(img);
-                };
+                r.onload = (e) => { const img = document.createElement('img'); img.src = e.target.result; galleryPreview.appendChild(img); };
                 r.readAsDataURL(file);
             });
         });
     }
-
-    document.getElementById('clearVideoBtn')?.addEventListener('click', () => {
-        document.getElementById('pVideo').value = '';
-        showToast('🗑️ Champ vidéo vidé');
-    });
-
+    document.getElementById('clearVideoBtn')?.addEventListener('click', () => { document.getElementById('pVideo').value = ''; showToast('🗑️ Champ vidéo vidé'); });
     document.getElementById('saveProductBtn')?.addEventListener('click', saveProduct);
     document.getElementById('cancelProductEdit')?.addEventListener('click', resetProductForm);
     document.getElementById('generateVariantsBtn')?.addEventListener('click', generateVariants);
@@ -1212,52 +787,32 @@ function generateVariants() {
     const colorsRaw = document.getElementById('pColors').value.trim();
     const sizes = sizesRaw ? sizesRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
     const colors = colorsRaw ? colorsRaw.split(',').map(c => c.trim()).filter(Boolean) : [];
-
     const existingValues = {};
     document.querySelectorAll('#variantsTable tbody tr').forEach(tr => {
         const key = `${tr.dataset.size || ''}__${tr.dataset.color || ''}`;
-        existingValues[key] = {
-            price: parseFloat(tr.querySelector('.var-price')?.value) || null,
-            stock: parseInt(tr.querySelector('.var-stock')?.value) ?? null
-        };
+        existingValues[key] = { price: parseFloat(tr.querySelector('.var-price')?.value) || null, stock: parseInt(tr.querySelector('.var-stock')?.value) ?? null };
     });
-
     const container = document.getElementById('variantsContainer');
     const tbody = document.querySelector('#variantsTable tbody');
-
-    if (sizes.length === 0 && colors.length === 0) {
-        container.style.display = 'none';
-        tbody.innerHTML = '';
-        return;
-    }
-
+    if (sizes.length === 0 && colors.length === 0) { container.style.display = 'none'; tbody.innerHTML = ''; return; }
     tbody.innerHTML = '';
     container.style.display = 'block';
-
     const combinations = [];
     if (sizes.length > 0 && colors.length > 0) sizes.forEach(s => colors.forEach(c => combinations.push({ size: s, color: c })));
     else if (sizes.length > 0) sizes.forEach(s => combinations.push({ size: s, color: '' }));
     else if (colors.length > 0) colors.forEach(c => combinations.push({ size: '', color: c }));
-
     const defaultPrice = parseFloat(document.getElementById('pPrice').value) || 0;
     const defaultStock = parseInt(document.getElementById('pStock').value) || 0;
-
     combinations.forEach(combo => {
         const key = `${combo.size || ''}__${combo.color || ''}`;
         const existing = existingValues[key];
         const price = existing?.price ?? defaultPrice;
         const stock = existing?.stock ?? defaultStock;
-
         const label = [combo.size, combo.color].filter(Boolean).join(' - ');
         const tr = document.createElement('tr');
         tr.dataset.size = combo.size;
         tr.dataset.color = combo.color;
-
-        tr.innerHTML = `
-            <td style="font-weight:600;font-size:0.85rem;">${escapeHTML(label)}</td>
-            <td><input type="number" class="var-price" value="${price}" min="0" max="100000" step="0.01" style="width:100%;padding:0.3rem;border:1px solid var(--border);border-radius:4px;text-align:center;"></td>
-            <td><input type="number" class="var-stock" value="${stock}" min="0" max="99999" step="1" style="width:100%;padding:0.3rem;border:1px solid var(--border);border-radius:4px;text-align:center;"></td>
-        `;
+        tr.innerHTML = `<td style="font-weight:600;font-size:0.85rem;">${escapeHTML(label)}</td><td><input type="number" class="var-price" value="${price}" min="0" max="100000" step="0.01" style="width:100%;padding:0.3rem;border:1px solid var(--border);border-radius:4px;text-align:center;"></td><td><input type="number" class="var-stock" value="${stock}" min="0" max="99999" step="1" style="width:100%;padding:0.3rem;border:1px solid var(--border);border-radius:4px;text-align:center;"></td>`;
         tbody.appendChild(tr);
     });
 }
@@ -1265,10 +820,7 @@ function generateVariants() {
 function resetProductForm() {
     document.getElementById('productFormTitle').textContent = '➕ Ajouter un produit';
     document.getElementById('productEditId').value = '';
-    ['pNameFr', 'pNameAr', 'pNameEn', 'pSlug', 'pSku', 'pPrice', 'pOldPrice', 'pPurchasePrice', 'pStock', 'pRating',
-     'pDescFr', 'pDescAr', 'pDescEn', 'pFeaturesFr', 'pFeaturesAr', 'pFeaturesEn', 'pImg', 'pGallery', 'pVideo',
-     'pWeight', 'pLength', 'pWidth', 'pHeight', 'pSizes', 'pColors'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
-
+    ['pNameFr', 'pNameAr', 'pNameEn', 'pSlug', 'pSku', 'pPrice', 'pOldPrice', 'pPurchasePrice', 'pStock', 'pRating', 'pDescFr', 'pDescAr', 'pDescEn', 'pFeaturesFr', 'pFeaturesAr', 'pFeaturesEn', 'pImg', 'pGallery', 'pVideo', 'pWeight', 'pLength', 'pWidth', 'pHeight', 'pSizes', 'pColors'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
     document.getElementById('pParentCategory').value = '';
     document.getElementById('pCategory').innerHTML = '<option value="">-- Choisir une sous-catégorie --</option>';
     document.getElementById('pIsNew').checked = false;
@@ -1297,12 +849,10 @@ async function editProduct(id) {
         document.getElementById('pNameEn').value = p.nameEn || '';
         document.getElementById('pSlug').value = p.slug || '';
         document.getElementById('pSku').value = p.sku || '';
-
         const parentSelect = document.getElementById('pParentCategory');
         const childSelect = document.getElementById('pCategory');
         let foundParentId = '';
         CATEGORY_GROUPS.forEach(g => { if (g.children.some(c => c.id === p.category)) foundParentId = g.id; });
-
         if (foundParentId) {
             parentSelect.value = foundParentId;
             parentSelect.dispatchEvent(new Event('change'));
@@ -1312,27 +862,22 @@ async function editProduct(id) {
             childSelect.innerHTML = `<option value="${p.category}">${p.category} (Ancienne)</option>`;
             childSelect.value = p.category || '';
         }
-
         const hasLogisticsFee = p.logisticsFee > 0;
         document.getElementById('pLogisticsFee').checked = hasLogisticsFee;
         document.getElementById('pPrice').value = hasLogisticsFee ? (Number(p.price) - Number(p.logisticsFee)) : (p.price || '');
-
         document.getElementById('pOldPrice').value = p.oldPrice || '';
         document.getElementById('pPurchasePrice').value = p.purchasePrice || '';
         document.getElementById('pStock').value = p.stock || '';
         document.getElementById('pRating').value = p.ratingAvg || '';
         document.getElementById('pIsNew').checked = !!p.isNew;
         document.getElementById('pSizeGuide').checked = !!p.hasSizeGuide;
-
         document.getElementById('pWeight').value = p.dimensions?.weight || '';
         document.getElementById('pLength').value = p.dimensions?.length || '';
         document.getElementById('pWidth').value = p.dimensions?.width || '';
         document.getElementById('pHeight').value = p.dimensions?.height || '';
-
         const variantsContainer = document.getElementById('variantsContainer');
         const variantsTbody = document.querySelector('#variantsTable tbody');
         variantsTbody.innerHTML = '';
-
         if (p.variants && p.variants.length > 0) {
             const sizes = [...new Set(p.variants.map(v => v.size).filter(Boolean))];
             const colors = [...new Set(p.variants.map(v => v.color).filter(Boolean))];
@@ -1344,11 +889,7 @@ async function editProduct(id) {
                 const tr = document.createElement('tr');
                 tr.dataset.size = combo.size || '';
                 tr.dataset.color = combo.color || '';
-                tr.innerHTML = `
-                    <td style="font-weight:600;font-size:0.85rem;">${escapeHTML(label)}</td>
-                    <td><input type="number" class="var-price" value="${combo.price || p.price}" min="0" max="100000" step="0.01" style="width:100%;padding:0.3rem;border:1px solid var(--border);border-radius:4px;text-align:center;"></td>
-                    <td><input type="number" class="var-stock" value="${combo.stock || 0}" min="0" max="99999" step="1" style="width:100%;padding:0.3rem;border:1px solid var(--border);border-radius:4px;text-align:center;"></td>
-                `;
+                tr.innerHTML = `<td style="font-weight:600;font-size:0.85rem;">${escapeHTML(label)}</td><td><input type="number" class="var-price" value="${combo.price || p.price}" min="0" max="100000" step="0.01" style="width:100%;padding:0.3rem;border:1px solid var(--border);border-radius:4px;text-align:center;"></td><td><input type="number" class="var-stock" value="${combo.stock || 0}" min="0" max="99999" step="1" style="width:100%;padding:0.3rem;border:1px solid var(--border);border-radius:4px;text-align:center;"></td>`;
                 variantsTbody.appendChild(tr);
             });
         } else {
@@ -1356,7 +897,6 @@ async function editProduct(id) {
             document.getElementById('pColors').value = '';
             variantsContainer.style.display = 'none';
         }
-
         document.getElementById('pDescFr').value = p.descFr || '';
         document.getElementById('pDescAr').value = p.descAr || '';
         document.getElementById('pDescEn').value = p.descEn || '';
@@ -1366,17 +906,12 @@ async function editProduct(id) {
         document.getElementById('pImg').value = p.img || '';
         document.getElementById('pGallery').value = (p.gallery || []).join(', ');
         document.getElementById('pVideo').value = p.video || '';
-
         const ip = document.getElementById('pImgPreview');
         if (p.img && typeof p.img === 'string') { ip.src = p.img.startsWith('http') ? p.img : '/' + p.img; ip.style.display = 'block'; }
         else ip.style.display = 'none';
         const gp = document.getElementById('pGalleryPreview');
         gp.innerHTML = '';
-        (p.gallery || []).forEach(url => {
-            const img = document.createElement('img');
-            img.src = url.startsWith('http') ? url : '/' + url;
-            gp.appendChild(img);
-        });
+        (p.gallery || []).forEach(url => { const img = document.createElement('img'); img.src = url.startsWith('http') ? url : '/' + url; gp.appendChild(img); });
         document.getElementById('saveProductBtnText').textContent = 'Enregistrer';
         document.getElementById('cancelProductEdit').style.display = 'inline-flex';
         document.getElementById('tab-products')?.scrollIntoView({ behavior: 'smooth' });
@@ -1395,17 +930,14 @@ async function saveProduct() {
     const purchasePriceRaw = parseFloat(document.getElementById('pPurchasePrice').value);
     const stockRaw = parseInt(document.getElementById('pStock').value);
     const category = document.getElementById('pCategory').value;
-
     if (!nameFr) { showToast('⚠️ Le nom est obligatoire'); return; }
     if (!slug) { showToast('⚠️ Le slug est obligatoire'); return; }
     if (!category) { showToast('⚠️ Sélectionnez une sous-catégorie'); return; }
     if (isNaN(priceBase) || priceBase < 0) { showToast('⚠️ Prix invalide'); return; }
     if (isNaN(stockRaw) || stockRaw < 0) { showToast('⚠️ Stock invalide'); return; }
-
     saveBtn.disabled = true;
     const oldText = btnText.textContent;
     btnText.textContent = '⏳ Enregistrement...';
-
     try {
         let imgUrl = document.getElementById('pImg').value.trim();
         const imgFile = document.getElementById('pImgFile').files[0];
@@ -1421,7 +953,6 @@ async function saveProduct() {
             await uploadBytes(gRef, file);
             gallery.push(await getDownloadURL(gRef));
         }
-
         const videoValue = document.getElementById('pVideo').value.trim();
         const variants = [];
         const variantsTbody = document.querySelector('#variantsTable tbody');
@@ -1436,29 +967,21 @@ async function saveProduct() {
                 variants.push({ size: safeSize, color: safeColor, price: vPrice + (applyFee ? 5 : 0), stock: vStock });
             });
         }
-
         let finalStock = stockRaw;
         if (variants.length > 0) finalStock = variants.reduce((sum, v) => sum + v.stock, 0);
-
         const dimensions = {
             weight: parseFloat(document.getElementById('pWeight').value) || 0,
             length: parseFloat(document.getElementById('pLength').value) || 0,
             width: parseFloat(document.getElementById('pWidth').value) || 0,
             height: parseFloat(document.getElementById('pHeight').value) || 0
         };
-
         let finalSku = sku;
         if (!finalSku) finalSku = generateUniqueSku(category);
         const finalPrice = priceBase + (applyFee ? 5 : 0);
-
         const productData = {
-            nameFr,
-            nameAr: document.getElementById('pNameAr').value.trim(),
-            nameEn: document.getElementById('pNameEn').value.trim(),
+            nameFr, nameAr: document.getElementById('pNameAr').value.trim(), nameEn: document.getElementById('pNameEn').value.trim(),
             slug, sku: finalSku, category,
-            basePrice: priceBase,
-            logisticsFee: applyFee ? 5 : 0,
-            price: finalPrice,
+            basePrice: priceBase, logisticsFee: applyFee ? 5 : 0, price: finalPrice,
             oldPrice: Math.max(0, parseFloat(document.getElementById('pOldPrice').value) || 0),
             purchasePrice: isNaN(purchasePriceRaw) ? 0 : purchasePriceRaw,
             stock: finalStock,
@@ -1476,7 +999,6 @@ async function saveProduct() {
             video: videoValue || deleteField(),
             updatedAt: Timestamp.now()
         };
-
         if (editId) {
             const oldSnap = await getDoc(doc(db, "products", editId));
             const oldData = oldSnap.exists() ? oldSnap.data() : {};
@@ -1494,7 +1016,7 @@ async function saveProduct() {
             productData.ratingCount = 0;
             productData.isSpeedafStored = false;
             productData.vendorId = 'smartswi9a';
-            productData.status = PRODUCT_STATUS.APPROVED;
+            productData.status = 'approved';
             if (!videoValue) delete productData.video;
             await setDoc(doc(db, "products", newId), productData);
             showToast('✅ Produit créé');
@@ -1511,9 +1033,7 @@ async function saveProduct() {
 }
 
 async function deleteProduct(id) {
-    const confirmed = await confirmAction('Supprimer définitivement ce produit ?', {
-        title: '🗑️ Supprimer', confirmText: 'Supprimer', cancelText: 'Annuler', variant: 'danger'
-    });
+    const confirmed = await confirmAction('Supprimer définitivement ce produit ?', { title: '🗑️ Supprimer', confirmText: 'Supprimer', cancelText: 'Annuler', variant: 'danger' });
     if (!confirmed) return;
     try {
         const snap = await getDoc(doc(db, "products", id));
@@ -1530,9 +1050,9 @@ async function deleteProduct(id) {
     } catch (e) { showToast('❌ Erreur'); }
 }
 
-/* ============================================================
-   CLIENTS
-   ============================================================ */
+// ============================================================
+// CLIENTS
+// ============================================================
 async function loadUsers() {
     const container = document.getElementById('adminUsersList');
     if (!container) return;
@@ -1559,67 +1079,27 @@ function renderUsersList(users) {
         const signupMethod = u.signupMethod || 'otp';
         const methodEmoji = getSignupMethodEmoji(signupMethod);
         const methodLabel = getSignupMethodLabel(signupMethod);
-        const roleBadge = role === 'vendor'
-            ? `<span style="background:var(--info);color:#fff;padding:0.15rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;">🏪 Vendeur</span>`
-            : '';
-        html += `
-            <div class="admin-list-item" data-user-id="${u.id}">
-                <div class="admin-list-item-info">
-                    <strong>${name}</strong> ${roleBadge}
-                    <div style="font-size:0.8rem;color:var(--text-muted);margin-top:0.2rem;">📧 ${email} ${phone ? `· 📞 ${phone}` : ''}</div>
-                    <div style="font-size:0.75rem;color:var(--text-dim);margin-top:0.2rem;display:flex;gap:0.6rem;flex-wrap:wrap;">
-                        <span>${methodEmoji} ${methodLabel}</span>
-                        <span>Rôle : <strong style="color:${role === 'admin' ? 'var(--gold)' : 'var(--text-muted)'};">${role}</strong></span>
-                    </div>
-                </div>
-                <div class="admin-list-item-actions">
-                    <select class="admin-btn-icon" data-action="change-role" data-id="${u.id}" style="padding:0.3rem 0.6rem;border-radius:30px;">
-                        <option value="user" ${role === 'user' ? 'selected' : ''}>👤 User</option>
-                        <option value="admin" ${role === 'admin' ? 'selected' : ''}>🔑 Admin</option>
-                    </select>
-                    <button class="admin-btn-icon admin-btn-danger" data-action="delete-user" data-id="${u.id}">🗑️</button>
-                </div>
-            </div>
-        `;
+        const roleBadge = role === 'vendor' ? `<span style="background:var(--info);color:#fff;padding:0.15rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;">🏪 Vendeur</span>` : '';
+        html += `<div class="admin-list-item" data-user-id="${u.id}"><div class="admin-list-item-info"><strong>${name}</strong> ${roleBadge}<div style="font-size:0.8rem;color:var(--text-muted);margin-top:0.2rem;">📧 ${email} ${phone ? `· 📞 ${phone}` : ''}</div><div style="font-size:0.75rem;color:var(--text-dim);margin-top:0.2rem;display:flex;gap:0.6rem;flex-wrap:wrap;"><span>${methodEmoji} ${methodLabel}</span><span>Rôle : <strong style="color:${role === 'admin' ? 'var(--gold)' : 'var(--text-muted)'};">${role}</strong></span></div></div><div class="admin-list-item-actions"><select class="admin-btn-icon" data-action="change-role" data-id="${u.id}" style="padding:0.3rem 0.6rem;border-radius:30px;"><option value="user" ${role === 'user' ? 'selected' : ''}>👤 User</option><option value="admin" ${role === 'admin' ? 'selected' : ''}>🔑 Admin</option></select><button class="admin-btn-icon admin-btn-danger" data-action="delete-user" data-id="${u.id}">🗑️</button></div></div>`;
     });
     container.innerHTML = html;
-
     container.querySelectorAll('[data-action="change-role"]').forEach(sel => {
         sel.addEventListener('change', async () => {
             const userId = sel.dataset.id;
             const newRole = sel.value;
-            if (currentAdmin && userId === currentAdmin.uid && newRole !== ROLES.ADMIN) {
-                showToast('⚠️ Vous ne pouvez pas retirer votre propre rôle admin');
-                sel.value = ROLES.ADMIN;
-                return;
-            }
-            try {
-                await updateDoc(doc(db, "users", userId), { role: newRole });
-                showToast('✅ Rôle mis à jour');
-            } catch (e) {
-                showToast('❌ Erreur');
-                sel.value = newRole === 'admin' ? 'user' : 'admin';
-            }
+            if (currentAdmin && userId === currentAdmin.uid && newRole !== ROLES.ADMIN) { showToast('⚠️ Vous ne pouvez pas retirer votre propre rôle admin'); sel.value = ROLES.ADMIN; return; }
+            try { await updateDoc(doc(db, "users", userId), { role: newRole }); showToast('✅ Rôle mis à jour'); }
+            catch (e) { showToast('❌ Erreur'); sel.value = newRole === 'admin' ? 'user' : 'admin'; }
         });
     });
-
     container.querySelectorAll('[data-action="delete-user"]').forEach(btn => {
         btn.addEventListener('click', async () => {
             const userId = btn.dataset.id;
-            if (currentAdmin && userId === currentAdmin.uid) {
-                showToast('⚠️ Vous ne pouvez pas vous supprimer');
-                return;
-            }
-            const confirmed = await confirmAction('Supprimer définitivement ce client ?', {
-                title: '🗑️ Supprimer', confirmText: 'Supprimer', cancelText: 'Annuler', variant: 'danger'
-            });
+            if (currentAdmin && userId === currentAdmin.uid) { showToast('⚠️ Vous ne pouvez pas vous supprimer'); return; }
+            const confirmed = await confirmAction('Supprimer définitivement ce client ?', { title: '🗑️ Supprimer', confirmText: 'Supprimer', cancelText: 'Annuler', variant: 'danger' });
             if (!confirmed) return;
-            try {
-                await deleteDoc(doc(db, "users", userId));
-                showToast('🗑️ Client supprimé');
-                await loadUsers();
-                await loadStats();
-            } catch (e) { showToast('❌ Erreur'); }
+            try { await deleteDoc(doc(db, "users", userId)); showToast('🗑️ Client supprimé'); await loadUsers(); await loadStats(); }
+            catch (e) { showToast('❌ Erreur'); }
         });
     });
 }
@@ -1638,768 +1118,10 @@ function filterUsersList() {
     renderUsersList(filtered);
 }
 
-/* ============================================================
-   VENDEURS — loadVendors / filterVendorsList / renderVendorsList
-   ============================================================ */
-const VENDOR_STATUS_ORDER = {
-    [VENDOR_STATUS.PENDING]: 0,
-    [VENDOR_STATUS.APPROVED]: 1,
-    [VENDOR_STATUS.SUSPENDED]: 2,
-    [VENDOR_STATUS.REJECTED]: 3
-};
-
-/* T9 : recherche le contrat actif.
-   Priorité :
-     1. vendorInfo.currentContractId (déjà stocké)
-     2. ID versionné contract_<uid>_v<CONFIG.VENDOR.CONTRACT_VERSION>
-     3. Query contracts where vendorId == uid, tri semver desc puis acceptedAt desc
-     4. Legacy contract_<uid>
-   Retourne un objet { exists, id, data, isLegacy, isOutdated, isUnverifiable }. */
-async function fetchVendorContract(vendorId) {
-    if (!vendorId) return { exists: false, id: null, data: null, isLegacy: false, isOutdated: false, isUnverifiable: false };
-
-    const currentVersion = CONFIG.VENDOR.CONTRACT_VERSION;
-    const candidates = [];
-
-    /* 1. vendorInfo.currentContractId si présent sur le profil en cache */
-    try {
-        const cachedVendor = cachedVendors.find(v => v.id === vendorId);
-        const currentId = cachedVendor?.vendorInfo?.currentContractId;
-        if (currentId && typeof currentId === 'string') candidates.push(currentId);
-    } catch (_) { /* ignore */ }
-
-    /* 2. ID versionné attendu */
-    candidates.push(`contract_${vendorId}_v${currentVersion}`);
-
-    /* 3. Lecture directe des candidats */
-    for (const id of candidates) {
-        try {
-            const snap = await getDoc(doc(db, "contracts", id));
-            if (snap.exists()) {
-                return decorateContract({ id: snap.id, data: snap.data() });
-            }
-        } catch (e) { /* ignore */ }
-    }
-
-    /* 4. Query contracts where vendorId == uid, on trie par version puis acceptedAt */
-    try {
-        const q = query(collection(db, "contracts"), where("vendorId", "==", vendorId));
-        const snap = await getDocs(q);
-        if (!snap.empty) {
-            const docs = snap.docs.map(d => ({ id: d.id, data: d.data() }));
-            docs.sort((a, b) => {
-                const va = a.data?.version || '0.0.0';
-                const vb = b.data?.version || '0.0.0';
-                const c = compareVersions(vb, va); /* desc */
-                if (c !== 0) return c;
-                return safeDate(b.data?.acceptedAt) - safeDate(a.data?.acceptedAt);
-            });
-            return decorateContract(docs[0]);
-        }
-    } catch (e) { /* ignore */ }
-
-    /* 5. Legacy */
-    try {
-        const legacySnap = await getDoc(doc(db, "contracts", `contract_${vendorId}`));
-        if (legacySnap.exists()) {
-            return decorateContract({ id: legacySnap.id, data: legacySnap.data() });
-        }
-    } catch (e) { /* ignore */ }
-
-    return { exists: false, id: null, data: null, isLegacy: false, isOutdated: false, isUnverifiable: false };
-}
-
-/* T9 : décore le contrat avec les drapeaux isLegacy / isOutdated / isUnverifiable */
-function decorateContract(docObj) {
-    const data = docObj.data || {};
-    const isLegacy = !data.version && !data.termsSnapshot;
-    const isUnverifiable = isLegacy;
-    let isOutdated = false;
-    if (!isLegacy && data.version) {
-        isOutdated = needsResign({ contractVersion: data.version });
-    }
-    return {
-        exists: true,
-        id: docObj.id,
-        data,
-        isLegacy,
-        isOutdated,
-        isUnverifiable
-    };
-}
-
-async function loadVendors() {
-    const container = document.getElementById('adminVendorsList');
-    if (!container) return;
-    container.innerHTML = `<div class="admin-loading">⏳ Chargement des vendeurs...</div>`;
-    try {
-        const q = query(collection(db, "users"), where("role", "==", "vendor"), limit(500));
-        const snap = await getDocs(q);
-        cachedVendors = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-        /* T9 : enrichir avec contrat (versionné ou legacy), wallet, produits en attente.
-           Nécessite l'index composite products(vendorId ASC, status ASC) — présent
-           dans firestore.indexes.json. */
-        const enriched = await Promise.all(cachedVendors.map(async (v) => {
-            const [contractRes, walletRes, productsPendingSnap] = await Promise.allSettled([
-                fetchVendorContract(v.id),
-                getDoc(doc(db, "wallets", v.id)),
-                getCountFromServer(query(collection(db, "products"), where("vendorId", "==", v.id), where("status", "==", PRODUCT_STATUS.PENDING_ADMIN_APPROVAL)))
-            ]);
-
-            const contract = contractRes.status === 'fulfilled' ? contractRes.value : { exists: false, data: null };
-            const wallet = walletRes.status === 'fulfilled' && walletRes.value.exists() ? walletRes.value.data() : null;
-            const pendingProducts = productsPendingSnap.status === 'fulfilled' ? productsPendingSnap.value.data().count : 0;
-
-            return {
-                ...v,
-                _contractExists: contract.exists,
-                _contractData: contract.data,
-                _contractStatus: contract.exists ? (contract.data?.status || 'pending') : null,
-                _contractVersion: contract.exists ? (contract.data?.version || null) : null,
-                _contractIsLegacy: contract.exists ? !!contract.isLegacy : false,
-                _contractIsOutdated: contract.exists ? !!contract.isOutdated : false,
-                _contractIsUnverifiable: contract.exists ? !!contract.isUnverifiable : false,
-                _contractId: contract.exists ? contract.id : null,
-                _wallet: wallet,
-                _pendingProducts: pendingProducts
-            };
-        }));
-        cachedVendors = enriched;
-
-        cachedVendors.sort((a, b) => {
-            const sa = a.vendorInfo?.status || VENDOR_STATUS.PENDING;
-            const sb = b.vendorInfo?.status || VENDOR_STATUS.PENDING;
-            const oa = VENDOR_STATUS_ORDER[sa] ?? 99;
-            const ob = VENDOR_STATUS_ORDER[sb] ?? 99;
-            if (oa !== ob) return oa - ob;
-            const da = toDate(a.createdAt)?.getTime() || 0;
-            const db_ = toDate(b.createdAt)?.getTime() || 0;
-            return db_ - da;
-        });
-
-        filterVendorsList();
-    } catch (e) {
-        console.error(e);
-        container.innerHTML = `<div class="admin-empty" style="color:var(--danger);">Erreur de chargement.</div>`;
-    }
-}
-
-function filterVendorsList() {
-    const search = document.getElementById('vendorSearchAdmin')?.value.toLowerCase().trim() || '';
-    const activeFilter = document.querySelector('[data-vendor-filter].active');
-    const statusFilter = activeFilter?.dataset.vendorFilter || 'all';
-
-    let filtered = cachedVendors;
-    if (statusFilter !== 'all') {
-        if (statusFilter === 'outdated') {
-            /* T9 : filtre « contrat obsolète » (contrat accepté mais version < courante) */
-            filtered = filtered.filter(v => v._contractExists && !v._contractIsLegacy && v._contractIsOutdated);
-        } else {
-            filtered = filtered.filter(v => (v.vendorInfo?.status || 'pending') === statusFilter);
-        }
-    }
-    if (search) {
-        filtered = filtered.filter(v => {
-            const name = (v.vendorInfo?.shopName || v.name || '').toLowerCase();
-            const email = (v.email || '').toLowerCase();
-            const phone = (v.phone || '').toLowerCase();
-            return name.includes(search) || email.includes(search) || phone.includes(search);
-        });
-    }
-
-    renderVendorsList(filtered);
-}
-
-function renderVendorsList(vendors) {
-    const container = document.getElementById('adminVendorsList');
-    if (!container) return;
-    if (vendors.length === 0) {
-        container.innerHTML = `<div class="admin-empty">Aucun vendeur trouvé.</div>`;
-        return;
-    }
-
-    const currentVersion = CONFIG.VENDOR.CONTRACT_VERSION;
-    let html = '';
-    vendors.forEach(v => {
-        const shopName = escapeHTML(v.vendorInfo?.shopName || v.name || 'Boutique');
-        const email = escapeHTML(v.email || '');
-        const phone = escapeHTML(v.phone || '');
-        const city = escapeHTML(v.vendorInfo?.city || '');
-        const iceCin = escapeHTML(v.vendorInfo?.iceCin || '');
-        const status = v.vendorInfo?.status || 'pending';
-        const shippingMethod = v.vendorInfo?.shippingMethod === 'dropoff' ? '📤 Drop-off' : '📥 Fulfillment';
-        const createdAt = toDate(v.createdAt)?.toLocaleDateString('fr-FR') || '—';
-        const delayCount = Number(v.vendorInfo?.delayCount) || 0;
-
-        const contractStatus = v._contractStatus || v.vendorInfo?.contractStatus || 'pending';
-        const contractAccepted = contractStatus === 'accepted';
-        const canApprove = contractAccepted && !v._contractIsOutdated;
-
-        let statusBadge = '';
-        if (status === 'pending') statusBadge = `<span style="background:var(--warning-bg);color:var(--warning);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">⏳ En attente</span>`;
-        else if (status === 'approved') statusBadge = `<span style="background:var(--success-bg);color:var(--success);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">✅ Approuvé</span>`;
-        else if (status === 'rejected') statusBadge = `<span style="background:var(--danger-bg);color:var(--danger);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">❌ Rejeté</span>`;
-        else if (status === 'suspended') statusBadge = `<span style="background:var(--danger-bg);color:var(--danger);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">🚫 Suspendu</span>`;
-
-        /* T9 : badges contrat à jour / obsolète / non signé / legacy */
-        let contractBadge = '';
-        if (!v._contractExists) {
-            contractBadge = `<span style="background:var(--warning-bg);color:var(--warning);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;">📜 Non signé</span>`;
-        } else if (v._contractIsLegacy) {
-            contractBadge = `<span style="background:#e0e0e0;color:#333;padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;" title="Contrat legacy (sans version ni snapshot) — non vérifiable">📜 Legacy</span>`;
-        } else if (contractStatus !== 'accepted') {
-            contractBadge = `<span style="background:var(--warning-bg);color:var(--warning);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;">📜 Non signé</span>`;
-        } else if (v._contractIsOutdated) {
-            contractBadge = `<span style="background:#fde2e4;color:#b02a37;padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;" title="Version obsolète : ${escapeHTML(v._contractVersion || '?')} (courante : ${escapeHTML(currentVersion)})">📜 Obsolète</span>`;
-        } else {
-            const ver = v._contractVersion ? ` (v${escapeHTML(v._contractVersion)})` : '';
-            contractBadge = `<span style="background:var(--success-bg);color:var(--success);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;">📜 Contrat à jour${ver}</span>`;
-        }
-
-        const delayBadge = delayCount > 0
-            ? `<span style="background:var(--danger);color:#fff;padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;" title="Retards de dépôt">⏰ ${delayCount} retard${delayCount > 1 ? 's' : ''}</span>`
-            : '';
-        const pendingProductsBadge = v._pendingProducts > 0
-            ? `<span style="background:#3498db;color:#fff;padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;">📦 ${v._pendingProducts} produit${v._pendingProducts > 1 ? 's' : ''} à valider</span>`
-            : '';
-        const needsReviewBadge = v._wallet && v._wallet.needsReview
-            ? `<span style="background:var(--danger);color:#fff;padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;">⚠️ Wallet à vérifier</span>`
-            : '';
-        const walletStr = v._wallet
-            ? `💰 Dispo : ${formatMAD(v._wallet.availableBalance)} · En attente : ${formatMAD(v._wallet.pendingBalance)}${Number(v._wallet.negativeBalance) < 0 ? ` · <span style="color:var(--danger);">Négatif : ${formatMAD(v._wallet.negativeBalance)}</span>` : ''}`
-            : `<span style="color:var(--text-muted);">💰 Wallet non initialisé</span>`;
-
-        let actionsHtml = '';
-        if (v._contractExists) {
-            actionsHtml += `<button class="admin-btn-secondary" data-action="vendor-view-contract" data-id="${v.id}" style="font-size:0.75rem; padding:0.3rem 0.6rem;">📜 Voir contrat</button>`;
-        }
-        if (status === 'pending') {
-            const approveDisabledAttr = canApprove ? '' : 'disabled title="Le contrat doit être signé (version courante) avant approbation"';
-            const approveStyle = canApprove ? '' : 'opacity:0.5;cursor:not-allowed;';
-            actionsHtml += `
-                <button class="admin-btn-approve" data-action="vendor-approve" data-id="${v.id}" ${approveDisabledAttr} style="${approveStyle}">✅ Approuver</button>
-                <button class="admin-btn-icon admin-btn-danger" data-action="vendor-reject" data-id="${v.id}">❌ Rejeter</button>
-            `;
-        } else if (status === 'approved') {
-            actionsHtml += `<button class="admin-btn-icon admin-btn-danger" data-action="vendor-suspend" data-id="${v.id}">🚫 Suspendre</button>`;
-        } else if (status === 'suspended' || status === 'rejected') {
-            const approveDisabledAttr = canApprove ? '' : 'disabled title="Le contrat doit être signé (version courante) avant approbation"';
-            const approveStyle = canApprove ? '' : 'opacity:0.5;cursor:not-allowed;';
-            actionsHtml += `<button class="admin-btn-approve" data-action="vendor-approve" data-id="${v.id}" ${approveDisabledAttr} style="${approveStyle}">✅ Réactiver</button>`;
-        }
-
-        html += `
-            <div class="admin-list-item" style="flex-direction:column; align-items:stretch; padding:1rem;">
-                <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.5rem;">
-                    <div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap;">
-                        <strong style="color:var(--gold); font-size:1rem;">🏪 ${shopName}</strong>
-                        ${statusBadge}${contractBadge}${delayBadge}${pendingProductsBadge}${needsReviewBadge}
-                    </div>
-                    <div style="font-size:0.8rem; color:var(--text-dim);">Inscrit le ${createdAt}</div>
-                </div>
-                <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:0.3rem;">
-                    📧 ${email} · 📞 ${phone} · 🏙️ ${city} · 🆔 ${iceCin}<br>
-                    🚚 Mode : <strong>${shippingMethod}</strong>
-                </div>
-                <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:0.5rem;">
-                    ${walletStr}
-                </div>
-                <div style="display:flex; justify-content:flex-end; gap:0.5rem; flex-wrap:wrap; margin-top:0.5rem;">
-                    ${actionsHtml}
-                </div>
-            </div>
-        `;
-    });
-
-    container.innerHTML = html;
-
-    container.querySelectorAll('[data-action="vendor-approve"]').forEach(btn => {
-        if (btn.disabled) return;
-        btn.addEventListener('click', () => handleVendorAction(btn.dataset.id, VENDOR_STATUS.APPROVED));
-    });
-    container.querySelectorAll('[data-action="vendor-reject"]').forEach(btn => btn.addEventListener('click', () => handleVendorAction(btn.dataset.id, VENDOR_STATUS.REJECTED)));
-    container.querySelectorAll('[data-action="vendor-suspend"]').forEach(btn => btn.addEventListener('click', () => handleVendorAction(btn.dataset.id, VENDOR_STATUS.SUSPENDED)));
-    container.querySelectorAll('[data-action="vendor-view-contract"]').forEach(btn => btn.addEventListener('click', () => openVendorContractModal(btn.dataset.id)));
-}
-
-async function handleVendorAction(vendorId, newStatus) {
-    const labels = { approved: 'approuver', rejected: 'rejeter', suspended: 'suspendre' };
-    const confirmed = await confirmAction(`Voulez-vous vraiment ${labels[newStatus]} ce vendeur ?`, {
-        title: '⚠️ Confirmation', confirmText: 'Oui', cancelText: 'Annuler', variant: newStatus === 'approved' ? 'primary' : 'danger'
-    });
-    if (!confirmed) return;
-
-    try {
-        /* T9 : rechercher le contrat AVANT la transaction (validation stricte) */
-        const contract = await fetchVendorContract(vendorId);
-
-        if (newStatus === VENDOR_STATUS.APPROVED) {
-            if (!contract.exists) {
-                throw new Error("Aucun contrat signé trouvé pour ce vendeur. Approbation refusée.");
-            }
-            if ((contract.data?.status || 'pending') !== 'accepted') {
-                throw new Error(`Contrat non signé (statut "${contract.data?.status || 'pending'}"). Approbation refusée.`);
-            }
-            /* Version courante exigée (sauf legacy toléré explicitement) */
-            if (!contract.isLegacy && needsResign({ contractVersion: contract.data?.version })) {
-                throw new Error(`Contrat obsolète (version ${contract.data?.version || '?'} signée, version courante ${CONFIG.VENDOR.CONTRACT_VERSION}). Le vendeur doit re-signer avant approbation.`);
-            }
-        }
-
-        await runTransaction(db, async (tx) => {
-            const userRef = doc(db, "users", vendorId);
-            const userSnap = await tx.get(userRef);
-            if (!userSnap.exists()) throw new Error("Utilisateur vendeur introuvable.");
-
-            const data = userSnap.data();
-            const vendorInfo = data.vendorInfo || {};
-
-            const userUpdate = {
-                "vendorInfo.status": newStatus,
-                "vendorInfo.updatedAt": serverTimestamp()
-            };
-            /* T9 C5-admin : écrit contractStatus + currentContractId + contractVersion
-               (exactement les 4 clés autorisées par les règles v5.1.0 §1). */
-            if (newStatus === VENDOR_STATUS.APPROVED) {
-                userUpdate["vendorInfo.contractStatus"] = CONTRACT_STATUS.ACCEPTED;
-                userUpdate["vendorInfo.currentContractId"] = contract.id;
-                if (contract.data?.version) {
-                    userUpdate["vendorInfo.contractVersion"] = contract.data.version;
-                }
-            }
-            tx.update(userRef, userUpdate);
-
-            const publicRef = doc(db, "vendorsPublic", vendorId);
-            const shopName = vendorInfo.shopName || data.name || 'Boutique';
-            const city = vendorInfo.city || '';
-            tx.set(publicRef, {
-                shopName: String(shopName).slice(0, 60),
-                status: newStatus,
-                city: String(city).slice(0, 80),
-                updatedAt: serverTimestamp()
-            }, { merge: true });
-        });
-
-        const notifMessages = {
-            approved: { title: '✅ Compte vendeur approuvé', msg: 'Votre compte vendeur a été approuvé. Vous pouvez commencer à publier vos produits.' },
-            rejected: { title: '❌ Inscription refusée', msg: 'Votre inscription a été refusée. Contactez le support pour plus d\'informations.' },
-            suspended: { title: '🚫 Compte suspendu', msg: 'Votre compte a été suspendu. Contactez le support.' }
-        };
-        const n = notifMessages[newStatus];
-        if (n) await notifyUser(vendorId, `vendor_${newStatus}`, n.title, n.msg, { vendorId });
-
-        const verb = newStatus === VENDOR_STATUS.APPROVED ? 'approuvé'
-            : newStatus === VENDOR_STATUS.REJECTED ? 'rejeté'
-            : 'suspendu';
-        showToast(`✅ Vendeur ${verb}`);
-        await loadVendors();
-    } catch (e) {
-        console.error('❌ handleVendorAction:', e);
-        showToast('❌ ' + (e.message || 'Erreur'));
-    }
-}
-
-/* ============================================================
-   T9 : modale contrat vendeur — hash complets, snapshot, vérifier
-   ============================================================ */
-async function openVendorContractModal(vendorId) {
-    try {
-        const contract = await fetchVendorContract(vendorId);
-        if (!contract.exists) {
-            showToast('⚠️ Aucun contrat trouvé pour ce vendeur');
-            return;
-        }
-        const c = contract.data || {};
-        const vendor = cachedVendors.find(v => v.id === vendorId);
-        const shopName = escapeHTML(vendor?.vendorInfo?.shopName || vendor?.name || 'Vendeur');
-        const version = escapeHTML(c.version || '—');
-        const language = escapeHTML(c.language || '—');
-        const status = escapeHTML(c.status || '—');
-        const ipAddress = escapeHTML(c.ipAddress || '—');
-        const ipSource = escapeHTML(c.ipSource || '—');
-        const source = escapeHTML(c.source || '—');
-        const userAgent = escapeHTML((c.userAgent || '—').slice(0, 300));
-        const textHash = c.textHash || '';
-        const contractHash = c.contractHash || '';
-        const acceptedAt = c.acceptedAt ? toDate(c.acceptedAt)?.toLocaleString('fr-FR') : '—';
-
-        /* T9 : snapshot lisible */
-        const snapshot = c.termsSnapshot || null;
-        let snapshotHtml = '';
-        if (snapshot) {
-            const keys = [
-                ['commissionRate', 'Commission'],
-                ['commissionRateMin', 'Commission min'],
-                ['commissionRateMax', 'Commission max'],
-                ['dropoffDeadlineHoursNew', 'Délai dépôt (nouveau)'],
-                ['dropoffDeadlineHoursEstablished', 'Délai dépôt (mature)'],
-                ['unlockDaysVendor', 'Déblocage vendeur (j)'],
-                ['unlockDaysSmart', 'Déblocage Smart (j)'],
-                ['minWithdrawal', 'Retrait min'],
-                ['returnFeeSpeedaf', 'Frais retour Speedaf']
-            ];
-            let rows = '';
-            keys.forEach(([k, label]) => {
-                if (snapshot[k] !== undefined && snapshot[k] !== null) {
-                    let val = String(snapshot[k]);
-                    if (k.startsWith('commissionRate')) val = (Number(snapshot[k]) * 100).toFixed(0) + ' %';
-                    if (k === 'minWithdrawal' || k === 'returnFeeSpeedaf') val = val + ' MAD';
-                    rows += `<div><strong>${escapeHTML(label)} :</strong> ${escapeHTML(val)}</div>`;
-                }
-            });
-            snapshotHtml = `
-                <details style="margin-top:0.6rem;">
-                    <summary style="cursor:pointer;font-weight:700;color:var(--gold);">🧾 Snapshot des conditions (immuable)</summary>
-                    <div style="font-size:0.8rem;line-height:1.7;padding:0.6rem 0;color:var(--text-muted);">${rows}</div>
-                </details>
-            `;
-        }
-
-        const legacyBanner = contract.isLegacy
-            ? `<div style="background:var(--warning-bg);color:var(--warning);padding:0.6rem;border-radius:var(--radius-sm);font-size:0.8rem;margin-bottom:0.6rem;">⚠️ Contrat legacy (sans version ni snapshot) — non vérifiable cryptographiquement.</div>`
-            : '';
-
-        const outdatedBanner = (!contract.isLegacy && contract.isOutdated)
-            ? `<div style="background:#fde2e4;color:#b02a37;padding:0.6rem;border-radius:var(--radius-sm);font-size:0.8rem;margin-bottom:0.6rem;">⚠️ Version obsolète (${escapeHTML(c.version || '?')}). Version courante : ${escapeHTML(CONFIG.VENDOR.CONTRACT_VERSION)}. Le vendeur doit re-signer.</div>`
-            : '';
-
-        document.getElementById('vendorContractModal')?.remove();
-        const modalHtml = `
-            <div class="modal-overlay open" id="vendorContractModal" style="z-index:2200;">
-                <div class="modal" style="max-width:720px;max-height:90vh;overflow-y:auto;">
-                    <button class="modal-close" id="closeVendorContractBtn">✕</button>
-                    <h2 style="font-family:var(--font-secondary);color:var(--gold);text-align:center;margin-bottom:1rem;">
-                        📜 Contrat — ${shopName}
-                    </h2>
-                    ${legacyBanner}
-                    ${outdatedBanner}
-                    <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:1rem;font-size:0.85rem;line-height:1.8;">
-                        <div><strong>Version :</strong> ${version}</div>
-                        <div><strong>Langue :</strong> ${language}</div>
-                        <div><strong>Statut :</strong> ${status}</div>
-                        <div><strong>Source :</strong> ${source}</div>
-                        <div><strong>Signé le :</strong> ${escapeHTML(acceptedAt)}</div>
-                        <div><strong>IP :</strong> <code>${ipAddress}</code> <span style="color:var(--text-muted);">(${ipSource})</span></div>
-                        <div style="word-break:break-all;"><strong>User-Agent :</strong> <span style="font-size:0.75rem;color:var(--text-muted);">${userAgent}</span></div>
-                        <div style="word-break:break-all;margin-top:0.4rem;">
-                            <strong>TextHash (SHA-256) :</strong><br>
-                            <code style="font-size:0.72rem;background:#fff;padding:0.2rem 0.4rem;border-radius:4px;">${escapeHTML(textHash || '—')}</code>
-                            <button type="button" class="admin-btn-icon" data-copy="textHash" title="Copier" style="padding:0.2rem 0.4rem;font-size:0.7rem;">📋</button>
-                        </div>
-                        <div style="word-break:break-all;margin-top:0.4rem;">
-                            <strong>ContractHash (SHA-256) :</strong><br>
-                            <code style="font-size:0.72rem;background:#fff;padding:0.2rem 0.4rem;border-radius:4px;">${escapeHTML(contractHash || '—')}</code>
-                            <button type="button" class="admin-btn-icon" data-copy="contractHash" title="Copier" style="padding:0.2rem 0.4rem;font-size:0.7rem;">📋</button>
-                        </div>
-                        ${snapshotHtml}
-                    </div>
-                    <div id="vendorContractIntegrityResult" style="font-size:0.85rem;margin-top:0.8rem;"></div>
-                    <div style="display:flex;gap:0.5rem;justify-content:center;margin-top:1rem;flex-wrap:wrap;">
-                        <button id="vendorContractVerifyBtn" class="admin-btn-primary" type="button" style="padding:0.6rem 1rem;">🔍 Vérifier l'intégrité</button>
-                        <button id="closeVendorContractBtn2" class="admin-btn-secondary" type="button" style="padding:0.6rem 1rem;">Fermer</button>
-                    </div>
-                </div>
-            </div>
-        `;
-        document.body.insertAdjacentHTML('beforeend', modalHtml);
-        const modal = document.getElementById('vendorContractModal');
-        const closeModal = () => modal?.remove();
-        document.getElementById('closeVendorContractBtn').addEventListener('click', closeModal);
-        document.getElementById('closeVendorContractBtn2').addEventListener('click', closeModal);
-        modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
-
-        /* Copier les hash */
-        modal.querySelectorAll('[data-copy]').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const key = btn.dataset.copy;
-                const val = key === 'textHash' ? textHash : contractHash;
-                if (val) copyToClipboard(val, '✅ ' + (key === 'textHash' ? 'TextHash' : 'ContractHash') + ' copié');
-            });
-        });
-
-        /* T9 : bouton Vérifier l'intégrité */
-        const verifyBtn = document.getElementById('vendorContractVerifyBtn');
-        const resultEl = document.getElementById('vendorContractIntegrityResult');
-        verifyBtn?.addEventListener('click', async () => {
-            verifyBtn.disabled = true;
-            verifyBtn.textContent = '⏳ Vérification...';
-            resultEl.innerHTML = '';
-            const result = await verifyContractIntegrity(c);
-            if (result.ok) {
-                resultEl.innerHTML = `<div style="background:var(--success-bg);color:var(--success);padding:0.6rem;border-radius:var(--radius-sm);text-align:center;font-weight:700;">✅ Intégrité vérifiée</div>`;
-            } else {
-                const reason = escapeHTML(result.reason || 'inconnue');
-                resultEl.innerHTML = `<div style="background:var(--danger-bg);color:var(--danger);padding:0.6rem;border-radius:var(--radius-sm);text-align:center;">
-                    ❌ Vérification échouée — <strong>${reason}</strong><br>
-                    <span style="font-size:0.75rem;">textHash OK : ${result.textHashOk ? '✅' : '❌'} · contractHash OK : ${result.contractHashOk ? '✅' : '❌'}</span>
-                </div>`;
-            }
-            verifyBtn.disabled = false;
-            verifyBtn.textContent = '🔍 Vérifier l\'intégrité';
-        });
-    } catch (e) {
-        console.error(e);
-        showToast('❌ Erreur lecture contrat');
-    }
-}
-
-/* ============================================================
-   RETRAITS / PAYOUTS (T5/T4) + Déblocage des fonds échus
-   ============================================================ */
-async function loadPayouts() {
-    const container = document.getElementById('payoutsList');
-    if (!container) return;
-    container.innerHTML = `<div class="admin-loading">⏳ Chargement des demandes...</div>`;
-    try {
-        const q = query(
-            collection(db, "payout_requests"),
-            orderBy("requestedAt", "desc"),
-            limit(200)
-        );
-        const snap = await getDocs(q);
-        cachedPayouts = snap.docs.map(d => ({ id: d.id, ...d.data(), requestedAt: toDate(d.data().requestedAt) }));
-        cachedPayouts.sort((a, b) => (b.requestedAt?.getTime() || 0) - (a.requestedAt?.getTime() || 0));
-        filterPayoutsList();
-    } catch (e) {
-        console.error(e);
-        container.innerHTML = `<div class="admin-empty" style="color:var(--danger);">Erreur de chargement.</div>`;
-    }
-}
-
-function filterPayoutsList() {
-    const search = document.getElementById('payoutSearchAdmin')?.value.toLowerCase().trim() || '';
-    const activeFilter = document.querySelector('[data-payout-filter].active');
-    const statusFilter = activeFilter?.dataset.payoutFilter || 'all';
-
-    let filtered = cachedPayouts;
-    if (statusFilter !== 'all') {
-        filtered = filtered.filter(p => (p.status || 'pending') === statusFilter);
-    }
-    if (search) {
-        filtered = filtered.filter(p => {
-            const name = (p.vendorName || '').toLowerCase();
-            const account = (p.account || p.phone || '').toLowerCase();
-            const vid = (p.vendorId || '').toLowerCase();
-            return name.includes(search) || account.includes(search) || vid.includes(search);
-        });
-    }
-
-    renderPayoutsList(filtered);
-}
-
-function renderPayoutsList(payouts) {
-    const container = document.getElementById('payoutsList');
-    if (!container) return;
-
-    const releaseBanner = `
-        <div style="background:rgba(46,204,113,0.08);border:1px solid var(--success);border-radius:var(--radius-sm);padding:0.8rem 1rem;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">
-            <div style="font-size:0.85rem;">
-                💸 <strong>Fonds échus</strong> : débloque les gains dont la période d'attente (7j vendeur / 15j Smart) est terminée.
-            </div>
-            <button id="releaseDueFundsBtn" class="admin-btn-primary" style="padding:0.4rem 1rem;font-size:0.8rem;white-space:nowrap;">🔓 Débloquer les fonds échus</button>
-        </div>
-    `;
-
-    if (payouts.length === 0) {
-        container.innerHTML = releaseBanner + `<div class="admin-empty">Aucune demande de retrait.</div>`;
-        attachReleaseDueFundsListener();
-        return;
-    }
-
-    let html = releaseBanner;
-    payouts.forEach(p => {
-        const vendorName = p.vendorName
-            ? escapeHTML(p.vendorName)
-            : (p.vendorId ? `Vendeur ${String(p.vendorId).slice(0, 8)}…` : 'Inconnu');
-        const amount = Number(p.amount) || 0;
-        const method = escapeHTML(p.method || 'Wafacash');
-        const account = escapeHTML(p.account || p.phone || '');
-        const status = p.status || 'pending';
-        const date = p.requestedAt ? p.requestedAt.toLocaleDateString('fr-FR') : '—';
-
-        let statusBadge = '';
-        if (status === 'pending') statusBadge = `<span style="background:var(--warning-bg);color:var(--warning);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">⏳ En attente</span>`;
-        else if (status === 'paid') statusBadge = `<span style="background:var(--success-bg);color:var(--success);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">✅ Payé</span>`;
-        else if (status === 'rejected') statusBadge = `<span style="background:var(--danger-bg);color:var(--danger);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">❌ Rejeté</span>`;
-        else if (status === 'cancelled') statusBadge = `<span style="background:var(--bg-surface);color:var(--text-muted);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">🚫 Annulé</span>`;
-
-        let actionsHtml = '';
-        if (status === 'pending') {
-            actionsHtml = `
-                <button class="admin-btn-approve" data-action="payout-pay" data-id="${p.id}" data-vendor="${p.vendorId}" data-amount="${amount}">✅ Marquer payé</button>
-                <button class="admin-btn-icon admin-btn-danger" data-action="payout-reject" data-id="${p.id}">❌ Rejeter</button>
-            `;
-        }
-
-        html += `
-            <div class="admin-list-item" style="flex-direction:column; align-items:stretch; padding:1rem;">
-                <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.5rem;">
-                    <div>
-                        <strong style="color:var(--gold); font-size:1rem;">💸 ${formatMAD(amount)}</strong>
-                        <span style="margin-left:0.5rem;">${statusBadge}</span>
-                    </div>
-                    <div style="font-size:0.8rem; color:var(--text-dim);">Demandé le ${date}</div>
-                </div>
-                <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:0.5rem;">
-                    🏪 <strong>${vendorName}</strong> · 📞 <code>${account}</code> · 📍 ${method}
-                </div>
-                <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:0.5rem;">
-                    ${actionsHtml}
-                </div>
-            </div>
-        `;
-    });
-
-    container.innerHTML = html;
-
-    container.querySelectorAll('[data-action="payout-pay"]').forEach(btn => {
-        btn.addEventListener('click', () => handlePayoutPaid(btn.dataset.id, btn.dataset.vendor, parseFloat(btn.dataset.amount)));
-    });
-
-    container.querySelectorAll('[data-action="payout-reject"]').forEach(btn => {
-        btn.addEventListener('click', () => handlePayoutReject(btn.dataset.id));
-    });
-
-    attachReleaseDueFundsListener();
-}
-
-function attachReleaseDueFundsListener() {
-    const btn = document.getElementById('releaseDueFundsBtn');
-    if (!btn) return;
-    btn.addEventListener('click', handleReleaseDueFunds);
-}
-
-async function handleReleaseDueFunds() {
-    const btn = document.getElementById('releaseDueFundsBtn');
-    if (btn) { btn.disabled = true; btn.textContent = '⏳ Déblocage...'; }
-
-    try {
-        if (typeof releaseDueVendorFunds !== 'function') {
-            throw new Error('Fonction releaseDueVendorFunds introuvable. Déployez orders.js v8.0.0.');
-        }
-
-        const result = await releaseDueVendorFunds({ batchSize: 400, dryRun: false });
-
-        if (result.errors && result.errors.length > 0) {
-            console.warn('⚠️ Erreurs déblocage :', result.errors);
-            showToast(`⚠️ ${result.transactionsReleased} transactions débloquées, ${result.errors.length} erreur(s). Voir console.`, 6000);
-        } else if (result.transactionsReleased === 0) {
-            showToast('ℹ️ Aucun fond à débloquer pour le moment.');
-        } else {
-            showToast(
-                `✅ ${result.transactionsReleased} transaction(s) débloquée(s) · ${result.vendorsProcessed} vendeur(s) · ${formatMAD(result.totalReleased)}`,
-                5000
-            );
-        }
-        await loadPayouts();
-    } catch (e) {
-        console.error('❌ handleReleaseDueFunds:', e);
-        showToast('❌ ' + (e.message || 'Erreur'));
-    } finally {
-        if (btn) { btn.disabled = false; btn.textContent = '🔓 Débloquer les fonds échus'; }
-    }
-}
-
-async function handlePayoutPaid(payoutId, vendorId, amount) {
-    const confirmed = await confirmAction(`Confirmez-vous avoir envoyé ${formatMAD(amount)} à ce vendeur ?`, {
-        title: '💸 Confirmer le virement', confirmText: 'Oui, payé', cancelText: 'Annuler', variant: 'primary'
-    });
-    if (!confirmed) return;
-
-    try {
-        await runTransaction(db, async (transaction) => {
-            const payoutRef = doc(db, "payout_requests", payoutId);
-            const payoutSnap = await transaction.get(payoutRef);
-            if (!payoutSnap.exists()) throw new Error("Demande introuvable");
-            const payoutData = payoutSnap.data();
-            if (payoutData.status !== 'pending') throw new Error(`Statut inattendu : ${payoutData.status}`);
-
-            const walletRef = doc(db, "wallets", vendorId);
-            const walletSnap = await transaction.get(walletRef);
-            if (!walletSnap.exists()) throw new Error("Wallet introuvable");
-
-            const wallet = walletSnap.data();
-            if (Number(wallet.availableBalance) < amount) {
-                throw new Error(`Solde insuffisant : disponible ${formatMAD(wallet.availableBalance)}, demandé ${formatMAD(amount)}.`);
-            }
-
-            transaction.update(walletRef, {
-                availableBalance: increment(-amount),
-                totalWithdrawn: increment(amount),
-                lastUpdated: Timestamp.now()
-            });
-
-            transaction.update(payoutRef, {
-                status: PAYOUT_STATUS.PAID || 'paid',
-                paidAt: Timestamp.now(),
-                paidBy: currentAdmin?.uid || 'admin'
-            });
-
-            /* Note : status 'released' pour la transaction wallet = payout débité.
-               Le Worker Cron T4 filtre uniquement (status='pending' & unlockAt<=now),
-               donc aucun risque de re-débit. */
-            const txRef = doc(collection(db, "wallet_transactions"));
-            transaction.set(txRef, {
-                vendorId: vendorId,
-                type: WALLET_TX_TYPE?.PAYOUT || 'payout',
-                amount: -amount,
-                status: WALLET_TX_STATUS.RELEASED || 'released',
-                payoutRequestId: payoutId,
-                description: `Retrait payé (admin) — ${payoutData.method || 'Wafacash'}`,
-                createdAt: Timestamp.now(),
-                releasedAt: Timestamp.now()
-            });
-        });
-
-        await notifyUser(vendorId, 'payout_paid', '💸 Retrait payé', `Votre retrait de ${formatMAD(amount)} a été payé.`, { payoutId });
-
-        showToast('✅ Retrait marqué comme payé avec succès !');
-        await loadPayouts();
-    } catch (e) {
-        console.error(e);
-        showToast('❌ ' + (e.message || 'Erreur'));
-    }
-}
-
-async function handlePayoutReject(payoutId) {
-    const confirmed = await confirmAction('Rejeter cette demande de retrait ? Le solde ne sera pas déduit.', {
-        title: '❌ Rejeter', confirmText: 'Rejeter', cancelText: 'Annuler', variant: 'danger'
-    });
-    if (!confirmed) return;
-
-    try {
-        const payoutRef = doc(db, "payout_requests", payoutId);
-        const payoutSnap = await getDoc(payoutRef);
-        if (!payoutSnap.exists()) { showToast('⚠️ Demande introuvable'); return; }
-        const payoutData = payoutSnap.data();
-
-        await updateDoc(payoutRef, {
-            status: PAYOUT_STATUS.REJECTED || 'rejected',
-            rejectedAt: Timestamp.now(),
-            rejectedBy: currentAdmin?.uid || 'admin'
-        });
-
-        if (payoutData.vendorId) {
-            await notifyUser(
-                payoutData.vendorId,
-                'payout_rejected',
-                '❌ Retrait rejeté',
-                `Votre demande de retrait de ${formatMAD(payoutData.amount)} a été rejetée. Contactez le support.`,
-                { payoutId }
-            );
-        }
-
-        showToast('❌ Demande rejetée');
-        await loadPayouts();
-    } catch (e) {
-        showToast('❌ Erreur : ' + e.message);
-    }
-}
-
-/* ============================================================
-   BLOG
-   ============================================================ */
+// ============ FIN PARTIE 1/3 ============
+// ============================================================
+// BLOG
+// ============================================================
 async function loadBlogPosts() {
     const container = document.getElementById('adminBlogList');
     if (!container) return;
@@ -2427,7 +1149,6 @@ function renderBlogListAdmin(posts) {
     const start = (blogCurrentPage - 1) * BLOG_PER_PAGE;
     const pagePosts = posts.slice(start, start + BLOG_PER_PAGE);
     let html = '';
-
     pagePosts.forEach(post => {
         const title = escapeHTML(post.title || 'Sans titre');
         const categoryLabel = escapeHTML(tBlogCategory(post.category || 'general'));
@@ -2436,33 +1157,17 @@ function renderBlogListAdmin(posts) {
         const statusClass = status === 'published' ? 'published' : 'draft';
         const date = post.publishedAt ? post.publishedAt.toLocaleDateString('fr-FR') : (post.createdAt ? post.createdAt.toLocaleDateString('fr-FR') : '—');
         const thumb = post.image ? `<img src="${escapeHTML(post.image)}" class="admin-blog-thumb" alt="Cover">` : `<div class="admin-blog-thumb" style="display:flex;align-items:center;justify-content:center;font-size:2rem;background:var(--bg-surface);">📝</div>`;
-        html += `
-            <div class="admin-blog-item" data-post-id="${post.id}">
-                ${thumb}
-                <div class="admin-blog-info">
-                    <h4>${title}</h4>
-                    <div class="meta">📂 ${categoryLabel} · 📅 ${date} · <span class="status ${statusClass}">${statusLabel}</span></div>
-                    <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">
-                        <button class="admin-btn-icon" data-action="edit-post" data-id="${post.id}">✏️ Modifier</button>
-                        <button class="admin-btn-icon admin-btn-danger" data-action="delete-post" data-id="${post.id}">🗑️</button>
-                    </div>
-                </div>
-            </div>
-        `;
+        html += `<div class="admin-blog-item" data-post-id="${post.id}">${thumb}<div class="admin-blog-info"><h4>${title}</h4><div class="meta">📂 ${categoryLabel} · 📅 ${date} · <span class="status ${statusClass}">${statusLabel}</span></div><div style="display:flex;gap:0.4rem;flex-wrap:wrap;"><button class="admin-btn-icon" data-action="edit-post" data-id="${post.id}">✏️ Modifier</button><button class="admin-btn-icon admin-btn-danger" data-action="delete-post" data-id="${post.id}">🗑️</button></div></div></div>`;
     });
-
     if (totalPages > 1) {
         html += `<div style="display:flex;justify-content:center;gap:0.3rem;margin-top:1rem;flex-wrap:wrap;">`;
         html += `<button class="admin-btn-icon" data-blog-page="prev" ${blogCurrentPage === 1 ? 'disabled' : ''}>‹</button>`;
         for (let i = 1; i <= totalPages; i++) html += `<button class="admin-btn-icon ${i === blogCurrentPage ? 'active' : ''}" data-blog-page="${i}" style="${i === blogCurrentPage ? 'background:var(--gold);color:#fff;' : ''}">${i}</button>`;
         html += `<button class="admin-btn-icon" data-blog-page="next" ${blogCurrentPage === totalPages ? 'disabled' : ''}>›</button></div>`;
     }
-
     container.innerHTML = html;
-
     container.querySelectorAll('[data-action="edit-post"]').forEach(btn => btn.addEventListener('click', () => editBlogPost(btn.dataset.id)));
     container.querySelectorAll('[data-action="delete-post"]').forEach(btn => btn.addEventListener('click', () => deleteBlogPost(btn.dataset.id)));
-
     container.querySelectorAll('[data-blog-page]').forEach(btn => {
         btn.addEventListener('click', () => {
             const val = btn.dataset.blogPage;
@@ -2497,15 +1202,13 @@ function attachBlogFormEvents() {
     if (imgUrl && imgPreview) {
         imgUrl.addEventListener('input', () => {
             const url = imgUrl.value.trim();
-            if (url) { imgPreview.src = url; imgPreview.style.display = 'block'; }
-            else imgPreview.style.display = 'none';
+            if (url) { imgPreview.src = url; imgPreview.style.display = 'block'; } else imgPreview.style.display = 'none';
         });
     }
     const imgFile = document.getElementById('bImageFile');
     if (imgFile && imgPreview) {
         imgFile.addEventListener('change', () => {
-            const file = imgFile.files[0];
-            if (!file) return;
+            const file = imgFile.files[0]; if (!file) return;
             const r = new FileReader();
             r.onload = (e) => { imgPreview.src = e.target.result; imgPreview.style.display = 'block'; };
             r.readAsDataURL(file);
@@ -2576,7 +1279,6 @@ async function saveBlogPost() {
     if (!title) { showToast('⚠️ Le titre est obligatoire'); return; }
     if (!slug) { showToast('⚠️ Le slug est obligatoire'); return; }
     if (!content) { showToast('⚠️ Le contenu est obligatoire'); return; }
-
     saveBtn.disabled = true;
     const oldText = btnText.textContent;
     btnText.textContent = '⏳ Enregistrement...';
@@ -2622,9 +1324,7 @@ async function saveBlogPost() {
 }
 
 async function deleteBlogPost(id) {
-    const confirmed = await confirmAction('Supprimer définitivement cet article ?', {
-        title: '🗑️ Supprimer', confirmText: 'Supprimer', cancelText: 'Annuler', variant: 'danger'
-    });
+    const confirmed = await confirmAction('Supprimer définitivement cet article ?', { title: '🗑️ Supprimer', confirmText: 'Supprimer', cancelText: 'Annuler', variant: 'danger' });
     if (!confirmed) return;
     try {
         const snap = await getDoc(doc(db, "blog", id));
@@ -2637,9 +1337,9 @@ async function deleteBlogPost(id) {
     } catch (e) { showToast('❌ Erreur'); }
 }
 
-/* ============================================================
-   COUPONS
-   ============================================================ */
+// ============================================================
+// COUPONS
+// ============================================================
 async function loadCoupons() {
     const container = document.getElementById('couponsList');
     if (!container) return;
@@ -2663,11 +1363,7 @@ async function loadCoupons() {
 function renderCouponsList(coupons) {
     const container = document.getElementById('couponsList');
     if (!container) return;
-    if (coupons.length === 0) {
-        container.innerHTML = `<div class="admin-empty" style="padding:3rem 1rem;"><div style="font-size:3rem;margin-bottom:0.5rem;">🎟️</div><p>Aucun code promo.</p></div>`;
-        return;
-    }
-
+    if (coupons.length === 0) { container.innerHTML = `<div class="admin-empty" style="padding:3rem 1rem;"><div style="font-size:3rem;margin-bottom:0.5rem;">🎟️</div><p>Aucun code promo.</p></div>`; return; }
     const now = Date.now();
     let html = '';
     coupons.forEach(coupon => {
@@ -2684,15 +1380,12 @@ function renderCouponsList(coupons) {
         const expiresAt = coupon.expiresAt;
         const isExpired = expiresAt && expiresAt.getTime() < now;
         const isFull = maxUses > 0 && usedCount >= maxUses;
-
         let statusLabel, statusClass;
         if (!isActive) { statusLabel = '⏸️ Désactivé'; statusClass = 'coupon-status-inactive'; }
         else if (isExpired) { statusLabel = '⏰ Expiré'; statusClass = 'coupon-status-expired'; }
         else if (isFull) { statusLabel = '🚫 Épuisé'; statusClass = 'coupon-status-expired'; }
         else { statusLabel = '✅ Actif'; statusClass = 'coupon-status-active'; }
-
         let valueLabel = type === 'percentage' ? `-${value}%` : (type === 'fixed' ? `-${value} MAD` : 'Livraison offerte');
-
         let progressHtml = '';
         if (maxUses > 0) {
             const percent = Math.min(100, (usedCount / maxUses) * 100);
@@ -2700,42 +1393,19 @@ function renderCouponsList(coupons) {
         } else {
             progressHtml = `<div class="coupon-meta" style="margin-top:0.2rem;"><span>📊 Utilisations : <strong>${usedCount}</strong> (illimité)</span></div>`;
         }
-
         let expireLabel = '<span style="color:var(--text-dim);">Jamais</span>';
         if (expiresAt) {
             const dateStr = expiresAt.toLocaleDateString('fr-FR');
             expireLabel = isExpired ? `<span style="color:var(--danger);font-weight:700;">⚠️ Expiré le ${dateStr}</span>` : `<span style="color:var(--success);">📅 Expire le ${dateStr}</span>`;
         }
-
         const minLabel = minPurchase > 0 ? `<span>🛒 Min : <strong>${minPurchase} MAD</strong></span>` : '';
         const oneUseLabel = oneUsePerUser ? `<span>👤 <strong>1 usage/client</strong></span>` : '';
-
         const cardClasses = ['coupon-card'];
         if (!isActive) cardClasses.push('is-inactive');
         if (isExpired || isFull) cardClasses.push('is-expired');
-
-        html += `
-            <div class="${cardClasses.join(' ')}" data-coupon-id="${coupon.id}">
-                <div class="coupon-header">
-                    <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;">
-                        <span class="coupon-code-badge">${code}</span>
-                        <span class="coupon-type-badge ${typeMeta.cssClass}">${typeMeta.emoji} ${valueLabel}</span>
-                        <span class="coupon-status-badge ${statusClass}">${statusLabel}</span>
-                    </div>
-                </div>
-                ${description ? `<div class="coupon-desc">💬 ${description}</div>` : ''}
-                <div class="coupon-meta">${expireLabel}${minLabel}${oneUseLabel}</div>
-                ${progressHtml}
-                <div class="coupon-actions">
-                    <button class="admin-btn-icon" data-action="coupon-toggle" data-id="${coupon.id}">${isActive ? '⏸️ Désactiver' : '▶️ Activer'}</button>
-                    <button class="admin-btn-icon" data-action="coupon-edit" data-id="${coupon.id}">✏️ Modifier</button>
-                    <button class="admin-btn-icon admin-btn-danger" data-action="coupon-delete" data-id="${coupon.id}">🗑️ Supprimer</button>
-                </div>
-            </div>
-        `;
+        html += `<div class="${cardClasses.join(' ')}" data-coupon-id="${coupon.id}"><div class="coupon-header"><div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;"><span class="coupon-code-badge">${code}</span><span class="coupon-type-badge ${typeMeta.cssClass}">${typeMeta.emoji} ${valueLabel}</span><span class="coupon-status-badge ${statusClass}">${statusLabel}</span></div></div>${description ? `<div class="coupon-desc">💬 ${description}</div>` : ''}<div class="coupon-meta">${expireLabel}${minLabel}${oneUseLabel}</div>${progressHtml}<div class="coupon-actions"><button class="admin-btn-icon" data-action="coupon-toggle" data-id="${coupon.id}">${isActive ? '⏸️ Désactiver' : '▶️ Activer'}</button><button class="admin-btn-icon" data-action="coupon-edit" data-id="${coupon.id}">✏️ Modifier</button><button class="admin-btn-icon admin-btn-danger" data-action="coupon-delete" data-id="${coupon.id}">🗑️ Supprimer</button></div></div>`;
     });
     container.innerHTML = html;
-
     container.querySelectorAll('[data-action="coupon-toggle"]').forEach(btn => btn.addEventListener('click', () => toggleCouponActive(btn.dataset.id)));
     container.querySelectorAll('[data-action="coupon-edit"]').forEach(btn => btn.addEventListener('click', () => editCoupon(btn.dataset.id)));
     container.querySelectorAll('[data-action="coupon-delete"]').forEach(btn => btn.addEventListener('click', () => deleteCoupon(btn.dataset.id)));
@@ -2807,7 +1477,6 @@ async function saveCoupon() {
     const editId = document.getElementById('couponEditId').value;
     const saveBtn = document.getElementById('saveCouponBtn');
     const btnText = document.getElementById('saveCouponBtnText');
-
     const code = document.getElementById('cCode').value.trim().toUpperCase();
     const description = document.getElementById('cDescription').value.trim();
     const type = document.getElementById('cType').value;
@@ -2817,39 +1486,25 @@ async function saveCoupon() {
     const expiresAtStr = document.getElementById('cExpiresAt').value;
     const oneUsePerUser = document.getElementById('cOneUsePerUser').checked;
     const isActive = document.getElementById('cIsActive').checked;
-
     if (!code || code.length < 3) { showToast('⚠️ Le code doit faire au moins 3 caractères'); return; }
     if (code.length > 30) { showToast('⚠️ Le code est trop long (max 30)'); return; }
     if (type !== 'free_shipping' && (isNaN(valueRaw) || valueRaw <= 0)) { showToast('⚠️ La valeur doit être > 0'); return; }
     if (type === 'percentage' && valueRaw > 100) { showToast('⚠️ Un pourcentage ne peut dépasser 100%'); return; }
-
     const deterministicId = code.replace(/[^A-Z0-9]/g, '_');
-
     try {
         const existingDoc = await getDoc(doc(db, "coupons", deterministicId));
-        if (existingDoc.exists() && existingDoc.id !== editId) {
-            showToast('⚠️ Ce code existe déjà — choisissez-en un autre');
-            return;
-        }
-
+        if (existingDoc.exists() && existingDoc.id !== editId) { showToast('⚠️ Ce code existe déjà — choisissez-en un autre'); return; }
         saveBtn.disabled = true;
         const oldText = btnText.textContent;
         btnText.textContent = '⏳...';
-
         const couponData = {
             code, description, type,
             value: type === 'free_shipping' ? 0 : valueRaw,
             minPurchase, maxUses, oneUsePerUser, isActive,
             updatedAt: Timestamp.now()
         };
-
-        if (expiresAtStr) {
-            const expDate = new Date(expiresAtStr + 'T23:59:59');
-            couponData.expiresAt = Timestamp.fromDate(expDate);
-        } else {
-            couponData.expiresAt = null;
-        }
-
+        if (expiresAtStr) { const expDate = new Date(expiresAtStr + 'T23:59:59'); couponData.expiresAt = Timestamp.fromDate(expDate); }
+        else { couponData.expiresAt = null; }
         if (editId) {
             await updateDoc(doc(db, "coupons", editId), couponData);
             showToast('✅ Code promo mis à jour');
@@ -2859,7 +1514,6 @@ async function saveCoupon() {
             await setDoc(doc(db, "coupons", deterministicId), couponData);
             showToast('✅ Code promo créé : ' + code);
         }
-
         resetCouponForm();
         await loadCoupons();
     } catch (e) {
@@ -2898,9 +1552,9 @@ function filterCouponsList() {
     renderCouponsList(filtered);
 }
 
-/* ============================================================
-   SPEEDAF
-   ============================================================ */
+// ============================================================
+// SPEEDAF
+// ============================================================
 async function loadSpeedafTab() {
     const container = document.getElementById('adminSpeedafList');
     if (!container) return;
@@ -2929,28 +1583,18 @@ function updateSpeedafStats() {
         else if (status === 'delivered') delivered++;
     });
     const storedCount = cachedProducts.filter(p => p.isSpeedafStored === true).length;
-
-    const elP = document.getElementById('speedafStatPending');
-    const elS = document.getElementById('speedafStatShipping');
-    const elD = document.getElementById('speedafStatDelivered');
+    const elP = document.getElementById('speedafStatPending'); if (elP) elP.textContent = pending;
+    const elS = document.getElementById('speedafStatShipping'); if (elS) elS.textContent = shipping;
+    const elD = document.getElementById('speedafStatDelivered'); if (elD) elD.textContent = delivered;
     const elSt = document.getElementById('speedafStatStorage');
-
-    if (elP) elP.textContent = pending;
-    if (elS) elS.textContent = shipping;
-    if (elD) elD.textContent = delivered;
-    if (elSt) {
-        elSt.textContent = `${storedCount} / 10`;
-        elSt.style.color = storedCount >= 10 ? 'var(--danger)' : 'var(--text)';
-    }
+    if (elSt) { elSt.textContent = `${storedCount} / 10`; elSt.style.color = storedCount >= 10 ? 'var(--danger)' : 'var(--text)'; }
 }
 
 function renderSpeedafList() {
     const container = document.getElementById('adminSpeedafList');
     if (!container) return;
-
     const search = document.getElementById('speedafSearchAdmin')?.value.toLowerCase().trim() || '';
     const filterStatus = document.getElementById('speedafStatusFilter')?.value || 'all';
-
     let filtered = speedafOrdersCache;
     if (filterStatus !== 'all') filtered = filtered.filter(o => normalizeOrderStatus(o.status) === filterStatus);
     if (search) {
@@ -2961,23 +1605,13 @@ function renderSpeedafList() {
             return idStr.includes(search) || trackingStr.includes(search) || clientName.includes(search);
         });
     }
-
-    if (filtered.length === 0) {
-        container.innerHTML = `<div class="admin-empty">Aucune commande trouvée.</div>`;
-        return;
-    }
-
+    if (filtered.length === 0) { container.innerHTML = `<div class="admin-empty">Aucune commande trouvée.</div>`; return; }
     let html = '';
     filtered.forEach(order => {
         const status = normalizeOrderStatus(order.status);
         const dateStr = order.createdAt ? order.createdAt.toLocaleDateString('fr-FR') : '—';
         const idShort = order.id.slice(0, 8).toUpperCase();
-        const cityStr = getCityName({
-            name: order.deliveryAddress?.cityAr || order.deliveryAddress?.city,
-            nameFr: order.deliveryAddress?.cityFr,
-            nameAr: order.deliveryAddress?.cityAr
-        });
-
+        const cityStr = getCityName({ name: order.deliveryAddress?.cityAr || order.deliveryAddress?.city, nameFr: order.deliveryAddress?.cityFr, nameAr: order.deliveryAddress?.cityAr });
         let statusBadge = '';
         if (status === 'pending') statusBadge = '⏳ À expédier';
         else if (status === 'confirmed') statusBadge = '✅ Confirmée';
@@ -2985,43 +1619,12 @@ function renderSpeedafList() {
         else if (status === 'delivered') statusBadge = '📦 Livré';
         else if (status === 'returned') statusBadge = '↩️ Retourné';
         else if (status === 'cancelled') statusBadge = '❌ Annulé';
-
-        const trackingHtml = order.speedafTracking
-            ? `<div style="font-size:0.8rem; color:var(--gold); margin-top:0.2rem;">🔗 <strong>Suivi:</strong> ${escapeHTML(order.speedafTracking)}</div>`
-            : '';
-
-        const printBtn = order.speedafLabelUrl
-            ? `<a href="${escapeHTML(order.speedafLabelUrl)}" target="_blank" class="admin-btn-primary" style="padding:0.4rem 0.8rem; font-size:0.75rem; text-decoration:none; margin-left:0.3rem;">🖨️ Étiquette</a>`
-            : '';
-
-        const syncBtn = order.speedafTracking && ['shipping', 'confirmed'].includes(status)
-            ? `<button class="admin-btn-secondary" data-sync-id="${order.id}" style="padding:0.4rem 0.8rem; font-size:0.75rem; margin-left:0.3rem;">🔄 Sync</button>`
-            : '';
-
-        html += `
-            <div class="admin-list-item" style="flex-direction:column; align-items:stretch; padding:1rem;">
-                <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.5rem;">
-                    <div>
-                        <strong style="color:var(--gold); font-size:1rem;">#${idShort}</strong>
-                        <span style="margin-left:0.5rem; font-size:0.85rem; color:var(--text-muted);">${dateStr}</span>
-                        <span style="margin-left:0.5rem; font-size:0.8rem; font-weight:700;">${statusBadge}</span>
-                    </div>
-                    <div style="font-weight:700; color:var(--text);">${order.total || 0} MAD</div>
-                </div>
-                <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:0.5rem;">
-                    👤 ${escapeHTML(order.deliveryAddress?.name || '—')} · 📞 ${escapeHTML(order.deliveryAddress?.phone || '')} · 🏙️ ${escapeHTML(cityStr)}
-                </div>
-                ${trackingHtml}
-                <div style="display:flex; justify-content:flex-end; margin-top:0.5rem;">
-                    ${syncBtn}
-                    ${printBtn}
-                </div>
-            </div>
-        `;
+        const trackingHtml = order.speedafTracking ? `<div style="font-size:0.8rem; color:var(--gold); margin-top:0.2rem;">🔗 <strong>Suivi:</strong> ${escapeHTML(order.speedafTracking)}</div>` : '';
+        const printBtn = order.speedafLabelUrl ? `<a href="${escapeHTML(order.speedafLabelUrl)}" target="_blank" class="admin-btn-primary" style="padding:0.4rem 0.8rem; font-size:0.75rem; text-decoration:none; margin-left:0.3rem;">🖨️ Étiquette</a>` : '';
+        const syncBtn = order.speedafTracking && ['shipping', 'confirmed'].includes(status) ? `<button class="admin-btn-secondary" data-sync-id="${order.id}" style="padding:0.4rem 0.8rem; font-size:0.75rem; margin-left:0.3rem;">🔄 Sync</button>` : '';
+        html += `<div class="admin-list-item" style="flex-direction:column; align-items:stretch; padding:1rem;"><div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.5rem;"><div><strong style="color:var(--gold); font-size:1rem;">#${idShort}</strong><span style="margin-left:0.5rem; font-size:0.85rem; color:var(--text-muted);">${dateStr}</span><span style="margin-left:0.5rem; font-size:0.8rem; font-weight:700;">${statusBadge}</span></div><div style="font-weight:700; color:var(--text);">${order.total || 0} MAD</div></div><div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:0.5rem;">👤 ${escapeHTML(order.deliveryAddress?.name || '—')} · 📞 ${escapeHTML(order.deliveryAddress?.phone || '')} · 🏙️ ${escapeHTML(cityStr)}</div>${trackingHtml}<div style="display:flex; justify-content:flex-end; margin-top:0.5rem;">${syncBtn}${printBtn}</div></div>`;
     });
-
     container.innerHTML = html;
-
     container.querySelectorAll('[data-sync-id]').forEach(btn => {
         btn.addEventListener('click', async () => {
             const orderId = btn.dataset.syncId;
@@ -3030,15 +1633,9 @@ function renderSpeedafList() {
             btn.innerHTML = '⏳...';
             const res = await syncSpeedafStatus(orderId);
             if (res.success) {
-                if (res.updated) {
-                    showToast(`✅ Statut mis à jour : ${res.newStatus}`);
-                    await loadSpeedafTab();
-                } else {
-                    showToast(`ℹ️ Statut Speedaf : ${res.currentStatus}`);
-                }
-            } else {
-                showToast(`❌ Erreur: ${res.error}`);
-            }
+                if (res.updated) { showToast(`✅ Statut mis à jour : ${res.newStatus}`); await loadSpeedafTab(); }
+                else { showToast(`ℹ️ Statut Speedaf : ${res.currentStatus}`); }
+            } else { showToast(`❌ Erreur: ${res.error}`); }
             btn.disabled = false; btn.innerHTML = originalText;
         });
     });
@@ -3049,18 +1646,13 @@ async function handleSyncAllSpeedaf() {
     const btn = document.getElementById('syncAllSpeedafBtn');
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Synchronisation...'; }
     isSyncingAllSpeedaf = true;
-
-    const ordersToSync = speedafOrdersCache.filter(o =>
-        o.speedafTracking && ['shipping', 'confirmed'].includes(normalizeOrderStatus(o.status))
-    );
-
+    const ordersToSync = speedafOrdersCache.filter(o => o.speedafTracking && ['shipping', 'confirmed'].includes(normalizeOrderStatus(o.status)));
     if (ordersToSync.length === 0) {
         showToast('ℹ️ Aucune commande en cours à synchroniser.');
         if (btn) { btn.disabled = false; btn.textContent = '🔄 Synchroniser les statuts'; }
         isSyncingAllSpeedaf = false;
         return;
     }
-
     let updatedCount = 0, errorCount = 0;
     for (const order of ordersToSync) {
         try {
@@ -3068,27 +1660,20 @@ async function handleSyncAllSpeedaf() {
             if (res.success && res.updated) updatedCount++;
         } catch (e) { errorCount++; }
     }
-
     showToast(`✅ ${updatedCount} commande(s) mise(s) à jour. ${errorCount > 0 ? errorCount + ' erreur(s).' : ''}`);
     await loadSpeedafTab();
-
     if (btn) { btn.disabled = false; btn.textContent = '🔄 Synchroniser les statuts'; }
     isSyncingAllSpeedaf = false;
 }
 
 async function handleConfirmPickup() {
-    /* null-guards si admin.html n'a pas le formulaire pickup */
-    const dateEl = document.getElementById('pickupDate');
-    if (!dateEl) { showToast('❌ Formulaire de pickup absent du HTML'); return; }
-    const dateVal = dateEl.value;
-    const packages = parseInt(document.getElementById('pickupPackages')?.value) || 1;
-    const weight = parseFloat(document.getElementById('pickupWeight')?.value) || 1;
-    const note = (document.getElementById('pickupNote')?.value || '').trim();
+    const dateVal = document.getElementById('pickupDate').value;
+    const packages = parseInt(document.getElementById('pickupPackages').value) || 1;
+    const weight = parseFloat(document.getElementById('pickupWeight').value) || 1;
+    const note = document.getElementById('pickupNote').value.trim();
     if (!dateVal) { showToast('⚠️ Sélectionnez une date'); return; }
-
     const btn = document.getElementById('confirmPickupBtn');
-    if (btn) { btn.disabled = true; btn.textContent = '⏳ Envoi...'; }
-
+    btn.disabled = true; btn.textContent = '⏳ Envoi...';
     try {
         await addDoc(collection(db, "speedaf_pickups"), {
             date: Timestamp.fromDate(new Date(dateVal)),
@@ -3096,18 +1681,18 @@ async function handleConfirmPickup() {
             status: isTestMode() ? 'test_mode' : 'pending_manual',
             createdAt: Timestamp.now()
         });
-        showToast(isTestMode() ? '🧪 [TEST] Demande enregistrée (rollback à la fin)' : '✅ Demande enregistrée (à confirmer avec Speedaf)');
-        document.getElementById('pickupModal')?.classList.remove('open');
+        showToast(isTestMode() ? '🧪 [TEST] Demande enregistrée' : '✅ Demande enregistrée');
+        document.getElementById('pickupModal').classList.remove('open');
     } catch (e) {
         showToast('❌ Erreur : ' + e.message);
     } finally {
-        if (btn) { btn.disabled = false; btn.textContent = '🚀 Envoyer la demande'; }
+        btn.disabled = false; btn.textContent = '🚀 Envoyer la demande';
     }
 }
 
-/* ============================================================
-   ALERTES BANNER
-   ============================================================ */
+// ============================================================
+// ALERTES BANNER
+// ============================================================
 function formatTooltipList(arr, max = 5) {
     if (!arr || arr.length === 0) return '';
     if (arr.length <= max) return arr.join(', ');
@@ -3118,40 +1703,28 @@ function initAdminAlerts() {
     refreshAdminAlerts();
     if (alertInterval) clearInterval(alertInterval);
     alertInterval = setInterval(refreshAdminAlerts, 60000);
-
     document.getElementById('closeAlertBannerBtn')?.addEventListener('click', () => {
         const banner = document.getElementById('adminAlertBanner');
         if (banner) banner.style.display = 'none';
     });
-
     document.getElementById('alertOrdersBtn')?.addEventListener('click', () => document.querySelector('[data-tab="orders"]')?.click());
     document.getElementById('alertReviewsBtn')?.addEventListener('click', () => document.querySelector('[data-tab="reviews"]')?.click());
     document.getElementById('alertStockOutBtn')?.addEventListener('click', () => { tempStockFilter = 'out'; document.querySelector('[data-tab="products"]')?.click(); });
     document.getElementById('alertStockLowBtn')?.addEventListener('click', () => { tempStockFilter = 'low'; document.querySelector('[data-tab="products"]')?.click(); });
-    document.getElementById('alertProductsPendingBtn')?.addEventListener('click', () => {
-        tempStatusFilter = PRODUCT_STATUS.PENDING_ADMIN_APPROVAL;
-        document.querySelector('[data-tab="products"]')?.click();
-    });
 }
 
 async function refreshAdminAlerts() {
     const banner = document.getElementById('adminAlertBanner');
     if (!banner || !auth.currentUser) return;
-
     try {
-        const [ordersSnap, reviewsSnap, productsPendingSnap] = await Promise.allSettled([
+        const [ordersSnap, reviewsSnap] = await Promise.allSettled([
             getCountFromServer(query(collection(db, "orders"), where("status", "==", "pending"))),
-            getCountFromServer(query(collection(db, "reviews"), where("status", "==", "pending"))),
-            getCountFromServer(query(collection(db, "products"), where("status", "==", PRODUCT_STATUS.PENDING_ADMIN_APPROVAL)))
+            getCountFromServer(query(collection(db, "reviews"), where("status", "==", "pending")))
         ]);
-
         const pendingOrdersCount = ordersSnap.value?.data().count || 0;
         const pendingReviewsCount = reviewsSnap.value?.data().count || 0;
-        const pendingProductsCount = productsPendingSnap.value?.data().count || 0;
-
         const stockOutNames = [];
         const stockLowNames = [];
-
         if (cachedProducts.length > 0) {
             cachedProducts.forEach(p => {
                 const name = p.nameFr || p.nameEn || 'Sans nom';
@@ -3169,17 +1742,13 @@ async function refreshAdminAlerts() {
                 }
             });
         }
-
         const btnO = document.getElementById('alertOrdersBtn');
         const btnR = document.getElementById('alertReviewsBtn');
         const btnSO = document.getElementById('alertStockOutBtn');
         const btnSL = document.getElementById('alertStockLowBtn');
-        const btnPP = document.getElementById('alertProductsPendingBtn');
-
         let hasAlerts = false;
         if (btnO) { if (pendingOrdersCount > 0) { document.getElementById('alertOrdersCount').textContent = pendingOrdersCount; btnO.style.display = 'inline-flex'; hasAlerts = true; } else btnO.style.display = 'none'; }
         if (btnR) { if (pendingReviewsCount > 0) { document.getElementById('alertReviewsCount').textContent = pendingReviewsCount; btnR.style.display = 'inline-flex'; hasAlerts = true; } else btnR.style.display = 'none'; }
-        if (btnPP) { if (pendingProductsCount > 0) { document.getElementById('alertProductsPendingCount').textContent = pendingProductsCount; btnPP.style.display = 'inline-flex'; hasAlerts = true; } else btnPP.style.display = 'none'; }
         if (btnSO) {
             if (stockOutNames.length > 0) {
                 document.getElementById('alertStockOutCount').textContent = stockOutNames.length;
@@ -3196,20 +1765,18 @@ async function refreshAdminAlerts() {
                 btnSL.style.display = 'inline-flex'; hasAlerts = true;
             } else btnSL.style.display = 'none';
         }
-
         banner.style.display = hasAlerts ? 'block' : 'none';
     } catch (e) { console.warn('⚠️ Alertes :', e); }
 }
 
-/* ============================================================
-   CHART REVENUS
-   ============================================================ */
+// ============================================================
+// CHART REVENUS
+// ============================================================
 function attachChartListeners() {
     if (chartListenersAttached) return;
     chartListenersAttached = true;
     const buttons = document.querySelectorAll('.chart-period-btn');
     if (buttons.length === 0) return;
-
     buttons.forEach(btn => {
         btn.addEventListener('click', async () => {
             document.querySelectorAll('.chart-period-btn').forEach(b => b.classList.remove('active'));
@@ -3223,25 +1790,21 @@ function attachChartListeners() {
 async function renderRevenueChart(period = 7, preloadedOrders = null) {
     const canvas = document.getElementById('revenueChart');
     if (!canvas || typeof window.Chart === 'undefined') return;
-
     try {
         const now = new Date();
         const startDate = new Date(now);
         startDate.setDate(now.getDate() - period + 1);
         startDate.setHours(0, 0, 0, 0);
-
         let orders = preloadedOrders;
         if (!orders) {
             const ordersSnap = await getDocs(collection(db, "orders"));
             orders = ordersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
         }
-
         const buckets = {};
         for (let i = 0; i < period; i++) {
             const d = new Date(startDate); d.setDate(startDate.getDate() + i);
             buckets[d.toISOString().split('T')[0]] = { revenue: 0, date: d };
         }
-
         orders.forEach(o => {
             const date = toDate(o.createdAt);
             if (!date) return;
@@ -3250,13 +1813,10 @@ async function renderRevenueChart(period = 7, preloadedOrders = null) {
             const status = o.status === 'validated' ? 'confirmed' : (o.status === 'received' ? 'delivered' : o.status);
             if (status === 'delivered') buckets[key].revenue += Number(o.total) || 0;
         });
-
         const sortedKeys = Object.keys(buckets).sort();
         const labels = sortedKeys.map(k => buckets[k].date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }));
         const revenueData = sortedKeys.map(k => buckets[k].revenue);
-
         if (revenueChartInstance) revenueChartInstance.destroy();
-
         revenueChartInstance = new window.Chart(canvas.getContext('2d'), {
             type: 'line',
             data: { labels, datasets: [{ label: '💰 CA (Livré)', data: revenueData, borderColor: '#a57b2e', backgroundColor: 'rgba(165, 123, 46, 0.12)', fill: true, tension: 0.3 }] },
@@ -3265,9 +1825,9 @@ async function renderRevenueChart(period = 7, preloadedOrders = null) {
     } catch (e) { console.error(e); }
 }
 
-/* ============================================================
-   COMPTABILITÉ
-   ============================================================ */
+// ============================================================
+// COMPTABILITÉ — CHARGEMENT
+// ============================================================
 async function loadPurchases() {
     try {
         const snap = await getDocs(query(collection(db, "purchases"), orderBy("date", "desc"), limit(500)));
@@ -3330,26 +1890,21 @@ async function refreshAccOverview() {
     const kpis = document.getElementById('accKPIs');
     const waterfall = document.getElementById('accWaterfall');
     if (!kpis || !waterfall) return;
-
     kpis.innerHTML = '<div class="admin-loading">⏳ Calcul...</div>';
     waterfall.innerHTML = '<div class="admin-loading">⏳ Calcul...</div>';
-
     try {
         const period = document.getElementById('accPeriod')?.value || 'month';
         const startVal = document.getElementById('accStart')?.value;
         const endVal = document.getElementById('accEnd')?.value;
         const { start, end } = getDateRangeFromPeriod(period, startVal, endVal);
-
         const [ordersSnap, purchasesSnap, expensesSnap, transactionsSnap] = await Promise.all([
             getDocs(query(collection(db, "orders"), orderBy("createdAt", "desc"), limit(1000))),
             getDocs(query(collection(db, "purchases"), orderBy("date", "desc"), limit(500))),
             getDocs(query(collection(db, "expenses"), orderBy("date", "desc"), limit(500))),
             getDocs(query(collection(db, "transactions"), orderBy("date", "desc"), limit(500)))
         ]);
-
         let revenue = 0, cogs = 0, shippingCost = 0, adSpend = 0, otherExpenses = 0, extraIncome = 0;
         let ordersCount = 0;
-
         ordersSnap.forEach(d => {
             const o = d.data();
             const orderDate = toDate(o.createdAt);
@@ -3367,13 +1922,11 @@ async function refreshAccOverview() {
                 shippingCost += Number(o.deliveryFee) || 0;
             }
         });
-
         purchasesSnap.forEach(d => {
             const p = d.data();
             if (!isInRange(toDate(p.date), start, end)) return;
             cogs += Number(p.totalCost) || 0;
         });
-
         expensesSnap.forEach(d => {
             const e = d.data();
             if (!isInRange(toDate(e.date), start, end)) return;
@@ -3381,42 +1934,17 @@ async function refreshAccOverview() {
             if (e.category === 'marketing') adSpend += amount;
             else otherExpenses += amount;
         });
-
         transactionsSnap.forEach(d => {
-            const t_ = d.data();
-            if (!isInRange(toDate(t_.date), start, end)) return;
-            if (t_.type === 'income') extraIncome += Number(t_.amount) || 0;
-            else otherExpenses += Number(t_.amount) || 0;
+            const t = d.data();
+            if (!isInRange(toDate(t.date), start, end)) return;
+            if (t.type === 'income') extraIncome += Number(t.amount) || 0;
+            else otherExpenses += Number(t.amount) || 0;
         });
-
         const grossProfit = revenue - cogs;
         const netProfit = grossProfit - shippingCost - adSpend - otherExpenses + extraIncome;
         const margin = revenue > 0 ? (netProfit / revenue) * 100 : 0;
-
-        kpis.innerHTML = `
-            <div class="admin-stat-card"><span class="stat-value" style="color:var(--success);">${formatMAD(revenue)}</span><span class="stat-label">💰 Chiffre d'affaires</span></div>
-            <div class="admin-stat-card"><span class="stat-value" style="color:var(--danger);">${formatMAD(cogs)}</span><span class="stat-label">📦 COGS</span></div>
-            <div class="admin-stat-card"><span class="stat-value" style="color:var(--danger);">${formatMAD(shippingCost)}</span><span class="stat-label">🚚 Frais livraison</span></div>
-            <div class="admin-stat-card"><span class="stat-value" style="color:var(--danger);">${formatMAD(adSpend)}</span><span class="stat-label">📢 Publicité</span></div>
-            <div class="admin-stat-card"><span class="stat-value" style="color:var(--danger);">${formatMAD(otherExpenses)}</span><span class="stat-label">📉 Autres dépenses</span></div>
-            <div class="admin-stat-card"><span class="stat-value" style="color:var(--info);">${formatMAD(extraIncome)}</span><span class="stat-label">💸 Autres revenus</span></div>
-            <div class="admin-stat-card" style="border-color:var(--gold);"><span class="stat-value" style="color:var(--gold);">${formatMAD(netProfit)}</span><span class="stat-label">🏆 Bénéfice NET</span></div>
-            <div class="admin-stat-card"><span class="stat-value">${margin.toFixed(1)}%</span><span class="stat-label">📊 Marge nette</span></div>
-        `;
-
-        waterfall.innerHTML = `
-            <table class="acc-table" style="width:100%;">
-                <tr><td>💰 Chiffre d'affaires</td><td style="text-align:right;color:var(--success);font-weight:700;">${formatMAD(revenue)}</td></tr>
-                <tr><td>📦 COGS</td><td style="text-align:right;color:var(--danger);">-${formatMAD(cogs)}</td></tr>
-                <tr style="font-weight:700;background:rgba(0,0,0,0.02);"><td>💵 Marge Brute</td><td style="text-align:right;">${formatMAD(grossProfit)}</td></tr>
-                <tr><td>🚚 Livraison</td><td style="text-align:right;color:var(--danger);">-${formatMAD(shippingCost)}</td></tr>
-                <tr><td>📢 Pub</td><td style="text-align:right;color:var(--danger);">-${formatMAD(adSpend)}</td></tr>
-                <tr><td>📉 Autres dép.</td><td style="text-align:right;color:var(--danger);">-${formatMAD(otherExpenses)}</td></tr>
-                <tr><td>💸 Autres rev.</td><td style="text-align:right;color:var(--info);">+${formatMAD(extraIncome)}</td></tr>
-                <tr style="font-weight:800;background:var(--bg-surface);border-top:2px solid var(--gold);"><td>🏆 Bénéfice NET</td><td style="text-align:right;color:var(--gold);">${formatMAD(netProfit)}</td></tr>
-            </table>
-        `;
-
+        kpis.innerHTML = `<div class="admin-stat-card"><span class="stat-value" style="color:var(--success);">${formatMAD(revenue)}</span><span class="stat-label">💰 Chiffre d'affaires</span></div><div class="admin-stat-card"><span class="stat-value" style="color:var(--danger);">${formatMAD(cogs)}</span><span class="stat-label">📦 COGS</span></div><div class="admin-stat-card"><span class="stat-value" style="color:var(--danger);">${formatMAD(shippingCost)}</span><span class="stat-label">🚚 Frais livraison</span></div><div class="admin-stat-card"><span class="stat-value" style="color:var(--danger);">${formatMAD(adSpend)}</span><span class="stat-label">📢 Publicité</span></div><div class="admin-stat-card"><span class="stat-value" style="color:var(--danger);">${formatMAD(otherExpenses)}</span><span class="stat-label">📉 Autres dépenses</span></div><div class="admin-stat-card"><span class="stat-value" style="color:var(--info);">${formatMAD(extraIncome)}</span><span class="stat-label">💸 Autres revenus</span></div><div class="admin-stat-card" style="border-color:var(--gold);"><span class="stat-value" style="color:var(--gold);">${formatMAD(netProfit)}</span><span class="stat-label">🏆 Bénéfice NET</span></div><div class="admin-stat-card"><span class="stat-value">${margin.toFixed(1)}%</span><span class="stat-label">📊 Marge nette</span></div>`;
+        waterfall.innerHTML = `<table class="acc-table" style="width:100%;"><tr><td>💰 Chiffre d'affaires</td><td style="text-align:right;color:var(--success);font-weight:700;">${formatMAD(revenue)}</td></tr><tr><td>📦 COGS</td><td style="text-align:right;color:var(--danger);">-${formatMAD(cogs)}</td></tr><tr style="font-weight:700;background:rgba(0,0,0,0.02);"><td>💵 Marge Brute</td><td style="text-align:right;">${formatMAD(grossProfit)}</td></tr><tr><td>🚚 Livraison</td><td style="text-align:right;color:var(--danger);">-${formatMAD(shippingCost)}</td></tr><tr><td>📢 Pub</td><td style="text-align:right;color:var(--danger);">-${formatMAD(adSpend)}</td></tr><tr><td>📉 Autres dép.</td><td style="text-align:right;color:var(--danger);">-${formatMAD(otherExpenses)}</td></tr><tr><td>💸 Autres rev.</td><td style="text-align:right;color:var(--info);">+${formatMAD(extraIncome)}</td></tr><tr style="font-weight:800;background:var(--bg-surface);border-top:2px solid var(--gold);"><td>🏆 Bénéfice NET</td><td style="text-align:right;color:var(--gold);">${formatMAD(netProfit)}</td></tr></table>`;
         await renderRevenueChart(currentChartPeriod, ordersSnap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (e) {
         console.error('❌ refreshAccOverview:', e);
@@ -3440,9 +1968,9 @@ function updateReportDates() {
     }
 }
 
-/* ============================================================
-   ACHATS / DÉPENSES / TRANSACTIONS — CRUD
-   ============================================================ */
+// ============================================================
+// ACHATS / DÉPENSES / TRANSACTIONS — CRUD
+// ============================================================
 async function saveNewPurchase() {
     const productId = document.getElementById('purProductId').value;
     const qty = parseInt(document.getElementById('purQty').value);
@@ -3451,40 +1979,22 @@ async function saveNewPurchase() {
     const supplier = document.getElementById('purSupplier').value.trim();
     const dateVal = document.getElementById('purDate').value;
     const note = document.getElementById('purNote').value.trim();
-
     if (!productId) { showToast('⚠️ Sélectionnez un produit'); return; }
     if (!qty || qty < 1) { showToast('⚠️ Quantité invalide'); return; }
     if (isNaN(unitPrice) || unitPrice < 0) { showToast('⚠️ Prix invalide'); return; }
     if (!dateVal) { showToast('⚠️ Date invalide'); return; }
-
     const btn = document.getElementById('addPurchaseBtn');
     btn.disabled = true; btn.textContent = '⏳...';
-
     try {
         const totalCost = (qty * unitPrice) + shippingCost;
         const product = cachedProducts.find(p => p.id === productId);
-
-        await addDoc(collection(db, "purchases"), {
-            productId, productName: product?.nameFr || 'Inconnu',
-            quantity: qty, unitPrice, shippingCost, totalCost,
-            supplier, date: Timestamp.fromDate(new Date(dateVal)), note,
-            createdAt: Timestamp.now()
-        });
-
-        if (product) {
-            await updateDoc(doc(db, "products", productId), {
-                stock: increment(qty),
-                purchasePrice: unitPrice,
-                updatedAt: Timestamp.now()
-            });
-        }
-
+        await addDoc(collection(db, "purchases"), { productId, productName: product?.nameFr || 'Inconnu', quantity: qty, unitPrice, shippingCost, totalCost, supplier, date: Timestamp.fromDate(new Date(dateVal)), note, createdAt: Timestamp.now() });
+        if (product) await updateDoc(doc(db, "products", productId), { stock: increment(qty), purchasePrice: unitPrice, updatedAt: Timestamp.now() });
         showToast('✅ Achat enregistré et stock mis à jour');
         document.getElementById('purQty').value = '';
         document.getElementById('purUnitPrice').value = '';
         document.getElementById('purShippingCost').value = '0';
         document.getElementById('purNote').value = '';
-
         await loadPurchases();
         await loadProducts(true);
         await renderPurchasesList();
@@ -3500,23 +2010,10 @@ async function renderPurchasesList() {
     if (!container) return;
     container.innerHTML = `<div class="admin-loading">⏳ Chargement...</div>`;
     await loadPurchases();
-
-    if (cachedPurchases.length === 0) {
-        container.innerHTML = `<div class="admin-empty">Aucun achat enregistré.</div>`;
-        return;
-    }
-
+    if (cachedPurchases.length === 0) { container.innerHTML = `<div class="admin-empty">Aucun achat enregistré.</div>`; return; }
     let html = `<table class="acc-table"><thead><tr><th>Date</th><th>Produit</th><th>Qté</th><th>Prix Unit.</th><th>Livraison</th><th>Total</th><th>Fournisseur</th></tr></thead><tbody>`;
     cachedPurchases.forEach(p => {
-        html += `<tr>
-            <td>${p.date ? p.date.toLocaleDateString('fr-FR') : '—'}</td>
-            <td><strong>${escapeHTML(p.productName)}</strong></td>
-            <td>${p.quantity}</td>
-            <td>${formatMAD(p.unitPrice)}</td>
-            <td>${formatMAD(p.shippingCost)}</td>
-            <td style="font-weight:700;color:var(--danger);">${formatMAD(p.totalCost)}</td>
-            <td>${escapeHTML(p.supplier || '—')}</td>
-        </tr>`;
+        html += `<tr><td>${p.date ? p.date.toLocaleDateString('fr-FR') : '—'}</td><td><strong>${escapeHTML(p.productName)}</strong></td><td>${p.quantity}</td><td>${formatMAD(p.unitPrice)}</td><td>${formatMAD(p.shippingCost)}</td><td style="font-weight:700;color:var(--danger);">${formatMAD(p.totalCost)}</td><td>${escapeHTML(p.supplier || '—')}</td></tr>`;
     });
     html += `</tbody></table>`;
     container.innerHTML = html;
@@ -3527,20 +2024,13 @@ async function saveNewExpense() {
     const amount = parseFloat(document.getElementById('expAmount').value);
     const dateVal = document.getElementById('expDate').value;
     const description = document.getElementById('expDescription').value.trim();
-
     if (isNaN(amount) || amount <= 0) { showToast('⚠️ Montant invalide'); return; }
     if (!dateVal) { showToast('⚠️ Date invalide'); return; }
     if (!description) { showToast('⚠️ Description requise'); return; }
-
     const btn = document.getElementById('addExpenseBtn');
     btn.disabled = true; btn.textContent = '⏳...';
-
     try {
-        await addDoc(collection(db, "expenses"), {
-            category, amount, description,
-            date: Timestamp.fromDate(new Date(dateVal)),
-            createdAt: Timestamp.now()
-        });
+        await addDoc(collection(db, "expenses"), { category, amount, description, date: Timestamp.fromDate(new Date(dateVal)), createdAt: Timestamp.now() });
         showToast('✅ Dépense enregistrée');
         document.getElementById('expAmount').value = '';
         document.getElementById('expDescription').value = '';
@@ -3558,20 +2048,10 @@ async function renderExpensesList() {
     if (!container) return;
     container.innerHTML = `<div class="admin-loading">⏳ Chargement...</div>`;
     await loadExpenses();
-
-    if (cachedExpenses.length === 0) {
-        container.innerHTML = `<div class="admin-empty">Aucune dépense enregistrée.</div>`;
-        return;
-    }
-
+    if (cachedExpenses.length === 0) { container.innerHTML = `<div class="admin-empty">Aucune dépense enregistrée.</div>`; return; }
     let html = `<table class="acc-table"><thead><tr><th>Date</th><th>Catégorie</th><th>Description</th><th>Montant</th></tr></thead><tbody>`;
     cachedExpenses.forEach(e => {
-        html += `<tr>
-            <td>${e.date ? e.date.toLocaleDateString('fr-FR') : '—'}</td>
-            <td>${escapeHTML(e.category)}</td>
-            <td>${escapeHTML(e.description)}</td>
-            <td style="font-weight:700;color:var(--danger);">${formatMAD(e.amount)}</td>
-        </tr>`;
+        html += `<tr><td>${e.date ? e.date.toLocaleDateString('fr-FR') : '—'}</td><td>${escapeHTML(e.category)}</td><td>${escapeHTML(e.description)}</td><td style="font-weight:700;color:var(--danger);">${formatMAD(e.amount)}</td></tr>`;
     });
     html += `</tbody></table>`;
     container.innerHTML = html;
@@ -3582,20 +2062,13 @@ async function saveNewTransaction() {
     const amount = parseFloat(document.getElementById('transAmount').value);
     const dateVal = document.getElementById('transDate').value;
     const description = document.getElementById('transDescription').value.trim();
-
     if (isNaN(amount) || amount <= 0) { showToast('⚠️ Montant invalide'); return; }
     if (!dateVal) { showToast('⚠️ Date invalide'); return; }
     if (!description) { showToast('⚠️ Description requise'); return; }
-
     const btn = document.getElementById('addTransactionBtn');
     btn.disabled = true; btn.textContent = '⏳...';
-
     try {
-        await addDoc(collection(db, "transactions"), {
-            type, amount, description,
-            date: Timestamp.fromDate(new Date(dateVal)),
-            createdAt: Timestamp.now()
-        });
+        await addDoc(collection(db, "transactions"), { type, amount, description, date: Timestamp.fromDate(new Date(dateVal)), createdAt: Timestamp.now() });
         showToast('✅ Transaction enregistrée');
         document.getElementById('transAmount').value = '';
         document.getElementById('transDescription').value = '';
@@ -3613,85 +2086,43 @@ async function renderTransactionsList() {
     if (!container) return;
     container.innerHTML = `<div class="admin-loading">⏳ Chargement...</div>`;
     await loadTransactions();
-
     const search = document.getElementById('transSearch')?.value.toLowerCase() || '';
     const filterType = document.getElementById('transFilterType')?.value || 'all';
-
     let filtered = cachedTransactions;
     if (filterType !== 'all') filtered = filtered.filter(t => t.type === filterType);
     if (search) filtered = filtered.filter(t => (t.description || '').toLowerCase().includes(search));
-
-    if (filtered.length === 0) {
-        container.innerHTML = `<div class="admin-empty">Aucune transaction trouvée.</div>`;
-        return;
-    }
-
+    if (filtered.length === 0) { container.innerHTML = `<div class="admin-empty">Aucune transaction trouvée.</div>`; return; }
     let html = `<table class="acc-table"><thead><tr><th>Date</th><th>Type</th><th>Description</th><th>Montant</th></tr></thead><tbody>`;
     filtered.forEach(t => {
         const isIncome = t.type === 'income';
-        html += `<tr>
-            <td>${t.date ? t.date.toLocaleDateString('fr-FR') : '—'}</td>
-            <td><span style="color:${isIncome ? 'var(--success)' : 'var(--danger)'};font-weight:700;">${isIncome ? '💰 Revenu' : '📉 Dépense'}</span></td>
-            <td>${escapeHTML(t.description)}</td>
-            <td style="font-weight:700;color:${isIncome ? 'var(--success)' : 'var(--danger)'};">${isIncome ? '+' : '-'} ${formatMAD(t.amount)}</td>
-        </tr>`;
+        html += `<tr><td>${t.date ? t.date.toLocaleDateString('fr-FR') : '—'}</td><td><span style="color:${isIncome ? 'var(--success)' : 'var(--danger)'};font-weight:700;">${isIncome ? '💰 Revenu' : '📉 Dépense'}</span></td><td>${escapeHTML(t.description)}</td><td style="font-weight:700;color:${isIncome ? 'var(--success)' : 'var(--danger)'};">${isIncome ? '+' : '-'} ${formatMAD(t.amount)}</td></tr>`;
     });
     html += `</tbody></table>`;
     container.innerHTML = html;
 }
 
-/* ============================================================
-   RAPPORTS
-   ============================================================ */
 async function generateReport() {
     const startVal = document.getElementById('reportStart').value;
     const endVal = document.getElementById('reportEnd').value;
     const container = document.getElementById('reportContent');
     if (!startVal || !endVal) { showToast('⚠️ Sélectionnez une période'); return; }
     if (!container) return;
-
     container.innerHTML = `<div class="admin-loading">⏳ Génération du rapport...</div>`;
-
     try {
         const start = new Date(startVal); start.setHours(0,0,0,0);
         const end = new Date(endVal); end.setHours(23,59,59,999);
-
         const [ordersSnap, expensesSnap, purchasesSnap] = await Promise.all([
             getDocs(query(collection(db, "orders"), where("createdAt", ">=", Timestamp.fromDate(start)), where("createdAt", "<=", Timestamp.fromDate(end)))),
             getDocs(query(collection(db, "expenses"), where("date", ">=", Timestamp.fromDate(start)), where("date", "<=", Timestamp.fromDate(end)))),
             getDocs(query(collection(db, "purchases"), where("date", ">=", Timestamp.fromDate(start)), where("date", "<=", Timestamp.fromDate(end))))
         ]);
-
         let revenue = 0, ordersCount = 0;
-        ordersSnap.forEach(d => {
-            const o = d.data();
-            if (normalizeOrderStatus(o.status) === 'delivered') { revenue += Number(o.total) || 0; ordersCount++; }
-        });
-
-        let expenses = 0;
-        expensesSnap.forEach(d => expenses += Number(d.data().amount) || 0);
-        let purchases = 0;
-        purchasesSnap.forEach(d => purchases += Number(d.data().totalCost) || 0);
-
+        ordersSnap.forEach(d => { const o = d.data(); if (normalizeOrderStatus(o.status) === 'delivered') { revenue += Number(o.total) || 0; ordersCount++; } });
+        let expenses = 0; expensesSnap.forEach(d => expenses += Number(d.data().amount) || 0);
+        let purchases = 0; purchasesSnap.forEach(d => purchases += Number(d.data().totalCost) || 0);
         const net = revenue - expenses - purchases;
         const margin = revenue > 0 ? (net / revenue) * 100 : 0;
-
-        container.innerHTML = `
-            <div class="admin-form" style="margin-top:1rem;">
-                <h3>📈 Rapport du ${start.toLocaleDateString('fr-FR')} au ${end.toLocaleDateString('fr-FR')}</h3>
-                <table class="acc-table" style="margin-top:1rem;">
-                    <tr><td>📦 Commandes livrées</td><td style="text-align:right;font-weight:700;">${ordersCount}</td></tr>
-                    <tr><td>💰 Chiffre d'affaires</td><td style="text-align:right;color:var(--success);font-weight:700;">${formatMAD(revenue)}</td></tr>
-                    <tr><td>📉 Dépenses</td><td style="text-align:right;color:var(--danger);">-${formatMAD(expenses)}</td></tr>
-                    <tr><td>📦 Achats</td><td style="text-align:right;color:var(--danger);">-${formatMAD(purchases)}</td></tr>
-                    <tr style="font-weight:800;background:var(--bg-surface);border-top:2px solid var(--gold);">
-                        <td>🏆 Résultat NET</td>
-                        <td style="text-align:right;color:${net >= 0 ? 'var(--success)' : 'var(--danger)'};">${formatMAD(net)}</td>
-                    </tr>
-                    <tr><td>📊 Marge nette</td><td style="text-align:right;">${margin.toFixed(1)}%</td></tr>
-                </table>
-            </div>
-        `;
+        container.innerHTML = `<div class="admin-form" style="margin-top:1rem;"><h3>📈 Rapport du ${start.toLocaleDateString('fr-FR')} au ${end.toLocaleDateString('fr-FR')}</h3><table class="acc-table" style="margin-top:1rem;"><tr><td>📦 Commandes livrées</td><td style="text-align:right;font-weight:700;">${ordersCount}</td></tr><tr><td>💰 Chiffre d'affaires</td><td style="text-align:right;color:var(--success);font-weight:700;">${formatMAD(revenue)}</td></tr><tr><td>📉 Dépenses</td><td style="text-align:right;color:var(--danger);">-${formatMAD(expenses)}</td></tr><tr><td>📦 Achats</td><td style="text-align:right;color:var(--danger);">-${formatMAD(purchases)}</td></tr><tr style="font-weight:800;background:var(--bg-surface);border-top:2px solid var(--gold);"><td>🏆 Résultat NET</td><td style="text-align:right;color:${net >= 0 ? 'var(--success)' : 'var(--danger)'};">${formatMAD(net)}</td></tr><tr><td>📊 Marge nette</td><td style="text-align:right;">${margin.toFixed(1)}%</td></tr></table></div>`;
     } catch (e) {
         container.innerHTML = `<div class="admin-empty" style="color:var(--danger);">${e.message}</div>`;
     }
@@ -3741,44 +2172,30 @@ async function exportProductsCSV() {
     try {
         showToast('⏳ Chargement...');
         const snap = await getDocs(collection(db, "products"));
-        let csv = "Nom,SKU,Slug,Categorie,Prix,Base_Price,Cout_Achat,Stock,VendorId,Status\n";
+        let csv = "Nom,SKU,Slug,Categorie,Prix,Base_Price,Cout_Achat,Stock\n";
         snap.forEach(d => {
             const p = d.data();
-            csv += `"${p.nameFr||''}","${p.sku||''}","${p.slug||''}","${p.category||''}","${p.price||0}","${p.basePrice||p.price||0}","${p.purchasePrice||0}","${p.stock||0}","${p.vendorId||''}","${p.status||''}"\n`;
+            csv += `"${p.nameFr||''}","${p.sku||''}","${p.slug||''}","${p.category||''}","${p.price||0}","${p.basePrice||p.price||0}","${p.purchasePrice||0}","${p.stock||0}"\n`;
         });
         downloadCSV(csv, `inventaire_${new Date().toISOString().split('T')[0]}.csv`);
         showToast('✅ Export CSV généré');
     } catch (e) { showToast('❌ ' + e.message); }
 }
 
-/* ============================================================
-   SIMULATEUR
-   ============================================================ */
+// ============================================================
+// SIMULATEUR
+// ============================================================
 function renderFinanceProductSelection() {
     const container = document.getElementById('financeProductSelector');
     if (!container) return;
-
-    if (!cachedProducts || cachedProducts.length === 0) {
-        container.innerHTML = `<p style="text-align:center;color:var(--text-muted);font-size:0.85rem;padding:1rem;">Chargement des produits...</p>`;
-        return;
-    }
-
+    if (!cachedProducts || cachedProducts.length === 0) { container.innerHTML = `<p style="text-align:center;color:var(--text-muted);font-size:0.85rem;padding:1rem;">Chargement des produits...</p>`; return; }
     let html = '';
     cachedProducts.forEach(p => {
         const name = p.nameFr || p.nameEn || 'Sans nom';
         const buyPrice = Number(p.purchasePrice) || 0;
         const salePrice = Number(p.basePrice || p.price) || 0;
         const stock = Number(p.stock) || 0;
-
-        html += `
-            <label style="display:flex;align-items:center;gap:0.6rem;padding:0.5rem;border-bottom:1px solid var(--border);cursor:pointer;">
-                <input type="checkbox" class="fin-product-checkbox" value="${p.id}" data-buy="${buyPrice}" data-sale="${salePrice}" data-stock="${stock}" style="width:auto;margin:0;">
-                <div style="flex:1;">
-                    <strong style="font-size:0.85rem;color:var(--text);">${escapeHTML(name)}</strong>
-                    <div style="font-size:0.75rem;color:var(--text-muted);">Achat: ${buyPrice} MAD · Vente: ${salePrice} MAD · Stock: ${stock}</div>
-                </div>
-            </label>
-        `;
+        html += `<label style="display:flex;align-items:center;gap:0.6rem;padding:0.5rem;border-bottom:1px solid var(--border);cursor:pointer;"><input type="checkbox" class="fin-product-checkbox" value="${p.id}" data-buy="${buyPrice}" data-sale="${salePrice}" data-stock="${stock}" style="width:auto;margin:0;"><div style="flex:1;"><strong style="font-size:0.85rem;color:var(--text);">${escapeHTML(name)}</strong><div style="font-size:0.75rem;color:var(--text-muted);">Achat: ${buyPrice} MAD · Vente: ${salePrice} MAD · Stock: ${stock}</div></div></label>`;
     });
     container.innerHTML = html;
 }
@@ -3786,13 +2203,8 @@ function renderFinanceProductSelection() {
 function attachSimulatorListeners() {
     if (simulatorListenersAttached) return;
     simulatorListenersAttached = true;
-
-    document.getElementById('finSelectAll')?.addEventListener('click', () => {
-        document.querySelectorAll('.fin-product-checkbox').forEach(cb => cb.checked = true);
-    });
-    document.getElementById('finSelectNone')?.addEventListener('click', () => {
-        document.querySelectorAll('.fin-product-checkbox').forEach(cb => cb.checked = false);
-    });
+    document.getElementById('finSelectAll')?.addEventListener('click', () => { document.querySelectorAll('.fin-product-checkbox').forEach(cb => cb.checked = true); });
+    document.getElementById('finSelectNone')?.addEventListener('click', () => { document.querySelectorAll('.fin-product-checkbox').forEach(cb => cb.checked = false); });
     document.getElementById('finSelectProfitable')?.addEventListener('click', () => {
         document.querySelectorAll('.fin-product-checkbox').forEach(cb => {
             const buy = parseFloat(cb.dataset.buy) || 0;
@@ -3810,12 +2222,7 @@ function attachSimulatorListeners() {
         });
         sorted.slice(0, 5).forEach(cb => cb.checked = true);
     });
-
-    document.getElementById('finReturnRate')?.addEventListener('input', (e) => {
-        const el = document.getElementById('finReturnRateValue');
-        if (el) el.textContent = e.target.value + '%';
-    });
-
+    document.getElementById('finReturnRate')?.addEventListener('input', (e) => { const el = document.getElementById('finReturnRateValue'); if (el) el.textContent = e.target.value + '%'; });
     document.getElementById('calculateFinancesBtn')?.addEventListener('click', calculateFinances);
 }
 
@@ -3825,24 +2232,14 @@ function calculateFinances() {
     const returnShipping = parseFloat(document.getElementById('finReturnShipping').value) || 0;
     const safetyMargin = parseFloat(document.getElementById('finSafetyMargin').value) || 0;
     const returnRate = parseFloat(document.getElementById('finReturnRate').value) || 0;
-
     const selected = [];
     document.querySelectorAll('.fin-product-checkbox:checked').forEach(cb => {
-        selected.push({
-            id: cb.value,
-            buy: parseFloat(cb.dataset.buy) || 0,
-            sale: parseFloat(cb.dataset.sale) || 0,
-            stock: parseFloat(cb.dataset.stock) || 0
-        });
+        selected.push({ id: cb.value, buy: parseFloat(cb.dataset.buy) || 0, sale: parseFloat(cb.dataset.sale) || 0, stock: parseFloat(cb.dataset.stock) || 0 });
     });
-
     if (selected.length === 0) { showToast('⚠️ Sélectionnez au moins un produit'); return; }
-
     const logisticsCost = packaging + (returnRate / 100) * (returnShipping + packaging);
-
     let totalRevenue = 0, totalInvestment = 0, totalLogistics = 0, totalGrossProfit = 0, totalUnits = 0;
     const results = [];
-
     selected.forEach(p => {
         const finalSalePrice = p.sale + 5;
         const spdDeliveryCost = 35;
@@ -3850,22 +2247,16 @@ function calculateFinances() {
         const cpaMax = Math.max(0, marginNetUnit * (1 - safetyMargin / 100));
         const profitTotal = marginNetUnit * p.stock;
         const roi = p.buy > 0 ? (marginNetUnit / p.buy) * 100 : 0;
-
         totalRevenue += finalSalePrice * p.stock;
         totalInvestment += p.buy * p.stock;
         totalLogistics += (spdDeliveryCost + logisticsCost) * p.stock;
         totalGrossProfit += profitTotal;
         totalUnits += p.stock;
-
         results.push({ ...p, marginNetUnit, cpaMax, profitTotal, roi });
     });
-
     const netProfit = totalGrossProfit - adSpend;
     const globalRoi = totalInvestment > 0 ? (totalGrossProfit / totalInvestment) * 100 : 0;
-    const breakEven = adSpend > 0 && totalGrossProfit > 0 && totalUnits > 0
-        ? Math.ceil(adSpend / (totalGrossProfit / totalUnits))
-        : 0;
-
+    const breakEven = adSpend > 0 && totalGrossProfit > 0 && totalUnits > 0 ? Math.ceil(adSpend / (totalGrossProfit / totalUnits)) : 0;
     document.getElementById('financesResults').style.display = 'block';
     document.getElementById('finTotalRevenue').textContent = formatMAD(totalRevenue);
     document.getElementById('finTotalInvestment').textContent = formatMAD(totalInvestment);
@@ -3873,69 +2264,430 @@ function calculateFinances() {
     document.getElementById('finTotalGrossProfit').textContent = formatMAD(totalGrossProfit);
     document.getElementById('finTotalProfit').textContent = formatMAD(netProfit);
     document.getElementById('finTotalProfit').style.color = netProfit >= 0 ? 'var(--success)' : 'var(--danger)';
-
     document.getElementById('finTotalROI').textContent = `${globalRoi.toFixed(1)}%`;
     document.getElementById('finTotalROI').style.color = globalRoi > 0 ? 'var(--success)' : 'var(--danger)';
-
     document.getElementById('finBreakEven').textContent = `${breakEven} colis`;
     document.getElementById('finTotalProducts').textContent = selected.length;
     document.getElementById('finTotalUnits').textContent = totalUnits;
     document.getElementById('finStockSaleValue').textContent = formatMAD(totalRevenue);
-
     let recHtml = '';
-    if (netProfit < 0) {
-        recHtml = `<div style="background:var(--danger-bg);border:1px solid var(--danger);padding:1rem;border-radius:var(--radius-sm);color:var(--danger);margin-bottom:1rem;"><strong>⚠️ Attention :</strong> Votre budget pub dépasse votre profit brut.</div>`;
-    } else if (globalRoi < 50) {
-        recHtml = `<div style="background:var(--warning-bg);border:1px solid var(--warning);padding:1rem;border-radius:var(--radius-sm);color:var(--warning);margin-bottom:1rem;"><strong>💡 Conseil :</strong> ROI de ${globalRoi.toFixed(1)}%. Objectif : 100%+</div>`;
-    } else {
-        recHtml = `<div style="background:var(--success-bg);border:1px solid var(--success);padding:1rem;border-radius:var(--radius-sm);color:var(--success);margin-bottom:1rem;"><strong>✅ Excellente rentabilité :</strong> ROI de ${globalRoi.toFixed(1)}%.</div>`;
-    }
+    if (netProfit < 0) recHtml = `<div style="background:var(--danger-bg);border:1px solid var(--danger);padding:1rem;border-radius:var(--radius-sm);color:var(--danger);margin-bottom:1rem;"><strong>⚠️ Attention :</strong> Votre budget pub dépasse votre profit brut.</div>`;
+    else if (globalRoi < 50) recHtml = `<div style="background:var(--warning-bg);border:1px solid var(--warning);padding:1rem;border-radius:var(--radius-sm);color:var(--warning);margin-bottom:1rem;"><strong>💡 Conseil :</strong> ROI de ${globalRoi.toFixed(1)}%. Objectif : 100%+</div>`;
+    else recHtml = `<div style="background:var(--success-bg);border:1px solid var(--success);padding:1rem;border-radius:var(--radius-sm);color:var(--success);margin-bottom:1rem;"><strong>✅ Excellente rentabilité :</strong> ROI de ${globalRoi.toFixed(1)}%.</div>`;
     document.getElementById('finRecommendations').innerHTML = recHtml;
-
     const tbody = document.getElementById('financesTableBody');
     let rows = '';
     results.forEach(r => {
         const p = cachedProducts.find(pp => pp.id === r.id);
         const name = p ? (p.nameFr || p.nameEn) : 'Inconnu';
         const verdict = r.marginNetUnit > 0 ? '✅ Rentable' : '❌ Non rentable';
-        rows += `<tr>
-            <td>${escapeHTML(name)}</td>
-            <td style="text-align:center;">${r.buy} MAD</td>
-            <td style="text-align:center;">${r.sale + 5} MAD</td>
-            <td style="text-align:center;font-weight:700;color:${r.marginNetUnit>0?'var(--success)':'var(--danger)'};">${r.marginNetUnit.toFixed(2)} MAD</td>
-            <td style="text-align:center;">${r.cpaMax.toFixed(2)} MAD</td>
-            <td style="text-align:center;">${r.stock}</td>
-            <td style="text-align:center;font-weight:700;">${r.profitTotal.toFixed(2)} MAD</td>
-            <td style="text-align:center;">${r.roi.toFixed(1)}%</td>
-            <td style="text-align:center;">${verdict}</td>
-        </tr>`;
+        rows += `<tr><td>${escapeHTML(name)}</td><td style="text-align:center;">${r.buy} MAD</td><td style="text-align:center;">${r.sale + 5} MAD</td><td style="text-align:center;font-weight:700;color:${r.marginNetUnit>0?'var(--success)':'var(--danger)'};">${r.marginNetUnit.toFixed(2)} MAD</td><td style="text-align:center;">${r.cpaMax.toFixed(2)} MAD</td><td style="text-align:center;">${r.stock}</td><td style="text-align:center;font-weight:700;">${r.profitTotal.toFixed(2)} MAD</td><td style="text-align:center;">${r.roi.toFixed(1)}%</td><td style="text-align:center;">${verdict}</td></tr>`;
     });
     tbody.innerHTML = rows;
 }
 
-/* ============================================================
-   OUTILS — MIGRATIONS
-   ============================================================ */
+// ============ FIN PARTIE 2/3 ============
+// ============================================================
+// VENDEURS (marketplace)
+// ============================================================
+async function loadVendors() {
+    const container = document.getElementById('adminVendorsList');
+    if (!container) return;
+    container.innerHTML = `<div class="admin-loading">⏳ Chargement des vendeurs...</div>`;
+    try {
+        const q = query(collection(db, "users"), where("role", "==", "vendor"), limit(500));
+        const snap = await getDocs(q);
+        cachedVendors = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        cachedVendors.sort((a, b) => {
+            const sa = a.vendorInfo?.status || 'pending';
+            const sb = b.vendorInfo?.status || 'pending';
+            const oa = VENDOR_STATUS_ORDER[sa] ?? 99;
+            const ob = VENDOR_STATUS_ORDER[sb] ?? 99;
+            if (oa !== ob) return oa - ob;
+            return (toDate(b.createdAt)?.getTime() || 0) - (toDate(a.createdAt)?.getTime() || 0);
+        });
+        renderVendorsList(cachedVendors);
+    } catch (e) {
+        console.error(e);
+        container.innerHTML = `<div class="admin-empty" style="color:var(--danger);">Erreur de chargement.</div>`;
+    }
+}
+
+function renderVendorsList(vendors) {
+    const container = document.getElementById('adminVendorsList');
+    if (!container) return;
+    if (vendors.length === 0) {
+        container.innerHTML = `<div class="admin-empty">Aucun vendeur trouvé.</div>`;
+        return;
+    }
+    let html = '';
+    vendors.forEach(v => {
+        const shopName = escapeHTML(v.vendorInfo?.shopName || v.name || 'Boutique');
+        const email = escapeHTML(v.email || '');
+        const phone = escapeHTML(v.phone || '');
+        const city = escapeHTML(v.vendorInfo?.city || '');
+        const iceCin = escapeHTML(v.vendorInfo?.iceCin || '');
+        const status = v.vendorInfo?.status || 'pending';
+        const shippingMethod = v.vendorInfo?.shippingMethod === 'dropoff' ? '📤 Drop-off' : '📥 Fulfillment';
+        const createdAt = toDate(v.createdAt)?.toLocaleDateString('fr-FR') || '—';
+        const contractStatus = v.vendorInfo?.contractStatus || 'pending';
+        const contractAccepted = contractStatus === 'accepted';
+        const delayCount = Number(v.vendorInfo?.delayCount) || 0;
+
+        let statusBadge = '';
+        if (status === 'pending') statusBadge = `<span style="background:var(--warning-bg);color:var(--warning);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">⏳ En attente</span>`;
+        else if (status === 'approved') statusBadge = `<span style="background:var(--success-bg);color:var(--success);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">✅ Approuvé</span>`;
+        else if (status === 'rejected') statusBadge = `<span style="background:var(--danger-bg);color:var(--danger);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">❌ Rejeté</span>`;
+        else if (status === 'suspended') statusBadge = `<span style="background:var(--danger-bg);color:var(--danger);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">🚫 Suspendu</span>`;
+
+        const contractBadge = contractAccepted
+            ? `<span style="background:var(--success-bg);color:var(--success);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;">📜 Contrat signé</span>`
+            : `<span style="background:var(--warning-bg);color:var(--warning);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;">📜 Non signé</span>`;
+
+        const delayBadge = delayCount > 0
+            ? `<span style="background:var(--danger);color:#fff;padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;">⏰ ${delayCount} retard${delayCount > 1 ? 's' : ''}</span>`
+            : '';
+
+        let actionsHtml = '';
+        if (status === 'pending') {
+            const approveDisabled = contractAccepted ? '' : 'disabled title="Contrat non signé"';
+            const approveStyle = contractAccepted ? '' : 'opacity:0.5;cursor:not-allowed;';
+            actionsHtml = `
+                <button class="admin-btn-approve" data-action="vendor-approve" data-id="${v.id}" ${approveDisabled} style="${approveStyle}">✅ Approuver</button>
+                <button class="admin-btn-icon admin-btn-danger" data-action="vendor-reject" data-id="${v.id}">❌ Rejeter</button>
+            `;
+        } else if (status === 'approved') {
+            actionsHtml = `<button class="admin-btn-icon admin-btn-danger" data-action="vendor-suspend" data-id="${v.id}">🚫 Suspendre</button>`;
+        } else {
+            const approveDisabled = contractAccepted ? '' : 'disabled';
+            const approveStyle = contractAccepted ? '' : 'opacity:0.5;cursor:not-allowed;';
+            actionsHtml = `<button class="admin-btn-approve" data-action="vendor-approve" data-id="${v.id}" ${approveDisabled} style="${approveStyle}">✅ Réactiver</button>`;
+        }
+
+        html += `
+            <div class="admin-list-item" style="flex-direction:column;align-items:stretch;padding:1rem;">
+                <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">
+                    <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;">
+                        <strong style="color:var(--gold);font-size:1rem;">🏪 ${shopName}</strong>
+                        ${statusBadge}${contractBadge}${delayBadge}
+                    </div>
+                    <div style="font-size:0.8rem;color:var(--text-dim);">Inscrit le ${createdAt}</div>
+                </div>
+                <div style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.3rem;">
+                    📧 ${email} · 📞 ${phone} · 🏙️ ${city} · 🆔 ${iceCin}<br>
+                    🚚 Mode : <strong>${shippingMethod}</strong>
+                </div>
+                <div style="display:flex;justify-content:flex-end;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem;">
+                    ${actionsHtml}
+                </div>
+            </div>
+        `;
+    });
+    container.innerHTML = html;
+
+    container.querySelectorAll('[data-action="vendor-approve"]').forEach(btn => {
+        if (btn.disabled) return;
+        btn.addEventListener('click', () => handleVendorAction(btn.dataset.id, VENDOR_STATUS.APPROVED));
+    });
+    container.querySelectorAll('[data-action="vendor-reject"]').forEach(btn => {
+        btn.addEventListener('click', () => handleVendorAction(btn.dataset.id, VENDOR_STATUS.REJECTED));
+    });
+    container.querySelectorAll('[data-action="vendor-suspend"]').forEach(btn => {
+        btn.addEventListener('click', () => handleVendorAction(btn.dataset.id, VENDOR_STATUS.SUSPENDED));
+    });
+}
+
+async function handleVendorAction(vendorId, newStatus) {
+    const labels = { approved: 'approuver', rejected: 'rejeter', suspended: 'suspendre' };
+    const confirmed = await confirmAction(`Voulez-vous vraiment ${labels[newStatus]} ce vendeur ?`, {
+        title: '⚠️ Confirmation', confirmText: 'Oui', cancelText: 'Annuler',
+        variant: newStatus === 'approved' ? 'primary' : 'danger'
+    });
+    if (!confirmed) return;
+    try {
+        const vendorDoc = await getDoc(doc(db, 'users', vendorId));
+        if (!vendorDoc.exists()) throw new Error('Utilisateur vendeur introuvable.');
+        const vendorData = vendorDoc.data();
+        if (newStatus === VENDOR_STATUS.APPROVED) {
+            if ((vendorData.vendorInfo?.contractStatus || 'pending') !== 'accepted') {
+                throw new Error('Contrat non signé. Approbation refusée.');
+            }
+        }
+        await runTransaction(db, async (tx) => {
+            const userRef = doc(db, 'users', vendorId);
+            const userSnap = await tx.get(userRef);
+            if (!userSnap.exists()) throw new Error('Utilisateur vendeur introuvable.');
+            const data = userSnap.data();
+            const vendorInfo = data.vendorInfo || {};
+            const userUpdate = {
+                'vendorInfo.status': newStatus,
+                'vendorInfo.updatedAt': serverTimestamp()
+            };
+            if (newStatus === VENDOR_STATUS.APPROVED) {
+                userUpdate['vendorInfo.contractStatus'] = CONTRACT_STATUS.ACCEPTED;
+                if (vendorInfo.currentContractId) {
+                    userUpdate['vendorInfo.currentContractId'] = vendorInfo.currentContractId;
+                }
+            }
+            tx.update(userRef, userUpdate);
+            const publicRef = doc(db, 'vendorsPublic', vendorId);
+            const shopName = vendorInfo.shopName || data.name || 'Boutique';
+            const city = vendorInfo.city || '';
+            tx.set(publicRef, {
+                vendorId: vendorId,
+                shopName: String(shopName).slice(0, 60),
+                status: newStatus,
+                city: String(city).slice(0, 80),
+                updatedAt: serverTimestamp()
+            }, { merge: true });
+        });
+        const notifMessages = {
+            approved: { title: '✅ Compte vendeur approuvé', msg: 'Votre compte vendeur a été approuvé. Vous pouvez publier vos produits.' },
+            rejected: { title: '❌ Inscription refusée', msg: 'Votre inscription a été refusée. Contactez le support.' },
+            suspended: { title: '🚫 Compte suspendu', msg: 'Votre compte a été suspendu. Contactez le support.' }
+        };
+        const n = notifMessages[newStatus];
+        if (n) {
+            try {
+                await addDoc(collection(db, 'notifications'), {
+                    userId: vendorId, type: 'vendor_' + newStatus,
+                    title: n.title, message: n.msg, read: false, createdAt: Timestamp.now()
+                });
+            } catch (e) {}
+        }
+        const verb = newStatus === VENDOR_STATUS.APPROVED ? 'approuvé'
+            : newStatus === VENDOR_STATUS.REJECTED ? 'rejeté' : 'suspendu';
+        showToast('✅ Vendeur ' + verb);
+        await loadVendors();
+    } catch (e) {
+        console.error('❌ handleVendorAction:', e);
+        showToast('❌ ' + (e.message || 'Erreur'));
+    }
+}
+
+// ============================================================
+// RETRAITS / PAYOUTS
+// ============================================================
+async function loadPayouts() {
+    const container = document.getElementById('payoutsList');
+    if (!container) return;
+    container.innerHTML = `<div class="admin-loading">⏳ Chargement des demandes...</div>`;
+    try {
+        const q = query(collection(db, "payout_requests"), orderBy("requestedAt", "desc"), limit(200));
+        const snap = await getDocs(q);
+        cachedPayouts = snap.docs.map(d => ({ id: d.id, ...d.data(), requestedAt: toDate(d.data().requestedAt) }));
+        cachedPayouts.sort((a, b) => (b.requestedAt?.getTime() || 0) - (a.requestedAt?.getTime() || 0));
+        renderPayoutsList(cachedPayouts);
+    } catch (e) {
+        console.error(e);
+        container.innerHTML = `<div class="admin-empty" style="color:var(--danger);">Erreur de chargement.</div>`;
+    }
+}
+
+function renderPayoutsList(payouts) {
+    const container = document.getElementById('payoutsList');
+    if (!container) return;
+
+    const releaseBanner = `
+        <div style="background:rgba(46,204,113,0.08);border:1px solid var(--success);border-radius:var(--radius-sm);padding:0.8rem 1rem;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">
+            <div style="font-size:0.85rem;">💸 <strong>Fonds échus</strong> : débloque les gains dont la période d'attente (7j vendeur / 15j Smart) est terminée.</div>
+            <button id="releaseDueFundsBtn" class="admin-btn-primary" style="padding:0.4rem 1rem;font-size:0.8rem;white-space:nowrap;">🔓 Débloquer les fonds échus</button>
+        </div>
+    `;
+
+    if (payouts.length === 0) {
+        container.innerHTML = releaseBanner + `<div class="admin-empty">Aucune demande de retrait.</div>`;
+        attachReleaseDueFundsListener();
+        return;
+    }
+
+    let html = releaseBanner;
+    payouts.forEach(p => {
+        const vendorName = p.vendorName ? escapeHTML(p.vendorName) : (p.vendorId ? `Vendeur ${String(p.vendorId).slice(0, 8)}…` : 'Inconnu');
+        const amount = Number(p.amount) || 0;
+        const method = escapeHTML(p.method || 'Wafacash');
+        const account = escapeHTML(p.account || p.phone || '');
+        const status = p.status || 'pending';
+        const date = p.requestedAt ? p.requestedAt.toLocaleDateString('fr-FR') : '—';
+
+        let statusBadge = '';
+        if (status === 'pending') statusBadge = `<span style="background:var(--warning-bg);color:var(--warning);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">⏳ En attente</span>`;
+        else if (status === 'paid') statusBadge = `<span style="background:var(--success-bg);color:var(--success);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">✅ Payé</span>`;
+        else if (status === 'rejected') statusBadge = `<span style="background:var(--danger-bg);color:var(--danger);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">❌ Rejeté</span>`;
+        else if (status === 'cancelled') statusBadge = `<span style="background:var(--bg-surface);color:var(--text-muted);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">🚫 Annulé</span>`;
+
+        let actionsHtml = '';
+        if (status === 'pending') {
+            actionsHtml = `
+                <button class="admin-btn-approve" data-action="payout-pay" data-id="${p.id}">✅ Marquer payé</button>
+                <button class="admin-btn-icon admin-btn-danger" data-action="payout-reject" data-id="${p.id}">❌ Rejeter</button>
+            `;
+        }
+
+        html += `
+            <div class="admin-list-item" style="flex-direction:column;align-items:stretch;padding:1rem;">
+                <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">
+                    <div><strong style="color:var(--gold);font-size:1rem;">💸 ${formatMAD(amount)}</strong><span style="margin-left:0.5rem;">${statusBadge}</span></div>
+                    <div style="font-size:0.8rem;color:var(--text-dim);">Demandé le ${date}</div>
+                </div>
+                <div style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.5rem;">
+                    🏪 <strong>${vendorName}</strong> · 📞 <code>${account}</code> · 📍 ${method}
+                </div>
+                <div style="display:flex;justify-content:flex-end;gap:0.5rem;margin-top:0.5rem;">${actionsHtml}</div>
+            </div>
+        `;
+    });
+    container.innerHTML = html;
+    container.querySelectorAll('[data-action="payout-pay"]').forEach(btn => btn.addEventListener('click', () => handlePayoutPaid(btn.dataset.id)));
+    container.querySelectorAll('[data-action="payout-reject"]').forEach(btn => btn.addEventListener('click', () => handlePayoutReject(btn.dataset.id)));
+    attachReleaseDueFundsListener();
+}
+
+function attachReleaseDueFundsListener() {
+    const btn = document.getElementById('releaseDueFundsBtn');
+    if (!btn || btn._listenerAttached) return;
+    btn._listenerAttached = true;
+    btn.addEventListener('click', handleReleaseDueFunds);
+}
+
+async function handleReleaseDueFunds() {
+    const btn = document.getElementById('releaseDueFundsBtn');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Déblocage...'; }
+    try {
+        if (typeof releaseDueVendorFunds !== 'function') {
+            throw new Error('Fonction releaseDueVendorFunds introuvable.');
+        }
+        const result = await releaseDueVendorFunds({ batchSize: 400, dryRun: false });
+        if (result.errors && result.errors.length > 0) {
+            showToast(`⚠️ ${result.transactionsReleased} débloquées, ${result.errors.length} erreur(s). Voir console.`, 6000);
+        } else if (result.transactionsReleased === 0) {
+            showToast('ℹ️ Aucun fond à débloquer pour le moment.');
+        } else {
+            showToast(`✅ ${result.transactionsReleased} tx débloquée(s) · ${result.vendorsProcessed} vendeur(s) · ${formatMAD(result.totalReleased)}`, 5000);
+        }
+        await loadPayouts();
+    } catch (e) {
+        console.error('❌ handleReleaseDueFunds:', e);
+        showToast('❌ ' + (e.message || 'Erreur'));
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '🔓 Débloquer les fonds échus'; btn._listenerAttached = true; }
+    }
+}
+
+async function handlePayoutPaid(payoutId) {
+    const confirmed = await confirmAction('Confirmez-vous avoir effectué ce virement ?', {
+        title: '💸 Confirmer le virement', confirmText: 'Oui, payé', cancelText: 'Annuler', variant: 'primary'
+    });
+    if (!confirmed) return;
+    let paidVendorId = null;
+    let paidAmount = 0;
+    try {
+        await runTransaction(db, async (transaction) => {
+            const payoutRef = doc(db, 'payout_requests', payoutId);
+            const payoutSnap = await transaction.get(payoutRef);
+            if (!payoutSnap.exists()) throw new Error('Demande introuvable');
+            const payoutData = payoutSnap.data();
+            if (payoutData.status !== 'pending') throw new Error('Statut inattendu : ' + payoutData.status);
+            const amount = Number(payoutData.amount) || 0;
+            const vendorId = payoutData.vendorId;
+            if (!vendorId || amount <= 0) throw new Error('Données de retrait invalides');
+            paidVendorId = vendorId;
+            paidAmount = amount;
+            const walletRef = doc(db, 'wallets', vendorId);
+            const walletSnap = await transaction.get(walletRef);
+            if (!walletSnap.exists()) throw new Error('Wallet introuvable');
+            const wallet = walletSnap.data();
+            if (Number(wallet.availableBalance) < amount) {
+                throw new Error('Solde insuffisant : disponible ' + formatMAD(wallet.availableBalance) + ', demandé ' + formatMAD(amount) + '.');
+            }
+            transaction.update(walletRef, {
+                availableBalance: increment(-amount),
+                totalWithdrawn: increment(amount),
+                lastUpdated: Timestamp.now()
+            });
+            transaction.update(payoutRef, {
+                status: 'paid',
+                paidAt: Timestamp.now(),
+                paidBy: currentAdmin?.uid || 'admin'
+            });
+            const txRef = doc(collection(db, 'wallet_transactions'));
+            transaction.set(txRef, {
+                vendorId: vendorId, type: 'payout', amount: -amount, status: 'released',
+                payoutRequestId: payoutId,
+                description: 'Retrait payé (admin) — ' + (payoutData.method || 'Wafacash'),
+                createdAt: Timestamp.now(), releasedAt: Timestamp.now()
+            });
+        });
+        if (paidVendorId) {
+            try {
+                await addDoc(collection(db, 'notifications'), {
+                    userId: paidVendorId, type: 'payout_paid',
+                    title: '💸 Retrait payé',
+                    message: 'Votre retrait de ' + formatMAD(paidAmount) + ' a été payé.',
+                    read: false, createdAt: Timestamp.now(), payoutId: payoutId
+                });
+            } catch (e) {}
+        }
+        showToast('✅ Retrait marqué comme payé !');
+        await loadPayouts();
+    } catch (e) {
+        console.error(e);
+        showToast('❌ ' + (e.message || 'Erreur'));
+    }
+}
+
+async function handlePayoutReject(payoutId) {
+    const confirmed = await confirmAction('Rejeter cette demande de retrait ?', {
+        title: '❌ Rejeter', confirmText: 'Rejeter', cancelText: 'Annuler', variant: 'danger'
+    });
+    if (!confirmed) return;
+    try {
+        const payoutRef = doc(db, 'payout_requests', payoutId);
+        const payoutSnap = await getDoc(payoutRef);
+        if (!payoutSnap.exists()) { showToast('⚠️ Demande introuvable'); return; }
+        const payoutData = payoutSnap.data();
+        await updateDoc(payoutRef, {
+            status: 'rejected',
+            rejectedAt: Timestamp.now(),
+            rejectedBy: currentAdmin?.uid || 'admin'
+        });
+        if (payoutData.vendorId) {
+            try {
+                await addDoc(collection(db, 'notifications'), {
+                    userId: payoutData.vendorId, type: 'payout_rejected',
+                    title: '❌ Retrait rejeté',
+                    message: 'Votre demande de retrait de ' + formatMAD(payoutData.amount) + ' a été rejetée.',
+                    read: false, createdAt: Timestamp.now(), payoutId: payoutId
+                });
+            } catch (e) {}
+        }
+        showToast('❌ Demande rejetée');
+        await loadPayouts();
+    } catch (e) {
+        showToast('❌ Erreur : ' + e.message);
+    }
+}
+
+// ============================================================
+// OUTILS — MIGRATIONS
+// ============================================================
 async function handleMigrateCities() {
     const btn = document.getElementById('migrateCitiesBtn');
     const logEl = document.getElementById('migrationLog');
     const log = (msg, isErr = false) => { if (!logEl) return; logEl.classList.add('active'); const span = document.createElement('div'); if (isErr) span.className = 'error'; span.textContent = msg; logEl.appendChild(span); logEl.scrollTop = logEl.scrollHeight; };
     if (logEl) logEl.innerHTML = '';
-    btn.disabled = true;
-    if (!auth.currentUser) { log('❌ Login requis', true); btn.disabled = false; return; }
-
+    if (btn) btn.disabled = true;
+    if (!auth.currentUser) { log('❌ Login requis', true); if (btn) btn.disabled = false; return; }
     let cities;
     try {
         const res = await fetch('/villes.json');
         cities = await res.json();
         log(`✅ ${cities.length} villes chargées`);
-    } catch (e) { log(`❌ ${e.message}`, true); btn.disabled = false; return; }
-
+    } catch (e) { log(`❌ ${e.message}`, true); if (btn) btn.disabled = false; return; }
     const existingSnap = await getDocs(collection(db, "cities"));
     if (!existingSnap.empty) {
-        const confirmed = await confirmAction(`La collection "cities" contient ${existingSnap.size} documents. Ils seront SUPPRIMÉS et remplacés par les ${cities.length} villes de villes.json. Continuer ?`, { title: '⚠️ Migration villes', confirmText: 'Remplacer', cancelText: 'Annuler', variant: 'danger' });
-        if (!confirmed) { btn.disabled = false; return; }
-
+        const confirmed = await confirmAction(`La collection "cities" contient ${existingSnap.size} documents. Ils seront SUPPRIMÉS et remplacés. Continuer ?`, { title: '⚠️ Migration villes', confirmText: 'Remplacer', cancelText: 'Annuler', variant: 'danger' });
+        if (!confirmed) { if (btn) btn.disabled = false; return; }
         log(`⏳ Suppression des anciennes villes...`);
         const oldDocs = existingSnap.docs;
         for (let i = 0; i < oldDocs.length; i += 400) {
@@ -3944,7 +2696,6 @@ async function handleMigrateCities() {
             await batch.commit();
         }
     }
-
     const BATCH = 400;
     let processed = 0;
     for (let i = 0; i < cities.length; i += BATCH) {
@@ -3954,8 +2705,7 @@ async function handleMigrateCities() {
             if (!city.id || (!city.name && !city.nameAr)) continue;
             const ref = doc(db, "cities", String(city.id));
             batch.set(ref, {
-                id: Number(city.id),
-                key: String(city.key || '').toLowerCase().trim(),
+                id: Number(city.id), key: String(city.key || '').toLowerCase().trim(),
                 name: String(city.nameAr || city.name || '').trim(),
                 nameAr: String(city.nameAr || city.name || '').trim(),
                 nameFr: String(city.nameFr || city.name || '').trim(),
@@ -3968,11 +2718,10 @@ async function handleMigrateCities() {
             await batch.commit();
             processed += chunk.length;
             log(`  ✓ ${processed}/${cities.length}`);
-        } catch (e) { log(`❌ batch ${i} : ${e.message}`, true); btn.disabled = false; return; }
+        } catch (e) { log(`❌ batch ${i} : ${e.message}`, true); if (btn) btn.disabled = false; return; }
     }
     log(`\n🎉 Migration OK — ${cities.length} villes`);
-    btn.disabled = false;
-    btn.textContent = '✅ Terminé';
+    if (btn) { btn.disabled = false; btn.textContent = '✅ Terminé'; }
     loadCollectionsStatus();
     loadStats();
     showToast('🎉 Villes migrées');
@@ -3981,40 +2730,25 @@ async function handleMigrateCities() {
 async function handleMigrateLegacyCategories() {
     const btn = document.getElementById('migrateLegacyCategoriesBtn');
     const logEl = document.getElementById('legacyMigrationLog');
-    const log = (msg, isErr = false) => {
-        if (!logEl) return;
-        logEl.classList.add('active');
-        const span = document.createElement('div');
-        if (isErr) span.className = 'error';
-        span.textContent = msg;
-        logEl.appendChild(span);
-        logEl.scrollTop = logEl.scrollHeight;
-    };
-
+    const log = (msg, isErr = false) => { if (!logEl) return; logEl.classList.add('active'); const span = document.createElement('div'); if (isErr) span.className = 'error'; span.textContent = msg; logEl.appendChild(span); logEl.scrollTop = logEl.scrollHeight; };
     if (logEl) logEl.innerHTML = '';
-    btn.disabled = true;
-
-    if (!auth.currentUser) { log('❌ Login requis', true); btn.disabled = false; return; }
-
+    if (btn) btn.disabled = true;
+    if (!auth.currentUser) { log('❌ Login requis', true); if (btn) btn.disabled = false; return; }
     try {
         const snap = await getDocs(collection(db, "products"));
         let updatedCount = 0;
         let batch = writeBatch(db);
         let batchCount = 0;
-
         for (const docSnap of snap.docs) {
             const p = docSnap.data();
             const oldCat = p.category;
             if (!oldCat) continue;
-
             const newCat = normalizeCategory(oldCat);
-
             if (newCat !== oldCat) {
                 batch.update(docSnap.ref, { category: newCat });
                 updatedCount++;
                 batchCount++;
                 log(`🔄 ${p.nameFr || docSnap.id} : ${oldCat} ➔ ${newCat}`);
-
                 if (batchCount === 400) {
                     await batch.commit();
                     log(`💾 Lot de 400 produits sauvegardé...`);
@@ -4023,25 +2757,60 @@ async function handleMigrateLegacyCategories() {
                 }
             }
         }
-
         if (batchCount > 0) await batch.commit();
-
-        if (updatedCount === 0) {
-            log(`\n✅ Aucun produit à migrer.`);
-        } else {
-            log(`\n🎉 Migration terminée ! ${updatedCount} produit(s) mis à jour.`);
-            showToast(`✅ ${updatedCount} produits migrés`);
-        }
+        if (updatedCount === 0) log(`\n✅ Aucun produit à migrer.`);
+        else { log(`\n🎉 Migration terminée ! ${updatedCount} produit(s) mis à jour.`); showToast(`✅ ${updatedCount} produits migrés`); }
     } catch (e) {
         log(`❌ Erreur : ${e.message}`, true);
     } finally {
-        btn.disabled = false;
+        if (btn) btn.disabled = false;
     }
 }
 
 async function handleMigrateSku() {
     const btn = document.getElementById('migrateSkuBtn');
     const logEl = document.getElementById('skuMigrationLog');
+    const log = (msg, isErr = false) => { if (!logEl) return; logEl.classList.add('active'); const span = document.createElement('div'); if (isErr) span.className = 'error'; span.textContent = msg; logEl.appendChild(span); logEl.scrollTop = logEl.scrollHeight; };
+    if (logEl) logEl.innerHTML = '';
+    if (btn) btn.disabled = true;
+    log('⏳ Recherche des produits sans SKU...');
+    try {
+        const snap = await getDocs(collection(db, "products"));
+        let updatedCount = 0;
+        let batch = writeBatch(db);
+        let batchCount = 0;
+        for (const docSnap of snap.docs) {
+            const p = docSnap.data();
+            if (!p.sku) {
+                const newSku = `SW-LEGACY-${String(docSnap.id).slice(-4)}`;
+                batch.update(docSnap.ref, { sku: newSku });
+                updatedCount++;
+                batchCount++;
+                log(`🔄 ${p.nameFr || docSnap.id} ➔ ${newSku}`);
+                if (batchCount === 400) {
+                    await batch.commit();
+                    batchCount = 0;
+                    batch = writeBatch(db);
+                }
+            }
+        }
+        if (batchCount > 0) await batch.commit();
+        if (updatedCount === 0) log(`\n✅ Tous les produits ont déjà un SKU.`);
+        else { log(`\n🎉 ${updatedCount} produit(s) mis à jour.`); showToast(`✅ ${updatedCount} SKU générés`); await loadProducts(true); }
+    } catch (e) {
+        log(`❌ Erreur : ${e.message}`, true);
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+async function handleMigrateProductStatus() {
+    const btn = document.getElementById('migrateProductsStatusBtn');
+    const logEl = document.getElementById('productStatusMigrationLog');
+    if (!btn) {
+        showToast('❌ Bouton "Migration statut Produits" absent du HTML');
+        return;
+    }
     const log = (msg, isErr = false) => {
         if (!logEl) return;
         logEl.classList.add('active');
@@ -4051,43 +2820,32 @@ async function handleMigrateSku() {
         logEl.appendChild(span);
         logEl.scrollTop = logEl.scrollHeight;
     };
-
     if (logEl) logEl.innerHTML = '';
     btn.disabled = true;
-    log('⏳ Recherche des produits sans SKU...');
-
+    log('⏳ Analyse des produits...');
     try {
         const snap = await getDocs(collection(db, "products"));
         let updatedCount = 0;
         let batch = writeBatch(db);
         let batchCount = 0;
-
         for (const docSnap of snap.docs) {
             const p = docSnap.data();
-            if (!p.sku) {
-                const newSku = `SW-LEGACY-${String(docSnap.id).slice(-4)}`;
-                batch.update(docSnap.ref, { sku: newSku });
+            if (!p.status) {
+                batch.update(docSnap.ref, { status: 'approved' });
                 updatedCount++;
                 batchCount++;
-                log(`🔄 ${p.nameFr || docSnap.id} ➔ ${newSku}`);
-
+                log(`✅ ${p.nameFr || docSnap.id} ➔ approuvé`);
                 if (batchCount === 400) {
                     await batch.commit();
+                    log(`💾 Lot de 400 produits sauvegardé...`);
                     batchCount = 0;
                     batch = writeBatch(db);
                 }
             }
         }
-
         if (batchCount > 0) await batch.commit();
-
-        if (updatedCount === 0) {
-            log(`\n✅ Tous les produits ont déjà un SKU.`);
-        } else {
-            log(`\n🎉 ${updatedCount} produit(s) mis à jour avec un SKU.`);
-            showToast(`✅ ${updatedCount} SKU générés`);
-            await loadProducts(true);
-        }
+        if (updatedCount === 0) log(`\n✅ Tous les produits ont déjà un statut.`);
+        else { log(`\n🎉 Migration terminée ! ${updatedCount} produit(s) mis à jour.`); showToast(`✅ ${updatedCount} produits migrés`); await loadProducts(true); }
     } catch (e) {
         log(`❌ Erreur : ${e.message}`, true);
     } finally {
@@ -4098,10 +2856,7 @@ async function handleMigrateSku() {
 async function loadCollectionsStatus() {
     const cols = ['products', 'orders', 'users', 'reviews', 'cities', 'blog', 'coupons'];
     const ids = { products: 'countProducts', orders: 'countOrders', users: 'countUsers', reviews: 'countReviews', cities: 'countCities', blog: 'countBlog', coupons: 'countCoupons' };
-    for (const col of cols) {
-        const el = document.getElementById(ids[col]);
-        if (el) el.textContent = '⏳';
-    }
+    for (const col of cols) { const el = document.getElementById(ids[col]); if (el) el.textContent = '⏳'; }
     for (const col of cols) {
         const el = document.getElementById(ids[col]);
         if (!el) continue;
@@ -4116,15 +2871,15 @@ async function loadCollectionsStatus() {
     }
 }
 
-/* ============================================================
-   ATTACH ALL REMAINING EVENTS
-   ============================================================ */
+// ============================================================
+// ÉVÉNEMENTS FINAUX
+// ============================================================
 function attachAllRemainingEvents() {
     attachProductFormEvents();
 
     /* Produits */
-    document.getElementById('productSearchAdmin')?.addEventListener('input', () => { tempStockFilter = null; tempStatusFilter = null; productsCurrentPage = 1; filterProductsList(); });
-    document.getElementById('productCategoryFilter')?.addEventListener('change', () => { tempStockFilter = null; tempStatusFilter = null; productsCurrentPage = 1; filterProductsList(); });
+    document.getElementById('productSearchAdmin')?.addEventListener('input', () => { tempStockFilter = null; productsCurrentPage = 1; filterProductsList(); });
+    document.getElementById('productCategoryFilter')?.addEventListener('change', () => { tempStockFilter = null; productsCurrentPage = 1; filterProductsList(); });
 
     /* Clients */
     document.getElementById('userSearchAdmin')?.addEventListener('input', filterUsersList);
@@ -4136,23 +2891,37 @@ function attachAllRemainingEvents() {
         });
     });
 
-    /* Vendeurs — filtre status (pending/approved/rejected/suspended) + filtre « outdated » (T9) */
-    document.getElementById('vendorSearchAdmin')?.addEventListener('input', filterVendorsList);
+    /* Vendeurs */
+    document.getElementById('vendorSearchAdmin')?.addEventListener('input', () => {
+        const s = (document.getElementById('vendorSearchAdmin')?.value || '').toLowerCase();
+        renderVendorsList(cachedVendors.filter(v =>
+            (v.vendorInfo?.shopName || v.name || '').toLowerCase().includes(s) ||
+            (v.email || '').toLowerCase().includes(s)
+        ));
+    });
     document.querySelectorAll('[data-vendor-filter]').forEach(btn => {
         btn.addEventListener('click', () => {
             document.querySelectorAll('[data-vendor-filter]').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
-            filterVendorsList();
+            const f = btn.dataset.vendorFilter;
+            renderVendorsList(f === 'all' ? cachedVendors : cachedVendors.filter(v => (v.vendorInfo?.status || 'pending') === f));
         });
     });
 
     /* Retraits */
-    document.getElementById('payoutSearchAdmin')?.addEventListener('input', filterPayoutsList);
+    document.getElementById('payoutSearchAdmin')?.addEventListener('input', () => {
+        const s = (document.getElementById('payoutSearchAdmin')?.value || '').toLowerCase();
+        renderPayoutsList(cachedPayouts.filter(p =>
+            (p.vendorName || '').toLowerCase().includes(s) ||
+            (p.account || p.phone || '').toLowerCase().includes(s)
+        ));
+    });
     document.querySelectorAll('[data-payout-filter]').forEach(btn => {
         btn.addEventListener('click', () => {
             document.querySelectorAll('[data-payout-filter]').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
-            filterPayoutsList();
+            const f = btn.dataset.payoutFilter;
+            renderPayoutsList(f === 'all' ? cachedPayouts : cachedPayouts.filter(p => (p.status || 'pending') === f));
         });
     });
 
@@ -4178,6 +2947,7 @@ function attachAllRemainingEvents() {
     document.getElementById('migrateCitiesBtn')?.addEventListener('click', handleMigrateCities);
     document.getElementById('migrateLegacyCategoriesBtn')?.addEventListener('click', handleMigrateLegacyCategories);
     document.getElementById('migrateSkuBtn')?.addEventListener('click', handleMigrateSku);
+    document.getElementById('migrateProductsStatusBtn')?.addEventListener('click', handleMigrateProductStatus);
     document.getElementById('refreshCollectionsBtn')?.addEventListener('click', loadCollectionsStatus);
 
     /* Comptabilité */
@@ -4190,7 +2960,6 @@ function attachAllRemainingEvents() {
         if (endEl) endEl.disabled = !isCustom;
         if (!isCustom) refreshAccOverview();
     });
-
     const accStartInit = document.getElementById('accStart');
     const accEndInit = document.getElementById('accEnd');
     if (accStartInit) accStartInit.disabled = true;
@@ -4218,8 +2987,8 @@ function attachAllRemainingEvents() {
     attachCouponFormEvents();
 }
 
-/* ============================================================
-   DÉMARRAGE
-   ============================================================ */
+// ============================================================
+// DÉMARRAGE
+// ============================================================
 initAdmin();
-console.log('✅ admin.js chargé — v11.0.0 (T6 + T9 + T10, hash complets, vérification intégrité, badge contrat)');
+console.log('✅ admin.js chargé — v11.0.0 (Marketplace complet : Vendeurs + Payouts + Migration R3)');
