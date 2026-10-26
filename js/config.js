@@ -1,21 +1,18 @@
 /* ============================================================
    js/config.js
    CONFIGURATION CENTRALISÉE - SMART SWI9A
-   Version 8.2.0 — FONDATION COMPLÈTE (Marketplace + Analytics)
-   Session 4 (T9) :
-     - ALERTE 1 : tous les commentaires de ligne (//) convertis en blocs
-       (/* ... */) pour résister à un aplatissement éventuel du fichier.
-     - CONTRACT_RESIGN_GRACE_DAYS ajouté (T9 §11).
-     - Rappel explicite « toute modification de gabarit ⇒ nouvelle version »
-       à côté de CONTRACT_VERSION.
-   Session 3 (T3/T6/T9) :
-     - PRODUCT_STATUS aligné sur le dashboard vendeur
-       (pending_admin_approval, suspended, draft)
-     - CONTRACT_VERSION -> 1.1.0 (T9)
-     - CONTRACT_MIN_SCROLL retiré (obsolète)
-     - getCommissionRate robuste (users/vendorsPublic)
-     - WALLET_TX_STATUS ajouté (T3/T4)
-     - isValidProductStatus() ajouté
+   Version 9.0.0 - Migration Speedaf vers Livo (Lot 1/30)
+
+   Stratégie de migration (Option C hybride) :
+     - Nouveaux noms exposés : *_LIVO, CONFIG.LIVO, LIVO_STATUS_MAP, etc.
+     - Anciens noms CONSERVÉS comme alias dépréciés (même valeur).
+     - Les consommateurs (orders.js, admin.js, vendor-contract-text.js)
+       seront migrés lot par lot ; le retrait définitif des alias se fera
+       dans le lot final « cleanup ».
+
+   RAPPEL IMPORTANT : ce fichier ne contient AUCUN commentaire de ligne
+   (//) pour résister à un aplatissement éventuel. Tous les commentaires
+   sont des blocs (/* ... */).
    ============================================================ */
 
 export const VIDEO_BASE_URL = "https://videos.smartswi9a.top/";
@@ -50,14 +47,12 @@ export const CONFIG = {
         CURRENCY: 'MAD',
         DISCOUNT_THRESHOLD: 3,
         DISCOUNT_PERCENT: 5,
-        /* ⚠️ Sémantique ambiguë : si cart.js teste `subtotal >= FREE_DELIVERY_THRESHOLD`,
-           alors 0 = livraison TOUJOURS gratuite (DELIVERY_FEE_BASE ignoré).
-           Si cart.js teste `if (FREE_DELIVERY_THRESHOLD && subtotal >= ...)`,
-           alors 0 = jamais gratuit. À trancher en lisant cart.js (étape 7). */
+        /* Si FREE_DELIVERY_THRESHOLD = 0, cart.js teste `if (THRESHOLD && subtotal >= THRESHOLD)`
+           donc 0 = jamais gratuit (frais de livraison toujours appliqués). */
         FREE_DELIVERY_THRESHOLD: 0,
         DELIVERY_FEE_BASE: 30,
         DELIVERY_FEE_PER_VENDOR_EXTRA: 0,
-        /* ⚠️ Placeholders légaux — à remplir avant mise en production. */
+        /* Placeholders légaux - à remplir avant mise en production. */
         ICE: 'XXXXXXXXXXXXXXX',
         RC: 'XXXXXX',
         PATENTE: 'XXXXXXXX',
@@ -99,7 +94,7 @@ export const CONFIG = {
         PAYOUT_APPROVED: 'payout_approved', PAYOUT_PAID: 'payout_paid', PAYOUT_REJECTED: 'payout_rejected',
         STORAGE_FEE_CHARGED: 'storage_fee_charged'
     }},
-    /* VENDOR ajouté (E14) : le vendeur ne passe pas par l'OTP EmailJS. */
+    /* Le vendeur ne passe pas par l'OTP EmailJS. */
     SIGNUP_METHODS: { OTP: 'otp', GOOGLE: 'google', FACEBOOK: 'facebook', VENDOR: 'vendor' },
     BREAKPOINTS: { MOBILE_MAX: 480, TABLET_MIN: 481, TABLET_MAX: 1024, DESKTOP_MIN: 1025, LARGE_MIN: 1441 },
 
@@ -115,7 +110,12 @@ export const CONFIG = {
         MIN_WITHDRAWAL: 200,
         MAX_NEGATIVE_BALANCE: -1000,
         SUSPEND_DEBT_DAYS: 30,
+        /* Alias déprécié : conservé pour ne pas casser orders.js / vendor-dashboard.js
+           et le gabarit 1.1.0 de vendor-contract-text.js pendant la transition.
+           Sera retiré au lot « cleanup » final. */
         RETURN_FEE_SPEEDAF: 20,
+        /* Nouveau nom canonique - à utiliser pour tout nouveau code. */
+        RETURN_FEE_LIVO: 20,
         FULFILLMENT_FEE_PER_UNIT_MONTH: 5,
         FULFILLMENT_MAX_UNITS: 10,
         FULFILLMENT_MAX_UNITS_PER_BATCH: 10,
@@ -132,15 +132,15 @@ export const CONFIG = {
         LABEL_FORMAT: 'PDF',
         PRODUCT_VALIDATION_HOURS: 48,
         VENDOR_VALIDATION_HOURS: 72,
-        /* T9 : version courante du contrat — le hash de preuve dépend de cette valeur.
+        /* T9 : version courante du contrat - le hash de preuve dépend de cette valeur.
            Source de vérité textuelle : vendor-contract-text.js (CONTRACT_TEMPLATES).
-           ⚠️ Toute modification d'un gabarit publié ⇒ NOUVELLE version ici + nouveau
-              gabarit dans vendor-contract-text.js. On n'édite JAMAIS un gabarit en place. */
-        CONTRACT_VERSION: '1.1.0',
-        /* T9 §11 : délai de grâce (jours) après une montée de version (majeur/mineur)
-           avant de bloquer la publication de produits et les demandes de retrait.
-           Pendant ce délai, l'ancienne version reste acceptée mais l'admin voit le badge
-           "contrat obsolète" et le vendeur voit la bannière "re-signature requise". */
+           Toute modification d'un gabarit publié ⇒ NOUVELLE version ici + nouveau
+           gabarit dans vendor-contract-text.js. On n'édite JAMAIS un gabarit en place.
+           1.1.0 -> 1.2.0 : changement du vocabulaire (LIVO au lieu de SPEEDAF) et
+           introduction du snapshot RETURN_FEE_LIVO. */
+        CONTRACT_VERSION: '1.2.0',
+        /* Délai de grâce (jours) après une montée de version avant blocage effectif
+           de la publication de produits et des retraits. */
         CONTRACT_RESIGN_GRACE_DAYS: 30,
         ALLOWED_CATEGORIES: []
     },
@@ -149,19 +149,80 @@ export const CONFIG = {
        LOGISTIQUE & SÉCURITÉ (Workers Cloudflare)
        ============================================================ */
     LOGISTICS: {
-        PROVIDER: 'speedaf',
-        PROVIDER_API_URL: 'https://speedaf.ma/api',
-        PROXY_WORKER_URL: 'https://speedaf-proxy.smartswi9a.workers.dev',
-        API_KEY: '',
-        AGENCIES_FIRESTORE_COLLECTION: 'speedaf_agencies',
+        /* Nouveau fournisseur canonique */
+        PROVIDER: 'livo',
+        PROVIDER_API_URL: 'https://rest.livo.ma',
+        PROXY_WORKER_URL: 'https://livo-proxy.smartswi9a.workers.dev',
+        /* Alias déprécié : garder l'ancienne URL Worker pour compatibilité descendante
+           tant que l'infrastructure n'est pas basculée (worker-speedaf-webhook,
+           speedaf-proxy). Retiré au lot « cleanup » final. */
+        LEGACY_PROXY_WORKER_URL: 'https://speedaf-proxy.smartswi9a.workers.dev',
+        AGENCIES_FIRESTORE_COLLECTION: 'livo_agencies',
+        /* Alias déprécié : nom historique conservé tant que la migration des
+           collections n'est pas faite. Retiré au lot « cleanup » final. */
+        LEGACY_AGENCIES_COLLECTION: 'speedaf_agencies',
+        PICKUPS_FIRESTORE_COLLECTION: 'livo_pickups',
+        LEGACY_PICKUPS_COLLECTION: 'speedaf_pickups',
         SENDER_NAME: 'Smart Swi9a',
         SENDER_PHONE: '212656613303',
         USE_FIRESTORE_CITIES: true
     },
+
+    /* ============================================================
+       LIVO - CONFIGURATION SPÉCIFIQUE API ENTREPÔT
+       ============================================================
+       Référence : OpenAPI 1.0.0 (rest.livo.ma).
+       - Authentification : Bearer <api-key> (jamais côté client).
+       - Rate limit global : 5 req/s.
+       - Rate limit /orders/receive : 600 appels/heure par clé.
+       - Format IDs : pr-xxxxxxxx (produit), or-xxxxxxxx (commande),
+         pi-xxxxxxxx (ramassage), it-xxxxxxxx (item), us-xxxxxxxx (livreur).
+       - Dates : JJ/MM/AAAA pour desired_date.
+       - Enveloppe succès : { success: true, data: { ... } }
+       - Enveloppe erreur : { success: false, data: { en_message, fr_message, error, type, details } }
+       ============================================================ */
+    LIVO: {
+        BASE_URL: 'https://rest.livo.ma',
+        /* Identifiants : les NOMS uniquement. Les VALEURS sont injectées via les
+           secrets Cloudflare Worker (env.LIVO_API_KEY, env.LIVO_CLIENT_ID). Ne JAMAIS
+           mettre de vraie clé ici : ce fichier est public (chargé côté navigateur). */
+        API_KEY_ENV_NAME: 'LIVO_API_KEY',
+        CLIENT_ID_ENV_NAME: 'LIVO_CLIENT_ID',
+        WEBHOOK_SECRET_ENV_NAME: 'LIVO_WEBHOOK_SECRET',
+        /* Rate limit : 5 req/s global. Les Workers appliquent un backoff sur 429. */
+        RATE_LIMIT_PER_SECOND: 5,
+        /* Endpoints (chemins relatifs à BASE_URL). */
+        ENDPOINTS: {
+            VERIFY_KEY:      '/auth/keys',
+            ORDER_CREATE:    '/orders',
+            ORDER_LIST:      '/orders',
+            ORDER_GET:       '/orders/{id}',
+            ORDER_EDIT:      '/orders',
+            ORDER_RECEIVE:   '/orders/receive',
+            ORDER_STATUSES:  '/orders/statuses',
+            PICKUP_CREATE:   '/pickups',
+            PICKUP_LIST:     '/pickups',
+            PICKUP_GET:      '/pickups/{id}',
+            PICKUP_EDIT:     '/pickups',
+            PICKUP_DELETE:   '/pickups',
+            PRODUCT_LIST:    '/products',
+            PRODUCT_GET:     '/products/{id}',
+            PRODUCT_STOCK:   '/products/stock',
+            PRODUCT_UPDATE:  '/products',
+            PRODUCT_DELETE:  '/products',
+            CITY_LIST:       '/cities',
+            CITY_GET:        '/cities/{id}',
+            FEES_PUBLIC:     '/fees/public'
+        },
+        /* Pagination par défaut (max 500). */
+        DEFAULT_PAGE_LIMIT: 500,
+        /* Version OpenAPI sur laquelle ce code a été écrit. */
+        API_VERSION: '1.0.0'
+    },
+
     SECURITY: {
         IP_WORKER_URL: 'https://worker-ip.smartswi9a.workers.dev',
         CRON_WORKER_URL: 'https://worker-cron.smartswi9a.workers.dev',
-        ANALYTICS_WORKER_URL: 'https://worker-analytics.smartswi9a.workers.dev',
         CONTRACT_HASH_ALGO: 'SHA-256'
     },
 
@@ -193,20 +254,25 @@ export const CONFIG = {
     AUTOMATION: {
         CRON_EVERY_15MIN_ENABLED: true, CRON_EVERY_HOUR_ENABLED: true,
         CRON_DAILY_ENABLED: true, CRON_MONTHLY_ENABLED: true,
-        SPEEDAF_SYNC_FALLBACK_HOURS: 1, SPEEDAF_SYNC_BATCH_SIZE: 50,
+        /* Nouveaux noms canoniques (Livo). */
+        LIVO_SYNC_FALLBACK_HOURS: 1,
+        LIVO_SYNC_BATCH_SIZE: 50,
+        /* Alias dépréciés : conservés pour ne pas casser les Workers actuels
+           (worker-cron lit actuellement SPEEDAF_SYNC_FALLBACK_HOURS). Retirés au
+           lot « cleanup » final. */
+        SPEEDAF_SYNC_FALLBACK_HOURS: 1,
+        SPEEDAF_SYNC_BATCH_SIZE: 50,
         DEADLINE_WARNING_HOURS: [24, 6], OVERDUE_CHECK_INTERVAL_HOURS: 1,
         WALLET_UNLOCK_AUTO: true, WALLET_UNLOCK_CHECK_HOUR: 0, WALLET_UNLOCK_CHECK_MINUTE: 15,
         STORAGE_BILLING_DAY: 1, STORAGE_BILLING_HOUR: 0, STORAGE_BILLING_MINUTE: 30,
         EMAIL_DAILY_ADMIN_SUMMARY: true, EMAIL_DAILY_VENDOR_SUMMARY: true, EMAIL_MONTHLY_REPORTS: true,
         AUTO_SUSPEND_VENDORS: true, AUTO_SUSPEND_NEGATIVE_BALANCE: true,
         WEBHOOKS_ENABLED: true,
-        /* ⚠️ SÉCURITÉ P0 — NE JAMAIS METTRE LE SECRET RÉEL ICI.
-           Ce champ est chargé côté navigateur, donc PUBLIC. Le secret Speedaf
-           doit vivre UNIQUEMENT dans les variables d'environnement du Worker
-           Cloudflare (worker-cron / proxy Speedaf) — voir wrangler.toml.
-           La valeur ci-dessous est un marqueur : toute comparaison échouera,
-           ce qui est le comportement sûr (rejet par défaut). */
-        WEBHOOK_SPEEDAF_SECRET: '__MIGRATED_TO_WORKER_ENV__',
+        /* SÉCURITÉ : ne JAMAIS mettre le secret réel ici. Ce fichier est public.
+           Le secret webhook Livo vit UNIQUEMENT dans les variables d'environnement
+           du Worker Cloudflare (worker-livo-webhook). La valeur ci-dessous est un
+           marqueur : toute comparaison échouera, comportement sûr (rejet par défaut). */
+        WEBHOOK_LIVO_SECRET: '__MIGRATED_TO_WORKER_ENV__',
         WEBHOOK_RETRY_ATTEMPTS: 3, WEBHOOK_RETRY_DELAY_MS: 5000
     },
     FULFILLMENT_BATCH_PREFIX: 'FUL-', FULFILLMENT_LABEL_PREFIX: 'SSW-FUL-'
@@ -228,8 +294,6 @@ export const SIGNUP_METHODS = CONFIG.SIGNUP_METHODS;
 export const VENDOR_STATUS = { PENDING: 'pending', APPROVED: 'approved', REJECTED: 'rejected', SUSPENDED: 'suspended' };
 export const VENDOR_SHIPPING_METHOD = { DROPOFF: 'dropoff', FULFILLMENT: 'fulfillment' };
 
-/* T6 : aligné sur le dashboard vendeur + admin (pending_admin_approval, suspended, draft).
-   On conserve PENDING pour compatibilité legacy. */
 export const PRODUCT_STATUS = {
     PENDING: 'pending',
     PENDING_ADMIN_APPROVAL: 'pending_admin_approval',
@@ -251,14 +315,15 @@ export const VENDOR_ORDER_STATUS = {
 };
 export const FULFILLMENT_STATUS = {
     PENDING_ADMIN_APPROVAL: 'pending_admin_approval', APPROVED: 'approved', LABEL_SENT: 'label_sent',
-    IN_TRANSIT: 'in_transit', RECEIVED_BY_SPEEDAF: 'received_by_speedaf', ACTIVE_STOCK: 'active_stock',
-    DEPLETED: 'depleted', REJECTED: 'rejected', CANCELLED: 'cancelled', OVERDUE_NOT_SHIPPED: 'overdue_not_shipped'
+    IN_TRANSIT: 'in_transit', RECEIVED_BY_LIVO: 'received_by_livo', ACTIVE_STOCK: 'active_stock',
+    DEPLETED: 'depleted', REJECTED: 'rejected', CANCELLED: 'cancelled', OVERDUE_NOT_SHIPPED: 'overdue_not_shipped',
+    /* Alias déprécié : ancien nom conservé pendant la transition. Retiré au lot « cleanup ». */
+    RECEIVED_BY_SPEEDAF: 'received_by_livo'
 };
 export const WALLET_TX_TYPE = {
     SALE: 'sale', RETURN_FEE: 'return_fee', PAYOUT: 'payout', PENALTY: 'penalty',
     STORAGE_FEE: 'storage_fee', STORAGE_REFUND: 'storage_refund', ADJUSTMENT: 'adjustment'
 };
-/* T3/T4 : statuts d'une transaction wallet (idempotence du déblocage). */
 export const WALLET_TX_STATUS = {
     PENDING: 'pending',
     RELEASED: 'released',
@@ -272,8 +337,10 @@ export const LEDGER_CATEGORY = {
     PRODUCT_SALE_SMART: 'product_sale_smart', PRODUCT_SALE_VENDOR: 'product_sale_vendor',
     SHIPPING_FEE: 'shipping_fee', VENDOR_COMMISSION: 'vendor_commission', STORAGE_FEE: 'storage_fee',
     PENALTY_INCOME: 'penalty_income', COGS_SMART: 'cogs_smart', VENDOR_NET_PAYMENT: 'vendor_net_payment',
-    SPEEDAF_FEE: 'speedaf_fee', RETURN_FEE_ABSORBED: 'return_fee_absorbed', MARKETING: 'marketing',
-    OTHER_EXPENSE: 'other_expense', COD_COLLECTION: 'cod_collection', PAYOUT_TRANSFER: 'payout_transfer', WALLET_UNLOCK: 'wallet_unlock'
+    LIVO_FEE: 'livo_fee', RETURN_FEE_ABSORBED: 'return_fee_absorbed', MARKETING: 'marketing',
+    OTHER_EXPENSE: 'other_expense', COD_COLLECTION: 'cod_collection', PAYOUT_TRANSFER: 'payout_transfer', WALLET_UNLOCK: 'wallet_unlock',
+    /* Alias déprécié : ancien nom conservé pendant la transition. Retiré au lot « cleanup ». */
+    SPEEDAF_FEE: 'livo_fee'
 };
 
 export const STATUS_MIGRATION_MAP = { 'validated': 'confirmed', 'received': 'delivered' };
@@ -296,7 +363,7 @@ export function normalizeCategory(catId) {
     return LEGACY_CATEGORY_MAP[catId] || catId;
 }
 
-/* NOTE : référence CATEGORY_GROUPS déclarée plus bas. Sûr en ES module
+/* Référence CATEGORY_GROUPS déclarée plus bas. Sûr en ES module
    (la fonction n'est exécutée qu'après l'initialisation du module). */
 export function productMatchesCategory(product, categoryId) {
     if (!categoryId || categoryId === 'all') return true;
@@ -354,7 +421,7 @@ export function getProductOwner(product) {
  *
  * T3 : accepte un doc `users` (avec `vendorInfo.commissionRate`) OU
  * un doc `vendorsPublic` / objet partiel (avec `commissionRate` à la racine).
- * Sans objet `vendor` fourni, retourne le taux par défaut — mais les
+ * Sans objet `vendor` fourni, retourne le taux par défaut - mais les
  * appelants critiques (crédit wallet) doivent refuser d'opérer si vendor est null.
  */
 export function getCommissionRate(vendor) {
@@ -371,8 +438,7 @@ export function getCommissionRate(vendor) {
  * Calcule commission + net à percevoir pour un sous-total donné.
  * Arrondi à 2 décimales (MAD).
  * NOTE : la commission se calcule sur le sous-total PRODUITS (hors frais de livraison).
- * Si un coupon est appliqué, `subtotal` doit être le montant APRÈS remise
- * (choix documenté T3 §6).
+ * Si un coupon est appliqué, `subtotal` doit être le montant APRÈS remise.
  */
 export function calculateVendorCommission(subtotal, vendor = null) {
     const rate = getCommissionRate(vendor);
@@ -394,11 +460,13 @@ export function calculateDeliveryFee(vendorCount = 1) {
 }
 
 export function getReturnFeeForVendor() {
-    return CONFIG.VENDOR.RETURN_FEE_SPEEDAF;
+    /* Nouveau nom canonique. L'alias RETURN_FEE_SPEEDAF est conservé pour
+       vendor-contract-text.js (gabarit 1.1.0) mais le code runtime utilise LIVO. */
+    return CONFIG.VENDOR.RETURN_FEE_LIVO;
 }
 
-/* T9 : politique de re-signature — ce helper NE tient PAS compte du délai
-   de grâce (CONFIG.VENDOR.CONTRACT_RESIGN_GRACE_DAYS). Pour savoir si un
+/* NOTE : ce helper NE tient PAS compte du délai de grâce
+   (CONFIG.VENDOR.CONTRACT_RESIGN_GRACE_DAYS). Pour savoir si un
    vendeur doit re-signer et si le blocage est effectif, utiliser
    needsResign() et compareVersions() depuis js/vendor-contract.js. */
 export function canVendorSell(vendor) {
@@ -443,6 +511,49 @@ export function generateVendorLabelBarcode(prefix = 'CMD') {
 
 export const LANGUAGES = ['fr', 'ar', 'en'];
 export const DEFAULT_LANGUAGE = 'fr';
+
+/* ============================================================
+   LIVO - MAPPINGS STATUTS
+   ============================================================
+   Référence : Order.status enum (OpenAPI Livo 1.0.0).
+   - draft, pending, in progress, fulfilled, problem, cancelled,
+     awaiting transfer, awaiting pickup, reported, programmed
+   La correspondance Smart Swi9a est définie dans LIVO_STATUS_MAP.
+   Note : `problem`, `awaiting transfer`, `reported` sont mappés vers
+   SHIPPING avec un flag séparé `livoProblem` posé par orders.js pour
+   conserver l'information brute du fournisseur.
+   ============================================================ */
+export const LIVO_STATUS_MAP = {
+    'draft':             ORDER_STATUS.PENDING,
+    'pending':           ORDER_STATUS.PENDING,
+    'in progress':       ORDER_STATUS.SHIPPING,
+    'fulfilled':         ORDER_STATUS.DELIVERED,
+    'problem':           ORDER_STATUS.SHIPPING,
+    'cancelled':         ORDER_STATUS.CANCELLED,
+    'awaiting transfer': ORDER_STATUS.SHIPPING,
+    'awaiting pickup':   ORDER_STATUS.CONFIRMED,
+    'reported':          ORDER_STATUS.SHIPPING,
+    'programmed':        ORDER_STATUS.CONFIRMED
+};
+
+export const LIVO_RETURN_STATUS_MAP = {
+    'returned-pending':   { status: 'returned', phase: 'pending' },
+    'returned-started':   { status: 'returned', phase: 'started' },
+    'returned-warehouse': { status: 'returned', phase: 'warehouse' },
+    'returned-fully':     { status: 'returned', phase: 'fully' }
+};
+
+/* Helper : convertit un statut Livo en statut Smart. Retourne
+   ORDER_STATUS.SHIPPING par défaut si le statut est inconnu, et
+   positionne un flag `unknown: true` pour permettre aux appelants
+   (orders.js) de logger une alerte admin. */
+export function mapLivoStatusToSmart(livoStatus) {
+    if (!livoStatus) return { status: ORDER_STATUS.PENDING, unknown: false };
+    const key = String(livoStatus).toLowerCase().trim();
+    const mapped = LIVO_STATUS_MAP[key];
+    if (mapped) return { status: mapped, unknown: false };
+    return { status: ORDER_STATUS.SHIPPING, unknown: true };
+}
 
 /* ============================================================
    CATÉGORIES (23 PARENTS + ENFANTS)
@@ -530,4 +641,4 @@ export const SORT_OPTIONS = [
     { value: 'rating', label: 'sortRating' }
 ];
 
-console.log('✅ config.js chargé — v8.2.0 (Marketplace complet, correctifs sécurité + T9)');
+console.log('✅ config.js chargé - v9.0.0 (Lot 1 : Livo + alias dépréciés Speedaf)');
