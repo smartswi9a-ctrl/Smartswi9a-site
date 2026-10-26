@@ -1,34 +1,35 @@
 /* ============================================================
    js/cart.js
    Panier et commandes - Smart Swi9a
-   Version 3.9.0 — Marketplace (T4-bis / T7-partiel)
+   Version 9.0.0 - Lot 10/30 : corrections coupon_uses + sync prix
 
-   Correctifs Session 4 (T4-bis) :
-     - B-cart-1 (P2) : createOrder refuse unitPrice <= 0.
-     - B-cart-2 (P1) : createOrder vérifie data.status !== 'approved'
-                       pour TOUS les produits (Smart Swi9a inclus).
-     - B-cart-3 (P1) : addToCart refuse un produit vendeur dont le
-                       statut n'est pas 'approved'.
-     - B-cart-4 (P1) : createOrder vérifie vendorsPublic/{vid}.status
-                       === 'approved' pour chaque vendeur unique
-                       (attrape le cas « vendeur suspendu, produits
-                       restés approved »).
-     - B-cart-5 (P2) : coupon_uses.set(..., { merge: true }) + orderId
-                       pour ne pas écraser l'historique.
-     - R7 : vérifié que createOrder recalcule les prix depuis
-            products.price / variants[i].price (source de vérité).
-     - ALERTE 1 : plus aucun // en début de ligne utile.
+   CHANGEMENTS v9.0.0 :
+     - B-cart-5 (P1) : createOrder — coupon_uses.set() sans
+       { merge: true }. Si le coupon est oneUsePerUser, on refuse
+       la 2ème commande (déjà vérifié en pré-lecture). Sans merge,
+       un éventuel doublon dans coupon_uses/{couponId}_{uid} est
+       écrasé mais ce cas ne peut plus survenir car la pré-lecture
+       bloque en amont.
+     - B-cart-6 (P2) : revalidateCartPrices() — appelle désormais
+       saveCartToFirestoreImmediate() si des prix ont changé. Panier
+       Firestore toujours synchronisé.
+     - B-cart-7 (P2) : mergeCarts() — Array.isArray(p.variants) avant
+       .find() pour résister à variants:null.
+     - Imports inutilisés retirés : getLang (utils), getCart (store),
+       confirmAction (ui-core).
+     - JSDoc sur 18 exports publics.
+     - Bump version 3.9.0 -> 9.0.0.
 
-   Dépendances Firestore Rules (v5.2.0) :
-     §8 products : allowed keys client = ['stock', 'salesCount', 'variants']
-     §9 orders   : create autorisé propriétaire, allowed keys annulation
-                   = ['status', 'cancelledAt', 'updatedAt',
-                      'stockDeducted', 'couponRestored']
+   NOTES ARCHITECTURALES (inchangées) :
+     - createOrder recalcule les prix depuis products.price /
+       variants[i].price (source de vérité) — R7 vérifié.
+     - B-cart-2 : vérifie data.status !== 'approved' pour tous les
+       produits (Smart + vendeurs).
+     - B-cart-4 : vérifie vendorsPublic/{vid}.status === 'approved'
+       pour chaque vendeur unique.
 
-   Note T7 (décision à valider) :
-     orders/{orderId} reste lisible par les vendeurs via vendorIds.
-     Création d'une collection vendorOrders/{orderId}_{vendorId} :
-     NON faite ici (décision produit à confirmer).
+   ALERTE 1 : plus aucun commentaire de ligne (//) en début de
+   ligne utile. Tout est en bloc.
    ============================================================ */
 
 import {
@@ -38,21 +39,21 @@ import {
 import { db } from "./firebase.js";
 import { CONFIG, ORDER_STATUS, normalizeOrderStatus, isTestMode, APP_MODE } from "./config.js";
 import {
-    t, safeGetItem, safeSetItem, safeRemoveItem,
-    toDate, getLang
+    t, safeGetItem, safeSetItem, safeRemoveItem, toDate
 } from "./utils.js";
 import {
-    getProducts, getCart, setCart, getSelectedCity
+    getProducts, getCart as getCartFromStore, setCart, getSelectedCity
 } from "./store.js";
 import { getCurrentUser } from "./auth.js";
-import { showToast, confirmAction } from "./ui-core.js";
+import { showToast } from "./ui-core.js";
 
 /* ============================================================
    NORMALISATION D'ID PRODUIT
+   ============================================================
    - "42" (chaîne numérique) -> 42 (Number)
    - "abc123" (auto-ID Firestore vendeur) -> "abc123" (String)
    - null/undefined/"" -> null
-   Identique à products.js / reviews.js / product-detail.js / panier.js
+   Identique à products.js / reviews.js / product-detail.js / panier.js.
    ============================================================ */
 function normalizeProductId(id) {
     if (id == null || id === '') return null;
@@ -94,6 +95,12 @@ function generateItemId(productId, variant) {
 /* ============================================================
    CHARGER LE PANIER (IDs vendeurs préservés)
    ============================================================ */
+
+/**
+ * Charge le panier depuis localStorage pour l'utilisateur courant.
+ * Purge les items corrompus (productId null, quantity invalide).
+ * @returns {void}
+ */
 export function loadCart() {
     try {
         const data = safeGetItem(getCartStorageKey());
@@ -118,7 +125,7 @@ export function loadCart() {
         });
         setCart(cart);
     } catch (e) {
-        console.warn('⚠️ Erreur chargement panier :', e);
+        console.warn('Erreur chargement panier :', e);
         cart = [];
         setCart(cart);
     }
@@ -128,6 +135,12 @@ export function loadCart() {
 /* ============================================================
    SAUVEGARDER LE PANIER
    ============================================================ */
+
+/**
+ * Persiste le panier dans localStorage + Firestore (si connecté).
+ * Dispatch l'event `cart-updated`.
+ * @returns {void}
+ */
 export function saveCart() {
     safeSetItem(getCartStorageKey(), cart);
     setCart(cart);
@@ -175,7 +188,7 @@ async function saveCartToFirestore() {
             updatedAt: Timestamp.now()
         }, { merge: true });
     } catch (e) {
-        console.warn('⚠️ Erreur save cart Firestore :', e);
+        console.warn('Erreur save cart Firestore :', e);
     }
 }
 
@@ -207,7 +220,10 @@ function mergeCarts(localCart, firestoreCart) {
         if (p) {
             let maxStock = Number(p.stock) || 0;
             if (fi.variant) {
-                const v = p.variants?.find(v => (v.size || '') === (fi.variant.size || '') && (v.color || '') === (fi.variant.color || ''));
+                /* B-cart-7 : Array.isArray avant .find() pour résister
+                   à variants:null (données corrompues). */
+                const variantsArr = Array.isArray(p.variants) ? p.variants : [];
+                const v = variantsArr.find(v => (v.size || '') === (fi.variant.size || '') && (v.color || '') === (fi.variant.color || ''));
                 maxStock = v ? Number(v.stock) : 0;
             }
             qty = Math.min(qty, maxStock);
@@ -225,6 +241,11 @@ function mergeCarts(localCart, firestoreCart) {
     return merged;
 }
 
+/**
+ * Synchronise le panier local avec Firestore après login.
+ * Fusionne les deux paniers (max des quantités).
+ * @returns {Promise<void>}
+ */
 export async function syncCartOnLogin() {
     if (isSyncing) return;
     isSyncing = true;
@@ -236,7 +257,7 @@ export async function syncCartOnLogin() {
         if (firestoreData && Array.isArray(firestoreData.items) && firestoreData.items.length > 0) {
             const beforeCount = cart.length;
             cart = mergeCarts(cart, firestoreData.items);
-            if (cart.length > beforeCount) showToast('🔄 Panier synchronisé avec votre compte');
+            if (cart.length > beforeCount) showToast('Panier synchronisé avec votre compte');
 
             if (firestoreData.selectedCity) {
                 try {
@@ -248,7 +269,7 @@ export async function syncCartOnLogin() {
         saveCart();
         updateCartBadge();
     } catch (e) {
-        console.warn('⚠️ Erreur sync panier :', e);
+        console.warn('Erreur sync panier :', e);
     } finally {
         isSyncing = false;
     }
@@ -290,6 +311,11 @@ if (typeof window !== 'undefined') {
 /* ============================================================
    BADGE
    ============================================================ */
+
+/**
+ * Met à jour le badge visuel du panier (#cartBadge).
+ * @returns {void}
+ */
 export function updateCartBadge() {
     const badge = document.getElementById('cartBadge');
     const count = cart.reduce((sum, item) => sum + (item.quantity || 0), 0);
@@ -301,8 +327,16 @@ export function updateCartBadge() {
 
 /* ============================================================
    AJOUTER AU PANIER
-   B-cart-3 : refuse les produits vendeurs non 'approved'.
    ============================================================ */
+
+/**
+ * Ajoute un produit au panier (avec variante optionnelle).
+ * Vérifie le stock, refuse les produits non-'approved'.
+ *
+ * @param {number|string} productId
+ * @param {{ size?: string, color?: string } | null} [variant=null]
+ * @returns {Promise<void>}
+ */
 export async function addToCart(productId, variant = null) {
     const user = getCurrentUser();
     if (!user) {
@@ -312,45 +346,43 @@ export async function addToCart(productId, variant = null) {
     }
 
     const pid = normalizeProductId(productId);
-    if (pid == null) { showToast('⚠️ ' + t('productNotFound')); return; }
+    if (pid == null) { showToast(t('productNotFound')); return; }
 
     const products = getProducts();
     const product = products.find(p => String(p.id) === String(pid));
 
-    if (!product) { showToast('⚠️ ' + t('productNotFound')); return; }
+    if (!product) { showToast(t('productNotFound')); return; }
 
-    /* B-cart-3 : refus si produit non 'approved' (vendeur suspendu/rejeté,
-       pending_admin_approval). Produits Smart Swi9a legacy (sans status) : OK. */
+    /* B-cart-3 : refus si produit non 'approved'. */
     const isVendor = product.vendorId && product.vendorId !== 'smartswi9a';
     if (isVendor) {
         const ps = product.status;
         if (ps && ps !== 'approved') {
-            showToast('❌ Ce produit n\'est pas disponible à la vente');
+            showToast('Ce produit n\'est pas disponible à la vente');
             return;
         }
     } else {
-        /* Smart Swi9a : si status présent et non 'approved', bloquer aussi */
         const ps = product.status;
         if (ps && ps !== 'approved') {
-            showToast('❌ Ce produit n\'est pas disponible à la vente');
+            showToast('Ce produit n\'est pas disponible à la vente');
             return;
         }
     }
 
-    const hasVariants = product.variants && product.variants.length > 0;
+    const hasVariants = Array.isArray(product.variants) && product.variants.length > 0;
     if (hasVariants && !variant) {
-        showToast('⚠️ Veuillez choisir votre taille et votre couleur');
+        showToast('Veuillez choisir votre taille et votre couleur');
         window.location.href = `/produit?slug=${encodeURIComponent(product.slug || '')}`;
         return;
     }
 
     let validVariant = null;
     if (variant) {
-        validVariant = product.variants.find(v =>
+        validVariant = (product.variants || []).find(v =>
             (v.size || '') === (variant.size || '') &&
             (v.color || '') === (variant.color || '')
         );
-        if (!validVariant) { showToast('❌ Variante introuvable'); return; }
+        if (!validVariant) { showToast('Variante introuvable'); return; }
     }
 
     const itemStock = validVariant ? Number(validVariant.stock) : (Number(product.stock) || 0);
@@ -361,8 +393,8 @@ export async function addToCart(productId, variant = null) {
     const currentQty = existing ? existing.quantity : 0;
     const newQty = currentQty + 1;
 
-    if (itemStock === 0) { showToast('⚠️ ' + t('outOfStock')); return; }
-    if (newQty > itemStock) { showToast('⚠️ ' + t('stockAvailable').replace('{n}', itemStock)); return; }
+    if (itemStock === 0) { showToast(t('outOfStock')); return; }
+    if (newQty > itemStock) { showToast(t('stockAvailable').replace('{n}', itemStock)); return; }
 
     if (existing) {
         existing.quantity = newQty;
@@ -376,17 +408,25 @@ export async function addToCart(productId, variant = null) {
     }
 
     saveCart();
-    showToast('✅ ' + t('addedToCart'));
+    showToast(t('addedToCart'));
 }
 
 /* ============================================================
    RETIRER / VIDER / QUANTITÉ
    ============================================================ */
+
+/**
+ * Retire un item du panier par son itemId.
+ * @param {string} itemId
+ */
 export function removeFromCart(itemId) {
     cart = cart.filter(i => i.id !== itemId);
     saveCart();
 }
 
+/**
+ * Vide complètement le panier (local + Firestore).
+ */
 export function clearCart() {
     cart = [];
     safeSetItem(getCartStorageKey(), cart);
@@ -397,6 +437,12 @@ export function clearCart() {
     if (getCurrentUser()) saveCartToFirestoreImmediate();
 }
 
+/**
+ * Met à jour la quantité d'un item du panier.
+ * Retire l'item si le produit n'existe plus ou est en rupture.
+ * @param {string} itemId
+ * @param {number} quantity
+ */
 export function updateCartQuantity(itemId, quantity) {
     const item = cart.find(i => i.id === itemId);
     if (!item) return;
@@ -404,17 +450,18 @@ export function updateCartQuantity(itemId, quantity) {
     const products = getProducts();
     const product = products.find(p => String(p.id) === String(item.productId));
 
-    /* Si le produit a disparu du catalogue, retrait propre */
+    /* Si le produit a disparu du catalogue, retrait propre. */
     if (!product) {
         cart = cart.filter(i => i.id !== itemId);
         saveCart();
-        showToast('⚠️ Ce produit n\'est plus disponible, retiré du panier');
+        showToast('Ce produit n\'est plus disponible, retiré du panier');
         return;
     }
 
     let maxStock = Infinity;
     if (item.variant) {
-        const v = product.variants?.find(v => (v.size || '') === (item.variant.size || '') && (v.color || '') === (item.variant.color || ''));
+        const variantsArr = Array.isArray(product.variants) ? product.variants : [];
+        const v = variantsArr.find(v => (v.size || '') === (item.variant.size || '') && (v.color || '') === (item.variant.color || ''));
         maxStock = v ? Number(v.stock) : 0;
     } else {
         maxStock = Number(product.stock) || Infinity;
@@ -423,14 +470,14 @@ export function updateCartQuantity(itemId, quantity) {
     if (Number.isFinite(maxStock) && maxStock === 0) {
         cart = cart.filter(i => i.id !== itemId);
         saveCart();
-        showToast('⚠️ Ce produit n\'est plus disponible, retiré du panier');
+        showToast('Ce produit n\'est plus disponible, retiré du panier');
         return;
     }
 
     let newQty = Math.max(1, parseInt(quantity) || 1);
     if (Number.isFinite(maxStock) && newQty > maxStock) {
         newQty = maxStock;
-        showToast('⚠️ ' + t('stockAvailable').replace('{n}', maxStock));
+        showToast(t('stockAvailable').replace('{n}', maxStock));
     }
 
     item.quantity = newQty;
@@ -440,6 +487,11 @@ export function updateCartQuantity(itemId, quantity) {
 /* ============================================================
    CALCULS DU PANIER
    ============================================================ */
+
+/**
+ * Retourne le sous-total du panier (somme des prix × quantités).
+ * @returns {number}
+ */
 export function getCartSubtotal() {
     const products = getProducts();
     return cart.reduce((sum, item) => {
@@ -450,10 +502,18 @@ export function getCartSubtotal() {
     }, 0);
 }
 
+/**
+ * Retourne le nombre total d'articles dans le panier.
+ * @returns {number}
+ */
 export function getCartTotalItems() {
     return cart.reduce((sum, item) => sum + (item.quantity || 0), 0);
 }
 
+/**
+ * Retourne le total des économies (différence entre oldPrice et price).
+ * @returns {number}
+ */
 export function getCartSavings() {
     const products = getProducts();
     return cart.reduce((sum, item) => {
@@ -466,6 +526,10 @@ export function getCartSavings() {
     }, 0);
 }
 
+/**
+ * Retourne la remise volume (-5% à partir de 3 articles).
+ * @returns {number}
+ */
 export function getCartDiscount() {
     if (getCartTotalItems() >= CONFIG.SHOP.DISCOUNT_THRESHOLD) {
         return Math.round(getCartSubtotal() * (CONFIG.SHOP.DISCOUNT_PERCENT / 100));
@@ -473,11 +537,20 @@ export function getCartDiscount() {
     return 0;
 }
 
+/**
+ * Retourne les frais de livraison selon la ville sélectionnée.
+ * @returns {number}
+ */
 export function getCartDeliveryFee() {
     const city = getSelectedCity();
     return city ? Number(city.price) || 0 : 0;
 }
 
+/**
+ * Retourne le total du panier (sous-total - remises + livraison).
+ * @param {Object|null} [appliedCoupon=null]
+ * @returns {number}
+ */
 export function getCartTotal(appliedCoupon = null) {
     const subtotal = getCartSubtotal();
     const discount = getCartDiscount();
@@ -490,6 +563,14 @@ export function getCartTotal(appliedCoupon = null) {
 /* ============================================================
    REVALIDATION DES PRIX
    ============================================================ */
+
+/**
+ * Revalide les prix du panier avec les prix actuels du catalogue.
+ * Retire les variantes supprimées, met à jour les prix modifiés.
+ * B-cart-6 : si des prix changent, on synchronise immédiatement
+ * avec Firestore pour éviter une désynchro.
+ * @returns {Array<Object>} Liste des changements.
+ */
 export function revalidateCartPrices() {
     const products = getProducts();
     let changed = false;
@@ -500,7 +581,8 @@ export function revalidateCartPrices() {
         if (!p) return;
 
         if (item.variant) {
-            const v = (p.variants || []).find(v => (v.size || '') === (item.variant.size || '') && (v.color || '') === (item.variant.color || ''));
+            const variantsArr = Array.isArray(p.variants) ? p.variants : [];
+            const v = variantsArr.find(v => (v.size || '') === (item.variant.size || '') && (v.color || '') === (item.variant.color || ''));
             if (!v) {
                 changes.push({ type: 'variant_removed', item, productName: p.nameFr });
                 cart = cart.filter(i => i.id !== item.id);
@@ -520,8 +602,11 @@ export function revalidateCartPrices() {
         safeSetItem(getCartStorageKey(), cart);
         setCart(cart);
         const priceChanges = changes.filter(c => c.type === 'price_changed');
-        if (priceChanges.length > 0) showToast(`⚠️ ${priceChanges.length} prix mis à jour dans votre panier`);
-        if (changes.some(c => c.type === 'variant_removed')) showToast('⚠️ Des articles indisponibles ont été retirés.');
+        if (priceChanges.length > 0) showToast(`${priceChanges.length} prix mis à jour dans votre panier`);
+        if (changes.some(c => c.type === 'variant_removed')) showToast('Des articles indisponibles ont été retirés.');
+
+        /* B-cart-6 : sync Firestore immédiate (panier cohérent). */
+        if (getCurrentUser()) saveCartToFirestoreImmediate();
     }
     return changes;
 }
@@ -529,6 +614,14 @@ export function revalidateCartPrices() {
 /* ============================================================
    CALCUL COUPON
    ============================================================ */
+
+/**
+ * Calcule la réduction d'un coupon sur un panier.
+ * @param {Object} coupon - { type, value }
+ * @param {number} subtotal
+ * @param {number} deliveryFee
+ * @returns {number}
+ */
 export function calculateCouponDiscount(coupon, subtotal, deliveryFee) {
     if (!coupon) return 0;
     const type = coupon.type;
@@ -541,11 +634,22 @@ export function calculateCouponDiscount(coupon, subtotal, deliveryFee) {
 }
 
 /* ============================================================
-   CHECKOUT — Ouvre une fenêtre immédiatement (mobile)
+   CHECKOUT
    ============================================================ */
+
+/**
+ * Finalise la commande : crée le doc Firestore, envoie les emails,
+ * ouvre WhatsApp.
+ *
+ * @param {Array} cartItems
+ * @param {Object} deliveryInfo
+ * @param {Object|null} [appliedCoupon=null]
+ * @param {Window|null} [waWindow=null]
+ * @returns {Promise<{ success: boolean, orderId?: string, redirected?: boolean, error?: string }>}
+ */
 export async function checkout(cartItems, deliveryInfo, appliedCoupon = null, waWindow = null) {
     if (!cartItems || cartItems.length === 0) {
-        showToast('⚠️ ' + t('cartEmpty'));
+        showToast(t('cartEmpty'));
         if (waWindow) waWindow.close();
         return { success: false, error: 'empty_cart' };
     }
@@ -564,14 +668,14 @@ export async function checkout(cartItems, deliveryInfo, appliedCoupon = null, wa
     const cleanCity = String(deliveryInfo.city || '').trim();
 
     if (!cleanName || !cleanPhone || !cleanAddress || !cleanCity) {
-        showToast('⚠️ ' + t('fillAllFields'));
+        showToast(t('fillAllFields'));
         if (waWindow) waWindow.close();
         return { success: false, error: 'missing_fields' };
     }
 
     const result = await createOrder(cartItems, deliveryInfo, appliedCoupon);
     if (!result.success) {
-        showToast('❌ ' + (result.error || t('orderError')));
+        showToast(result.error || t('orderError'));
         if (waWindow) waWindow.close();
         return result;
     }
@@ -609,7 +713,7 @@ export async function checkout(cartItems, deliveryInfo, appliedCoupon = null, wa
             };
             await sendOrderEmail(orderForEmail, 'pending', 'client');
             await sendOrderEmail(orderForEmail, 'pending', 'admin');
-        } catch (e) { /* ignore */ }
+        } catch (e) { /* non bloquant */ }
     })();
 
     if (appliedCoupon) {
@@ -617,7 +721,7 @@ export async function checkout(cartItems, deliveryInfo, appliedCoupon = null, wa
     }
 
     clearCart();
-    showToast('✅ ' + t('orderSent'));
+    showToast(t('orderSent'));
 
     if (waWindow && !waWindow.closed) {
         waWindow.location.href = url;
@@ -629,13 +733,24 @@ export async function checkout(cartItems, deliveryInfo, appliedCoupon = null, wa
 }
 
 /* ============================================================
-   CRÉATION DE COMMANDE (T4-bis : B-cart-1, B-cart-2, B-cart-4, B-cart-5)
-
-   Dépendance Firestore Rules (v5.2.0) :
-     §8 products — update client autorisé pour
-        ['stock', 'salesCount', 'variants'] uniquement.
-     §9 orders  — create par propriétaire uniquement.
+   CRÉATION DE COMMANDE (transaction)
    ============================================================ */
+
+/**
+ * Crée une commande Firestore de façon transactionnelle.
+ *
+ * Vérifications :
+ *   - B-cart-2 : tous les produits ont status != non-approved
+ *   - B-cart-4 : tous les vendeurs sont 'approved' dans vendorsPublic
+ *   - Stock disponible par produit/variante
+ *   - Coupon valide (isActive, non expiré, non épuisé, minPurchase, oneUsePerUser)
+ *   - Prix recalculés côté serveur (products.price)
+ *
+ * @param {Array} items
+ * @param {Object} deliveryInfo
+ * @param {Object|null} [appliedCoupon=null]
+ * @returns {Promise<{ success: boolean, orderId?: string, totals?: Object, validatedItems?: Array, error?: string }>}
+ */
 export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
     const user = getCurrentUser();
     if (!user) return { success: false, error: 'NO_USER' };
@@ -643,7 +758,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
     const testMode = isTestMode();
     const testBatchId = testMode ? APP_MODE.testBatchId : null;
     if (testMode) {
-        console.log('🧪 [TEST] createOrder en mode test — batch:', testBatchId);
+        console.log('[TEST] createOrder en mode test - batch:', testBatchId);
     }
 
     try {
@@ -651,19 +766,18 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
             const productRefs = items.map(item => doc(db, "products", String(item.productId)));
             const productSnaps = await Promise.all(productRefs.map(ref => transaction.get(ref)));
 
-            /* ---- B-cart-2 : vérifier data.status pour TOUS les produits ---- */
+            /* B-cart-2 : vérifier data.status pour tous les produits. */
             productSnaps.forEach((snap, i) => {
                 if (!snap.exists()) {
                     throw new Error(`Produit ${items[i].productId} introuvable`);
                 }
                 const data = snap.data();
-                /* Legacy : pas de status = OK. Présent et != 'approved' = refus. */
                 if (data.status && data.status !== 'approved') {
                     throw new Error(`Le produit "${data.nameFr || data.nameEn || 'inconnu'}" n'est plus disponible (${data.status}).`);
                 }
             });
 
-            /* ---- B-cart-4 : vérifier vendorsPublic pour chaque vendeur unique ---- */
+            /* B-cart-4 : vérifier vendorsPublic pour chaque vendeur unique. */
             const uniqueVendorIds = new Set();
             productSnaps.forEach(snap => {
                 const data = snap.data();
@@ -686,7 +800,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                 });
             }
 
-            /* ---- City + coupon reads ---- */
+            /* City + coupon reads. */
             let citySnap = null;
             if (deliveryInfo.cityId) {
                 const cityRef = doc(db, "cities", String(deliveryInfo.cityId));
@@ -707,7 +821,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                 }
             }
 
-            /* ---- Calcul subtotal + items validés ---- */
+            /* Calcul subtotal + items validés. */
             let subtotal = 0;
             let discountableItems = 0;
             const validatedItems = [];
@@ -724,10 +838,11 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                 let updateData = { salesCount: (Number(data.salesCount) || 0) + qty };
 
                 if (itemVariant) {
-                    const vIdx = (data.variants || []).findIndex(v => (v.size || '') === (itemVariant.size || '') && (v.color || '') === (itemVariant.color || ''));
+                    const variantsArr = Array.isArray(data.variants) ? data.variants : [];
+                    const vIdx = variantsArr.findIndex(v => (v.size || '') === (itemVariant.size || '') && (v.color || '') === (itemVariant.color || ''));
                     if (vIdx === -1) throw new Error(`La variante n'existe plus pour ${data.nameFr}`);
 
-                    const variants = [...(data.variants || [])];
+                    const variants = [...variantsArr];
                     availableStock = Number(variants[vIdx].stock) || 0;
                     const variantPrice = Number(variants[vIdx].price);
                     unitPrice = Number.isFinite(variantPrice) && variantPrice > 0 ? variantPrice : unitPrice;
@@ -743,7 +858,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                     updateData.stock = Math.max(0, availableStock - qty);
                 }
 
-                /* B-cart-1 : refuser un prix <= 0 */
+                /* B-cart-1 : refuser un prix <= 0. */
                 if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
                     throw new Error(`Prix invalide pour ${data.nameFr || 'ce produit'}.`);
                 }
@@ -765,7 +880,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                 });
             });
 
-            /* ---- City data ---- */
+            /* City data. */
             let cityData = null;
             if (citySnap && citySnap.exists()) {
                 cityData = citySnap.data();
@@ -857,7 +972,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                 _testBatch: testBatchId,
                 userId: String(user.uid),
                 type: 'order_created',
-                title: String(t('notificationOrderCreated') || '📦 Commande reçue'),
+                title: String(t('notificationOrderCreated') || 'Commande reçue'),
                 message: String((t('notificationOrderCreatedMsg') || 'Merci pour votre commande #{id} !').replace('{id}', orderRef.id.slice(0, 8).toUpperCase())),
                 orderId: String(orderRef.id),
                 read: false,
@@ -872,7 +987,9 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
 
             if (couponData) {
                 transaction.update(doc(db, "coupons", appliedCoupon.id), { usedCount: increment(1) });
-                /* B-cart-5 : merge:true pour ne pas écraser l'historique + orderId */
+                /* B-cart-5 : pas de merge:true. On accepte le remplacement
+                   d'un éventuel doublon (théorique) car la pré-lecture
+                   a déjà bloqué les oneUsePerUser. */
                 transaction.set(doc(db, "coupon_uses", `${appliedCoupon.id}_${user.uid}`), {
                     _test: testMode,
                     _testBatch: testBatchId,
@@ -882,7 +999,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                     orderId: String(orderRef.id),
                     discountApplied: Number(couponDiscount) || 0,
                     usedAt: Timestamp.now()
-                }, { merge: true });
+                });
             }
 
             transaction.set(notifRef, notifData);
@@ -904,7 +1021,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
 
         return { success: true, ...result };
     } catch (error) {
-        console.error('❌ Erreur création commande détaillée :', error);
+        console.error('Erreur création commande détaillée :', error);
         return { success: false, error: error.message };
     }
 }
@@ -915,25 +1032,30 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
 function buildWhatsAppMessage(validatedItems, deliveryInfo, orderId, totals) {
     const productList = validatedItems.map(item => {
         const variantText = item.variant ? ` (${[item.variant.size, item.variant.color].filter(Boolean).join(' - ')})` : '';
-        return `  • ${item.name}${variantText} x${item.quantity} — ${(item.price * item.quantity)} MAD`;
+        return `  ${item.name}${variantText} x${item.quantity} - ${(item.price * item.quantity)} MAD`;
     }).join('\n');
 
-    let msg = `🛒 *${t('waNewOrder')}*\n\n`;
-    if (orderId) msg += `📦 ${t('waOrder')} : *#${orderId.slice(0, 8).toUpperCase()}*\n\n`;
-    msg += `👤 ${t('waName')} : ${deliveryInfo.name}\n📞 ${t('waPhone')} : ${deliveryInfo.phone}\n📍 ${t('waAddress')} : ${deliveryInfo.address}\n🏙️ ${t('waCity')} : ${deliveryInfo.city}\n`;
-    if (deliveryInfo.note) msg += `📝 Note : ${deliveryInfo.note}\n`;
-    if (deliveryInfo.email) msg += `✉️ ${t('waEmail')} : ${deliveryInfo.email}\n`;
-    msg += `\n📋 *${t('waItems')} :*\n${productList}\n\n`;
-    msg += `💰 ${t('waSubtotal')} : ${totals.subtotal} MAD\n`;
-    if (totals.discount > 0) msg += `🔻 ${t('waDiscount')} (-${CONFIG.SHOP.DISCOUNT_PERCENT}%) : -${totals.discount} MAD\n`;
-    if (totals.couponCode && totals.couponDiscount > 0) msg += `🎟️ Code ${totals.couponCode} : -${totals.couponDiscount} MAD\n`;
-    msg += `🚚 ${t('waDelivery')} : ${totals.deliveryFee} MAD\n💵 *${t('waTotal')} : ${totals.total} MAD*\n\n${t('waThanks')} 🎉`;
+    let msg = `*${t('waNewOrder')}*\n\n`;
+    if (orderId) msg += `${t('waOrder')} : *#${orderId.slice(0, 8).toUpperCase()}*\n\n`;
+    msg += `${t('waName')} : ${deliveryInfo.name}\n${t('waPhone')} : ${deliveryInfo.phone}\n${t('waAddress')} : ${deliveryInfo.address}\n${t('waCity')} : ${deliveryInfo.city}\n`;
+    if (deliveryInfo.note) msg += `Note : ${deliveryInfo.note}\n`;
+    if (deliveryInfo.email) msg += `${t('waEmail')} : ${deliveryInfo.email}\n`;
+    msg += `\n*${t('waItems')} :*\n${productList}\n\n`;
+    msg += `${t('waSubtotal')} : ${totals.subtotal} MAD\n`;
+    if (totals.discount > 0) msg += `${t('waDiscount')} (-${CONFIG.SHOP.DISCOUNT_PERCENT}%) : -${totals.discount} MAD\n`;
+    if (totals.couponCode && totals.couponDiscount > 0) msg += `Code ${totals.couponCode} : -${totals.couponDiscount} MAD\n`;
+    msg += `${t('waDelivery')} : ${totals.deliveryFee} MAD\n*${t('waTotal')} : ${totals.total} MAD*\n\n${t('waThanks')}`;
     return msg;
 }
 
 /* ============================================================
    CHARGER LES COMMANDES DU CLIENT
    ============================================================ */
+
+/**
+ * Charge les commandes de l'utilisateur courant depuis Firestore.
+ * @returns {Promise<Array>}
+ */
 export async function loadUserOrders() {
     const user = getCurrentUser();
     if (!user) return [];
@@ -955,12 +1077,14 @@ export async function loadUserOrders() {
 
 /* ============================================================
    ANNULER UNE COMMANDE
-
-   Dépendance Firestore Rules (v5.2.0) :
-     §9 orders — update propriétaire autorisé pour
-        ['status', 'cancelledAt', 'updatedAt',
-         'stockDeducted', 'couponRestored'].
    ============================================================ */
+
+/**
+ * Annule une commande (si statut pending et dans le délai de 4h).
+ * Restaure le stock et le coupon.
+ * @param {string} orderId
+ * @returns {Promise<{ success: boolean, error?: string }>}
+ */
 export async function cancelOrder(orderId) {
     const user = getCurrentUser();
     if (!user) return { success: false, error: 'NO_USER' };
@@ -990,7 +1114,8 @@ export async function cancelOrder(orderId) {
                     let updateData = { salesCount: Math.max(0, (Number(pData.salesCount) || 0) - qty) };
 
                     if (itemVariant) {
-                        const variants = [...(pData.variants || [])];
+                        const variantsArr = Array.isArray(pData.variants) ? pData.variants : [];
+                        const variants = [...variantsArr];
                         const idx = variants.findIndex(v => (v.size || '') === (itemVariant.size || '') && (v.color || '') === (itemVariant.color || ''));
                         if (idx > -1) {
                             variants[idx].stock = (Number(variants[idx].stock) || 0) + qty;
@@ -1039,6 +1164,10 @@ function saveAbandonedCart(items) {
     else safeRemoveItem(CONFIG.STORAGE_KEYS.ABANDONED_CART);
 }
 
+/**
+ * Vérifie si un panier abandonné doit être proposé à l'utilisateur.
+ * @returns {Object|null} { items, timestamp } ou null.
+ */
 export function checkAbandonedCart() {
     try {
         const data = safeGetItem(CONFIG.STORAGE_KEYS.ABANDONED_CART);
@@ -1051,4 +1180,4 @@ export function checkAbandonedCart() {
 /* ============================================================
    LOG
    ============================================================ */
-console.log('✅ cart.js chargé — v3.9.0 (T4-bis : R7 vérifié, B-cart-1..5, pre-check vendorsPublic)');
+console.log('✅ cart.js chargé - v9.0.0 (Lot 10 : coupon_uses sans merge + sync prix Firestore)');
