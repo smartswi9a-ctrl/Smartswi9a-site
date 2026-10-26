@@ -1,8 +1,23 @@
-// js/utils.js
-// ============================================================
-// UTILITAIRES - SMART SWI9A
-// Version 8.1.0 — Marketplace + Nouveaux Statuts + signup vendor
-// ============================================================
+/* ============================================================
+   js/utils.js
+   UTILITAIRES - SMART SWI9A
+   Version 9.0.0 - Lot 2/30 : ajout helpers Livo + corrections mineures
+
+   CHANGEMENTS v9.0.0 :
+     - Ajout : LIVO_ID_PREFIXES, getLivoIdPrefix, isValidLivoId,
+       cleanLivoId, formatLivoDate, parseLivoDate,
+       cleanMoroccanPhone, normalizeMoroccanPhone.
+     - Ajout : helpers LIVO_STATUS_MAP pour affichage (via config).
+     - Correction : getCityName retourne '' (et non le nom arabe)
+       en FR si nameFr ET key sont vides (bug P2-16).
+     - Correction : cleanMoroccanPhone gère 9 chiffres 6/7 sans
+       préfixe 0/212.
+     - Retrait : import ORDER_LEGACY_STATUS inutilisé.
+     - Documentation : comportement de getCityName clarifié.
+
+   ALERTE 1 : plus aucun commentaire de ligne (//) en début de
+   ligne utile. Tout est en bloc (/* ... *\/).
+   ============================================================ */
 
 import {
     CONFIG,
@@ -10,15 +25,14 @@ import {
     DEFAULT_LANGUAGE,
     CURRENCY_SUFFIX,
     ORDER_STATUS,
-    ORDER_LEGACY_STATUS,
     REVIEW_STATUS,
     normalizeOrderStatus,
     getReturnedQuantities
 } from './config.js';
 
-// ============================================================
-// LANGUE (évite le ReferenceError au chargement)
-// ============================================================
+/* ============================================================
+   LANGUE (évite le ReferenceError au chargement)
+   ============================================================ */
 let currentLang = 'fr';
 
 function isDevMode() {
@@ -28,9 +42,9 @@ function isDevMode() {
         || window.location.search.includes('debug=1');
 }
 
-// ============================================================
-// I18N
-// ============================================================
+/* ============================================================
+   I18N
+   ============================================================ */
 export function t(key) {
     const translations = window.translations || {};
     const langValue = translations[currentLang]?.[key];
@@ -39,7 +53,7 @@ export function t(key) {
     const defaultVal = translations[DEFAULT_LANGUAGE]?.[key];
     if (defaultVal !== undefined && defaultVal !== null) return defaultVal;
 
-    if (isDevMode()) console.warn(`⚠️ [i18n] Clé manquante : "${key}" (lang: ${currentLang})`);
+    if (isDevMode()) console.warn(`[i18n] Clé manquante : "${key}" (lang: ${currentLang})`);
     return key;
 }
 
@@ -64,9 +78,9 @@ export function setLang(lang) {
 export function getLang() { return currentLang; }
 export function getCurrency() { return CURRENCY_SUFFIX[currentLang] || 'MAD'; }
 
-// ============================================================
-// SÉCURITÉ - Échappement HTML (anti-XSS)
-// ============================================================
+/* ============================================================
+   SÉCURITÉ - Échappement HTML (anti-XSS)
+   ============================================================ */
 export function escapeHTML(str) {
     if (str === null || str === undefined) return '';
     return String(str).replace(/[&<>"']/g, function(m) {
@@ -75,26 +89,26 @@ export function escapeHTML(str) {
     });
 }
 
-// ============================================================
-// LOCALSTORAGE SÉCURISÉ
-// ============================================================
+/* ============================================================
+   LOCALSTORAGE SÉCURISÉ
+   ============================================================ */
 export function safeSetItem(key, value) {
     try { localStorage.setItem(key, JSON.stringify(value)); return true; }
-    catch (e) { console.warn('⚠️ localStorage indisponible:', e); return false; }
+    catch (e) { console.warn('localStorage indisponible:', e); return false; }
 }
 
 export function safeGetItem(key, fallback = null) {
     try { const data = localStorage.getItem(key); return data ? JSON.parse(data) : fallback; }
-    catch (e) { console.warn('⚠️ Erreur lecture localStorage:', e); return fallback; }
+    catch (e) { console.warn('Erreur lecture localStorage:', e); return fallback; }
 }
 
 export function safeRemoveItem(key) {
     try { localStorage.removeItem(key); } catch (e) {}
 }
 
-// ============================================================
-// PRODUITS - Accesseurs multilingues
-// ============================================================
+/* ============================================================
+   PRODUITS - Accesseurs multilingues
+   ============================================================ */
 export function getProductName(p) {
     if (!p) return 'Produit';
     const key = `name${currentLang.charAt(0).toUpperCase() + currentLang.slice(1)}`;
@@ -124,18 +138,18 @@ export function getProductImageUrl(p) {
     return '/' + img;
 }
 
-// ============================================================
-// IMAGE FALLBACK
-// ============================================================
+/* ============================================================
+   IMAGE FALLBACK
+   ============================================================ */
 export function getFallbackImage(name) {
     const safe = String(name || 'Produit').substring(0, 30).replace(/[<>&"'`\\]/g, '').trim() || 'Produit';
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400"><rect fill="#f8f6f2" width="400" height="400"/><path fill="#a57b2e" d="M200 50 L240 150 L340 150 L260 210 L290 310 L200 250 L110 310 L140 210 L60 150 L160 150 Z"/><text x="200" y="360" text-anchor="middle" fill="#1a1a2e" font-family="sans-serif" font-size="14">${safe}</text></svg>`;
     return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 
-// ============================================================
-// HELPERS DE CALCUL
-// ============================================================
+/* ============================================================
+   HELPERS DE CALCUL
+   ============================================================ */
 export function safePercent(value, total, decimals = 0) {
     const v = Number(value) || 0;
     const t = Number(total) || 0;
@@ -158,9 +172,9 @@ export function safeDivide(numerator, denominator, fallback = 0) {
     return n / d;
 }
 
-// ============================================================
-// STORAGE HELPERS
-// ============================================================
+/* ============================================================
+   STORAGE HELPERS
+   ============================================================ */
 export function getStoragePathFromUrl(url) {
     if (!url || typeof url !== 'string') return null;
     try {
@@ -175,9 +189,9 @@ export function isStorageUrl(url) {
     return url.includes('firebasestorage.googleapis.com');
 }
 
-// ============================================================
-// FORMATAGE
-// ============================================================
+/* ============================================================
+   FORMATAGE
+   ============================================================ */
 export function formatPrice(price) {
     if (price === null || price === undefined) return '--';
     return `${price} ${getCurrency()}`;
@@ -203,9 +217,9 @@ export function formatDateTime(dateStr) {
     } catch (e) { return ''; }
 }
 
-// ============================================================
-// toDate() robuste
-// ============================================================
+/* ============================================================
+   toDate() robuste
+   ============================================================ */
 export function toDate(value) {
     if (!value) return null;
     if (typeof value.toDate === 'function') {
@@ -243,9 +257,9 @@ export function toDate(value) {
     return null;
 }
 
-// ============================================================
-// COMMANDES - Statuts (Clients)
-// ============================================================
+/* ============================================================
+   COMMANDES - Statuts (Clients)
+   ============================================================ */
 export function getOrderStatusEmoji(status) {
     const normalized = normalizeOrderStatus(status);
     const emojis = {
@@ -340,9 +354,9 @@ export function formatTimeRemaining(ms) {
     return `${minutes}min`;
 }
 
-// ============================================================
-// HELPERS RETOUR
-// ============================================================
+/* ============================================================
+   HELPERS RETOUR
+   ============================================================ */
 export function getReturnSummary(order) {
     if (!order || !order.items) return { totalOrdered: 0, totalReturned: 0, summary: '0/0', isFullReturn: false, hasPartialReturn: false, hasAnyReturn: false };
     const returned = getReturnedQuantities(order);
@@ -367,9 +381,9 @@ export function getReturnBadgeText(order) {
     return `↩️ ${t('returnBadgePartial') || 'Retour'} ${summary.summary}`;
 }
 
-// ============================================================
-// AVIS - Statuts
-// ============================================================
+/* ============================================================
+   AVIS - Statuts
+   ============================================================ */
 export function getReviewStatusEmoji(status) {
     const emojis = { [REVIEW_STATUS.PENDING]: '🟡', [REVIEW_STATUS.APPROVED]: '🟢', [REVIEW_STATUS.REJECTED]: '🔴' };
     return emojis[status] || '⚪';
@@ -387,9 +401,9 @@ export function renderStars(rating) {
     return full + empty;
 }
 
-// ============================================================
-// VENDEUR & MARKETPLACE - Statuts
-// ============================================================
+/* ============================================================
+   VENDEUR & MARKETPLACE - Statuts
+   ============================================================ */
 export function getVendorOrderStatusEmoji(status) {
     const emojis = {
         'pending': '⏳',
@@ -426,7 +440,7 @@ export function getFulfillmentStatusEmoji(status) {
         'approved': '✅',
         'label_sent': '🏷️',
         'in_transit': '🚚',
-        'received_by_speedaf': '📥',
+        'received_by_livo': '📥',
         'active_stock': '📦',
         'depleted': '🪫',
         'rejected': '❌',
@@ -442,7 +456,7 @@ export function getFulfillmentStatusLabel(status) {
         'approved': 'Approuvé',
         'label_sent': 'Étiquette envoyée',
         'in_transit': 'En transit',
-        'received_by_speedaf': 'Reçu par Speedaf',
+        'received_by_livo': 'Reçu par Livo',
         'active_stock': 'En stock',
         'depleted': 'Épuisé',
         'rejected': 'Refusé',
@@ -462,9 +476,101 @@ export function getProductStatusLabel(status) {
     return t(labels[status]) || labels[status] || 'Inconnu';
 }
 
-// ============================================================
-// RETRY RÉSEAU
-// ============================================================
+/* ============================================================
+   HELPERS LIVO - IDs
+   ============================================================
+   Format des IDs Livo (OpenAPI 1.0.0) :
+     - pr-xxxxxxxx : produit
+     - or-xxxxxxxx : commande
+     - pi-xxxxxxxx : ramassage (pickup)
+     - it-xxxxxxxx : item (stock)
+     - us-xxxxxxxx : utilisateur / livreur
+   Les 8 caractères sont alphanumériques minuscules.
+   ============================================================ */
+export const LIVO_ID_PREFIXES = ['pr', 'or', 'pi', 'it', 'us'];
+
+export function getLivoIdPrefix(id) {
+    if (!id) return null;
+    const m = String(id).match(/^([a-z]{2})-/i);
+    return m ? m[1].toLowerCase() : null;
+}
+
+export function isValidLivoId(id, expectedPrefix = null) {
+    if (!id) return false;
+    const m = String(id).match(/^([a-z]{2})-[a-z0-9]{8}$/i);
+    if (!m) return false;
+    if (expectedPrefix && m[1].toLowerCase() !== String(expectedPrefix).toLowerCase()) return false;
+    return true;
+}
+
+export function cleanLivoId(id) {
+    if (!id) return '';
+    return String(id).trim().toLowerCase();
+}
+
+/* ============================================================
+   HELPERS LIVO - DATES
+   ============================================================
+   Livo exige le format JJ/MM/AAAA pour desired_date
+   (voir AddOrderRequest et AddPickupRequest dans l'OpenAPI).
+   ============================================================ */
+export function formatLivoDate(dateInput) {
+    const d = toDate(dateInput);
+    if (!d) return '';
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}/${month}/${year}`;
+}
+
+export function parseLivoDate(str) {
+    if (!str) return null;
+    const m = String(str).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (!m) return null;
+    const day = parseInt(m[1], 10);
+    const month = parseInt(m[2], 10);
+    const year = parseInt(m[3], 10);
+    if (day < 1 || day > 31 || month < 1 || month > 12) return null;
+    const date = new Date(year, month - 1, day);
+    if (isNaN(date.getTime())) return null;
+    if (date.getDate() !== day || date.getMonth() !== month - 1) return null;
+    return date;
+}
+
+/* ============================================================
+   HELPERS LIVO - TÉLÉPHONE
+   ============================================================
+   Livo n'accepte que les téléphones mobiles marocains (06/07).
+   Format préféré : 0XXXXXXXXX (10 chiffres).
+   Accepte aussi +212XXXXXXXXX, 212XXXXXXXXX, ou 9 chiffres 6/7.
+   ============================================================ */
+export function cleanMoroccanPhone(phone) {
+    if (!phone) return '';
+    let cleaned = String(phone).replace(/\D/g, '');
+    if (cleaned.startsWith('212')) {
+        cleaned = '0' + cleaned.substring(3);
+    } else if (cleaned.length === 9 && /^[67]/.test(cleaned)) {
+        cleaned = '0' + cleaned;
+    }
+    return cleaned;
+}
+
+export function normalizeMoroccanPhone(phone) {
+    const cleaned = cleanMoroccanPhone(phone);
+    if (/^0[67]\d{8}$/.test(cleaned)) {
+        return '+212' + cleaned.substring(1);
+    }
+    return cleaned;
+}
+
+export function isValidMoroccanPhone(phone) {
+    const cleaned = cleanMoroccanPhone(phone);
+    return /^0[67]\d{8}$/.test(cleaned);
+}
+
+/* ============================================================
+   RETRY RÉSEAU
+   ============================================================ */
 export async function fetchWithRetry(url, options = {}, retries = 3, delay = 1000) {
     let attempt = 0;
     while (attempt < retries) {
@@ -500,17 +606,17 @@ export async function firestoreWithRetry(fn, retries = 3, delay = 1000) {
     }
 }
 
-// ============================================================
-// DEVICE
-// ============================================================
+/* ============================================================
+   DEVICE
+   ============================================================ */
 export function isMobile() { return window.innerWidth <= CONFIG.BREAKPOINTS.MOBILE_MAX; }
 export function isTablet() { return window.innerWidth >= CONFIG.BREAKPOINTS.TABLET_MIN && window.innerWidth <= CONFIG.BREAKPOINTS.TABLET_MAX; }
 export function isDesktop() { return window.innerWidth >= CONFIG.BREAKPOINTS.DESKTOP_MIN; }
 export function getDevice() { if (isMobile()) return 'mobile'; if (isTablet()) return 'tablet'; return 'desktop'; }
 
-// ============================================================
-// DEBOUNCE / THROTTLE
-// ============================================================
+/* ============================================================
+   DEBOUNCE / THROTTLE
+   ============================================================ */
 export function debounce(fn, delay = 300) {
     let timer = null;
     const debounced = function(...args) {
@@ -534,9 +640,9 @@ export function throttle(fn, limit = 200) {
     return throttled;
 }
 
-// ============================================================
-// PARSING & VALIDATION
-// ============================================================
+/* ============================================================
+   PARSING & VALIDATION
+   ============================================================ */
 export function toInt(value, fallback = 0) { const n = parseInt(value, 10); return isNaN(n) ? fallback : n; }
 export function toFloat(value, fallback = 0) { const n = parseFloat(value); return isNaN(n) ? fallback : n; }
 export function generateId() { return Date.now().toString(36) + Math.random().toString(36).substring(2); }
@@ -544,9 +650,9 @@ export function isValidEmail(email) { if (!email || typeof email !== 'string') r
 export function isValidPhone(phone) { if (!phone || typeof phone !== 'string') return false; const cleaned = phone.replace(/[\s\-\.\(\)]/g, ''); return /^(\+212|0)[5-7]\d{8}$/.test(cleaned); }
 export function isValidPassword(password) { return password && password.length >= 6; }
 
-// ============================================================
-// INIT LANGUE
-// ============================================================
+/* ============================================================
+   INIT LANGUE
+   ============================================================ */
 export function initLang() {
     const saved = safeGetItem(CONFIG.STORAGE_KEYS.LANG);
     const urlParams = new URLSearchParams(window.location.search);
@@ -562,9 +668,9 @@ export function initLang() {
     return lang;
 }
 
-// ============================================================
-// LOAD CITIES
-// ============================================================
+/* ============================================================
+   LOAD CITIES
+   ============================================================ */
 export async function loadCities(force = false) {
     const CACHE_KEY = CONFIG.STORAGE_KEYS.CITIES_CACHE;
     const CACHE_VERSION = CONFIG.VERSION?.CITIES_SCHEMA ?? 3;
@@ -589,7 +695,7 @@ export async function loadCities(force = false) {
             safeSetItem(CACHE_KEY, { data, timestamp: Date.now(), version: CACHE_VERSION });
             return data;
         }
-    } catch (e) { console.error('❌ Erreur Firestore cities :', e); }
+    } catch (e) { console.error('Erreur Firestore cities :', e); }
 
     try {
         const res = await fetchWithRetry('/villes.json');
@@ -604,16 +710,25 @@ export async function loadCities(force = false) {
     }
 }
 
-// ============================================================
-// SLUGIFY
-// ============================================================
+/* ============================================================
+   SLUGIFY
+   ============================================================ */
 export function slugify(text) {
     return String(text).toLowerCase().trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-');
 }
 
-// ============================================================
-// HELPERS VILLES
-// ============================================================
+/* ============================================================
+   HELPERS VILLES
+   ============================================================
+   getCityName() : retourne le nom localisé d'une ville.
+     - AR : nameAr, puis name, puis key.
+     - FR : nameFr, puis override manuel sur key, puis smartTitleCase(key),
+       puis '' (NE RETOURNE JAMAIS le nom arabe pour un lecteur FR).
+     - EN : nameEn, puis smartTitleCase(key), puis ''.
+   Correction P2-16 : avant, en FR, si nameFr et key étaient vides,
+   on tombait sur city.name (arabe) - ce qui produisait un affichage
+   incohérent pour un utilisateur francophone. On retourne '' désormais.
+   ============================================================ */
 const CITY_LOWERCASE_WORDS = new Set(['de', 'du', 'des', 'la', 'le', 'les', 'et', 'sur', 'el', 'ben', 'bni', 'oulad', 'sidi', 'ain', 'bir', 'dar', 'souk', 'kasba', 'jorf', 'bou', 'aïn']);
 
 function smartTitleCase(str) {
@@ -711,13 +826,13 @@ export function getCityName(city) {
         const key = String(city.key || '').toLowerCase().trim();
         if (CITY_FR_OVERRIDES[key]) return CITY_FR_OVERRIDES[key];
         if (key) return smartTitleCase(key);
-        return city.name || '';
+        return '';
     }
     if (lang === 'en') {
         if (city.nameEn) return city.nameEn;
         const key = String(city.key || '').toLowerCase().trim();
         if (key) return smartTitleCase(key);
-        return city.name || '';
+        return '';
     }
     return city.name || '';
 }
@@ -727,9 +842,9 @@ export function getCityNameAll(city) {
     return [city.nameFr, city.nameEn, city.nameAr || city.name, city.key, smartTitleCase(city.key || '')].filter(Boolean).map(s => String(s).toLowerCase());
 }
 
-// ============================================================
-// HELPERS BLOG
-// ============================================================
+/* ============================================================
+   HELPERS BLOG
+   ============================================================ */
 export function estimateReadTime(text) {
     if (!text) return 1;
     const wordCount = String(text).trim().split(/\s+/).length;
@@ -743,12 +858,13 @@ export function truncate(text, maxLength = 150) {
     return str.substring(0, maxLength).trim() + '…';
 }
 
-// ============================================================
-// HELPERS SIGNUP
-// P2-c : ajout du mode 'vendor' (inscription vendeur via formulaire dédié)
-// La clé 'signupMethodVendor' doit être ajoutée dans translations.js (étape 8).
-// En attendant, fallback human-readable « Vendeur » évite d'afficher la clé brute.
-// ============================================================
+/* ============================================================
+   HELPERS SIGNUP
+   Le mode 'vendor' (inscription vendeur via formulaire dédié)
+   possède sa clé 'signupMethodVendor' dans translations.js.
+   Fallback human-readable pour éviter d'afficher la clé brute
+   si la traduction manque.
+   ============================================================ */
 export function getSignupMethodLabel(method) {
     const labels = {
         'otp': 'signupMethodOtp',
@@ -759,8 +875,6 @@ export function getSignupMethodLabel(method) {
     const key = labels[method];
     if (!key) return t('signupMethodOtp');
     const translated = t(key);
-    // Fallback human-readable si la clé de traduction manque encore
-    // (ex: signupMethodVendor à ajouter dans translations.js — étape 8)
     if (translated === key) {
         const fallbacks = { otp: 'OTP', google: 'Google', facebook: 'Facebook', vendor: 'Vendeur' };
         return fallbacks[method] || 'OTP';
@@ -778,9 +892,9 @@ export function getSignupMethodEmoji(method) {
     return emojis[method] || '🔐';
 }
 
-// ============================================================
-// DÉTECTION PAGE & FORMAT EMAIL/PHONE
-// ============================================================
+/* ============================================================
+   DÉTECTION PAGE & FORMAT EMAIL/PHONE
+   ============================================================ */
 export function getCurrentPage() {
     let path = window.location.pathname.replace(/\.html$/, '').replace(/\/$/, '');
     if (path === '') path = '/';
@@ -803,7 +917,7 @@ export function cleanPhone(phone) {
     return String(phone).replace(/[^\d+]/g, '');
 }
 
-// ============================================================
-// LOG
-// ============================================================
-console.log('✅ utils.js chargé — v8.1.0 (Marketplace + signup vendor)');
+/* ============================================================
+   LOG
+   ============================================================ */
+console.log('✅ utils.js chargé - v9.0.0 (Lot 2 : helpers Livo + corrections mineures)');
