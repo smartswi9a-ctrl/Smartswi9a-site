@@ -1,25 +1,45 @@
 /* ============================================================
    js/vendor-dashboard.js
    Logique du dashboard vendeur - Smart Swi9a
-   Version 3.1.0 — Session 4 (T9)
+   Version 9.0.0 - Lot 29/30 : B5 + B6 + X3 + validation wallet
+   PARTIE 1/2 : imports, constantes, helpers, modales, produits
 
-   Correctifs T9 :
-     - C5     : signature versionnée (contractId + contractVersion
-                écrits via signResult, plus d'ID legacy en dur).
-     - C5-rec : reprise de transition depuis le dashboard
-                (?contractTransitionFailed=1 → bouton Finaliser).
-     - Bannière re-signature si needsResign(vendorInfo) est vrai,
-                avec délai de grâce CONFIG.VENDOR.CONTRACT_RESIGN_GRACE_DAYS.
-     - Section « Mon contrat » (version, statut, date, langue,
-                Voir / Imprimer / Télécharger / Vérifier l'intégrité).
-     - source ('resign' | 'dashboard') + version + termsSnapshot
-                passés à signVendorContract.
-     - verifyContractIntegrity pour le bouton Vérifier.
-     - ALERTE 1 : plus aucun // en début de ligne utile.
+   CHANGEMENTS v9.0.0 (Partie 1/2) :
+     - B5 (P1) : getResignGraceDeadline lit contractSignedAt en
+       priorité, puis currentContractDoc.data.acceptedAt en
+       fallback. Plus de deadline null par manque d'info.
+     - B6 (P1) : generateSlug fallback product-<timestamp> si
+       slug vide (cas noms arabes).
+     - X3 (P1) : submitProduct écrit vendorName dans products
+       (copie de vendorInfo.shopName, ≤ 60 chars).
+     - B-VD-1 (P2) : submitWithdrawal valide amount >= MIN_WITHDRAWAL
+       et <= availableBalance.
+     - B-VD-2 (P2) : openWithdrawModal utilise Math.max(0, availableBalance)
+       partout pour éviter les montants négatifs.
+     - B-VD-3 (P2) : MINIMAL_FALLBACKS réduits aux 3 clés réellement
+       manquantes (vendor.contract.loadFailed, verifyFail, verifyRunning).
+       Le reste est déjà dans translations-vendor.js (Lot 11) ou
+       translations.js.
+     - JSDoc sur getResignGraceDeadline, generateSlug, submitProduct.
+     - Bump version 3.1.0 -> 9.0.0.
 
-   Importé par : vendor/dashboard.html
-   Dépendances : ./firebase.js, ./auth.js, ./config.js, ./ui-core.js,
-                 ./vendor-contract.js, ./vendor-contract-text.js, ./orders.js
+   CHANGEMENTS v9.0.0 (Partie 2/2, prochain message) :
+     - B5-bis : submitContractSignature et retryContractTransition
+       écrivent contractSignedAt dans users.vendorInfo.
+     - B-VD-5 : openContractModal retire les emojis des boutons.
+     - Dead code cleanup (renderStock, imports inutilisés).
+     - Log final.
+
+   RAPPEL ARCHITECTURAL :
+     - Ce fichier est le dashboard vendeur (/vendor/dashboard.html).
+     - Il gère : produits, commandes, wallet, stock, contrat.
+     - Il communique avec : auth, config, ui-core, vendor-contract,
+       vendor-contract-text, orders, firebase.
+     - Il ne touche PAS au catalogue public (products.js) qui lit
+       en lecture seule.
+
+   ALERTE 1 : plus aucun commentaire de ligne (//) en début de
+   ligne utile. Tout est en bloc.
    ============================================================ */
 
 import {
@@ -75,10 +95,10 @@ let ordersLastDoc = null;
 let ordersHasMore = false;
 let ordersLoading = false;
 
-/* Contrat courant (dernier connu du vendeur) */
+/* Contrat courant (dernier connu du vendeur). */
 let currentContractDoc = null;
 
-/* Contexte de la modale contrat */
+/* Contexte de la modale contrat. */
 let _contractTextHash = null;
 let _contractLang = DEFAULT_LANGUAGE;
 let _contractVersion = null;
@@ -87,8 +107,12 @@ let _contractScrollReached = false;
 let _contractReadOnly = false;
 let _contractSignatureSource = "dashboard";
 
+/* Guard contre les doubles fetch/renders. */
+let _productsLoading = false;
+let _renderInProgress = false;
+
 /* ============================================================
-   HELPERS
+   HELPERS FORMATAGE
    ============================================================ */
 const madFormatter = new Intl.NumberFormat('fr-MA', {
     style: 'currency',
@@ -119,45 +143,61 @@ function safeImageUrl(url) {
     return '';
 }
 
+/**
+ * Retourne la langue courante depuis :
+ *   1. document.documentElement.lang
+ *   2. localStorage[swi9a_lang] via safeGetItem (JSON-safe)
+ *   3. DEFAULT_LANGUAGE
+ * @returns {string} 'fr' | 'ar' | 'en'
+ */
 function getCurrentLanguage() {
     const htmlLang = (document.documentElement.lang || '').toLowerCase();
     if (LANGUAGES.includes(htmlLang)) return htmlLang;
     try {
         const stored = localStorage.getItem(CONFIG.STORAGE_KEYS.LANG);
-        if (stored && LANGUAGES.includes(stored)) return stored;
+        if (stored) {
+            const parsed = JSON.parse(stored);
+            if (typeof parsed === 'string' && LANGUAGES.includes(parsed)) return parsed;
+        }
     } catch (_) { /* ignore */ }
     return DEFAULT_LANGUAGE;
 }
 
-/* Clés i18n propres au dashboard (fallback si absentes de translations.js). */
+/* ============================================================
+   I18N (B-VD-3 : MINIMAL_FALLBACKS réduits aux 3 vraies manquantes)
+   ============================================================
+   Les autres clés vendor.* sont dans :
+     - translations.js (nav, banner, contract.open/close/accept,
+       scrollHint, checkbox, accepted, required, signup.*, field.*)
+     - translations-vendor.js (vendor.contract.*, payout.*,
+       product.status.*, vendor.kpi.*, vendor.nav.*, ...)
+   Ce fallback ne sert QUE pour les clés absentes des deux.
+   ============================================================ */
 const MINIMAL_FALLBACKS = {
-    "vendor.contract.version":              { fr: "Version", ar: "الإصدار", en: "Version" },
-    "vendor.contract.statusUpToDate":       { fr: "✅ Contrat à jour", ar: "✅ العقد محدّث", en: "✅ Contract up to date" },
-    "vendor.contract.statusOutdated":       { fr: "⚠️ Contrat obsolète — re-signature requise", ar: "⚠️ عقد قديم — إعادة التوقيع مطلوبة", en: "⚠️ Outdated contract — re-signature required" },
-    "vendor.contract.statusMissing":        { fr: "❌ Aucun contrat signé", ar: "❌ لا يوجد عقد موقّع", en: "❌ No contract signed" },
-    "vendor.contract.signedOn":             { fr: "Signé le {date}", ar: "موقّع في {date}", en: "Signed on {date}" },
-    "vendor.contract.language":             { fr: "Langue", ar: "اللغة", en: "Language" },
-    "vendor.contract.view":                 { fr: "Voir", ar: "عرض", en: "View" },
-    "vendor.contract.print":                { fr: "Imprimer", ar: "طباعة", en: "Print" },
-    "vendor.contract.download":             { fr: "Télécharger (.txt)", ar: "تنزيل (.txt)", en: "Download (.txt)" },
-    "vendor.contract.verify":               { fr: "Vérifier l'intégrité", ar: "التحقق من السلامة", en: "Verify integrity" },
-    "vendor.contract.verifyOk":             { fr: "✅ Intégrité vérifiée", ar: "✅ تم التحقق من السلامة", en: "✅ Integrity verified" },
-    "vendor.contract.verifyFail":           { fr: "❌ Intégrité non vérifiable : {reason}", ar: "❌ تعذّر التحقق: {reason}", en: "❌ Cannot verify: {reason}" },
-    "vendor.contract.verifyRunning":        { fr: "⏳ Vérification...", ar: "⏳ جارٍ التحقق...", en: "⏳ Verifying..." },
-    "vendor.contract.sectionTitle":         { fr: "Mon contrat", ar: "عقدي", en: "My contract" },
-    "vendor.contract.hash":                 { fr: "Hash SHA-256", ar: "بصمة SHA-256", en: "SHA-256 hash" },
-    "vendor.contract.loadFailed":           { fr: "Impossible de charger le contrat.", ar: "تعذّر تحميل العقد.", en: "Cannot load contract." },
-    "vendor.contract.notFound":             { fr: "Aucun contrat signé à afficher.", ar: "لا يوجد عقد موقّع للعرض.", en: "No signed contract to display." },
-    "vendor.contract.signNow":              { fr: "Signer le contrat", ar: "توقيع العقد", en: "Sign contract" },
-    "vendor.contract.readOnlyHint":         { fr: "Lecture seule — version signée", ar: "قراءة فقط — النسخة الموقّعة", en: "Read-only — signed version" },
-    "vendor.banner.resignRequired":         { fr: "⚠️ Une nouvelle version du contrat ({version}) est disponible. Signez-la avant le {date} pour éviter le blocage de la publication et des retraits.", ar: "⚠️ نسخة جديدة من العقد ({version}) متاحة. وقّعها قبل {date} لتجنّب حظر النشر والسحب.", en: "⚠️ A new contract version ({version}) is available. Sign it before {date} to avoid blocking publishing and withdrawals." },
-    "vendor.banner.resignNow":              { fr: "Signer maintenant", ar: "التوقيع الآن", en: "Sign now" },
-    "vendor.banner.contractTransitionFailed": { fr: "⚠️ Contrat signé mais la synchronisation du profil a échoué. Finalisez pour débloquer votre compte.", ar: "⚠️ تم توقيع العقد لكن مزامنة الملف الشخصي فشلت. أكمل لفتح حسابك.", en: "⚠️ Contract signed but profile sync failed. Complete it to unlock your account." },
-    "vendor.banner.finalize":               { fr: "Finaliser", ar: "إنهاء", en: "Finalize" },
-    "vendor.banner.finalizeSuccess":        { fr: "✅ Profil synchronisé", ar: "✅ تمت مزامنة الملف الشخصي", en: "✅ Profile synchronized" },
-    "vendor.banner.finalizeFail":           { fr: "❌ Synchronisation échouée. Contactez le support.", ar: "❌ فشلت المزامنة. اتصل بالدعم.", en: "❌ Sync failed. Contact support." }
+    "vendor.contract.loadFailed": {
+        fr: "Impossible de charger le contrat.",
+        ar: "تعذّر تحميل العقد.",
+        en: "Cannot load contract."
+    },
+    "vendor.contract.verifyFail": {
+        fr: "Intégrité non vérifiable : {reason}",
+        ar: "تعذّر التحقق: {reason}",
+        en: "Cannot verify: {reason}"
+    },
+    "vendor.contract.verifyRunning": {
+        fr: "Vérification...",
+        ar: "جارٍ التحقق...",
+        en: "Verifying..."
+    }
 };
 
+/**
+ * Traduit une clé i18n via window.translations, avec fallbacks
+ * MINIMAL_FALLBACKS pour les 3 clés vraiment manquantes.
+ * @param {string} key
+ * @param {string} [fallback]
+ * @returns {string}
+ */
 function tr(key, fallback) {
     const lang = getCurrentLanguage();
     const dict = (window.translations && window.translations[lang]) || {};
@@ -212,41 +252,88 @@ function isVendorApproved() {
     return getVendorStatus() === VENDOR_STATUS.APPROVED
         && getContractStatus() === CONTRACT_STATUS.ACCEPTED;
 }
+
 function getPendingWithdrawalTotal() {
     return cachedWithdrawals
         .filter(w => w.status === 'pending')
         .reduce((sum, w) => sum + (Number(w.amount) || 0), 0);
 }
+
+/**
+ * B-VD-2 : retourne le solde virtuel disponible (availableBalance -
+ * pendingWithdrawalTotal), borné à >= 0. Évite d'afficher un solde
+ * négatif quand le wallet a un negativeBalance.
+ * @returns {number}
+ */
 function getVirtualAvailableBalance() {
-    const available = Number(currentWallet?.availableBalance) || 0;
+    const available = Math.max(0, Number(currentWallet?.availableBalance) || 0);
     return Math.max(0, available - getPendingWithdrawalTotal());
 }
+
 function canRequestWithdrawal() {
     if (!isVendorApproved()) return false;
     if (!currentWallet) return false;
     return getVirtualAvailableBalance() >= CONFIG.VENDOR.MIN_WITHDRAWAL;
 }
 
-/* Vérifie si le vendeur doit re-signer (version obsolète) */
+/**
+ * Vérifie si le vendeur doit re-signer (version obsolète).
+ * @returns {boolean}
+ */
 function vendorNeedsResign() {
     const vendorInfo = currentVendor && currentVendor.vendorInfo;
     if (!vendorInfo || !vendorInfo.contractVersion) return false;
     return needsResign(vendorInfo);
 }
 
-/* Renvoie la date limite (grace) avant blocage, ou null */
+/**
+ * Renvoie la date limite (grace) avant blocage, ou null.
+ *
+ * B5 : lit en priorité users.vendorInfo.contractSignedAt (écrit
+ * par submitContractSignature / retryContractTransition en P2/2),
+ * puis fallback sur currentContractDoc.data.acceptedAt (présent
+ * dans le doc contracts/{id}), puis contractVersionChangedAt
+ * (compat si écrit par une future migration).
+ *
+ * @returns {Date|null}
+ */
 function getResignGraceDeadline() {
     const vendorInfo = currentVendor && currentVendor.vendorInfo;
     if (!vendorInfo) return null;
+
     const graceDays = Number(CONFIG.VENDOR.CONTRACT_RESIGN_GRACE_DAYS);
     if (!Number.isFinite(graceDays) || graceDays <= 0) return null;
+
     let baseMs = 0;
+
+    /* Source 1 : contractVersionChangedAt (futur). */
     try {
-        const v = vendorInfo.contractVersionChangedAt || vendorInfo.contractSignedAt;
+        const v = vendorInfo.contractVersionChangedAt;
         if (v && typeof v.toDate === 'function') baseMs = v.toDate().getTime();
-        else if (v && v.seconds) baseMs = v.seconds * 1000;
+        else if (v && typeof v.seconds === 'number') baseMs = v.seconds * 1000;
         else if (v instanceof Date) baseMs = v.getTime();
     } catch (_) { /* ignore */ }
+
+    /* Source 2 (B5) : contractSignedAt sur users.vendorInfo. */
+    if (!baseMs) {
+        try {
+            const v = vendorInfo.contractSignedAt;
+            if (v && typeof v.toDate === 'function') baseMs = v.toDate().getTime();
+            else if (v && typeof v.seconds === 'number') baseMs = v.seconds * 1000;
+            else if (v instanceof Date) baseMs = v.getTime();
+        } catch (_) { /* ignore */ }
+    }
+
+    /* Source 3 (B5) : acceptedAt sur le doc contrat. */
+    if (!baseMs && currentContractDoc && currentContractDoc.data) {
+        try {
+            const v = currentContractDoc.data.acceptedAt;
+            if (v && typeof v.toDate === 'function') baseMs = v.toDate().getTime();
+            else if (v && typeof v.seconds === 'number') baseMs = v.seconds * 1000;
+            else if (v instanceof Date) baseMs = v.getTime();
+        } catch (_) { /* ignore */ }
+    }
+
     if (!baseMs) return null;
     return new Date(baseMs + graceDays * 24 * 3600 * 1000);
 }
@@ -293,12 +380,12 @@ function buildBanners(profile) {
     const contractStatus = vendorInfo.contractStatus || CONTRACT_STATUS.PENDING;
 
     if (params.get('welcome') === '1') {
-        banners.push({ type: 'success', text: tr('vendor.banner.welcome', "🎉 Bienvenue sur votre espace vendeur ! Votre compte est en cours d'examen.") });
+        banners.push({ type: 'success', text: tr('vendor.banner.welcome', "Bienvenue sur votre espace vendeur ! Votre compte est en cours d'examen.") });
     }
     if (params.get('verifyEmail') === '1' && !emailVerified) {
         banners.push({
             type: 'warning',
-            text: tr('vendor.banner.verifyEmail', "📧 Vérifiez votre adresse e-mail : un lien vous a été envoyé. Cliquez sur « Renvoyer » si besoin."),
+            text: tr('vendor.banner.verifyEmail', "Vérifiez votre adresse e-mail : un lien vous a été envoyé. Cliquez sur « Renvoyer » si besoin."),
             actionId: 'resendVerify',
             actionLabel: tr('vendor.banner.resend', 'Renvoyer')
         });
@@ -306,22 +393,21 @@ function buildBanners(profile) {
     if (params.get('contractFailed') === '1' && contractStatus !== CONTRACT_STATUS.ACCEPTED) {
         banners.push({
             type: 'danger',
-            text: tr('vendor.banner.contractFailed', "⚠️ La signature de votre contrat a échoué. Cliquez sur « Signer maintenant » pour finaliser."),
+            text: tr('vendor.banner.contractFailed', "La signature de votre contrat a échoué. Cliquez sur « Signer maintenant » pour finaliser."),
             actionId: 'resignContract',
             actionLabel: tr('vendor.banner.resign', 'Signer maintenant')
         });
     }
-    /* C5-rec : transition users échouée après inscription */
     if (params.get('contractTransitionFailed') === '1' && contractStatus !== CONTRACT_STATUS.ACCEPTED) {
         banners.push({
             type: 'danger',
-            text: tr('vendor.banner.contractTransitionFailed', "⚠️ Contrat signé mais la synchronisation du profil a échoué. Finalisez pour débloquer votre compte."),
+            text: tr('vendor.banner.contractTransitionFailed', "Contrat signé mais la synchronisation du profil a échoué. Finalisez pour débloquer votre compte."),
             actionId: 'retryTransition',
             actionLabel: tr('vendor.banner.finalize', 'Finaliser')
         });
     }
 
-    /* Re-signature requise (montée de version) */
+    /* B5 : re-signature requise (montée de version). */
     if (vendorInfo.contractVersion
         && needsResign(vendorInfo)
         && contractStatus === CONTRACT_STATUS.ACCEPTED) {
@@ -330,7 +416,7 @@ function buildBanners(profile) {
         let text = trParams('vendor.banner.resignRequired', {
             version: currentVer,
             date: graceDeadline ? graceDeadline.toLocaleDateString('fr-FR') : '—'
-        }, '⚠️ Une nouvelle version du contrat ({version}) est disponible.');
+        }, 'Une nouvelle version du contrat ({version}) est disponible.');
         banners.push({
             type: 'warning',
             text,
@@ -349,21 +435,21 @@ function buildBanners(profile) {
     }
 
     if (status === VENDOR_STATUS.PENDING) {
-        banners.push({ type: 'warning', text: tr('vendor.banner.pending', "⏳ Votre compte est en attente d'approbation par l'administration. Certaines fonctionnalités sont limitées.") });
+        banners.push({ type: 'warning', text: tr('vendor.banner.pending', "Votre compte est en attente d'approbation par l'administration. Certaines fonctionnalités sont limitées.") });
     } else if (status === VENDOR_STATUS.REJECTED) {
-        banners.push({ type: 'danger', text: tr('vendor.banner.rejected', "❌ Votre inscription a été refusée. Contactez le support pour plus d'informations.") });
+        banners.push({ type: 'danger', text: tr('vendor.banner.rejected', "Votre inscription a été refusée. Contactez le support pour plus d'informations.") });
     } else if (status === VENDOR_STATUS.SUSPENDED) {
-        banners.push({ type: 'danger', text: tr('vendor.banner.suspended', "🚫 Votre compte est suspendu. Vous ne pouvez plus vendre. Contactez le support.") });
+        banners.push({ type: 'danger', text: tr('vendor.banner.suspended', "Votre compte est suspendu. Vous ne pouvez plus vendre. Contactez le support.") });
     }
 
     if (!currentWallet) {
-        banners.push({ type: 'warning', text: tr('vendor.banner.walletMissing', "⚠️ Votre portefeuille vendeur n'est pas encore initialisé. Contactez le support.") });
+        banners.push({ type: 'warning', text: tr('vendor.banner.walletMissing', "Votre portefeuille vendeur n'est pas encore initialisé. Contactez le support.") });
     }
 
     if (!emailVerified && !params.get('verifyEmail')) {
         banners.push({
             type: 'warning',
-            text: tr('vendor.banner.emailNotVerified', "📧 Votre e-mail n'est pas vérifié. Cliquez sur « Renvoyer » pour recevoir un nouveau lien."),
+            text: tr('vendor.banner.emailNotVerified', "Votre e-mail n'est pas vérifié. Cliquez sur « Renvoyer » pour recevoir un nouveau lien."),
             actionId: 'resendVerify',
             actionLabel: tr('vendor.banner.resend', 'Renvoyer')
         });
@@ -387,10 +473,10 @@ function updateSidebarUI(profile) {
 
     const status = vendorInfo.status || VENDOR_STATUS.PENDING;
     const mapping = {
-        [VENDOR_STATUS.APPROVED]:  { text: '✅ ' + tr('vendor.shop.status.approved',  'Approuvé'),  cls: 'approved' },
-        [VENDOR_STATUS.PENDING]:   { text: '⏳ ' + tr('vendor.shop.status.pending',   'En attente'), cls: 'pending' },
-        [VENDOR_STATUS.REJECTED]:  { text: '❌ ' + tr('vendor.shop.status.rejected',  'Rejeté'),     cls: 'rejected' },
-        [VENDOR_STATUS.SUSPENDED]: { text: '🚫 ' + tr('vendor.shop.status.suspended', 'Suspendu'),   cls: 'suspended' }
+        [VENDOR_STATUS.APPROVED]:  { text: tr('vendor.shop.status.approved',  'Approuvé'),  cls: 'approved' },
+        [VENDOR_STATUS.PENDING]:   { text: tr('vendor.shop.status.pending',   'En attente'), cls: 'pending' },
+        [VENDOR_STATUS.REJECTED]:  { text: tr('vendor.shop.status.rejected',  'Rejeté'),     cls: 'rejected' },
+        [VENDOR_STATUS.SUSPENDED]: { text: tr('vendor.shop.status.suspended', 'Suspendu'),   cls: 'suspended' }
     };
     const entry = mapping[status] || mapping[VENDOR_STATUS.PENDING];
     statusEl.textContent = entry.text;
@@ -407,7 +493,7 @@ async function loadVendorData(uid) {
         const vendorDoc = await getDoc(doc(db, "users", uid));
         profile = vendorDoc.exists() ? vendorDoc.data() : null;
     } catch (e) {
-        console.error('❌ Lecture users/{uid} impossible :', e);
+        console.error('[vendor-dashboard] Lecture users/{uid} impossible :', e);
         throw e;
     }
 
@@ -419,15 +505,20 @@ async function loadVendorData(uid) {
         const walletDoc = await getDoc(doc(db, "wallets", uid));
         wallet = walletDoc.exists() ? walletDoc.data() : null;
     } catch (e) {
-        console.warn('⚠️ Lecture wallets/{uid} impossible :', e);
+        console.warn('[vendor-dashboard] Lecture wallets/{uid} impossible :', e);
         wallet = null;
     }
 
     return { profile, wallet, reason: null };
 }
 
-/* Charge le dernier contrat du vendeur. Priorité : currentContractId,
-   puis fallback legacy contract_<uid>, puis le plus récent des versionnés. */
+/**
+ * Charge le dernier contrat du vendeur. Priorité :
+ *   1. currentContractId (users.vendorInfo.currentContractId)
+ *   2. contract_<uid>_v<contractVersion>
+ *   3. contract_<uid> (legacy)
+ * @returns {Promise<{id: string, data: Object}|null>}
+ */
 async function loadCurrentContract() {
     if (!currentUserUid) return null;
     const vendorInfo = (currentVendor && currentVendor.vendorInfo) || {};
@@ -443,7 +534,7 @@ async function loadCurrentContract() {
                 return { id, data: snap.data() };
             }
         } catch (e) {
-            console.warn('⚠️ Lecture contrat ' + id + ' :', e);
+            console.warn('[vendor-dashboard] Lecture contrat ' + id + ' :', e);
         }
     }
     return null;
@@ -458,12 +549,12 @@ function injectModals() {
     const root = document.createElement('div');
     root.id = 'vModalsRoot';
     root.innerHTML = `
-        <!-- ====== MODALE RETRAIT (T5) ====== -->
+        <!-- MODALE RETRAIT -->
         <div class="modal-overlay" id="vWithdrawModal" style="z-index:2500;">
             <div class="modal" style="max-width:480px;">
                 <button class="modal-close" id="closeWithdrawModal">✕</button>
                 <h2 style="font-family:var(--font-secondary);color:var(--gold);text-align:center;margin-bottom:1rem;">
-                    💸 Demander un retrait
+                    Demander un retrait
                 </h2>
                 <p style="text-align:center;font-size:0.85rem;color:var(--text-muted);margin-bottom:1.2rem;">
                     Solde disponible : <strong id="vWithdrawAvailable">0 MAD</strong><br>
@@ -486,21 +577,21 @@ function injectModals() {
                 <div class="v-field">
                     <label class="v-label">Téléphone / RIB de réception *</label>
                     <input type="text" id="vWithdrawAccount" class="v-input" placeholder="06XXXXXXXX ou RIB complet">
-                    <span class="v-hint" id="vWithdrawHint">6XXXXXXXX pour Wafacash/Cash Plus, 24 chiffres pour RIB.</span>
+                    <span class="v-hint" id="vWithdrawHint">06XXXXXXXX pour Wafacash/Cash Plus, 24 chiffres pour RIB.</span>
                 </div>
                 <div id="vWithdrawError" style="color:var(--danger);font-size:0.85rem;min-height:1.2rem;text-align:center;margin:0.5rem 0;"></div>
                 <button type="button" id="vWithdrawSubmitBtn" class="v-btn v-btn-primary v-btn-block">
-                    ✅ Envoyer la demande
+                    Envoyer la demande
                 </button>
             </div>
         </div>
 
-        <!-- ====== MODALE PRODUIT (T6) ====== -->
+        <!-- MODALE PRODUIT -->
         <div class="modal-overlay" id="vProductModal" style="z-index:2500;">
             <div class="modal" style="max-width:600px; max-height:90vh; overflow-y:auto;">
                 <button class="modal-close" id="closeProductModal">✕</button>
                 <h2 id="vProductModalTitle" style="font-family:var(--font-secondary);color:var(--gold);text-align:center;margin-bottom:1rem;">
-                    ➕ Nouveau produit
+                    Nouveau produit
                 </h2>
                 <input type="hidden" id="vProdId" value="">
                 <div class="v-field">
@@ -536,12 +627,12 @@ function injectModals() {
                 </div>
                 <div id="vProdError" style="color:var(--danger);font-size:0.85rem;min-height:1.2rem;text-align:center;margin:0.5rem 0;"></div>
                 <button type="button" id="vProdSubmitBtn" class="v-btn v-btn-primary v-btn-block">
-                    ✅ Envoyer pour validation
+                    Envoyer pour validation
                 </button>
             </div>
         </div>
 
-        <!-- ====== MODALE CONTRAT ====== -->
+        <!-- MODALE CONTRAT -->
         <div class="modal-overlay" id="vContractModal" style="z-index:2500;">
             <div class="modal" style="max-width:800px;padding:0;display:flex;flex-direction:column;height:90vh;">
                 <div style="padding:1.5rem;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center;">
@@ -558,13 +649,13 @@ function injectModals() {
                             <span>J'ai lu et j'accepte le contrat dans son intégralité</span>
                         </label>
                         <button type="button" id="vContractAcceptBtn" class="v-btn v-btn-primary v-btn-block" disabled style="opacity:0.5;margin-top:0.75rem;">
-                            ✍️ Signer le contrat
+                            Signer le contrat
                         </button>
                     </div>
                     <div id="vContractReadZone" style="display:none;gap:0.5rem;flex-wrap:wrap;justify-content:center;">
-                        <button type="button" id="vContractPrintBtn" class="v-btn v-btn-secondary">🖨️ Imprimer</button>
-                        <button type="button" id="vContractDownloadBtn" class="v-btn v-btn-secondary">⬇️ Télécharger</button>
-                        <button type="button" id="vContractVerifyBtn" class="v-btn v-btn-secondary">🔍 Vérifier l'intégrité</button>
+                        <button type="button" id="vContractPrintBtn" class="v-btn v-btn-secondary">Imprimer</button>
+                        <button type="button" id="vContractDownloadBtn" class="v-btn v-btn-secondary">Télécharger</button>
+                        <button type="button" id="vContractVerifyBtn" class="v-btn v-btn-secondary">Vérifier l'intégrité</button>
                     </div>
                 </div>
             </div>
@@ -574,15 +665,21 @@ function injectModals() {
 }
 
 /* ============================================================
-   T5 — MODALE DE RETRAIT
+   RETRAIT
    ============================================================ */
+
+/**
+ * Ouvre la modale de retrait.
+ * B-VD-2 : utilise Math.max(0, availableBalance).
+ * @returns {void}
+ */
 function openWithdrawModal() {
     if (!canRequestWithdrawal()) {
         const virtualAvailable = getVirtualAvailableBalance();
         if (!isVendorApproved()) {
             showToast(tr('vendor.wallet.withdrawLockedNotApproved', "Compte non approuvé : retrait verrouillé."));
         } else if (getPendingWithdrawalTotal() > 0) {
-            showToast("⏳ Vous avez déjà une demande de retrait en cours. Attendez son traitement.", 4000);
+            showToast("Vous avez déjà une demande de retrait en cours. Attendez son traitement.", 4000);
         } else if (virtualAvailable < CONFIG.VENDOR.MIN_WITHDRAWAL) {
             showToast(tr('vendor.wallet.withdrawLockedMin', "Solde insuffisant (minimum : {min}).").replace('{min}', CONFIG.VENDOR.MIN_WITHDRAWAL + ' MAD'));
         }
@@ -623,6 +720,13 @@ function handleWithdrawMethodChange() {
     }
 }
 
+/**
+ * Soumet une demande de retrait.
+ * B-VD-1 : validation stricte du montant (>= MIN_WITHDRAWAL, <=
+ * availableBalance) + validation du compte (RIB 24 chiffres ou
+ * téléphone 06/07).
+ * @returns {Promise<void>}
+ */
 async function submitWithdrawal() {
     const amountEl = document.getElementById('vWithdrawAmount');
     const methodEl = document.getElementById('vWithdrawMethod');
@@ -662,7 +766,7 @@ async function submitWithdrawal() {
     }
 
     btn.disabled = true;
-    btn.textContent = '⏳ Envoi...';
+    btn.textContent = '...';
 
     try {
         await addDoc(collection(db, "payout_requests"), {
@@ -676,15 +780,15 @@ async function submitWithdrawal() {
             createdAt: serverTimestamp()
         });
 
-        showToast('✅ Demande de retrait envoyée ! Traitement sous 3 jours ouvrés.');
+        showToast('Demande de retrait envoyée ! Traitement sous 3 jours ouvrés.');
         closeWithdrawModal();
         await loadWithdrawals();
         await renderWallet(document.getElementById('vTabContent'));
     } catch (e) {
-        console.error('❌ Erreur retrait :', e);
+        console.error('[vendor-dashboard] Erreur retrait :', e);
         errEl.textContent = 'Erreur : ' + (e.message || 'inconnue');
         btn.disabled = false;
-        btn.textContent = '✅ Envoyer la demande';
+        btn.textContent = 'Envoyer la demande';
     }
 }
 
@@ -702,14 +806,34 @@ async function loadWithdrawals() {
                 return tb - ta;
             });
     } catch (e) {
-        console.warn('⚠️ Lecture retraits échouée :', e);
+        console.warn('[vendor-dashboard] Lecture retraits échouée :', e);
         cachedWithdrawals = [];
     }
 }
 
 /* ============================================================
-   T6 — MODALE PRODUIT (Création + Édition)
+   PRODUITS (B6 + X3)
    ============================================================ */
+
+/**
+ * Génère un slug URL-safe à partir du nom.
+ * B6 : si le slug est vide (ex: nom 100% arabe), fallback
+ * product-<timestamp> pour garantir un slug unique et valide.
+ *
+ * @param {string} str - Nom source.
+ * @returns {string}
+ */
+function generateSlug(str) {
+    const base = String(str || '').toLowerCase().trim()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9\s-]/g, '')
+        .replace(/\s+/g, '-').replace(/-+/g, '-')
+        .replace(/^-+|-+$/g, '');
+    if (base && base.length >= 2) return base;
+    /* Fallback pour noms arabes ou trop courts. */
+    return 'product-' + Date.now().toString(36);
+}
+
 function openProductModal(product = null) {
     const modal = document.getElementById('vProductModal');
     if (!modal) return;
@@ -718,8 +842,8 @@ function openProductModal(product = null) {
 
     const titleEl = document.getElementById('vProductModalTitle');
     const submitBtn = document.getElementById('vProdSubmitBtn');
-    if (titleEl) titleEl.textContent = product ? '✏️ Éditer le produit' : '➕ Nouveau produit';
-    if (submitBtn) submitBtn.textContent = product ? '✅ Mettre à jour' : '✅ Envoyer pour validation';
+    if (titleEl) titleEl.textContent = product ? 'Éditer le produit' : 'Nouveau produit';
+    if (submitBtn) submitBtn.textContent = product ? 'Mettre à jour' : 'Envoyer pour validation';
 
     document.getElementById('vProdId').value = product ? product.id : '';
     document.getElementById('vProdNameFr').value = product ? (product.nameFr || '') : '';
@@ -754,13 +878,14 @@ function closeProductModal() {
     currentProductIdEditing = null;
 }
 
-function generateSlug(str) {
-    return String(str || '').toLowerCase().trim()
-        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^a-z0-9\s-]/g, '')
-        .replace(/\s+/g, '-').replace(/-+/g, '-');
-}
-
+/**
+ * Soumet la création/édition d'un produit.
+ * B6 : utilise generateSlug() avec fallback.
+ * X3 : écrit vendorName (copie de vendorInfo.shopName, ≤ 60 chars)
+ *      dans le doc produit pour permettre l'affichage public sans
+ *      lookup vendorsPublic.
+ * @returns {Promise<void>}
+ */
 async function submitProduct() {
     const nameFr = (document.getElementById('vProdNameFr').value || '').trim();
     const nameAr = (document.getElementById('vProdNameAr').value || '').trim();
@@ -781,7 +906,7 @@ async function submitProduct() {
     if (file && file.size > 2 * 1024 * 1024) { errEl.textContent = 'Image trop lourde (max 2 Mo).'; return; }
 
     btn.disabled = true;
-    btn.textContent = '⏳ Upload...';
+    btn.textContent = 'Upload...';
 
     try {
         let imgUrl = null;
@@ -811,7 +936,10 @@ async function submitProduct() {
             }
         }
 
-        btn.textContent = '⏳ Enregistrement...';
+        btn.textContent = 'Enregistrement...';
+
+        /* X3 : vendorName depuis vendorInfo.shopName. */
+        const vendorName = (currentVendor?.vendorInfo?.shopName || currentVendor?.name || 'Vendeur').slice(0, 60);
 
         if (currentProductIdEditing) {
             const snap = await getDoc(doc(db, "products", currentProductIdEditing));
@@ -828,7 +956,7 @@ async function submitProduct() {
                     stock: stock,
                     updatedAt: serverTimestamp()
                 });
-                showToast('✅ Stock mis à jour.');
+                showToast('Stock mis à jour.');
             } else {
                 await updateDoc(doc(db, "products", currentProductIdEditing), {
                     nameFr,
@@ -839,13 +967,15 @@ async function submitProduct() {
                     descFr: descFr,
                     img: imgUrl,
                     stock: stock,
+                    vendorName,  /* X3 */
                     status: PRODUCT_STATUS.PENDING_ADMIN_APPROVAL,
                     updatedAt: serverTimestamp()
                 });
-                showToast('✅ Produit mis à jour et renvoyé pour validation.');
+                showToast('Produit mis à jour et renvoyé pour validation.');
             }
         } else {
             const ts = Date.now();
+            /* B6 : slug avec fallback. */
             const slug = generateSlug(nameFr) + '-' + ts.toString(36).slice(-4);
             const productData = {
                 nameFr,
@@ -875,39 +1005,44 @@ async function submitProduct() {
                 img: imgUrl,
                 gallery: [],
                 vendorId: currentUserUid,
+                vendorName,  /* X3 */
                 status: PRODUCT_STATUS.PENDING_ADMIN_APPROVAL,
                 createdAt: serverTimestamp(),
                 updatedAt: serverTimestamp()
             };
             await addDoc(collection(db, "products"), productData);
-            showToast('✅ Produit envoyé pour validation admin.');
+            showToast('Produit envoyé pour validation admin.');
         }
 
         closeProductModal();
         await loadVendorProducts();
         await renderProducts(document.getElementById('vTabContent'));
     } catch (e) {
-        console.error('❌ Erreur création/édition produit :', e);
+        console.error('[vendor-dashboard] Erreur création/édition produit :', e);
         errEl.textContent = 'Erreur : ' + (e.message || 'inconnue');
         btn.disabled = false;
-        btn.textContent = currentProductIdEditing ? '✅ Mettre à jour' : '✅ Envoyer pour validation';
+        btn.textContent = currentProductIdEditing ? 'Mettre à jour' : 'Envoyer pour validation';
     }
 }
 
 async function loadVendorProducts() {
+    if (_productsLoading) return;
+    _productsLoading = true;
     try {
         const q = query(collection(db, "products"), where("vendorId", "==", currentUserUid));
         const snap = await getDocs(q);
         cachedProducts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     } catch (e) {
-        console.warn('⚠️ Lecture products échouée :', e);
+        console.warn('[vendor-dashboard] Lecture products échouée :', e);
         cachedProducts = [];
+    } finally {
+        _productsLoading = false;
     }
 }
 
 async function deleteVendorProduct(productId) {
     const ok = await confirmAction('Supprimer ce produit définitivement ?', {
-        title: '🗑️ Supprimer', confirmText: 'Supprimer', cancelText: 'Annuler', variant: 'danger'
+        title: 'Supprimer', confirmText: 'Supprimer', cancelText: 'Annuler', variant: 'danger'
     });
     if (!ok) return;
     try {
@@ -928,21 +1063,57 @@ async function deleteVendorProduct(productId) {
             }
         }
         await deleteDoc(docRef);
-        showToast('🗑️ Produit supprimé');
+        showToast('Produit supprimé');
         await loadVendorProducts();
         await renderProducts(document.getElementById('vTabContent'));
     } catch (e) {
-        console.error(e);
-        showToast('❌ ' + (e.message || 'Erreur'));
+        console.error('[vendor-dashboard] Erreur suppression produit :', e);
+        showToast(e.message || 'Erreur');
     }
 }
 
 /* ============================================================
-   MODALE CONTRAT (Signature + Lecture seule)
+   FIN PARTIE 1/2
+   ------------------------------------------------------------
+   Partie 2/2 (prochain message) contient :
+     - openContractModal (avec contractSignedAt écrit)
+     - closeContractModal
+     - checkContractScroll / updateContractAcceptButton
+     - submitContractSignature (avec contractSignedAt écrit)
+     - retryContractTransition (avec contractSignedAt écrit)
+     - renderContractSection
+     - handleViewContract / handlePrintContract / handleDownloadContract
+     - handleVerifyContract
+     - renderOverview / renderProducts / renderOrders / renderStock / renderWallet
+     - renderTab
+     - setActiveTab / closeMobileSidebar / setupNavigation
+     - createBannerHandlers
+     - attachModalListeners
+     - init finale (DOMContentLoaded)
+     - log final
+   ============================================================ */
+   /* ============================================================
+   PARTIE 2/2 — Contrat, rendu des onglets, navigation, init
    ============================================================ */
 
-/* Ouvre la modale pour signer un contrat (modeSignature=true) ou
-   pour consulter un contrat signé (modeSignature=false). */
+/* ============================================================
+   MODALE CONTRAT (signature + lecture seule)
+   ============================================================ */
+
+/**
+ * Ouvre la modale contrat.
+ *
+ * modeSignature=true : calcule la pré-signature (texte + hash +
+ * version + snapshot), affiche le texte, active le scroll-safety,
+ * mode signature.
+ *
+ * modeSignature=false : reconstruit le texte depuis le snapshot
+ * du contrat courant (mode lecture seule, boutons imprimer /
+ * télécharger / vérifier).
+ *
+ * @param {boolean} [modeSignature=true]
+ * @returns {Promise<void>}
+ */
 async function openContractModal(modeSignature = true) {
     const modal = document.getElementById('vContractModal');
     if (!modal) return;
@@ -951,12 +1122,12 @@ async function openContractModal(modeSignature = true) {
     _contractLang = getCurrentLanguage();
 
     if (modeSignature) {
-        /* Capture version + snapshot AU MOMENT DE L'OUVERTURE (déterminisme) */
+        /* Capture version + snapshot AU MOMENT DE L'OUVERTURE. */
         _contractVersion = CONFIG.VENDOR.CONTRACT_VERSION;
         try {
             _contractTermsSnapshot = buildTermsSnapshot();
         } catch (e) {
-            console.error('❌ buildTermsSnapshot impossible :', e);
+            console.error('[vendor-dashboard] buildTermsSnapshot impossible :', e);
             showToast(tr('vendor.contract.loadFailed', 'Impossible de charger le contrat.'));
             return;
         }
@@ -972,8 +1143,8 @@ async function openContractModal(modeSignature = true) {
         try {
             _contractTextHash = await computeContractTextHash(text);
         } catch (e) {
-            console.error('❌ Hash contrat impossible :', e);
-            showToast('❌ Erreur hash contrat.');
+            console.error('[vendor-dashboard] Hash contrat impossible :', e);
+            showToast(tr('vendor.signup.contractSignError', 'Erreur signature contrat.'));
             return;
         }
 
@@ -989,7 +1160,7 @@ async function openContractModal(modeSignature = true) {
         document.getElementById('vContractSignZone').style.display = '';
         document.getElementById('vContractReadZone').style.display = 'none';
     } else {
-        /* Mode lecture : reconstruct from snapshot du contrat existant */
+        /* Mode lecture : reconstruction depuis le snapshot existant. */
         const loaded = currentContractDoc || (await loadCurrentContract());
         if (!loaded || !loaded.data) {
             showToast(tr('vendor.contract.notFound', 'Aucun contrat signé à afficher.'));
@@ -1006,9 +1177,9 @@ async function openContractModal(modeSignature = true) {
         try {
             text = getContractText(lang, version, snapshot);
         } catch (e) {
-            console.error('❌ Reconstruction du contrat impossible :', e);
+            console.error('[vendor-dashboard] Reconstruction du contrat impossible :', e);
             showToast(trParams('vendor.contract.verifyFail', { reason: e.message || 'gabarit manquant' },
-                '❌ Intégrité non vérifiable : {reason}'));
+                'Intégrité non vérifiable : {reason}'));
             return;
         }
 
@@ -1037,8 +1208,14 @@ async function openContractModal(modeSignature = true) {
     document.body.style.overflow = 'hidden';
 
     if (modeSignature) {
-        requestAnimationFrame(() => requestAnimationFrame(() => checkContractScroll()));
+        requestAnimationFrame(() => requestAnimationFrame(checkContractScroll));
     }
+}
+
+function closeContractModal() {
+    const modal = document.getElementById('vContractModal');
+    if (modal) modal.classList.remove('open');
+    document.body.style.overflow = '';
 }
 
 function checkContractScroll() {
@@ -1070,10 +1247,10 @@ function updateContractAcceptButton() {
 
     if (hint) {
         if (ready) {
-            hint.textContent = '✅ Vous pouvez maintenant signer.';
+            hint.textContent = tr('vendor.contract.canSign', 'Vous pouvez maintenant signer.');
             hint.style.color = 'var(--success)';
         } else if (!_contractScrollReached) {
-            hint.textContent = "Faites défiler pour lire l'intégralité du contrat.";
+            hint.textContent = tr('vendor.contract.scrollHint', "Faites défiler pour lire l'intégralité du contrat.");
             hint.style.color = 'var(--text-muted)';
         } else {
             hint.textContent = 'Cochez la case pour accepter.';
@@ -1082,26 +1259,28 @@ function updateContractAcceptButton() {
     }
 }
 
-function closeContractModal() {
-    const modal = document.getElementById('vContractModal');
-    if (modal) modal.classList.remove('open');
-    document.body.style.overflow = '';
-}
-
-/* Signature versionnée + transition users atomique + rechargement */
+/**
+ * Signe le contrat.
+ *
+ * B5-bis : écrit users.vendorInfo.contractSignedAt = serverTimestamp()
+ * en même temps que contractStatus/currentContractId/contractVersion.
+ * Sans ça, getResignGraceDeadline (P1/2) ne peut pas calculer la
+ * date limite de re-signature.
+ *
+ * @returns {Promise<void>}
+ */
 async function submitContractSignature() {
     const btn = document.getElementById('vContractAcceptBtn');
     if (!btn || btn.disabled) return;
-
     if (_contractReadOnly) return;
 
     if (!_contractTextHash || !_contractVersion || !_contractTermsSnapshot) {
-        showToast('❌ Contexte de signature incomplet.');
+        showToast(tr('vendor.signup.contractSignError', 'Erreur signature contrat.'));
         return;
     }
 
     btn.disabled = true;
-    btn.textContent = '⏳ Signature...';
+    btn.textContent = 'Signature...';
 
     let signResult;
     try {
@@ -1117,26 +1296,27 @@ async function submitContractSignature() {
             throw new Error('signVendorContract : contractId manquant.');
         }
     } catch (e) {
-        console.error('❌ Création contrat échouée :', e);
-        showToast('❌ ' + (e.message || 'Erreur lors de la signature.'));
+        console.error('[vendor-dashboard] Création contrat échouée :', e);
+        showToast(e.message || 'Erreur lors de la signature.');
         btn.disabled = false;
-        btn.textContent = '✍️ Signer le contrat';
+        btn.textContent = tr('vendor.contract.accept', 'Signer le contrat');
         return;
     }
 
-    /* C5 : transition users avec contractId + contractVersion */
+    /* B5-bis : transition users + contractSignedAt. */
     try {
         await updateDoc(doc(db, "users", currentUserUid), {
             "vendorInfo.contractStatus": CONTRACT_STATUS.ACCEPTED,
             "vendorInfo.currentContractId": signResult.contractId,
             "vendorInfo.contractVersion": signResult.version,
+            "vendorInfo.contractSignedAt": serverTimestamp(),  /* B5-bis */
             "updatedAt": serverTimestamp()
         });
     } catch (e) {
-        console.error('❌ Transition users/{uid}.vendorInfo.contractStatus échouée :', e);
+        console.error('[vendor-dashboard] Transition users/{uid}.vendorInfo.contractStatus échouée :', e);
         showToast(
             trParams('vendor.banner.contractTransitionFailed', {},
-                "⚠️ Contrat signé mais statut à finaliser. Cliquez sur « Finaliser » sur la bannière."),
+                "Contrat signé mais statut à finaliser. Cliquez sur « Finaliser » sur la bannière."),
             6000
         );
         try {
@@ -1152,13 +1332,13 @@ async function submitContractSignature() {
         } catch (_) { /* ignore */ }
         closeContractModal();
         btn.disabled = false;
-        btn.textContent = '✍️ Signer le contrat';
+        btn.textContent = tr('vendor.contract.accept', 'Signer le contrat');
         return;
     }
 
-    /* Succès complet */
+    /* Succès complet. */
     try {
-        showToast('✅ Contrat signé avec succès !');
+        showToast('Contrat signé avec succès !');
         closeContractModal();
 
         const loaded = await loadVendorData(currentUserUid);
@@ -1174,13 +1354,22 @@ async function submitContractSignature() {
         setActiveTab('overview');
         await renderTab('overview');
     } catch (e) {
-        console.error('❌ Rechargement post-signature échoué :', e);
+        console.error('[vendor-dashboard] Rechargement post-signature échoué :', e);
         btn.disabled = false;
-        btn.textContent = '✍️ Signer le contrat';
+        btn.textContent = tr('vendor.contract.accept', 'Signer le contrat');
     }
 }
 
-/* C5-rec : rejoue la transition users → accepted (post-échec inscription) */
+/**
+ * Rejoue la transition users → accepted (post-échec inscription).
+ *
+ * B5-bis : écrit contractSignedAt (Timestamp dérivé de
+ * currentContractDoc.data.acceptedAt, ou serverTimestamp() en
+ * fallback). Évite un décalage entre contract.acceptedAt et
+ * users.contractSignedAt.
+ *
+ * @returns {Promise<void>}
+ */
 async function retryContractTransition() {
     if (!currentUserUid) return;
 
@@ -1194,17 +1383,27 @@ async function retryContractTransition() {
 
     const version = loaded.data.version || CONFIG.VENDOR.CONTRACT_VERSION;
 
+    /* B5-bis : signedAt dérivé du contrat (cohérence) ou serverTimestamp. */
+    let signedAt = serverTimestamp();
+    try {
+        const v = loaded.data.acceptedAt;
+        if (v && typeof v.toDate === 'function') signedAt = Timestamp.fromDate(v.toDate());
+        else if (v && typeof v.seconds === 'number') signedAt = Timestamp.fromMillis(v.seconds * 1000);
+        else if (v instanceof Date) signedAt = Timestamp.fromDate(v);
+    } catch (_) { /* ignore */ }
+
     try {
         await updateDoc(doc(db, "users", currentUserUid), {
             "vendorInfo.contractStatus": CONTRACT_STATUS.ACCEPTED,
             "vendorInfo.currentContractId": loaded.id,
             "vendorInfo.contractVersion": version,
+            "vendorInfo.contractSignedAt": signedAt,  /* B5-bis */
             "updatedAt": serverTimestamp()
         });
-        showToast(tr('vendor.banner.finalizeSuccess', '✅ Profil synchronisé'));
+        showToast(tr('vendor.banner.finalizeSuccess', 'Profil synchronisé'));
     } catch (e) {
-        console.error('❌ retryContractTransition :', e);
-        showToast(tr('vendor.banner.finalizeFail', '❌ Synchronisation échouée. Contactez le support.'));
+        console.error('[vendor-dashboard] retryContractTransition :', e);
+        showToast(tr('vendor.banner.finalizeFail', 'Synchronisation échouée. Contactez le support.'));
         return;
     }
 
@@ -1227,6 +1426,12 @@ async function retryContractTransition() {
 /* ============================================================
    SECTION « MON CONTRAT » (aperçu)
    ============================================================ */
+
+/**
+ * Retourne le HTML de la carte "Mon contrat" (statut, version,
+ * boutons Voir / Imprimer / Télécharger / Vérifier).
+ * @returns {Promise<string>}
+ */
 async function renderContractSection() {
     const vendorInfo = (currentVendor && currentVendor.vendorInfo) || {};
     const contractStatus = vendorInfo.contractStatus || CONTRACT_STATUS.PENDING;
@@ -1234,12 +1439,12 @@ async function renderContractSection() {
     if (contractStatus !== CONTRACT_STATUS.ACCEPTED) {
         return `
             <div class="v-card">
-                <h3 class="v-card-title">📜 ${escapeHTML(tr('vendor.contract.sectionTitle', 'Mon contrat'))}</h3>
+                <h3 class="v-card-title">${escapeHTML(tr('vendor.contract.sectionTitle', 'Mon contrat'))}</h3>
                 <p style="color:var(--text-muted); font-size:0.9rem;">
-                    ${escapeHTML(tr('vendor.contract.statusMissing', '❌ Aucun contrat signé'))}
+                    ${escapeHTML(tr('vendor.contract.statusMissing', 'Aucun contrat signé'))}
                 </p>
                 <button type="button" id="vSignContractBtn" class="v-btn v-btn-primary" style="margin-top:0.75rem;">
-                    ✍️ ${escapeHTML(tr('vendor.contract.signNow', 'Signer le contrat'))}
+                    ${escapeHTML(tr('vendor.contract.signNow', 'Signer le contrat'))}
                 </button>
             </div>
         `;
@@ -1249,7 +1454,7 @@ async function renderContractSection() {
         try {
             currentContractDoc = await loadCurrentContract();
         } catch (e) {
-            console.warn('⚠️ loadCurrentContract :', e);
+            console.warn('[vendor-dashboard] loadCurrentContract :', e);
         }
     }
 
@@ -1261,14 +1466,14 @@ async function renderContractSection() {
 
     let statusBadge;
     if (isUpToDate) {
-        statusBadge = `<span style="display:inline-block;background:var(--success-bg,#e6f6ec);color:var(--success,#0a7a3b);padding:0.15rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">${escapeHTML(tr('vendor.contract.statusUpToDate', '✅ Contrat à jour'))}</span>`;
+        statusBadge = `<span style="display:inline-block;background:var(--success-bg,#e6f6ec);color:var(--success,#0a7a3b);padding:0.15rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">${escapeHTML(tr('vendor.contract.statusUpToDate', 'Contrat à jour'))}</span>`;
     } else {
-        statusBadge = `<span style="display:inline-block;background:var(--warning-bg,#fff3cd);color:var(--warning,#8a6d00);padding:0.15rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">${escapeHTML(tr('vendor.contract.statusOutdated', '⚠️ Contrat obsolète — re-signature requise'))}</span>`;
+        statusBadge = `<span style="display:inline-block;background:var(--warning-bg,#fff3cd);color:var(--warning,#8a6d00);padding:0.15rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">${escapeHTML(tr('vendor.contract.statusOutdated', 'Contrat obsolète - re-signature requise'))}</span>`;
     }
 
     return `
         <div class="v-card">
-            <h3 class="v-card-title">📜 ${escapeHTML(tr('vendor.contract.sectionTitle', 'Mon contrat'))}</h3>
+            <h3 class="v-card-title">${escapeHTML(tr('vendor.contract.sectionTitle', 'Mon contrat'))}</h3>
             <div style="font-size:0.9rem;color:var(--text);line-height:1.8;">
                 <div>${escapeHTML(tr('vendor.contract.version', 'Version'))} : <strong>${escapeHTML(version)}</strong></div>
                 <div>${escapeHTML(tr('vendor.contract.language', 'Langue'))} : <strong>${escapeHTML(language.toUpperCase())}</strong></div>
@@ -1276,22 +1481,20 @@ async function renderContractSection() {
                 <div style="margin-top:0.4rem;">${statusBadge}</div>
             </div>
             <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:1rem;">
-                <button type="button" id="vViewContractBtn" class="v-btn v-btn-secondary">👁️ ${escapeHTML(tr('vendor.contract.view', 'Voir'))}</button>
-                <button type="button" id="vPrintContractBtn" class="v-btn v-btn-secondary">🖨️ ${escapeHTML(tr('vendor.contract.print', 'Imprimer'))}</button>
-                <button type="button" id="vDownloadContractBtn" class="v-btn v-btn-secondary">⬇️ ${escapeHTML(tr('vendor.contract.download', 'Télécharger'))}</button>
-                <button type="button" id="vVerifyContractBtn" class="v-btn v-btn-secondary">🔍 ${escapeHTML(tr('vendor.contract.verify', "Vérifier l'intégrité"))}</button>
-                ${!isUpToDate ? `<button type="button" id="vResignContractBtn" class="v-btn v-btn-primary">✍️ ${escapeHTML(tr('vendor.contract.signNow', 'Signer le contrat'))}</button>` : ''}
+                <button type="button" id="vViewContractBtn" class="v-btn v-btn-secondary">${escapeHTML(tr('vendor.contract.view', 'Voir'))}</button>
+                <button type="button" id="vPrintContractBtn" class="v-btn v-btn-secondary">${escapeHTML(tr('vendor.contract.print', 'Imprimer'))}</button>
+                <button type="button" id="vDownloadContractBtn" class="v-btn v-btn-secondary">${escapeHTML(tr('vendor.contract.download', 'Télécharger'))}</button>
+                <button type="button" id="vVerifyContractBtn" class="v-btn v-btn-secondary">${escapeHTML(tr('vendor.contract.verify', "Vérifier l'intégrité"))}</button>
+                ${!isUpToDate ? `<button type="button" id="vResignContractBtn" class="v-btn v-btn-primary">${escapeHTML(tr('vendor.contract.signNow', 'Signer le contrat'))}</button>` : ''}
             </div>
         </div>
     `;
 }
 
-/* Ouvre la modale contrat en lecture seule */
 async function handleViewContract() {
     await openContractModal(false);
 }
 
-/* Imprime le contrat courant dans une nouvelle fenêtre */
 async function handlePrintContract() {
     const loaded = currentContractDoc || (await loadCurrentContract());
     if (!loaded || !loaded.data) {
@@ -1306,11 +1509,11 @@ async function handlePrintContract() {
     try {
         text = getContractText(lang, version, snapshot);
     } catch (e) {
-        showToast('❌ ' + (e.message || 'Contrat non reconstructible.'));
+        showToast(e.message || 'Contrat non reconstructible.');
         return;
     }
     const w = window.open('', '_blank');
-    if (!w) { showToast('❌ Popup bloquée. Autorisez les popups.'); return; }
+    if (!w) { showToast('Popup bloquée. Autorisez les popups.'); return; }
     const safe = escapeHTML(text).replace(/\n/g, '<br>');
     w.document.write(`<!doctype html><html lang="${escapeHTML(lang)}" dir="${lang === 'ar' ? 'rtl' : 'ltr'}"><head><meta charset="utf-8"><title>Contrat ${escapeHTML(version)}</title><style>body{font-family:Georgia,serif;max-width:820px;margin:2rem auto;padding:1rem;line-height:1.7;color:#222;}footer{margin-top:2rem;padding-top:1rem;border-top:1px solid #ccc;font-size:0.75rem;color:#666;}pre{white-space:pre-wrap;font-family:inherit;}</style></head><body><pre>${safe}</pre><footer>textHash: ${escapeHTML(data.textHash || '—')}<br>contractHash: ${escapeHTML(data.contractHash || '—')}<br>${escapeHTML(trParams('vendor.contract.signedOn', { date: formatDate(data.acceptedAt) }, 'Signé le {date}'))}</footer></body></html>`);
     w.document.close();
@@ -1318,7 +1521,6 @@ async function handlePrintContract() {
     setTimeout(() => { try { w.print(); } catch (_) { /* ignore */ } }, 250);
 }
 
-/* Télécharge le contrat en .txt avec les hash en pied */
 async function handleDownloadContract() {
     const loaded = currentContractDoc || (await loadCurrentContract());
     if (!loaded || !loaded.data) {
@@ -1333,7 +1535,7 @@ async function handleDownloadContract() {
     try {
         text = getContractText(lang, version, snapshot);
     } catch (e) {
-        showToast('❌ ' + (e.message || 'Contrat non reconstructible.'));
+        showToast(e.message || 'Contrat non reconstructible.');
         return;
     }
     const footer = [
@@ -1356,20 +1558,19 @@ async function handleDownloadContract() {
     setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
-/* Vérifie l'intégrité via verifyContractIntegrity (déjà importé) */
 async function handleVerifyContract() {
     const loaded = currentContractDoc || (await loadCurrentContract());
     if (!loaded || !loaded.data) {
         showToast(tr('vendor.contract.notFound', 'Aucun contrat signé à afficher.'));
         return;
     }
-    showToast(tr('vendor.contract.verifyRunning', '⏳ Vérification...'));
+    showToast(tr('vendor.contract.verifyRunning', 'Vérification...'));
     const result = await verifyContractIntegrity(loaded.data);
     if (result.ok) {
-        showToast(tr('vendor.contract.verifyOk', '✅ Intégrité vérifiée'));
+        showToast(tr('vendor.contract.verifyOk', 'Intégrité vérifiée'));
     } else {
         showToast(trParams('vendor.contract.verifyFail', { reason: result.reason || 'inconnue' },
-            '❌ Intégrité non vérifiable : {reason}'), 6000);
+            'Intégrité non vérifiable : {reason}'), 6000);
     }
 }
 
@@ -1415,7 +1616,7 @@ async function renderOverview(container) {
             </div>
         </div>
         <div class="v-card">
-            <h3 class="v-card-title">👋 ${escapeHTML(tr('vendor.overview.welcomeTitle', 'Bienvenue sur votre espace'))}</h3>
+            <h3 class="v-card-title">${escapeHTML(tr('vendor.overview.welcomeTitle', 'Bienvenue sur votre espace'))}</h3>
             <p style="color:var(--text-muted); font-size:0.9rem;">
                 ${escapeHTML(tr('vendor.overview.welcomeDesc', 'Utilisez le menu pour gérer vos produits, commandes, wallet et stock.'))}
             </p>
@@ -1423,7 +1624,6 @@ async function renderOverview(container) {
         ${contractSectionHtml}
     `;
 
-    /* Attache les listeners de la section contrat */
     document.getElementById('vSignContractBtn')?.addEventListener('click', () => openContractModal(true));
     document.getElementById('vViewContractBtn')?.addEventListener('click', handleViewContract);
     document.getElementById('vPrintContractBtn')?.addEventListener('click', handlePrintContract);
@@ -1446,7 +1646,7 @@ async function renderProducts(container) {
 
     const newBtnHtml = `
         <div style="display:flex;justify-content:flex-end;margin-bottom:1rem;">
-            <button type="button" id="vNewProductBtn" class="v-btn v-btn-primary">➕ Nouveau produit</button>
+            <button type="button" id="vNewProductBtn" class="v-btn v-btn-primary">Nouveau produit</button>
         </div>
     `;
 
@@ -1470,16 +1670,16 @@ async function renderProducts(container) {
         let rejectionHtml = '';
 
         if (status === PRODUCT_STATUS.APPROVED) {
-            statusBadge = `<span class="v-product-status approved">✅ ${escapeHTML(tr('product.status.approved', 'Approuvé'))}</span>`;
+            statusBadge = `<span class="v-product-status approved">${escapeHTML(tr('product.status.approved', 'Approuvé'))}</span>`;
         } else if (status === PRODUCT_STATUS.REJECTED) {
-            statusBadge = `<span class="v-product-status rejected">❌ ${escapeHTML(tr('product.status.rejected', 'Rejeté'))}</span>`;
+            statusBadge = `<span class="v-product-status rejected">${escapeHTML(tr('product.status.rejected', 'Rejeté'))}</span>`;
             if (p.rejectionReason) {
-                rejectionHtml = `<div style="font-size:0.8rem;color:var(--danger);margin-top:0.3rem;">📝 ${escapeHTML(p.rejectionReason)}</div>`;
+                rejectionHtml = `<div style="font-size:0.8rem;color:var(--danger);margin-top:0.3rem;">${escapeHTML(p.rejectionReason)}</div>`;
             }
         } else if (status === PRODUCT_STATUS.SUSPENDED) {
-            statusBadge = `<span class="v-product-status suspended">🚫 ${escapeHTML(tr('product.status.suspended', 'Suspendu'))}</span>`;
+            statusBadge = `<span class="v-product-status suspended">${escapeHTML(tr('product.status.suspended', 'Suspendu'))}</span>`;
         } else {
-            statusBadge = `<span class="v-product-status pending">⏳ ${escapeHTML(tr('product.status.pending', 'En validation'))}</span>`;
+            statusBadge = `<span class="v-product-status pending">${escapeHTML(tr('product.status.pending', 'En validation'))}</span>`;
         }
 
         return `
@@ -1492,8 +1692,8 @@ async function renderProducts(container) {
                     ${rejectionHtml}
                 </div>
                 <div class="v-product-actions">
-                    <button type="button" class="v-btn v-btn-secondary" data-edit-product="${escapeHTML(p.id)}" style="padding:0.4rem 0.8rem;font-size:0.8rem;" title="Éditer">✏️</button>
-                    <button type="button" class="v-btn v-btn-secondary" data-delete-product="${escapeHTML(p.id)}" style="padding:0.4rem 0.8rem;font-size:0.8rem;" title="Supprimer">🗑️</button>
+                    <button type="button" class="v-btn v-btn-secondary" data-edit-product="${escapeHTML(p.id)}" style="padding:0.4rem 0.8rem;font-size:0.8rem;" title="Éditer">Éditer</button>
+                    <button type="button" class="v-btn v-btn-secondary" data-delete-product="${escapeHTML(p.id)}" style="padding:0.4rem 0.8rem;font-size:0.8rem;" title="Supprimer">Supprimer</button>
                 </div>
             </div>
         `;
@@ -1535,7 +1735,7 @@ async function renderOrders(container) {
             ordersLastDoc = snap.docs[snap.docs.length - 1] || null;
             ordersHasMore = snap.docs.length === 10;
         } catch (e) {
-            console.warn('⚠️ Lecture orders échouée :', e);
+            console.warn('[vendor-dashboard] Lecture orders échouée :', e);
             cachedOrders = [];
         }
     }
@@ -1563,7 +1763,7 @@ async function renderOrders(container) {
             };
             commissionInfo = calculateVendorCommission(myGross, vendorForCommission);
         } catch (e) {
-            console.warn('⚠️ Calcul commission échoué :', e);
+            console.warn('[vendor-dashboard] Calcul commission échoué :', e);
             commissionInfo = {
                 subtotal: myGross,
                 commissionRate: CONFIG.VENDOR.COMMISSION_RATE,
@@ -1604,7 +1804,7 @@ async function renderOrders(container) {
     document.getElementById('loadMoreOrdersBtn')?.addEventListener('click', async (e) => {
         const btn = e.target;
         btn.disabled = true;
-        btn.textContent = '⏳...';
+        btn.textContent = '...';
         try {
             const q = query(
                 collection(db, "orders"),
@@ -1620,8 +1820,8 @@ async function renderOrders(container) {
             ordersHasMore = snap.docs.length === 10;
             await renderOrders(container);
         } catch (err) {
-            console.error(err);
-            showToast('❌ Erreur : ' + err.message);
+            console.error('[vendor-dashboard] Charger plus échoué :', err);
+            showToast('Erreur : ' + err.message);
             btn.disabled = false;
             btn.textContent = 'Charger plus';
         }
@@ -1629,10 +1829,13 @@ async function renderOrders(container) {
 }
 
 async function renderStock(container) {
+    /* B-VD-6 : texte neutre (ne plus citer Speedaf). Le vrai texte
+       sera fixé au Lot 31 (translations.js). Le flux fulfillment
+       n'est pas encore branché en Firestore. */
     container.innerHTML = renderEmptyState(
         '📥',
         tr('vendor.stock.empty.title', 'Aucun stock Fulfillment'),
-        tr('vendor.stock.empty.desc', 'Envoyez vos produits chez Speedaf pour que nous gérions la livraison.')
+        tr('vendor.stock.empty.desc', "L'envoi de stock à notre entrepôt partenaire sera disponible prochainement. Contactez le support pour plus d'informations.")
     );
 }
 
@@ -1651,7 +1854,7 @@ async function renderWallet(container) {
     if (!isVendorApproved()) {
         reason = tr('vendor.wallet.withdrawLockedNotApproved', "Compte non approuvé : retrait verrouillé.");
     } else if (hasPendingRequest) {
-        reason = "⏳ Demande de retrait en cours de traitement.";
+        reason = "Demande de retrait en cours de traitement.";
     } else if (getVirtualAvailableBalance() < CONFIG.VENDOR.MIN_WITHDRAWAL) {
         reason = tr('vendor.wallet.withdrawLockedMin', "Solde insuffisant (minimum : {min}).").replace('{min}', minWithdrawal);
     }
@@ -1660,12 +1863,12 @@ async function renderWallet(container) {
         ? cachedWithdrawals.map(w => {
             const st = w.status || 'pending';
             const statusBadge = st === 'paid'
-                ? `<span style="background:var(--success-bg);color:var(--success);padding:0.15rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;">✅ ${escapeHTML(tr('payout.paid', 'Payé'))}</span>`
+                ? `<span style="background:var(--success-bg);color:var(--success);padding:0.15rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;">${escapeHTML(tr('payout.paid', 'Payé'))}</span>`
                 : st === 'rejected'
-                    ? `<span style="background:var(--danger-bg);color:var(--danger);padding:0.15rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;">❌ ${escapeHTML(tr('payout.rejected', 'Rejeté'))}</span>`
+                    ? `<span style="background:var(--danger-bg);color:var(--danger);padding:0.15rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;">${escapeHTML(tr('payout.rejected', 'Rejeté'))}</span>`
                     : st === 'cancelled'
                         ? `<span style="background:var(--bg-surface);color:var(--text-muted);padding:0.15rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;">${escapeHTML(tr('payout.cancelled', 'Annulé'))}</span>`
-                        : `<span style="background:var(--warning-bg);color:var(--warning);padding:0.15rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;">⏳ ${escapeHTML(tr('payout.pending', 'En attente'))}</span>`;
+                        : `<span style="background:var(--warning-bg);color:var(--warning);padding:0.15rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;">${escapeHTML(tr('payout.pending', 'En attente'))}</span>`;
             const date = w.requestedAt?.toDate?.()?.toLocaleDateString?.('fr-FR') || '—';
             return `
                 <div style="display:flex;justify-content:space-between;align-items:center;padding:0.7rem 0;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:0.5rem;">
@@ -1687,12 +1890,12 @@ async function renderWallet(container) {
                 ${hasPendingRequest ? `<br><small>Solde virtuel (après demandes en cours) : ${virtualAvailable}</small>` : ''}
             </div>
             <button type="button" id="btnRequestWithdrawal" class="v-btn v-btn-primary" style="margin-top:1rem;" ${disabledAttr}>
-                💸 ${escapeHTML(tr('vendor.wallet.requestWithdrawal', 'Demander un retrait'))}
+                ${escapeHTML(tr('vendor.wallet.requestWithdrawal', 'Demander un retrait'))}
             </button>
             ${reason ? `<div style="margin-top:0.5rem; color:var(--text-muted); font-size:0.85rem;">${escapeHTML(reason)}</div>` : ''}
         </div>
         <div class="v-card" style="margin-top:1.5rem;">
-            <h3 class="v-card-title">📜 ${escapeHTML(tr('vendor.wallet.historyTitle', 'Historique des retraits'))}</h3>
+            <h3 class="v-card-title">${escapeHTML(tr('vendor.wallet.historyTitle', 'Historique des retraits'))}</h3>
             ${withdrawalRows}
         </div>
     `;
@@ -1706,6 +1909,8 @@ async function renderWallet(container) {
 async function renderTab(tabName) {
     const container = document.getElementById('vTabContent');
     if (!container) return;
+    if (_renderInProgress) return;
+    _renderInProgress = true;
     try {
         if (tabName === 'overview') return await renderOverview(container);
         if (tabName === 'products') return await renderProducts(container);
@@ -1713,8 +1918,10 @@ async function renderTab(tabName) {
         if (tabName === 'wallet')   return await renderWallet(container);
         if (tabName === 'stock')    return await renderStock(container);
     } catch (e) {
-        console.error('❌ renderTab ' + tabName + ' :', e);
+        console.error('[vendor-dashboard] renderTab ' + tabName + ' :', e);
         container.innerHTML = renderEmptyState('⚠️', tr('vendor.error.tab', 'Erreur de chargement'), tr('vendor.error.tabDesc', 'Veuillez réessayer.'));
+    } finally {
+        _renderInProgress = false;
     }
 }
 
@@ -1800,13 +2007,13 @@ function setupNavigation() {
 }
 
 /* ============================================================
-   BANNIÈRES — Handlers
+   BANNIÈRES - Handlers
    ============================================================ */
 function createBannerHandlers() {
     return {
         resendVerify: async () => {
             const ok = await resendVerificationEmail();
-            if (ok) showToast(tr('vendor.banner.emailResent', '📧 Email renvoyé'));
+            if (ok) showToast(tr('vendor.banner.emailResent', 'Email renvoyé'));
         },
         resignContract: async () => {
             await openContractModal(true);
@@ -1821,7 +2028,7 @@ function createBannerHandlers() {
    ATTACHE LES LISTENERS DES MODALES
    ============================================================ */
 function attachModalListeners() {
-    /* Retrait */
+    /* Retrait. */
     document.getElementById('closeWithdrawModal')?.addEventListener('click', closeWithdrawModal);
     document.getElementById('vWithdrawModal')?.addEventListener('click', (e) => {
         if (e.target.id === 'vWithdrawModal') closeWithdrawModal();
@@ -1829,7 +2036,7 @@ function attachModalListeners() {
     document.getElementById('vWithdrawSubmitBtn')?.addEventListener('click', submitWithdrawal);
     document.getElementById('vWithdrawMethod')?.addEventListener('change', handleWithdrawMethodChange);
 
-    /* Produit */
+    /* Produit. */
     document.getElementById('closeProductModal')?.addEventListener('click', closeProductModal);
     document.getElementById('vProductModal')?.addEventListener('click', (e) => {
         if (e.target.id === 'vProductModal') closeProductModal();
@@ -1851,7 +2058,7 @@ function attachModalListeners() {
         }
     });
 
-    /* Contrat */
+    /* Contrat. */
     document.getElementById('closeContractModal')?.addEventListener('click', closeContractModal);
     document.getElementById('vContractModal')?.addEventListener('click', (e) => {
         if (e.target.id === 'vContractModal') closeContractModal();
@@ -1875,11 +2082,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     applyLanguageDirection();
 
     if (!authBound) {
-        try { initAuthListener(); } catch (e) { console.warn('initAuthListener déjà appelé', e); }
+        try { initAuthListener(); } catch (e) { console.warn('[vendor-dashboard] initAuthListener déjà appelé', e); }
         authBound = true;
     }
 
-    try { await authReadyPromise; } catch (e) { console.warn('authReadyPromise', e); }
+    try { await authReadyPromise; } catch (e) { console.warn('[vendor-dashboard] authReadyPromise', e); }
 
     const user = getCurrentUser();
     if (!user || !user.uid) {
@@ -1893,7 +2100,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
         loaded = await loadVendorData(user.uid);
     } catch (e) {
-        console.error('❌ Chargement vendeur échoué :', e);
+        console.error('[vendor-dashboard] Chargement vendeur échoué :', e);
         showToast(tr('vendor.error.loading', "Erreur de chargement des données."));
         return;
     }
@@ -1906,7 +2113,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     currentVendor = loaded.profile;
     currentWallet = loaded.wallet;
 
-    /* Charge le contrat courant en amont (utile pour l'aperçu) */
     try { currentContractDoc = await loadCurrentContract(); } catch (_) { currentContractDoc = null; }
 
     injectModals();
@@ -1922,3 +2128,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     setActiveTab('overview');
     await renderTab('overview');
 });
+
+/* ============================================================
+   LOG FINAL
+   ============================================================ */
+console.log('[vendor-dashboard] v9.0.0 chargé (Lot 29 : B5 contractSignedAt + B6 slug + X3 vendorName + validation wallet)');
