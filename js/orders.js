@@ -1,30 +1,29 @@
 /* ============================================================
    js/orders.js
    Gestion des commandes - Smart Swi9a
-   Version 10.0.0 - Lot 45 : préparation R2 (lastOrderId admin-only)
+   Version 10.1.0 - Lot 50 : createLivoPickup (client_id Worker)
    PARTIE 1/2 : imports, config, emails, sendToLivoAPI,
-                cancelLivoShipment, syncLivoStatus
+                cancelLivoShipment, syncLivoStatus, createLivoPickup
 
-   CHANGEMENTS v10.0.0 (Partie 1/2) :
-     - Aucun changement fonctionnel en Partie 1/2. Bump de version
-       uniquement pour cohérence avec Partie 2/2.
-     - Les modifications R2 sont dans Partie 2/2 (stock helpers +
-       processReturnTransaction).
+   CHANGEMENTS v10.1.0 (Partie 1/2) :
+     - NEW : createLivoPickup(pickupData) — crée un ramassage
+       via POST /pickups sur le Worker livo-proxy. Le Worker
+       injecte `client_id: env.LIVO_CLIENT_ID` (= clttgsz40483,
+       confirmé responsable technique Livo).
+     - Le front n'envoie JAMAIS le client_id : c'est un secret
+       Worker (LIVO_CLIENT_ID). Voir config.js v10.0.0.
+     - Ajout ENDPOINTS.PICKUP = '/create-pickup' (route Worker
+       dédiée, distincte de ORDER_CREATE = '/create-order').
+     - Aucun autre changement vs v10.0.0.
 
-   CHANGEMENTS v10.0.0 (Partie 2/2) :
-     - R2-preparation : deductStockInTransaction, restoreStockInTransaction
-       et processReturnTransaction ajoutent lastOrderId + updatedAt
-       dans chaque updateData produit. Invariant stock+salesCount
-       préservé par construction.
-     - Note : ces updates sont admin-only (R2 ne s'applique pas),
-       mais les ajouts sont cosmétiques + préparent d'éventuels
-       flux futurs non-admin.
+   CHANGEMENTS v10.1.0 (Partie 2/2) :
+     - Aucun. Partie 2/2 reste identique à v10.0.0.
 
    PRÉREQUIS CRITIQUE pour sendToLivoAPI :
      Chaque produit Firestore doit avoir un champ `livo_product_id`
      (format pr-xxxxxxxx), renseigné manuellement dans Livo UI par
-     l'admin (décision D8). Sans ce champ, la création de commande
-     échoue avec un message explicite.
+     l'admin. Sans ce champ, la création de commande échoue avec un
+     message explicite.
 
    ALERTE 1 : plus aucun commentaire de ligne (//) en début de
    ligne utile. Tout est en bloc.
@@ -62,7 +61,8 @@ const LIVO_API_CONFIG = {
     ENDPOINTS: {
         CREATE: '/create-order',
         CANCEL: '/cancel-order',
-        TRACK:  '/track'
+        TRACK:  '/track',
+        PICKUP: '/create-pickup'
     }
 };
 
@@ -393,7 +393,6 @@ export async function sendToLivoAPI(order) {
 
         const cityName = addr.cityFr || addr.city || 'Casablanca';
 
-        /* Lecture des livo_product_id depuis Firestore (prérequis D8). */
         const itemsWithLivoIds = [];
         for (const item of (order.items || [])) {
             const productSnap = await getDoc(doc(db, 'products', String(item.productId)));
@@ -585,6 +584,107 @@ export async function syncLivoStatus(orderId) {
 }
 
 /* ============================================================
+   LIVO - CREATE PICKUP (via Worker proxy)
+   ============================================================
+   Crée un ramassage chez Livo via POST /pickups.
+   Le Worker livo-proxy injecte `client_id: env.LIVO_CLIENT_ID`
+   (= "clttgsz40483") et `Authorization: Bearer env.LIVO_API_KEY`.
+
+   Conforme à AddPickupRequest (OpenAPI 1.0.0) :
+     { client_id (injecté Worker), items, products, desired_date, comment }
+
+   Deux modes possibles :
+     1. Stock-based : renseigner `items` = array d'IDs `it-xxxxxxxx`
+        (articles en stock dans l'entrepôt Livo)
+     2. Order-based : renseigner `products` = [{ product_id, quantity }]
+        (à créer en stock Livo — le ramassage lie les produits)
+   Le front passe ce que l'admin a fourni. Le Worker relaie tel quel
+   + injecte `client_id`.
+
+   @param {Object} pickupData
+   @param {Array<string>} [pickupData.items=[]] - IDs Livo it-xxxxxxxx
+   @param {Array<{product_id, quantity}>} [pickupData.products=[]] - produits
+   @param {Date} pickupData.desired_date - date souhaitée
+   @param {string} [pickupData.comment=''] - note
+   @param {number} [pickupData.packages] - nb colis (métadonnée Smart, pas envoyée à Livo)
+   @param {number} [pickupData.weight] - poids kg (métadonnée Smart, pas envoyée à Livo)
+   @returns {Promise<{ success: boolean, pickupId?: string, trackingId?: string, error?: string }>}
+   ============================================================ */
+export async function createLivoPickup(pickupData) {
+    if (isTestMode()) {
+        console.log('[TEST] createLivoPickup MOCK - aucun appel Livo');
+        return { success: true, pickupId: 'TEST-PI-' + Date.now(), trackingId: 'TEST-PI-' + Date.now() };
+    }
+
+    try {
+        if (!pickupData) throw new Error('pickupData requis');
+        if (!pickupData.desired_date) throw new Error('Date de ramassage requise');
+
+        /* Construction du payload (conforme AddPickupRequest). */
+        const items = Array.isArray(pickupData.items) ? pickupData.items.filter(Boolean) : [];
+        const products = Array.isArray(pickupData.products) ? pickupData.products.filter(p => p && p.product_id && p.quantity > 0) : [];
+
+        if (items.length === 0 && products.length === 0) {
+            throw new Error('Au moins un item ou un produit est requis pour un ramassage Livo.');
+        }
+
+        const payload = {
+            /* client_id N'EST PAS envoyé — le Worker l'injecte via env.LIVO_CLIENT_ID. */
+            items: items,
+            products: products,
+            desired_date: formatLivoDate(pickupData.desired_date),
+            comment: String(pickupData.comment || 'Ramassage Smart Swi9a').slice(0, 200)
+        };
+
+        const response = await fetch(`${LIVO_API_CONFIG.BASE_URL}${LIVO_API_CONFIG.ENDPOINTS.PICKUP}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        const contentType = response.headers.get("content-type");
+        let data;
+
+        if (contentType && contentType.includes("application/json")) {
+            data = await response.json();
+        } else {
+            const errorHtml = await response.text();
+            console.error('Réponse non-JSON reçue (Worker/Livo pickups) :', errorHtml.substring(0, 500));
+            return {
+                success: false,
+                error: `Erreur serveur (${response.status}). Le Worker n'a pas pu créer le ramassage.`
+            };
+        }
+
+        console.log('Livo pickup response:', JSON.stringify(data, null, 2));
+
+        const pickupResult = data?.data?.data || data?.data || null;
+        const pickupId = pickupResult?._id || pickupResult?.pickup_id;
+
+        if (data.success && pickupId) {
+            return {
+                success: true,
+                pickupId: pickupId,
+                trackingId: pickupId
+            };
+        }
+
+        let errorMsg = 'Erreur inconnue';
+        const errData = data?.data?.data || data?.data || data;
+        if (errData?.fr_message) errorMsg = errData.fr_message;
+        else if (errData?.en_message) errorMsg = errData.en_message;
+        else if (errData?.error) errorMsg = errData.error;
+        else if (data.error) errorMsg = typeof data.error === 'string' ? data.error : JSON.stringify(data.error);
+
+        return { success: false, error: errorMsg };
+
+    } catch (error) {
+        console.error('Erreur Livo createPickup:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+/* ============================================================
    ALIAS DÉPRÉCIÉ (compatibilité admin.js Lot 30)
    ============================================================ */
 export const syncSpeedafStatus = syncLivoStatus;
@@ -592,18 +692,16 @@ export const syncSpeedafStatus = syncLivoStatus;
 /* ============================================================
    FIN DE LA PARTIE 1/2
    ------------------------------------------------------------
-   Partie 2/2 (prochain message) contient :
+   Partie 2/2 (v10.0.0, INCHANGÉE) :
      - creditVendorWallet / debitVendorWallet
      - syncVendorWalletsForOrder
-     - updateOrderStatus (avec lastOrderId pour transition CANCELLED)
+     - updateOrderStatus
      - deductStockInTransaction / restoreStockInTransaction
-       (avec lastOrderId + updatedAt)
      - deleteOrderCompletely
      - releaseDueVendorFunds / releaseVendorFundsTx
      - updatePaymentStatus
      - renderAdminOrders / loadAllOrders / resetAdminOrdersCache
-     - openReturnModal
-     - processReturnTransaction (avec lastOrderId + updatedAt)
+     - openReturnModal / processReturnTransaction
      - syncReviewsWithOrderReturn
      - renderUserOrders / openOrderDetails
      - autoSyncActiveOrders
@@ -611,6 +709,7 @@ export const syncSpeedafStatus = syncLivoStatus;
    ============================================================ */
    /* ============================================================
    PARTIE 2/2 — Handlers vendeur, transitions, admin, retours
+   Version 10.1.0 - Lot 50 : identique v10.0.0 (R2 déjà appliqué)
    ============================================================ */
 
 /* ============================================================
@@ -1143,7 +1242,7 @@ export async function updateOrderStatus(orderId, newStatus) {
 /* ============================================================
    STOCK HELPERS (transaction)
    ============================================================
-   R2-preparation v10.0.0 :
+   R2-preparation v10.0.0 (conservé en v10.1.0) :
      - Chaque updateData inclut `lastOrderId: order.id` et
        `updatedAt: Timestamp.now()`.
      - Invariant stock+salesCount préservé par construction
@@ -2196,4 +2295,4 @@ export async function openOrderDetails(orderId, isAdmin = false) {
 /* ============================================================
    LOG FINAL
    ============================================================ */
-console.log('✅ orders.js chargé - v10.0.0 (Lot 45 : préparation R2 lastOrderId + updatedAt)');
+console.log('✅ orders.js chargé - v10.1.0 (Lot 50 : createLivoPickup + R2 préparé)');
