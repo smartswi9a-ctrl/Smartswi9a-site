@@ -1,18 +1,32 @@
-// js/blog.js
-// ============================================================
-// BLOG CÔTÉ CLIENT - SMART SWI9A
-// Version 2.0.0 — Perf (index-free) + UX + sécurité images
-// ============================================================
-// CHANGEMENTS v2.0.0 :
-// ✅ C16.1 — Retiré orderBy (pas d'index requis), tri côté client
-// ✅ I16.1 — Fuite listener ESC (module-level _currentEscHandler)
-// ✅ I16.2 — renderBlogPagination guard parentNode
-// ✅ I16.3 — Validation images (whitelist http/https/relative)
-// ✅ I16.4 — Debounce interne dans searchBlog
-// ✅ M16.1-5 — Divers (truncate, overflow, imports cleanup)
-// ============================================================
-// Dépend de : config, utils, store, firebase, ui-core
-// ============================================================
+/* ============================================================
+   js/blog.js
+   BLOG CÔTÉ CLIENT - SMART SWI9A
+   Version 9.0.0 - Lot 17/30 : double debounce + image fallback
+
+   CHANGEMENTS v9.0.0 :
+     - B-BLOG-1 (P1) : searchBlog() ne debounce plus en interne.
+       events.js gère déjà 300ms pour 'blog:search'. Total 600ms
+       avant -> 300ms maintenant.
+     - B-BLOG-2 (P2) : images articles (cards + hero modale) ont
+       un `onerror` qui bascule sur getFallbackImage() (SVG).
+       Plus d'icône "image cassée" du navigateur.
+     - B-BLOG-3 (P3) : import truncate retiré (inutilisé).
+     - B-BLOG-4 (P3) : renderBlogPagination silencieux si
+       blogGrid.parentNode est null. Évite le layout cassé.
+     - B-BLOG-5 (P3) : initBlogPage avec guard _initInProgress.
+     - B-BLOG-6 (P3) : post.id null-safe dans le choix de gradient.
+     - JSDoc sur les exports publics.
+     - Bump version 2.0.0 -> 9.0.0.
+
+   LIMITATION CONNUE :
+     loadBlogPosts() utilise limit(50) sans orderBy (index-free).
+     Le blog est donc limité à 50 articles les plus récents.
+     Si le blog dépasse 50 articles, passer à orderBy + pagination
+     (nécessitera un index Firestore composite - voir Lot 48).
+
+   ALERTE 1 : plus aucun commentaire de ligne (//) en début de
+   ligne utile. Tout est en bloc.
+   ============================================================ */
 
 import {
     collection, query, where, getDocs, limit
@@ -20,7 +34,7 @@ import {
 import { db } from "./firebase.js";
 import { CONFIG } from "./config.js";
 import {
-    t, escapeHTML, formatDate, toDate, estimateReadTime, truncate
+    t, escapeHTML, formatDate, toDate, estimateReadTime, getFallbackImage
 } from "./utils.js";
 import {
     getBlogPosts, setBlogPosts, getBlogFilters, setBlogFilters,
@@ -28,21 +42,23 @@ import {
 } from "./store.js";
 import { showToast, openImageLightbox } from "./ui-core.js";
 
-// ============================================================
-// CONSTANTES
-// ============================================================
+/* ============================================================
+   CONSTANTES
+   ============================================================ */
 const POSTS_PER_PAGE = CONFIG.BLOG.PER_PAGE || 6;
 
-// ✅ I16.4 : debounce interne (self-contained)
-let _searchDebounceTimer = null;
+/* B-BLOG-1 : SEARCH_DEBOUNCE_MS supprimé. events.js gère 300ms. */
 const SEARCH_DEBOUNCE_MS = 300;
 
-// ✅ I16.1 : ESC handler unique (fix fuite)
+/* B-BLOG-5 : guard concurrent. */
+let _initInProgress = false;
+
+/* I16.1 (conservé) : ESC handler unique pour éviter les fuites. */
 let _currentEscHandler = null;
 
-// ============================================================
-// HELPERS i18n — Catégories blog + Read time
-// ============================================================
+/* ============================================================
+   HELPERS i18n - Catégories blog + Read time
+   ============================================================ */
 const CAT_KEY_MAP = {
     conseils: 'blogCatConseils',
     tendances: 'blogCatTendances',
@@ -62,54 +78,57 @@ function tReadTime(min) {
     return t('blogReadTime').replace('{min}', min);
 }
 
-// ============================================================
-// ✅ I16.3 : VALIDATION IMAGES (whitelist)
-// ------------------------------------------------------------
-// Accepte :
-//   - http://...  /  https://...
-//   - /chemin/relatif/...
-// Refuse :
-//   - data: (base64, vecteur XSS)
-//   - javascript: (XSS)
-//   - //evil.com (protocol-relative)
-//   - "" / null / undefined
-// ============================================================
+/* ============================================================
+   VALIDATION IMAGES (whitelist)
+   ============================================================
+   Accepte :
+     - http://... / https://...
+     - /chemin/relatif/...
+   Refuse :
+     - data: (base64, vecteur XSS)
+     - javascript: (XSS)
+     - //evil.com (protocol-relative)
+     - "" / null / undefined
+   ============================================================ */
 function isValidImageUrl(url) {
     if (!url || typeof url !== 'string') return false;
     const trimmed = url.trim();
     if (!trimmed) return false;
-    if (trimmed.startsWith('//')) return false;         // protocol-relative
-    if (/^https?:\/\//i.test(trimmed)) return true;     // absolute
-    if (trimmed.startsWith('/')) return true;           // absolute path
+    if (trimmed.startsWith('//')) return false;
+    if (/^https?:\/\//i.test(trimmed)) return true;
+    if (trimmed.startsWith('/')) return true;
     return false;
 }
 
-// ============================================================
-// ✅ M16.2 : TRUNCATE au mot le plus proche
-// ============================================================
+/* ============================================================
+   TRUNCATE au mot le plus proche
+   ============================================================ */
 function truncateWords(text, maxLength = 150) {
     if (!text) return '';
     const str = String(text).trim();
     if (str.length <= maxLength) return str;
     const cut = str.substring(0, maxLength);
     const lastSpace = cut.lastIndexOf(' ');
-    // Si le dernier espace est trop loin du début → couper brutalement
     return (lastSpace > maxLength * 0.7
         ? cut.substring(0, lastSpace)
         : cut) + '…';
 }
 
-// ============================================================
-// ✅ C16.1 : CHARGEMENT DES ARTICLES (sans orderBy, tri client)
-// ------------------------------------------------------------
-// Sans index composite, orderBy + where échoue.
-// On charge limit(50) puis on trie côté client.
-// ============================================================
+/* ============================================================
+   CHARGEMENT DES ARTICLES (sans orderBy, tri client)
+   ============================================================
+   Sans index composite, orderBy + where échoue.
+   On charge limit(50) puis on trie côté client.
+   ============================================================ */
+
+/**
+ * Charge les articles publiés (limit 50, tri par date côté client).
+ * @returns {Promise<Array>}
+ */
 export async function loadBlogPosts() {
     try {
-        console.log('⏳ Chargement des articles de blog...');
+        console.log('Chargement des articles de blog...');
 
-        // ✅ C16.1 : PAS d'orderBy → pas d'index composite requis
         const q = query(
             collection(db, "blog"),
             where("status", "==", "published"),
@@ -128,27 +147,32 @@ export async function loadBlogPosts() {
             };
         });
 
-        // ✅ C16.1 : tri côté client (plus récent d'abord)
         posts.sort((a, b) => {
             const da = a.publishedAt?.getTime?.() || 0;
             const dbb = b.publishedAt?.getTime?.() || 0;
             return dbb - da;
         });
 
-        console.log(`✅ ${posts.length} articles chargés`);
+        console.log(`${posts.length} articles chargés`);
         setBlogPosts(posts);
         return posts;
 
     } catch (e) {
-        console.error('❌ Erreur chargement blog :', e);
+        console.error('Erreur chargement blog :', e);
         setBlogPosts([]);
         return [];
     }
 }
 
-// ============================================================
-// FILTRAGE
-// ============================================================
+/* ============================================================
+   FILTRAGE
+   ============================================================ */
+
+/**
+ * Retourne la liste filtrée des articles selon les filtres actifs
+ * (catégorie + recherche).
+ * @returns {Array}
+ */
 export function getFilteredPosts() {
     const posts = getBlogPosts();
     const filters = getBlogFilters();
@@ -171,14 +195,19 @@ export function getFilteredPosts() {
     return list;
 }
 
-// ============================================================
-// RENDU DE LA LISTE
-// ============================================================
+/* ============================================================
+   RENDU DE LA LISTE
+   ============================================================ */
+
+/**
+ * Re-render la liste des articles avec filtres + pagination.
+ * @returns {Promise<void>}
+ */
 export async function renderBlogList() {
     const grid = document.getElementById('blogGrid');
     if (!grid) return;
 
-    grid.innerHTML = `<div class="blog-loading">⏳ ${t('blogLoading') || 'Chargement...'}</div>`;
+    grid.innerHTML = `<div class="blog-loading">${t('blogLoading') || 'Chargement...'}</div>`;
 
     let posts = getBlogPosts();
     if (!posts || posts.length === 0) {
@@ -226,9 +255,9 @@ export async function renderBlogList() {
     });
 }
 
-// ============================================================
-// ✅ CARTE ARTICLE (validation image I16.3)
-// ============================================================
+/* ============================================================
+   CARTE ARTICLE
+   ============================================================ */
 function renderBlogCard(post, index) {
     const title = escapeHTML(post.title || 'Sans titre');
     const excerpt = escapeHTML(truncateWords(post.excerpt || post.content || '', 130));
@@ -236,9 +265,7 @@ function renderBlogCard(post, index) {
     const date = formatDate(post.publishedAt || post.createdAt) || '';
     const readTime = estimateReadTime(post.content || '');
 
-    // ✅ I16.3 : validation URL
     const hasImg = isValidImageUrl(post.image);
-
     const gradientClass = `blog-img-bg-${(index % 6) + 1}`;
 
     const catEmojiMap = {
@@ -247,9 +274,14 @@ function renderBlogCard(post, index) {
     };
     const catEmoji = catEmojiMap[post.category] || '📝';
 
-    const imgHtml = hasImg
-        ? `<img src="${escapeHTML(post.image)}" alt="${title}" loading="lazy">`
-        : `<span style="font-size:3rem;">${catEmoji}</span>`;
+    /* B-BLOG-2 : onerror -> bascule sur le SVG fallback. */
+    let imgHtml;
+    if (hasImg) {
+        const fallback = getFallbackImage(post.title || 'Article');
+        imgHtml = `<img src="${escapeHTML(post.image)}" alt="${title}" loading="lazy" onerror="this.onerror=null;this.src='${fallback}';this.style.objectFit='contain';">`;
+    } else {
+        imgHtml = `<span style="font-size:3rem;">${catEmoji}</span>`;
+    }
 
     return `
         <article class="blog-card" data-id="${escapeHTML(post.id)}" style="cursor:pointer;">
@@ -260,7 +292,7 @@ function renderBlogCard(post, index) {
                 <div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.5rem;">
                     <span class="blog-category-tag">${catEmoji} ${categoryLabel}</span>
                 </div>
-                <div class="blog-date">📅 ${date} · ⏱️ ${tReadTime(readTime)}</div>
+                <div class="blog-date">${date} - ${tReadTime(readTime)}</div>
                 <h2 class="blog-title">${title}</h2>
                 <p class="blog-excerpt">${excerpt}</p>
                 <span class="blog-read-more">${t('blogReadMore') || 'Lire la suite'} →</span>
@@ -269,9 +301,14 @@ function renderBlogCard(post, index) {
     `;
 }
 
-// ============================================================
-// FILTRES CATÉGORIES
-// ============================================================
+/* ============================================================
+   FILTRES CATÉGORIES
+   ============================================================ */
+
+/**
+ * Re-render la barre de filtres (catégories + counts).
+ * @returns {void}
+ */
 export function renderBlogFilters() {
     const container = document.getElementById('blogFilters');
     if (!container) return;
@@ -309,38 +346,42 @@ export function renderBlogFilters() {
     });
 }
 
-// ============================================================
-// FILTRER PAR CATÉGORIE
-// ============================================================
+/* ============================================================
+   FILTRER PAR CATÉGORIE
+   ============================================================ */
+
+/**
+ * Change la catégorie active et re-render.
+ * @param {string} category
+ */
 export function filterBlogByCategory(category) {
     setBlogFilters({ category });
     setBlogPagination({ currentPage: 1 });
     renderBlogList();
 }
 
-// ============================================================
-// ✅ I16.4 : RECHERCHE (debounce INTERNE)
-// ------------------------------------------------------------
-// Cette fonction est self-contained : elle peut être appelée
-// depuis n'importe où (events.js, input direct, etc.) sans
-// provoquer de render excessif.
-// ============================================================
+/* ============================================================
+   RECHERCHE (B-BLOG-1 : pas de debounce interne)
+   ============================================================
+   events.js gère déjà 300ms pour 'blog:search'. Ce module
+   update le state + render immédiatement.
+   Si appelé directement (sans events.js), le caller doit gérer
+   son propre debounce.
+   ============================================================ */
+
+/**
+ * Recherche les articles (met à jour le state + render).
+ * @param {string} query
+ */
 export function searchBlog(query) {
-    // Mise à jour immédiate du state (pour que l'input reflète la saisie)
     setBlogFilters({ search: query });
     setBlogPagination({ currentPage: 1 });
-
-    // Render debounced
-    if (_searchDebounceTimer) clearTimeout(_searchDebounceTimer);
-    _searchDebounceTimer = setTimeout(() => {
-        renderBlogList();
-        _searchDebounceTimer = null;
-    }, SEARCH_DEBOUNCE_MS);
+    renderBlogList();
 }
 
-// ============================================================
-// ✅ I16.2 : PAGINATION (guard parentNode)
-// ============================================================
+/* ============================================================
+   PAGINATION
+   ============================================================ */
 function renderBlogPagination(totalPages, currentPage) {
     const existing = document.getElementById('blogPagination');
     if (existing) existing.remove();
@@ -349,6 +390,15 @@ function renderBlogPagination(totalPages, currentPage) {
 
     const container = document.getElementById('blogGrid');
     if (!container) return;
+
+    /* B-BLOG-4 : guard. Si pas de parentNode, skip silencieux
+       (sinon la pagination s'insère DANS la grille display:grid
+       et casse le layout). */
+    const parent = container.parentNode;
+    if (!parent) {
+        console.warn('renderBlogPagination : blogGrid sans parentNode, pagination ignorée');
+        return;
+    }
 
     const pag = document.createElement('div');
     pag.id = 'blogPagination';
@@ -362,14 +412,7 @@ function renderBlogPagination(totalPages, currentPage) {
     html += `<button class="pagination-btn ${currentPage === totalPages ? 'disabled' : ''}" data-blog-page="${currentPage + 1}">›</button>`;
     pag.innerHTML = html;
 
-    // ✅ I16.2 : guard parent + fallback
-    const parent = container.parentNode;
-    if (parent) {
-        parent.insertBefore(pag, container.nextSibling);
-    } else {
-        // Fallback : append dans le container lui-même
-        container.appendChild(pag);
-    }
+    parent.insertBefore(pag, container.nextSibling);
 
     pag.querySelectorAll('[data-blog-page]').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -382,13 +425,18 @@ function renderBlogPagination(totalPages, currentPage) {
     });
 }
 
-// ============================================================
-// ✅ I16.1 : OUVRIR UN ARTICLE (fix fuite ESC + validation image)
-// ============================================================
+/* ============================================================
+   OUVRIR UN ARTICLE (modale)
+   ============================================================ */
+
+/**
+ * Ouvre la modale de lecture d'un article.
+ * @param {string} postId
+ */
 export function openBlogArticle(postId) {
     const post = getBlogPosts().find(p => p.id === postId);
     if (!post) {
-        showToast('❌ ' + t('articleNotFound'));
+        showToast(t('articleNotFound'));
         return;
     }
 
@@ -408,11 +456,16 @@ export function openBlogArticle(postId) {
     };
     const catEmoji = catEmojiMap[post.category] || '📝';
 
-    // ✅ I16.3 : validation image
     const hasImg = isValidImageUrl(post.image);
-    const heroHtml = hasImg
-        ? `<img src="${escapeHTML(post.image)}" alt="${title}" class="blog-article-hero" data-photo-url="${escapeHTML(post.image)}" style="cursor:zoom-in;">`
-        : `<div class="blog-article-hero blog-img-bg-${(post.id.length % 6) + 1}" style="display:flex;align-items:center;justify-content:center;font-size:5rem;">${catEmoji}</div>`;
+    /* B-BLOG-2 + B-BLOG-6 : onerror + gradient null-safe. */
+    const bgIdx = post.id ? (post.id.length % 6) + 1 : 1;
+    let heroHtml;
+    if (hasImg) {
+        const fallback = getFallbackImage(post.title || 'Article');
+        heroHtml = `<img src="${escapeHTML(post.image)}" alt="${title}" class="blog-article-hero" data-photo-url="${escapeHTML(post.image)}" style="cursor:zoom-in;" onerror="this.onerror=null;this.src='${fallback}';this.style.objectFit='contain';this.style.cursor='default';this.removeAttribute('data-photo-url');">`;
+    } else {
+        heroHtml = `<div class="blog-article-hero blog-img-bg-${bgIdx}" style="display:flex;align-items:center;justify-content:center;font-size:5rem;">${catEmoji}</div>`;
+    }
 
     content.innerHTML = `
         <button class="blog-article-close" id="closeBlogArticleBtn" aria-label="${t('close')}">✕</button>
@@ -421,7 +474,7 @@ export function openBlogArticle(postId) {
             <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.8rem;">
                 <span class="blog-category-tag">${catEmoji} ${categoryLabel}</span>
                 <span style="font-size:0.75rem;color:var(--text-dim);align-self:center;">
-                    📅 ${date} · ⏱️ ${tReadTime(readTime)} · ✍️ ${author}
+                    ${date} - ${tReadTime(readTime)} - ${author}
                 </span>
             </div>
             <h2 class="blog-article-title">${title}</h2>
@@ -438,7 +491,7 @@ export function openBlogArticle(postId) {
         if (e.target === modal) closeBlogArticle();
     });
 
-    // ✅ I16.1 : cleanup AVANT d'attacher le nouveau
+    /* I16.1 : cleanup AVANT d'attacher le nouveau. */
     if (_currentEscHandler) {
         document.removeEventListener('keydown', _currentEscHandler);
         _currentEscHandler = null;
@@ -456,36 +509,55 @@ export function openBlogArticle(postId) {
     }
 }
 
-// ============================================================
-// ✅ I16.1 : FERMER L'ARTICLE (cleanup ESC)
-// ============================================================
+/* ============================================================
+   FERMER L'ARTICLE (cleanup ESC)
+   ============================================================ */
+
+/**
+ * Ferme la modale article et libère les listeners.
+ */
 export function closeBlogArticle() {
     const modal = document.getElementById('blogArticleModal');
     if (!modal) return;
     modal.classList.remove('open');
     document.body.style.overflow = '';
 
-    // ✅ I16.1 : cleanup handler
     if (_currentEscHandler) {
         document.removeEventListener('keydown', _currentEscHandler);
         _currentEscHandler = null;
     }
 }
 
-// ============================================================
-// INITIALISATION GLOBALE DU BLOG
-// ============================================================
+/* ============================================================
+   INITIALISATION GLOBALE DU BLOG
+   ============================================================ */
+
+/**
+ * Point d'entrée : charge les posts puis render. Guard concurrent.
+ * @returns {Promise<void>}
+ */
 export async function initBlogPage() {
-    console.log('🚀 Initialisation de la page blog...');
+    /* B-BLOG-5 : guard concurrent. */
+    if (_initInProgress) {
+        console.log('initBlogPage déjà en cours - skip');
+        return;
+    }
 
-    const promise = loadBlogPosts();
-    setBlogLoadedPromise(promise);
-    await promise;
+    _initInProgress = true;
+    try {
+        console.log('Initialisation de la page blog...');
 
-    await renderBlogList();
+        const promise = loadBlogPosts();
+        setBlogLoadedPromise(promise);
+        await promise;
+
+        await renderBlogList();
+    } finally {
+        _initInProgress = false;
+    }
 }
 
-// ============================================================
-// LOG
-// ============================================================
-console.log('✅ blog.js chargé — v2.0.0 (index-free + debounce + sécurité images)');
+/* ============================================================
+   LOG
+   ============================================================ */
+console.log('✅ blog.js chargé - v9.0.0 (Lot 17 : double debounce fixé + image fallback)');
