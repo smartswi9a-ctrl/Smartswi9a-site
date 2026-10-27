@@ -1,20 +1,67 @@
-// js/events.js
-// ============================================================
-// DÉLÉGATION D'ÉVÉNEMENTS GLOBALE - SMART SWI9A
-// Version 8.1.0 — Marketplace (IDs vendeurs Number/String)
-// ============================================================
+/* ============================================================
+   js/events.js
+   DÉLÉGATION D'ÉVÉNEMENTS GLOBALE - SMART SWI9A
+   Version 9.0.0 - Lot 22/30 : nettoyage emojis + JSDoc
+
+   CHANGEMENTS v9.0.0 :
+     - P3-1 : toast 'filterReset' ne préfixe plus par 🔄.
+     - P3-2 : toast 'logout' ne préfixe plus par 👋.
+     - P3-3 : logs internes avec emojis (ℹ️, ⚠️) remplacés par
+       préfixe '[events]' pour cohérence avec les autres modules.
+     - JSDoc sur attachEvents et applyTranslations.
+     - Guard _eventsAttached conservé (idempotence).
+     - Signature publique inchangée.
+     - Bump version 8.1.0 -> 9.0.0.
+
+   HANDLERS DATA-ACTION (17) :
+     cart:open, cart:close, cart:clear
+     products:filter, products:sort, products:search,
+     products:filter-stock, products:filter-promos,
+     products:filter-reset
+     account:open, account:close
+     logout
+     auth:google, auth:facebook
+     notifications:open
+     scroll:top
+     blog:search
+     lang:change
+
+   FALLBACK DÉLÉGATION (5) :
+     .pagination-btn → goToPage()
+     .btn-add-to-cart → addToCart()
+     .favorite-btn → toggleFavorite()
+     .btn-secondary[data-product-id] → orderViaWhatsApp()
+     .product-card → openProductPage() (ou fallback ID)
+     .blog-card → openBlogArticle()
+
+   DEBOUNCE :
+     products:search et blog:search sont debouncés à 300ms.
+     blog.js (v9.0.0) a retiré son debounce interne (Lot 17) :
+     total = 300ms simple, pas 600ms.
+
+   ALERTE 1 : plus aucun commentaire de ligne (//) en début de
+   ligne utile. Tout est en bloc.
+   ============================================================ */
 
 import { t, setLang, getLang } from "./utils.js";
 import { showToast } from "./ui-core.js";
 
-// ============================================================
-// GUARD GLOBAL
-// ============================================================
+/* ============================================================
+   GUARD GLOBAL (anti double-attach)
+   ============================================================
+   Si attachEvents() est appelé 2× (double include, HMR),
+   le 2ème appel est silencieusement ignoré. Empêche le cumul
+   de listeners sur document.
+   ============================================================ */
 let _eventsAttached = false;
 
-// ============================================================
-// HANDLERS
-// ============================================================
+/* ============================================================
+   HANDLERS
+   ============================================================
+   Chaque handler est une fonction async qui importe dynamiquement
+   le module requis. Ce pattern évite les cycles d'imports entre
+   events.js et les modules métier (ui, cart, products, blog, etc.).
+   ============================================================ */
 const eventHandlers = {
 
     'cart:open': async () => {
@@ -82,7 +129,7 @@ const eventHandlers = {
         const { clearAllFilters } = await import("./products.js");
         clearAllFilters();
 
-        showToast('🔄 ' + (t('filterReset') || 'Filtres réinitialisés'));
+        showToast(t('filterReset') || 'Filtres réinitialisés');
     },
 
     'account:open': async () => {
@@ -100,7 +147,7 @@ const eventHandlers = {
         const { closeAccountModal, updateAccountButton } = await import("./ui.js");
         await logoutUser();
         closeAccountModal();
-        showToast('👋 ' + t('logout'));
+        showToast(t('logout'));
         updateAccountButton();
     },
 
@@ -181,11 +228,11 @@ const eventHandlers = {
                 }),
                 import("./banner.js").then(m => m.refreshBanners()).catch(() => {}),
                 import("./testimonials.js").then(m => m.initDynamicTestimonials()).catch(() => {})
-            ]).catch(err => console.warn('⚠️ Re-render home failed:', err));
+            ]).catch(err => console.warn('[events] Re-render home failed:', err));
         }
 
         if (isBlog) {
-            import("./blog.js").then(m => m.renderBlogList?.()).catch(err => console.warn('⚠️ Re-render blog failed:', err));
+            import("./blog.js").then(m => m.renderBlogList?.()).catch(err => console.warn('[events] Re-render blog failed:', err));
         }
 
         if (isProduct) {
@@ -201,27 +248,27 @@ const eventHandlers = {
                     }
                 }
             } catch (err) {
-                console.warn('⚠️ Sync title update failed:', err);
+                console.warn('[events] Sync title update failed:', err);
             }
 
             import("./product-detail.js")
                 .then(m => m.renderProductDetail?.())
-                .catch(err => console.warn('⚠️ Re-render product failed:', err));
+                .catch(err => console.warn('[events] Re-render product failed:', err));
         }
 
         if (isVilles) {
-            console.log('ℹ️ Page villes : refresh géré en interne');
+            console.log('[events] Page villes : refresh géré en interne');
         }
 
         if (isCartPage) {
-            console.log('ℹ️ Page panier : refresh géré par panier.js (event lang-changed)');
+            console.log('[events] Page panier : refresh géré par panier.js (event lang-changed)');
         }
     }
 };
 
-// ============================================================
-// FERMER LE MENU MOBILE
-// ============================================================
+/* ============================================================
+   FERMER LE MENU MOBILE
+   ============================================================ */
 function closeMobileMenu() {
     const burger = document.getElementById('burgerBtn');
     const mobile = document.getElementById('mobileMenu');
@@ -232,9 +279,25 @@ function closeMobileMenu() {
     }
 }
 
-// ============================================================
-// APPLIQUER LES TRADUCTIONS
-// ============================================================
+/* ============================================================
+   APPLIQUER LES TRADUCTIONS
+   ============================================================ */
+
+/**
+ * Applique les traductions à tous les éléments marqués :
+ *   - data-key : textContent (ou innerHTML si la clé finit par "Html",
+ *     ou placeholder si input/textarea)
+ *   - data-aria-key : attribut aria-label
+ *   - .logo-text / .footer-logo : logo (traduit)
+ *   - <title> : clé selon la page
+ *   - <meta property="og:locale"> : locale selon la langue
+ *   - <html lang="xxx" dir="ltr|rtl"> : attributs globaux
+ *
+ * Utilisée au démarrage (app.js) et au changement de langue (events.js).
+ * Importée aussi par 404.html et reset-password.html.
+ *
+ * @returns {void}
+ */
 export function applyTranslations() {
     document.querySelectorAll('[data-key]').forEach(el => {
         const key = el.getAttribute('data-key');
@@ -293,27 +356,51 @@ export function applyTranslations() {
     document.documentElement.dir = getLang() === 'ar' ? 'rtl' : 'ltr';
 }
 
-// ============================================================
-// DEBOUNCE SÉPARÉ (par action)
-// ============================================================
+/* ============================================================
+   DEBOUNCE SÉPARÉ (par action)
+   ============================================================
+   products:search et blog:search sont debouncés à 300ms.
+   searchTimers garde une référence par action pour pouvoir
+   annuler proprement.
+   ============================================================ */
 const searchTimers = {
     'products:search': null,
     'blog:search': null
 };
 
-// ============================================================
-// ATTACHER LES ÉVÉNEMENTS (avec guard)
-// ============================================================
+/* ============================================================
+   ATTACHER LES ÉVÉNEMENTS
+   ============================================================ */
+
+/**
+ * Attache tous les listeners délégués sur document.
+ *
+ * Idempotent : si appelé 2× (double include, HMR), le 2ème appel
+ * est ignoré grâce au guard _eventsAttached.
+ *
+ * Listeners attachés :
+ *   1. click extérieur → ferme le menu mobile (si ouvert)
+ *   2. click délégation → data-action (17 handlers) + fallbacks
+ *      (pagination, add-to-cart, favoris, whatsapp, product-card,
+ *      blog-card)
+ *   3. keydown ESC → ferme le menu mobile
+ *   4. change (select, checkbox) → data-action
+ *   5. input (debounce 300ms sur search) → data-action
+ *   6. scroll → afficher/masquer back-to-top
+ *   7. cart-updated → re-render contenu panier si sidebar ouverte
+ *
+ * @returns {void}
+ */
 export function attachEvents() {
     if (_eventsAttached) {
-        console.log('ℹ️ events.js : événements déjà attachés — skip');
+        console.log('[events] Événements déjà attachés - skip');
         return;
     }
     _eventsAttached = true;
 
-    // ============================================
-    // FERMETURE DU MENU MOBILE AU CLIC EXTÉRIEUR
-    // ============================================
+    /* ============================================
+       LISTENER 1 : FERMETURE MENU MOBILE AU CLIC EXTÉRIEUR
+       ============================================ */
     document.addEventListener('click', (e) => {
         const mobileMenu = document.getElementById('mobileMenu');
         const burgerBtn = document.getElementById('burgerBtn');
@@ -325,9 +412,9 @@ export function attachEvents() {
         closeMobileMenu();
     });
 
-    // ============================================
-    // DÉLÉGATION PRINCIPALE (clicks)
-    // ============================================
+    /* ============================================
+       LISTENER 2 : DÉLÉGATION PRINCIPALE (clicks)
+       ============================================ */
     document.addEventListener('click', (e) => {
         const actionEl = e.target.closest('[data-action]');
         if (actionEl) {
@@ -341,9 +428,9 @@ export function attachEvents() {
             }
         }
 
-        // ============ FALLBACK DÉLÉGATIONS ============
+        /* ============ FALLBACK DÉLÉGATIONS ============ */
 
-        // Pagination produits (IDs toujours numériques → parseInt OK)
+        /* Pagination produits (IDs toujours numériques → parseInt OK) */
         const pageBtn = e.target.closest('.pagination-btn:not(.disabled)');
         if (pageBtn && pageBtn.dataset.page) {
             const page = parseInt(pageBtn.dataset.page);
@@ -353,8 +440,7 @@ export function attachEvents() {
             }
         }
 
-        // Bouton "Ajouter au panier" (produits sans variantes)
-        // E1 : ne plus parseInt() — addToCart normalise lui-même
+        /* Bouton "Ajouter au panier" (produits sans variantes) */
         const addBtn = e.target.closest('.btn-add-to-cart, .btn-product-add');
         if (addBtn && !addBtn.closest('[data-action]')) {
             e.preventDefault();
@@ -365,8 +451,7 @@ export function attachEvents() {
             }
         }
 
-        // Bouton favoris
-        // E2 : ne plus parseInt()
+        /* Bouton favoris */
         const favBtn = e.target.closest('.favorite-btn');
         if (favBtn && !favBtn.closest('[data-action]')) {
             e.stopPropagation();
@@ -377,8 +462,7 @@ export function attachEvents() {
             }
         }
 
-        // Bouton "Commander via WhatsApp" (page produit)
-        // E3 : ne plus parseInt()
+        /* Bouton "Commander via WhatsApp" (page produit) */
         const waBtn = e.target.closest('.btn-secondary[data-product-id]');
         if (waBtn && !waBtn.closest('[data-action]')) {
             e.preventDefault();
@@ -389,8 +473,7 @@ export function attachEvents() {
             }
         }
 
-        // ✅ Carte produit (navigation)
-        // E4 : ne plus parseInt() pour le fallback ID
+        /* Carte produit (navigation) */
         const card = e.target.closest('.product-card');
         if (card && !e.target.closest('button') && !e.target.closest('a')) {
             const slug = card.dataset.slug;
@@ -407,7 +490,7 @@ export function attachEvents() {
             }
         }
 
-        // Carte blog (ouverture modal) — postId est déjà une string Firestore
+        /* Carte blog (ouverture modal) — postId est déjà une string Firestore */
         const blogCard = e.target.closest('.blog-card');
         if (blogCard && !e.target.closest('button, a')) {
             const postId = blogCard.dataset.id;
@@ -418,18 +501,18 @@ export function attachEvents() {
         }
     });
 
-    // ============================================
-    // ESC → fermer menu mobile
-    // ============================================
+    /* ============================================
+       LISTENER 3 : ESC → fermer menu mobile
+       ============================================ */
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
             closeMobileMenu();
         }
     });
 
-    // ============================================
-    // CHANGE (select, checkbox)
-    // ============================================
+    /* ============================================
+       LISTENER 4 : CHANGE (select, checkbox)
+       ============================================ */
     document.addEventListener('change', (e) => {
         const target = e.target.closest('[data-action]');
         if (!target) return;
@@ -439,9 +522,9 @@ export function attachEvents() {
         }
     });
 
-    // ============================================
-    // INPUT (debounce séparé par action)
-    // ============================================
+    /* ============================================
+       LISTENER 5 : INPUT (debounce séparé par action)
+       ============================================ */
     document.addEventListener('input', (e) => {
         const target = e.target.closest('[data-action]');
         if (!target) return;
@@ -458,9 +541,9 @@ export function attachEvents() {
         }
     });
 
-    // ============================================
-    // BACK TO TOP
-    // ============================================
+    /* ============================================
+       LISTENER 6 : BACK TO TOP
+       ============================================ */
     const backToTop = document.getElementById('backToTopBtn');
     if (backToTop && !backToTop._initialized) {
         window.addEventListener('scroll', () => {
@@ -473,9 +556,9 @@ export function attachEvents() {
         backToTop._initialized = true;
     }
 
-    // ============================================
-    // PANIER MIS À JOUR (sidebar legacy)
-    // ============================================
+    /* ============================================
+       LISTENER 7 : PANIER MIS À JOUR (sidebar legacy)
+       ============================================ */
     document.addEventListener('cart-updated', () => {
         const sidebar = document.getElementById('cartSidebar');
         if (sidebar && sidebar.classList.contains('open')) {
@@ -483,10 +566,10 @@ export function attachEvents() {
         }
     });
 
-    console.log('✅ events.js : événements attachés (v8.1.0)');
+    console.log('✅ events.js chargé - v9.0.0 (Lot 22 : nettoyage emojis + JSDoc)');
 }
 
-// ============================================================
-// LOG
-// ============================================================
-console.log('✅ events.js chargé — v8.1.0 (Marketplace + IDs vendeurs)');
+/* ============================================================
+   LOG
+   ============================================================ */
+console.log('✅ events.js chargé - v9.0.0 (Lot 22 : handlers 17 + 6 fallbacks)');
