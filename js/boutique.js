@@ -1,13 +1,40 @@
-// js/boutique.js
-// ============================================================
-// PAGE BOUTIQUE PUBLIQUE VENDEUR - SMART SWI9A
-// Version 1.1.0 — Correctifs E10/E13 :
-//   - lecture de vendorsPublic/{uid} (plus de fuite PII)
-//   - normalisation d'IDs produits (numériques ET strings Firestore)
-//   - limit(100) sur la query produits
-//   - null-guards, escapeHTML, meta OG dynamiques
-//   - ordre setupEventListeners avant applyCategoryFilter
-// ============================================================
+/* ============================================================
+   js/boutique.js
+   PAGE BOUTIQUE PUBLIQUE VENDEUR - SMART SWI9A
+   Version 9.0.0 - Lot 18/30 : fix showError + pending + guard
+
+   CHANGEMENTS v9.0.0 :
+     - B-BOUT-1 (P1) : showError() cache boutiqueContent au lieu
+       de le rendre visible. Fini le hero vide + erreur empilés.
+     - B-BOUT-2 (P2) : status 'pending' affiche le message
+       "suspended" (boutique momentanément indisponible) au lieu
+       de "not_found" (mensonger pour une boutique en attente).
+       'rejected' reste 'not_found' (comme retirée).
+     - B-BOUT-3 (P2) : meta description adaptée si 0 produit.
+     - B-BOUT-4 (P2) : guard _initInProgress sur initBoutique.
+     - B-BOUT-5 (P2) : safeImageUrl rejette javascript:, data:,
+       tout protocole non http(s) et non relatif. Défense en
+       profondeur (browsers bloquent déjà).
+     - B-BOUT-6 (P2) : guard currentVendor avant renderBoutique
+       et setupEventListeners.
+     - JSDoc sur initBoutique et helpers.
+     - Bump version 1.1.0 -> 9.0.0.
+
+   LIMITATION CONNUE :
+     La query products utilise limit(100) (MAX_PRODUCTS_PER_VENDOR).
+     Un vendeur avec >100 produits n'en affiche que 100.
+     Si besoin, ajouter pagination serveur (nécessitera un index
+     Firestore composite - voir Lot 48).
+
+   NOTE SÉCURITÉ (rappel) :
+     Ce module lit vendorsPublic/{uid} (données publiques :
+     shopName, status) et products (données publiques après
+     approbation). AUCUNE lecture de users/{uid} pour éviter
+     toute fuite PII (email, phone, iceCin).
+
+   ALERTE 1 : plus aucun commentaire de ligne (//) en début de
+   ligne utile. Tout est en bloc.
+   ============================================================ */
 
 import {
     doc, getDoc, collection, query, where, getDocs, limit
@@ -20,14 +47,15 @@ import {
 } from "./utils.js";
 import { getCurrentUser } from "./auth.js";
 
-// ============================================================
-// HELPERS LOCAUX
-// ============================================================
+/* ============================================================
+   HELPERS LOCAUX
+   ============================================================ */
+
 /**
  * Normalise un ID produit :
- * - "42" (chaîne numérique) → 42 (compat favoris/reviews historiques)
- * - "abc123" (auto-ID Firestore) → "abc123" (produits vendeurs)
- * - null/undefined/"" → null
+ * - "42" (chaîne numérique) -> 42 (compat favoris/reviews)
+ * - "abc123" (auto-ID Firestore) -> "abc123" (produits vendeurs)
+ * - null/undefined/"" -> null
  */
 function normalizeProductId(id) {
     if (id == null || id === '') return null;
@@ -35,9 +63,23 @@ function normalizeProductId(id) {
     return Number.isFinite(n) && String(n) === String(id) ? n : String(id);
 }
 
-// ============================================================
-// ÉTAT LOCAL
-// ============================================================
+/**
+ * Retourne une URL d'image sûre ou '' si invalide.
+ * B-BOUT-5 : rejette javascript:, data:, et tout protocole
+ * non http(s). Accepte les chemins absolus (/...).
+ */
+function safeImageUrl(url) {
+    if (typeof url !== 'string') return '';
+    const trimmed = url.trim();
+    if (!trimmed) return '';
+    if (/^https?:\/\//i.test(trimmed)) return escapeHTML(trimmed);
+    if (trimmed.startsWith('/')) return escapeHTML(trimmed);
+    return '';
+}
+
+/* ============================================================
+   ÉTAT LOCAL
+   ============================================================ */
 let currentVendor = null;
 let vendorProducts = [];
 let filteredProducts = [];
@@ -46,10 +88,25 @@ let currentPage = 1;
 const PRODUCTS_PER_PAGE = 12;
 const MAX_PRODUCTS_PER_VENDOR = 100;
 
-// ============================================================
-// INIT
-// ============================================================
+/* B-BOUT-4 : guard concurrent. */
+let _initInProgress = false;
+
+/* ============================================================
+   INIT
+   ============================================================ */
+
+/**
+ * Point d'entrée : charge le vendeur + ses produits, puis render.
+ * B-BOUT-4 : guard concurrent.
+ * @returns {Promise<void>}
+ */
 async function initBoutique() {
+    /* B-BOUT-4 : guard concurrent. */
+    if (_initInProgress) {
+        console.log('[boutique] Init déjà en cours - skip');
+        return;
+    }
+
     const params = new URLSearchParams(window.location.search);
     const vendorUid = params.get('v');
 
@@ -58,8 +115,10 @@ async function initBoutique() {
         return;
     }
 
+    _initInProgress = true;
+
     try {
-        // 1. Lire la collection publique (aucune PII — cf. E10)
+        /* 1. Lire vendorsPublic (aucune PII). */
         const vendorSnap = await getDoc(doc(db, "vendorsPublic", vendorUid));
         if (!vendorSnap.exists()) {
             showError('not_found');
@@ -69,9 +128,12 @@ async function initBoutique() {
         const vendorPublic = vendorSnap.data() || {};
         const status = vendorPublic.status;
 
-        // 2. Vérifier le statut (schéma : status ∈ pending/approved/rejected/suspended)
+        /* 2. Vérifier statut. */
         if (status !== VENDOR_STATUS.APPROVED) {
-            if (status === VENDOR_STATUS.SUSPENDED) {
+            /* B-BOUT-2 : pending -> "indisponible" (honnête),
+               rejected -> "not_found" (comme retirée),
+               suspended -> "suspended". */
+            if (status === VENDOR_STATUS.SUSPENDED || status === VENDOR_STATUS.PENDING) {
                 showError('suspended');
             } else {
                 showError('not_found');
@@ -87,7 +149,7 @@ async function initBoutique() {
             createdAt: toDate(vendorPublic.createdAt)
         };
 
-        // 3. Charger les produits approuvés du vendeur (max 100)
+        /* 3. Charger les produits approuvés du vendeur. */
         const productsSnap = await getDocs(query(
             collection(db, "products"),
             where("vendorId", "==", vendorUid),
@@ -108,25 +170,46 @@ async function initBoutique() {
             };
         });
 
-        // 4. Afficher
+        if (vendorProducts.length >= MAX_PRODUCTS_PER_VENDOR) {
+            console.warn(
+                `[boutique] Limite de ${MAX_PRODUCTS_PER_VENDOR} produits atteinte. ` +
+                `Certains produits du vendeur ne sont pas affichés.`
+            );
+        }
+
+        /* 4. Guard B-BOUT-6 : currentVendor non null avant render. */
+        if (!currentVendor) {
+            console.error('[boutique] currentVendor null après chargement - abandon');
+            showError('error');
+            return;
+        }
+
+        /* 5. Afficher. */
         renderBoutique();
-        setupEventListeners();       // B6 : avant applyCategoryFilter
+        setupEventListeners();
         applyCategoryFilter('all');
 
-        // SEO dynamique (titre + meta OG/canonical)
+        /* 6. SEO dynamique. */
         updateBoutiqueMeta();
 
         toggleLoading(false);
 
     } catch (e) {
-        console.error('❌ Erreur chargement boutique :', e);
+        console.error('[boutique] Erreur chargement :', e);
         showError('error');
+    } finally {
+        _initInProgress = false;
     }
 }
 
-// ============================================================
-// AFFICHAGE ERREUR / LOADING (null-safe)
-// ============================================================
+/* ============================================================
+   AFFICHAGE ERREUR / LOADING
+   ============================================================ */
+
+/**
+ * Affiche le loader ou le contenu (mutuellement exclusifs).
+ * @param {boolean} show - true = loader, false = contenu
+ */
 function toggleLoading(show) {
     const loadingEl = document.getElementById('boutiqueLoading');
     const contentEl = document.getElementById('boutiqueContent');
@@ -134,12 +217,21 @@ function toggleLoading(show) {
     if (contentEl) contentEl.style.display = show ? 'none' : 'block';
 }
 
+/**
+ * Affiche l'erreur et cache le contenu.
+ * B-BOUT-1 : plus de content vide affiché en plus de l'erreur.
+ * @param {'not_found'|'suspended'|'error'} type
+ */
 function showError(type) {
-    toggleLoading(false);
-
+    const loadingEl = document.getElementById('boutiqueLoading');
+    const contentEl = document.getElementById('boutiqueContent');
     const errorEl = document.getElementById('boutiqueError');
     const titleEl = document.getElementById('boutiqueErrorTitle');
     const textEl = document.getElementById('boutiqueErrorText');
+
+    /* B-BOUT-1 : on cache le contenu (ne PAS le rendre visible). */
+    if (loadingEl) loadingEl.style.display = 'none';
+    if (contentEl) contentEl.style.display = 'none';
 
     if (titleEl && textEl) {
         if (type === 'suspended') {
@@ -157,13 +249,20 @@ function showError(type) {
     if (errorEl) errorEl.style.display = 'block';
 }
 
-// ============================================================
-// SEO DYNAMIQUE
-// ============================================================
+/* ============================================================
+   SEO DYNAMIQUE
+   ============================================================ */
 function updateBoutiqueMeta() {
+    if (!currentVendor) return;
+
     const name = currentVendor.shopName;
     const count = vendorProducts.length;
-    const description = `Découvrez les ${count} produits de la boutique ${name} sur Smart Swi9a. Livraison 24-72h, paiement à la livraison.`;
+
+    /* B-BOUT-3 : description adaptée si 0 produit. */
+    const description = count > 0
+        ? `Découvrez les ${count} produits de la boutique ${name} sur Smart Swi9a. Livraison 24-72h, paiement à la livraison.`
+        : `Découvrez la boutique ${name} sur Smart Swi9a. Livraison 24-72h, paiement à la livraison.`;
+
     const url = `${CONFIG.SHOP.URL}/boutique.html?v=${encodeURIComponent(currentVendor.uid)}`;
 
     document.title = `${name} | Smart Swi9a`;
@@ -195,10 +294,16 @@ function setMeta(attrName, attrValue, content) {
     el.setAttribute('content', content || '');
 }
 
-// ============================================================
-// RENDER : EN-TÊTE
-// ============================================================
+/* ============================================================
+   RENDER : EN-TÊTE
+   ============================================================ */
 function renderBoutique() {
+    /* B-BOUT-6 : guard défensif. */
+    if (!currentVendor) {
+        console.error('[boutique] renderBoutique sans currentVendor');
+        return;
+    }
+
     const nameEl = document.getElementById('boutiqueName');
     if (nameEl) nameEl.textContent = currentVendor.shopName;
 
@@ -224,14 +329,14 @@ function renderBoutique() {
 
         let metaHtml = `
             <span class="boutique-verified-badge">
-                ✅ ${t('boutiqueVerified') || 'Boutique vérifiée'}
+                ${t('boutiqueVerified') || 'Boutique vérifiée'}
             </span>
             <span class="boutique-meta-item">
-                📦 ${productCount} ${productCount > 1 ? (t('items') || 'produits') : (t('cartItemSingular') || 'produit')}
+                ${productCount} ${productCount > 1 ? (t('items') || 'produits') : (t('cartItemSingular') || 'produit')}
             </span>
         `;
         if (avgRating) {
-            metaHtml += `<span class="boutique-meta-item">⭐ ${escapeHTML(String(avgRating))} / 5</span>`;
+            metaHtml += `<span class="boutique-meta-item">${escapeHTML(String(avgRating))} / 5</span>`;
         }
         meta.innerHTML = metaHtml;
     }
@@ -250,14 +355,14 @@ function renderBoutique() {
     renderFilters();
 }
 
-// ============================================================
-// FILTRES CATÉGORIES
-// ============================================================
+/* ============================================================
+   FILTRES CATÉGORIES
+   ============================================================ */
 function renderFilters() {
     const container = document.getElementById('boutiqueFilters');
     if (!container) return;
 
-    // B7 : pas de filtres si aucun produit
+    /* Pas de filtres si aucun produit. */
     if (vendorProducts.length === 0) {
         container.innerHTML = '';
         container.style.display = 'none';
@@ -290,7 +395,7 @@ function renderFilters() {
     container.style.display = '';
 
     let html = `<button class="boutique-filter-btn active" data-category="all">
-        🛍️ ${t('filterAll') || 'Tout'} (${vendorProducts.length})
+        ${t('filterAll') || 'Tout'} (${vendorProducts.length})
     </button>`;
 
     [...categories.values()].forEach(cat => {
@@ -304,9 +409,9 @@ function renderFilters() {
     container.innerHTML = html;
 }
 
-// ============================================================
-// FILTRER PAR CATÉGORIE
-// ============================================================
+/* ============================================================
+   FILTRER PAR CATÉGORIE
+   ============================================================ */
 function applyCategoryFilter(categoryId) {
     activeCategory = categoryId;
 
@@ -331,9 +436,9 @@ function applyCategoryFilter(categoryId) {
     });
 }
 
-// ============================================================
-// RENDER GRILLE PRODUITS
-// ============================================================
+/* ============================================================
+   RENDER GRILLE PRODUITS
+   ============================================================ */
 function renderGrid() {
     const grid = document.getElementById('boutiqueGrid');
     if (!grid) return;
@@ -352,7 +457,6 @@ function renderGrid() {
     const pageProducts = filteredProducts.slice(start, start + PRODUCTS_PER_PAGE);
 
     const user = getCurrentUser();
-    // B2 : normalisation compatible IDs numériques + strings
     const favs = Array.isArray(user?.favorites)
         ? user.favorites.map(normalizeProductId).filter(f => f != null)
         : [];
@@ -381,8 +485,8 @@ function renderGrid() {
             : '';
 
         const btnHtml = hasVariants
-            ? `<button class="btn-choose-options" data-slug="${escapeHTML(p.slug || '')}" style="background:var(--gold);color:#fff;border:none;padding:0.3rem 0.7rem;border-radius:30px;font-size:0.7rem;font-weight:600;cursor:pointer;">⚙️ ${t('chooseOptions') || 'Choisir'}</button>`
-            : `<button class="btn-add-to-cart" data-id="${escapeHTML(String(pid))}">🛒 ${t('addToCart') || 'Ajouter'}</button>`;
+            ? `<button class="btn-choose-options" data-slug="${escapeHTML(p.slug || '')}" style="background:var(--gold);color:#fff;border:none;padding:0.3rem 0.7rem;border-radius:30px;font-size:0.7rem;font-weight:600;cursor:pointer;">${t('chooseOptions') || 'Choisir'}</button>`
+            : `<button class="btn-add-to-cart" data-id="${escapeHTML(String(pid))}">${t('addToCart') || 'Ajouter'}</button>`;
 
         const avgRating = p.ratingCount > 0 ? p.ratingAvg : '--';
 
@@ -398,7 +502,7 @@ function renderGrid() {
                 </div>
                 <div class="product-body">
                     <div class="p-name">${name}</div>
-                    <div class="p-stats">⭐ ${escapeHTML(String(avgRating))} <span style="color:var(--text-muted)">(${p.ratingCount || 0})</span></div>
+                    <div class="p-stats">${escapeHTML(String(avgRating))} <span style="color:var(--text-muted)">(${p.ratingCount || 0})</span></div>
                     <div class="p-footer">
                         <div class="p-price">${price} ${t('currency') || 'MAD'} ${oldPrice ? `<small>${oldPrice} ${t('currency') || 'MAD'}</small>` : ''}</div>
                         ${btnHtml}
@@ -412,9 +516,9 @@ function renderGrid() {
     attachGridEvents(grid);
 }
 
-// ============================================================
-// ÉVÉNEMENTS GRILLE
-// ============================================================
+/* ============================================================
+   ÉVÉNEMENTS GRILLE
+   ============================================================ */
 function attachGridEvents(grid) {
     grid.querySelectorAll('.product-card').forEach(card => {
         card.addEventListener('click', (e) => {
@@ -437,14 +541,13 @@ function attachGridEvents(grid) {
         btn.addEventListener('click', async (e) => {
             e.preventDefault();
             e.stopPropagation();
-            // B2 : plus de parseInt — on passe l'ID brut (string OU number)
             const id = normalizeProductId(btn.dataset.id);
             if (id == null) return;
             try {
                 const { addToCart } = await import('./cart.js');
                 addToCart(id);
             } catch (err) {
-                console.warn('⚠️ addToCart error:', err);
+                console.warn('[boutique] addToCart error:', err);
             }
         });
     });
@@ -459,15 +562,15 @@ function attachGridEvents(grid) {
                 const { toggleFavorite } = await import('./products.js');
                 await toggleFavorite(id);
             } catch (err) {
-                console.warn('⚠️ toggleFavorite error:', err);
+                console.warn('[boutique] toggleFavorite error:', err);
             }
         });
     });
 }
 
-// ============================================================
-// PAGINATION
-// ============================================================
+/* ============================================================
+   PAGINATION
+   ============================================================ */
 function renderPagination() {
     const container = document.getElementById('boutiquePagination');
     if (!container) return;
@@ -503,9 +606,9 @@ function renderPagination() {
     });
 }
 
-// ============================================================
-// LISTENERS GLOBAUX
-// ============================================================
+/* ============================================================
+   LISTENERS GLOBAUX
+   ============================================================ */
 function setupEventListeners() {
     document.querySelectorAll('.boutique-filter-btn').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -518,13 +621,13 @@ function setupEventListeners() {
     });
 }
 
-// ============================================================
-// DÉMARRAGE
-// ============================================================
+/* ============================================================
+   DÉMARRAGE
+   ============================================================ */
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initBoutique);
 } else {
     initBoutique();
 }
 
-console.log('✅ boutique.js chargé — v1.1.0');
+console.log('✅ boutique.js chargé - v9.0.0 (Lot 18 : fix showError + pending + guard)');
