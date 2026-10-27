@@ -1,27 +1,48 @@
 /* ============================================================
    js/vendor-contract.js
-   Signature électronique du contrat vendeur — T9 (v1.2.0)
+   Signature électronique du contrat vendeur — Lot 27/30
 
-   Correctifs T9 :
-   C1 — ID versionné contract_<uid>_v<semver> (re-signature possible)
-   C2 — textHash sur texte figé (getContractText + termsSnapshot)
-   C3 — verifyContractIntegrity() : recalcul + comparaison des hash
-   C6 — userAgent tronqué à 300 car., source (signup|dashboard|resign),
-        termsSnapshot figé dans le document
+   Version 9.0.0 — Fix race condition + JSDoc + logs
 
-   NOUVEAUX EXPORTS : verifyContractIntegrity, compareVersions,
-   getContractId, isContractCurrent, needsResign
+   CHANGEMENTS v9.0.0 :
+     - B-VC-1 (P2) : signVendorContract utilise maintenant
+       runTransaction pour la phase get + set. Empêche la race
+       condition sur double-signature (deux onglets, deux
+       signatures simultanées). Le 2ème appel throw
+       CONTRACT_ALREADY_SIGNED au lieu d'écraser le 1er.
+     - P3-1 : tous les logs préfixés [vendor-contract] (cohérence
+       avec les Lots 2-26).
+     - P3-2 : JSDoc sur compareVersions, needsResign,
+       isContractCurrent.
+     - P3-3 : needsResign documenté explicitement (patch = pas de
+       re-signature).
+     - Bump version 1.2.0 -> 9.0.0.
 
-   DÉPENDANCES (à charger ensemble — v-contract + v-contract-text) :
-   - ./vendor-contract-text.js : getContractText, buildTermsSnapshot
-   - ./config.js : CONFIG.VENDOR.CONTRACT_VERSION, CONFIG.SECURITY.*
-   - ./firebase.js : db
+   COMPATIBILITÉ :
+     - Compatible avec CONTRACT_TEMPLATES 1.1.0 ET 1.2.0
+       (vendor-contract-text.js v9.0.0).
+     - verifyContractIntegrity fonctionne sur les deux versions.
+     - needsResign détecte correctement 1.1.0 -> 1.2.0 (mineur).
 
-   RAPPEL : toute modification d'un gabarit ⇒ nouvelle version dans
-   vendor-contract-text.js. On n'édite JAMAIS un gabarit publié.
+   RAPPEL ARCHITECTURAL :
+     - Chaque signature crée un document versionné
+       contract_<uid>_v<semver>. Impossible d'écraser une version
+       existante (protégé par la transaction).
+     - Une re-signature (1.1.0 -> 1.2.0) crée un NOUVEAU document
+       (contract_<uid>_v1.2.0). L'ancien reste pour audit.
+     - Le contractHash combine vendorId|version|language|textHash
+       → toute modification détectée par verifyContractIntegrity.
+
+   DÉPENDANCES :
+     - ./vendor-contract-text.js (getContractText, buildTermsSnapshot)
+     - ./config.js (CONFIG.VENDOR.CONTRACT_VERSION, CONFIG.SECURITY.*)
+     - ./firebase.js (db)
+
+   ALERTE 1 : plus aucun commentaire de ligne (//) en début de
+   ligne utile. Tout est en bloc.
    ============================================================ */
 
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, setDoc, runTransaction, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase.js";
 import { CONFIG } from "./config.js";
 import { getContractText, buildTermsSnapshot } from "./vendor-contract-text.js";
@@ -31,8 +52,15 @@ const SHA256_HEX_RE = /^[0-9a-f]{64}$/i;
 const ALLOWED_LANGS = ["fr", "ar", "en"];
 const ALLOWED_SOURCES = ["signup", "dashboard", "resign"];
 
-/* ---------- Helpers internes ---------- */
+/* ============================================================
+   HELPERS INTERNES
+   ============================================================ */
 
+/**
+ * Parse une string semver "x.y.z" en objet { major, minor, patch }.
+ * @param {*} str
+ * @returns {{major: number, minor: number, patch: number} | null}
+ */
 function parseVersion(str) {
     if (typeof str !== "string") return null;
     const s = str.trim();
@@ -41,8 +69,16 @@ function parseVersion(str) {
     return { major: Number(parts[0]), minor: Number(parts[1]), patch: Number(parts[2]) };
 }
 
-/* ---------- Semver / IDs / politique de re-signature ---------- */
+/* ============================================================
+   SEMVER / IDs / POLITIQUE DE RE-SIGNATURE
+   ============================================================ */
 
+/**
+ * Compare deux versions semver.
+ * @param {string} a
+ * @param {string} b
+ * @returns {number} -1 si a < b, 1 si a > b, 0 si égal ou invalide.
+ */
 export function compareVersions(a, b) {
     const pa = parseVersion(a);
     const pb = parseVersion(b);
@@ -55,6 +91,15 @@ export function compareVersions(a, b) {
     return 0;
 }
 
+/**
+ * Construit l'ID versionné du document contrat.
+ * Format : contract_<uid>_v<semver> (ex: contract_abc123_v1.2.0).
+ * Refuse les UID temporaires (temp_xxx) et les versions invalides.
+ * @param {string} userId
+ * @param {string} [version=CONFIG.VENDOR.CONTRACT_VERSION]
+ * @returns {string}
+ * @throws {Error}
+ */
 export function getContractId(userId, version = CONFIG.VENDOR.CONTRACT_VERSION) {
     if (!userId || typeof userId !== "string" || userId.startsWith("temp_")) {
         throw new Error("getContractId : UID Firebase réel requis.");
@@ -65,8 +110,20 @@ export function getContractId(userId, version = CONFIG.VENDOR.CONTRACT_VERSION) 
     return `contract_${userId}_v${version}`;
 }
 
-/* Politique : seuls les changements majeur/mineur imposent une re-signature.
-   Un patch (1.1.0 → 1.1.5) n'en impose pas. */
+/**
+ * Vérifie si un vendeur doit re-signer le contrat.
+ *
+ * Politique :
+ *   - Changement majeur (1.x -> 2.x) : re-signature obligatoire.
+ *   - Changement mineur (1.1 -> 1.2) : re-signature obligatoire.
+ *   - Changement patch (1.2.0 -> 1.2.1) : pas de re-signature
+ *     (correction de coquille, pas de changement de fond).
+ *
+ * B-VC-P3-3 : le comportement patch est désormais documenté.
+ *
+ * @param {Object} vendorInfo - Objet users/{uid}.vendorInfo
+ * @returns {boolean} true si re-signature nécessaire.
+ */
 export function needsResign(vendorInfo) {
     if (!vendorInfo || typeof vendorInfo !== "object") return true;
     const v = parseVersion(vendorInfo.contractVersion);
@@ -75,15 +132,26 @@ export function needsResign(vendorInfo) {
     if (v.major < c.major) return true;
     if (v.major > c.major) return false;
     if (v.minor < c.minor) return true;
+    /* Si major et minor égaux : patch ignoré (pas de re-signature). */
     return false;
 }
 
+/**
+ * Inverse de needsResign : true si le contrat du vendeur est à jour.
+ * @param {Object} vendorInfo
+ * @returns {boolean}
+ */
 export function isContractCurrent(vendorInfo) {
     return !needsResign(vendorInfo);
 }
 
-/* ---------- Capture IP + UA via Worker Cloudflare ---------- */
-
+/* ============================================================
+   CAPTURE IP + UA VIA WORKER CLOUDFLARE
+   ============================================================
+   L'IP est requise pour la preuve légale de signature. Si le
+   Worker est indisponible, on continue avec ip='unknown' et
+   ipSource='unavailable' (transparent pour l'utilisateur).
+   ============================================================ */
 async function captureIpAndUa() {
     const clientUa = (typeof navigator !== "undefined" && navigator.userAgent) || "unknown";
     try {
@@ -98,13 +166,14 @@ async function captureIpAndUa() {
         if (!ip) throw new Error("IP absente de la réponse Worker");
         return { ip, ua: clientUa, source: "worker" };
     } catch (e) {
-        console.warn("[vendor-contract] IP Worker indisponible, ipSource=unavailable.", e);
+        console.warn("[vendor-contract] IP Worker indisponible, ipSource=unavailable.", e?.message || e);
         return { ip: "unknown", ua: clientUa, source: "unavailable" };
     }
 }
 
-/* ---------- SHA-256 (Web Crypto obligatoire) ---------- */
-
+/* ============================================================
+   HASH SHA-256 (Web Crypto obligatoire)
+   ============================================================ */
 async function generateHash(text) {
     if (typeof crypto === "undefined" || !crypto.subtle) {
         throw new Error("Hash non supporté (Web Crypto indisponible). Le site doit être servi en HTTPS.");
@@ -114,6 +183,13 @@ async function generateHash(text) {
     return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
+/**
+ * Calcule le hash SHA-256 d'un texte de contrat.
+ * Utilisé en interne et exposé pour les vérifications manuelles.
+ * @param {string} contractText
+ * @returns {Promise<string>} hex 64 chars
+ * @throws {Error} si le texte est vide ou si Web Crypto est indisponible.
+ */
 export async function computeContractTextHash(contractText) {
     if (!contractText || typeof contractText !== "string") {
         throw new Error("computeContractTextHash : texte de contrat invalide.");
@@ -121,8 +197,28 @@ export async function computeContractTextHash(contractText) {
     return await generateHash(contractText);
 }
 
-/* ---------- Signature versionnée ---------- */
+/* ============================================================
+   SIGNATURE VERSIONNÉE
+   ============================================================
+   B-VC-1 : utilise runTransaction pour la phase get + set.
+   L'atomicité empêche la race condition sur double-signature.
+   ============================================================ */
 
+/**
+ * Signe un contrat vendeur et crée le document contracts/{id}
+ * correspondant (ID versionné).
+ *
+ * @param {string} userId - UID Firebase réel du vendeur.
+ * @param {string} contractText - Texte exact du contrat signé.
+ * @param {Object} [preSignatureData]
+ * @param {string} [preSignatureData.textHash] - Hash pré-calculé (optionnel).
+ * @param {string} [preSignatureData.language] - 'fr' | 'ar' | 'en'.
+ * @param {string} [preSignatureData.version] - Semver (défaut: CONFIG.VENDOR.CONTRACT_VERSION).
+ * @param {Object} [preSignatureData.termsSnapshot] - Snapshot figé.
+ * @param {string} [preSignatureData.source] - 'signup' | 'dashboard' | 'resign'.
+ * @returns {Promise<{ success: boolean, contractId: string, version: string, hash: string, textHash: string, ip: string, ipSource: string }>}
+ * @throws {Error} si signé déjà, ou si la sauvegarde échoue.
+ */
 export async function signVendorContract(userId, contractText, preSignatureData = {}) {
     if (!userId || typeof userId !== "string" || userId.startsWith("temp_")) {
         throw new Error("signVendorContract : UID Firebase réel requis (pas de temp_…).");
@@ -143,17 +239,11 @@ export async function signVendorContract(userId, contractText, preSignatureData 
     const contractId = getContractId(userId, version);
     const contractDocRef = doc(db, "contracts", contractId);
 
-    try {
-        const existing = await getDoc(contractDocRef);
-        if (existing.exists()) throw new Error("CONTRACT_ALREADY_SIGNED");
-    } catch (e) {
-        if (e && e.message === "CONTRACT_ALREADY_SIGNED") throw e;
-        console.warn("[vendor-contract] Pré-vérification impossible (règles Firestore ?), on continue.", e);
-    }
-
+    /* Capture IP + UA (async, avant la transaction). */
     const { ip, ua, source: ipSource } = await captureIpAndUa();
     const truncatedUa = (ua || "unknown").slice(0, 300);
 
+    /* Hash du texte + hash de contexte. */
     const textHash = (typeof preSignatureData.textHash === "string" && SHA256_HEX_RE.test(preSignatureData.textHash))
         ? preSignatureData.textHash.toLowerCase()
         : await computeContractTextHash(contractText);
@@ -176,8 +266,16 @@ export async function signVendorContract(userId, contractText, preSignatureData 
         status: "accepted"
     };
 
+    /* B-VC-1 : transaction pour get + set atomiques. */
     try {
-        await setDoc(contractDocRef, contractData);
+        await runTransaction(db, async (transaction) => {
+            const existing = await transaction.get(contractDocRef);
+            if (existing.exists()) {
+                throw new Error("CONTRACT_ALREADY_SIGNED");
+            }
+            transaction.set(contractDocRef, contractData);
+        });
+
         return {
             success: true,
             contractId: contractId,
@@ -188,7 +286,10 @@ export async function signVendorContract(userId, contractText, preSignatureData 
             ipSource: ipSource
         };
     } catch (e) {
-        console.error("[vendor-contract] Erreur sauvegarde contrat :", e);
+        if (e && e.message === "CONTRACT_ALREADY_SIGNED") {
+            throw e;
+        }
+        console.error("[vendor-contract] Erreur sauvegarde contrat :", e?.message || e);
         if (e && (e.code === "permission-denied" || e.code === "already-exists")) {
             throw new Error("Contrat déjà signé ou accès refusé.");
         }
@@ -196,8 +297,20 @@ export async function signVendorContract(userId, contractText, preSignatureData 
     }
 }
 
-/* ---------- Vérification d'intégrité ---------- */
+/* ============================================================
+   VÉRIFICATION D'INTÉGRITÉ
+   ============================================================
+   Compatible 1.1.0 ET 1.2.0 (les deux gabarits existent dans
+   vendor-contract-text.js v9.0.0).
+   ============================================================ */
 
+/**
+ * Vérifie l'intégrité d'un document contrat en recalculant les
+ * hash (textHash et contractHash) depuis le snapshot stocké.
+ *
+ * @param {Object} contractDoc - Données du doc contracts/{id}.
+ * @returns {Promise<{ ok: boolean, textHashOk: boolean, contractHashOk: boolean, reason: string }>}
+ */
 export async function verifyContractIntegrity(contractDoc) {
     try {
         if (!contractDoc || typeof contractDoc !== "object") {
@@ -243,3 +356,8 @@ export async function verifyContractIntegrity(contractDoc) {
         };
     }
 }
+
+/* ============================================================
+   LOG
+   ============================================================ */
+console.log("[vendor-contract] v9.0.0 chargé (Lot 27 : transaction + JSDoc)");
