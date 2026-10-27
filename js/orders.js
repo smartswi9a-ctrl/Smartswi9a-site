@@ -1,29 +1,24 @@
 /* ============================================================
    js/orders.js
    Gestion des commandes - Smart Swi9a
-   Version 9.0.0 - Lot 12/30 : migration Speedaf -> Livo
+   Version 10.0.0 - Lot 45 : préparation R2 (lastOrderId admin-only)
    PARTIE 1/2 : imports, config, emails, sendToLivoAPI,
                 cancelLivoShipment, syncLivoStatus
 
-   CHANGEMENTS v9.0.0 (Partie 1/2) :
-     - D1 : SPEEDAF_API_CONFIG -> LIVO_API_CONFIG (Worker livo-proxy).
-     - D5 : LIVO_STATUS_MAP remplace le mapping Speedaf brut.
-     - P1-11 : customerCode: 'MA000025' supprimé (Bearer suffit).
-     - P1-12 : payload AddOrderRequest simplifié.
-     - P1-13 : syncLivoStatus via GET /orders/{id}.
-     - Dead code retiré : canReturnOrder, isFullReturn,
-       getOrderStatusLabel, getOrderStatusColor, getReturnBadgeText.
-     - Ajout imports : cleanMoroccanPhone, formatLivoDate,
-       mapLivoStatusToSmart, getReturnedQuantities (pour B4 en P2/2).
-     - Alias déprécié : syncSpeedafStatus exporté = syncLivoStatus.
-     - Fallback lecture : order.livoTracking || order.speedafTracking.
+   CHANGEMENTS v10.0.0 (Partie 1/2) :
+     - Aucun changement fonctionnel en Partie 1/2. Bump de version
+       uniquement pour cohérence avec Partie 2/2.
+     - Les modifications R2 sont dans Partie 2/2 (stock helpers +
+       processReturnTransaction).
 
-   CHANGEMENTS v9.0.0 (Partie 2/2, prochain message) :
-     - B4 : openReturnModal max = quantity - déjà retournée.
-     - B8 : generateReport limit 5000.
-     - updateOrderStatus renommé champs Speedaf -> Livo.
-     - releaseDueVendorFunds inchangé (déjà FIFO T4-bis).
-     - Retrait 7 dead code imports dans updateOrderStatus.
+   CHANGEMENTS v10.0.0 (Partie 2/2) :
+     - R2-preparation : deductStockInTransaction, restoreStockInTransaction
+       et processReturnTransaction ajoutent lastOrderId + updatedAt
+       dans chaque updateData produit. Invariant stock+salesCount
+       préservé par construction.
+     - Note : ces updates sont admin-only (R2 ne s'applique pas),
+       mais les ajouts sont cosmétiques + préparent d'éventuels
+       flux futurs non-admin.
 
    PRÉREQUIS CRITIQUE pour sendToLivoAPI :
      Chaque produit Firestore doit avoir un champ `livo_product_id`
@@ -61,20 +56,6 @@ import { cancelOrder, loadUserOrders } from "./cart.js";
 
 /* ============================================================
    CONFIGURATION LIVO (via Worker Cloudflare livo-proxy)
-   ============================================================
-   Le Worker fait le pont entre ce code navigateur et l'API Livo
-   (rest.livo.ma). Il porte le Bearer token, applique le rate
-   limit de 5 req/s, gère les retries sur 429, et normalise les
-   erreurs.
-
-   Routes miroirs exposées par le Worker :
-     POST  /create-order  -> POST  rest.livo.ma/orders
-     PATCH /cancel-order  -> PATCH rest.livo.ma/orders
-     GET   /track/{id}    -> GET   rest.livo.ma/orders/{id}
-
-   On garde les MÊMES noms de route que l'ancien speedaf-proxy
-   pour ne pas casser les Workers existants pendant la transition
-   (speedaf-proxy et livo-proxy peuvent cohabiter).
    ============================================================ */
 const LIVO_API_CONFIG = {
     BASE_URL: CONFIG.LOGISTICS.PROXY_WORKER_URL,
@@ -358,15 +339,6 @@ function buildInvoiceText(order, recipient, lang = 'fr') {
 /* ============================================================
    ENVOI EMAIL (public)
    ============================================================ */
-
-/**
- * Envoie un email de commande (client ou admin) selon le statut.
- * B-C6 : skip silencieux si pas de config email.
- * @param {Object} order
- * @param {string} status - 'pending' | 'confirmed' | 'shipping' | 'delivered' | 'returned' | 'cancelled'
- * @param {string} recipient - 'client' | 'admin'
- * @returns {Promise<Object>}
- */
 export async function sendOrderEmail(order, status, recipient) {
     const emailConfig = {
         pending:   { client: true,  admin: true  },
@@ -401,21 +373,7 @@ export async function sendOrderEmail(order, status, recipient) {
 
 /* ============================================================
    LIVO - CREATE ORDER (via Worker proxy)
-   ============================================================
-   Payload conforme à AddOrderRequest (OpenAPI Livo 1.0.0).
-   Le Worker fait la traduction final vers rest.livo.ma.
-
-   PRÉREQUIS : chaque item doit référencer un produit Firestore
-   qui possède un champ `livo_product_id` (format pr-xxxxxxxx).
-   Si absent, on refuse avec un message explicite à l'admin.
    ============================================================ */
-
-/**
- * Crée une commande chez Livo via le Worker proxy.
- *
- * @param {Object} order - Commande Firestore (id, items, deliveryAddress, total).
- * @returns {Promise<{ success: boolean, trackingNumber?: string, labelUrl?: string, error?: string }>}
- */
 export async function sendToLivoAPI(order) {
     if (isTestMode()) {
         console.log('[TEST] sendToLivoAPI MOCK - aucun appel Livo');
@@ -495,8 +453,6 @@ export async function sendToLivoAPI(order) {
 
         console.log('Livo create response:', JSON.stringify(data, null, 2));
 
-        /* Format de succès Livo : { success: true, data: { data: { _id: 'or-xxx', ... } } }
-           ou directement { success: true, data: { _id: 'or-xxx' } } selon le Worker. */
         const orderData = data?.data?.data || data?.data || null;
         const livoOrderId = orderData?._id || orderData?.order_id;
 
@@ -508,7 +464,6 @@ export async function sendToLivoAPI(order) {
             };
         }
 
-        /* Extraction message d'erreur Livo. */
         let errorMsg = 'Erreur inconnue';
         const errData = data?.data?.data || data?.data || data;
         if (errData?.fr_message) errorMsg = errData.fr_message;
@@ -526,16 +481,7 @@ export async function sendToLivoAPI(order) {
 
 /* ============================================================
    LIVO - CANCEL SHIPMENT (via Worker proxy)
-   ============================================================
-   Équivalent Smart : annulation de commande Livo.
-   Payload Livo : { id: 'or-xxx', status: 'cancelled' }
    ============================================================ */
-
-/**
- * Annule une commande chez Livo via le Worker proxy.
- * @param {string} livoOrderId - ID Livo (format or-xxxxxxxx).
- * @returns {Promise<boolean>} true si annulé.
- */
 export async function cancelLivoShipment(livoOrderId) {
     if (isTestMode()) {
         console.log('[TEST] cancelLivoShipment MOCK');
@@ -568,17 +514,7 @@ export async function cancelLivoShipment(livoOrderId) {
 
 /* ============================================================
    LIVO - SYNC STATUS (via Worker proxy)
-   ============================================================
-   Équivalent Smart : lecture du statut courant d'une commande.
-   Endpoint : GET /orders/{id}
-   Utilise mapLivoStatusToSmart (config.js) pour le mapping.
    ============================================================ */
-
-/**
- * Synchronise le statut d'une commande depuis Livo.
- * @param {string} orderId - ID commande Firestore.
- * @returns {Promise<{ success: boolean, updated?: boolean, currentStatus?: string, newStatus?: string, error?: string }>}
- */
 export async function syncLivoStatus(orderId) {
     if (isTestMode()) {
         console.log('[TEST] syncLivoStatus MOCK');
@@ -591,8 +527,6 @@ export async function syncLivoStatus(orderId) {
         if (!snap.exists()) return { success: false, error: "Commande introuvable" };
 
         const order = snap.data();
-        /* Fallback lecture : supporte livoTracking (nouveau) et
-           speedafTracking (legacy) pendant la transition. */
         const trackingId = order.livoTracking || order.speedafTracking;
         if (!trackingId) return { success: false, error: "Aucun numéro de suivi Livo" };
 
@@ -617,7 +551,6 @@ export async function syncLivoStatus(orderId) {
             return { success: true, updated: false, currentStatus: "unknown" };
         }
 
-        /* Mapping Livo -> Smart via config.js. */
         const mapped = mapLivoStatusToSmart(livoStatus);
         const newStatus = mapped.status;
 
@@ -635,7 +568,6 @@ export async function syncLivoStatus(orderId) {
             return { success: false, error: updResult.error || 'Erreur updateOrderStatus' };
         }
 
-        /* Persister le statut brut Livo + flag problem si applicable. */
         const extras = { livoStatusRaw: livoStatus };
         if (livoStatus === 'problem') extras.livoProblem = true;
         else if (order.livoProblem) extras.livoProblem = false;
@@ -654,17 +586,7 @@ export async function syncLivoStatus(orderId) {
 
 /* ============================================================
    ALIAS DÉPRÉCIÉ (compatibilité admin.js Lot 30)
-   ============================================================
-   admin.js importe `syncSpeedafStatus` et l'utilise dans
-   renderAdminOrders. Pour éviter de casser admin.js AVANT son
-   lot de migration, on expose un alias qui pointe vers
-   syncLivoStatus. Cet alias sera retiré au Lot 30 (admin.js).
    ============================================================ */
-
-/**
- * @deprecated Utiliser syncLivoStatus à la place.
- * Conservé uniquement pour compatibilité avec admin.js (Lot 30).
- */
 export const syncSpeedafStatus = syncLivoStatus;
 
 /* ============================================================
@@ -673,33 +595,34 @@ export const syncSpeedafStatus = syncLivoStatus;
    Partie 2/2 (prochain message) contient :
      - creditVendorWallet / debitVendorWallet
      - syncVendorWalletsForOrder
-     - updateOrderStatus (utilisé par syncLivoStatus)
-     - updatePaymentStatus
+     - updateOrderStatus (avec lastOrderId pour transition CANCELLED)
+     - deductStockInTransaction / restoreStockInTransaction
+       (avec lastOrderId + updatedAt)
      - deleteOrderCompletely
      - releaseDueVendorFunds / releaseVendorFundsTx
+     - updatePaymentStatus
      - renderAdminOrders / loadAllOrders / resetAdminOrdersCache
-     - openReturnModal (avec B4 corrigé)
-     - processReturnTransaction
+     - openReturnModal
+     - processReturnTransaction (avec lastOrderId + updatedAt)
      - syncReviewsWithOrderReturn
      - renderUserOrders / openOrderDetails
      - autoSyncActiveOrders
      - log final
    ============================================================ */
    /* ============================================================
+   PARTIE 2/2 — Handlers vendeur, transitions, admin, retours
+   ============================================================ */
+
+/* ============================================================
    HELPERS VENDEUR (N5 / T3)
    ============================================================ */
 
 /**
  * Groupe les items d'une commande par vendeur.
- *
- * Politique remise/coupon (T3 - Q1) :
- *   Le `subtotal` retourné est le prix catalogue (items.price x qty).
- *   Les remises (coupon, volume) sont absorbées par Smart Swi9a :
- *   la commission vendeur est calculée sur le prix catalogue, la remise
- *   n'est pas répercutée sur le wallet vendeur.
- *
- * Les produits Smart Swi9a (vendorId === 'smartswi9a') sont exclus :
- * pas de wallet, pas de commission.
+ * Politique remise/coupon (T3 - Q1) : le subtotal retourné est le prix
+ * catalogue (items.price x qty). Les remises (coupon, volume) sont
+ * absorbées par Smart Swi9a : la commission vendeur est calculée sur
+ * le prix catalogue, la remise n'est pas répercutée sur le wallet vendeur.
  *
  * @param {Object} order - Document commande Firestore.
  * @returns {Object} Map<vendorId, { items, subtotal, qty }>.
@@ -720,10 +643,8 @@ export function getOrderVendorBreakdown(order) {
 
 /**
  * Utilitaire à appeler par cart.js à la création de commande.
- * Ajoute vendorId sur chaque item (depuis le produit), et écrit
- * vendorIds (dédupliqué) au niveau du document commande.
- * @deprecated Conservé pour compatibilité. cart.js v9.0.0 fait
- *             déjà cette opération dans createOrder.
+ * @deprecated Conservé pour compatibilité. cart.js v9+ fait déjà cette
+ *             opération dans createOrder.
  */
 export function enrichOrderWithVendorIds(order, productMap = {}) {
     const vendorIds = new Set();
@@ -740,8 +661,6 @@ export function enrichOrderWithVendorIds(order, productMap = {}) {
 /**
  * Lit le taux de commission d'un vendeur.
  * T3 : en cas d'échec de lecture, throw (plus de fallback silencieux).
- * Seul cas de retour par défaut : le vendeur n'a pas de `commissionRate`
- * explicite → on utilise CONFIG.VENDOR.COMMISSION_RATE (log un warning).
  */
 async function getVendorCommissionRate(vendorId) {
     if (!vendorId || vendorId === 'smartswi9a') return CONFIG.VENDOR.COMMISSION_RATE;
@@ -765,12 +684,7 @@ async function getVendorCommissionRate(vendorId) {
 /**
  * Crédite le wallet d'un vendeur (pendingBalance + totalEarnings)
  * et crée une entrée wallet_transactions.
- *
- * T3 : idempotent.
- *   - `order.vendorCredits[vendorId]` marqueur est écrit dans la MÊME
- *     transaction Firestore que le crédit wallet. Si déjà présent → skip.
- *   - `wallet_transactions/{orderId}_{vendorId}` : ID déterministe
- *     → impossible de créer deux tx identiques.
+ * T3 : idempotent via order.vendorCredits[vendorId] + ID déterministe.
  */
 async function creditVendorWallet(vendorId, subtotal, order, isSmartProduct) {
     if (!vendorId || subtotal <= 0) return { skipped: true };
@@ -851,10 +765,8 @@ async function creditVendorWallet(vendorId, subtotal, order, isSmartProduct) {
 /**
  * Débite le wallet d'un vendeur en cas de retour.
  * Prélève en cascade : pendingBalance → availableBalance → negativeBalance.
- *
  * T3 : idempotent (marqueur order.vendorDebits[debitKey]).
- * T3 : respecte MAX_NEGATIVE_BALANCE + flag needsReview si plafond atteint.
- * B3 : marque `reversedAmount` (FIFO) sur les plus anciennes transactions
+ * B3 : marque reversedAmount (FIFO) sur les plus anciennes transactions
  *      de vente encore pending.
  */
 async function debitVendorWallet(vendorId, returnedQty, order, returnEntryIndex) {
@@ -993,7 +905,6 @@ async function debitVendorWallet(vendorId, returnedQty, order, returnEntryIndex)
 /**
  * Orchestrateur : applique les mouvements wallet vendeur selon
  * la transition de statut.
- * T3 : ne swallow plus les erreurs — collecte et remonte.
  */
 export async function syncVendorWalletsForOrder(orderId, previousStatus, newStatus) {
     const results = { success: true, credits: [], debits: [], errors: [] };
@@ -1060,9 +971,6 @@ export async function syncVendorWalletsForOrder(orderId, previousStatus, newStat
 
 /* ============================================================
    UPDATE ORDER STATUS (public)
-   ============================================================
-   D1 : champs écrits = livo* au lieu de speedaf*.
-   D5 : cancelLivoShipment au lieu de cancelSpeedafShipment.
    ============================================================ */
 
 /**
@@ -1234,6 +1142,16 @@ export async function updateOrderStatus(orderId, newStatus) {
 
 /* ============================================================
    STOCK HELPERS (transaction)
+   ============================================================
+   R2-preparation v10.0.0 :
+     - Chaque updateData inclut `lastOrderId: order.id` et
+       `updatedAt: Timestamp.now()`.
+     - Invariant stock+salesCount préservé par construction
+       (delta symétrique : stock -= qty, salesCount += qty).
+
+   ⚠️ Ces updates sont admin-only (updateOrderStatus appelé depuis
+   /admin.html). La règle R2 (client-only) ne s'applique donc pas.
+   Les ajouts sont cosmétiques + préparent d'éventuels flux futurs.
    ============================================================ */
 async function deductStockInTransaction(transaction, order, productSnaps, productRefs) {
     productSnaps.forEach((snap, i) => {
@@ -1250,7 +1168,13 @@ async function deductStockInTransaction(transaction, order, productSnaps, produc
             availableStock = Number(pData.stock) || 0;
         }
         if (availableStock < qty) throw new Error(`Stock insuffisant pour ${pData.nameFr || 'ce produit'}`);
-        let updateData = { salesCount: (Number(pData.salesCount) || 0) + qty };
+
+        /* R2-preparation : lastOrderId + updatedAt. */
+        let updateData = {
+            salesCount: (Number(pData.salesCount) || 0) + qty,
+            lastOrderId: order.id,
+            updatedAt: Timestamp.now()
+        };
         if (itemVariant) {
             const variantsArr = Array.isArray(pData.variants) ? pData.variants : [];
             const variants = [...variantsArr];
@@ -1273,7 +1197,13 @@ async function restoreStockInTransaction(transaction, order, productSnaps, produ
         const pData = snap.data();
         const qty = Number(order.items[i].quantity) || 0;
         const itemVariant = order.items[i].variant;
-        let updateData = { salesCount: Math.max(0, (Number(pData.salesCount) || 0) - qty) };
+
+        /* R2-preparation : lastOrderId + updatedAt. */
+        let updateData = {
+            salesCount: Math.max(0, (Number(pData.salesCount) || 0) - qty),
+            lastOrderId: order.id,
+            updatedAt: Timestamp.now()
+        };
         if (itemVariant) {
             const variantsArr = Array.isArray(pData.variants) ? pData.variants : [];
             const variants = [...variantsArr];
@@ -1317,7 +1247,6 @@ export async function deleteOrderCompletely(orderId) {
     batch.delete(doc(db, "orders", orderId));
     await batch.commit();
 
-    /* Les wallet_transactions liées ne sont PAS supprimées (journal comptable immuable). */
     return { success: true };
 }
 
@@ -1328,14 +1257,6 @@ export async function deleteOrderCompletely(orderId) {
 /**
  * Débloque les fonds échus : transfert pendingBalance → availableBalance
  * pour toutes les wallet_transactions `pending` dont `unlockAt <= now`.
- *
- * B1 : relit chaque tx DANS la transaction Firestore.
- * B2 : Set d'IDs déjà tentés + limite d'itérations (15 → max 6000 tx).
- * B3 : allocation FIFO exacte par tx (`releasedAmount`), flag
- *      `walletCapped: true` si troncature.
- *
- * @param {Object} options - { batchSize?: number, dryRun?: boolean }
- * @returns {Promise<{totalReleased:number, vendorsProcessed:number, transactionsReleased:number, errors:Array}>}
  */
 export async function releaseDueVendorFunds(options = {}) {
     const { batchSize = 400, dryRun = false } = options;
@@ -1564,7 +1485,6 @@ export async function renderAdminOrders(containerId = 'ordersList') {
             ? `<span style="background:#3498db;color:#fff;font-size:0.65rem;padding:0.15rem 0.4rem;border-radius:30px;margin-left:0.3rem;font-weight:700;">${vendorCount} vendeur${vendorCount > 1 ? 's' : ''}</span>`
             : '';
 
-        /* Fallback lecture Livo/Speedaf. */
         const trackingId = order.livoTracking || order.speedafTracking;
         const labelUrl = order.livoLabelUrl || order.speedafLabelUrl;
 
@@ -1835,7 +1755,6 @@ export async function openReturnModal(orderId) {
         const order = { id: snap.id, ...snap.data() };
         const items = order.items || [];
 
-        /* B4 : calculer les quantités déjà retournées. */
         const alreadyReturnedMap = getReturnedQuantities(order);
 
         const modalHtml = `
@@ -1944,8 +1863,7 @@ export async function openReturnModal(orderId) {
 
 /**
  * B4-bis : vérification serveur du over-return.
- * @param {Object} order
- * @param {Array} returnsToProcess
+ * R2-preparation : ajout lastOrderId + updatedAt dans chaque updateData.
  */
 async function processReturnTransaction(order, returnsToProcess) {
     await runTransaction(db, async (transaction) => {
@@ -1954,7 +1872,6 @@ async function processReturnTransaction(order, returnsToProcess) {
         if (!orderSnap.exists()) throw new Error("Commande introuvable");
         const currentOrder = orderSnap.data();
 
-        /* B4-bis : revalider les quantités dans la transaction. */
         const alreadyReturnedMap = getReturnedQuantities(currentOrder);
         returnsToProcess.forEach(r => {
             const alreadyRet = alreadyReturnedMap[String(r.productId)] || 0;
@@ -1974,7 +1891,13 @@ async function processReturnTransaction(order, returnsToProcess) {
             if (!snap.exists()) return;
             const pData = snap.data();
             const r = returnsToProcess[i];
-            let updateData = { salesCount: Math.max(0, (Number(pData.salesCount) || 0) - r.quantity) };
+
+            /* R2-preparation : lastOrderId + updatedAt. */
+            let updateData = {
+                salesCount: Math.max(0, (Number(pData.salesCount) || 0) - r.quantity),
+                lastOrderId: order.id,
+                updatedAt: Timestamp.now()
+            };
             if (r.variant) {
                 const variantsArr = Array.isArray(pData.variants) ? pData.variants : [];
                 const variants = [...variantsArr];
@@ -2037,7 +1960,6 @@ export async function autoSyncActiveOrders(orders, onComplete = null) {
 
     const ordersToSync = (orders || []).filter(order => {
         const status = normalizeOrderStatus(order.status);
-        /* Fallback Livo/Speedaf. */
         const trackingId = order.livoTracking || order.speedafTracking;
         const hasTracking = !!trackingId;
         const isActive = ['confirmed', 'shipping'].includes(status);
@@ -2131,7 +2053,6 @@ export async function renderUserOrders(containerId = 'tabContent') {
                    </div>`
                 : '';
 
-            /* Fallback Livo/Speedaf pour l'affichage tracking. */
             const trackingId = order.livoTracking || order.speedafTracking;
             const trackingBtnHtml = trackingId
                 ? `<span style="display:inline-flex; align-items:center; gap:0.3rem; padding:0.4rem 1rem; background:rgba(165,123,46,0.1); color:var(--gold); border:1px solid var(--gold); border-radius:30px; font-weight:700; font-size:0.8rem;">
@@ -2232,7 +2153,6 @@ export async function openOrderDetails(orderId, isAdmin = false) {
             return `<div style="display:flex;justify-content:space-between;padding:0.5rem 0;border-bottom:1px dashed var(--border);font-size:0.85rem;"><span>${escapeHTML(item.name)}${escapeHTML(v)} x ${item.quantity}</span><strong style="color:var(--gold);">${item.price * item.quantity} MAD</strong></div>`;
         }).join('');
 
-        /* Fallback Livo/Speedaf. */
         const trackingId = order.livoTracking || order.speedafTracking;
         let trackingHtml = '';
         if (trackingId) {
@@ -2276,4 +2196,4 @@ export async function openOrderDetails(orderId, isAdmin = false) {
 /* ============================================================
    LOG FINAL
    ============================================================ */
-console.log('✅ orders.js chargé - v9.0.0 (Lot 12 : migration Livo + B4 over-return + B8 limit)');
+console.log('✅ orders.js chargé - v10.0.0 (Lot 45 : préparation R2 lastOrderId + updatedAt)');
