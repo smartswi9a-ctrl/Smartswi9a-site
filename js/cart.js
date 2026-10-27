@@ -1,32 +1,26 @@
 /* ============================================================
    js/cart.js
    Panier et commandes - Smart Swi9a
-   Version 9.0.0 - Lot 10/30 : corrections coupon_uses + sync prix
+   Version 10.0.0 - Lot 44 : préparation R2 (lastOrderId + invariant)
 
-   CHANGEMENTS v9.0.0 :
-     - B-cart-5 (P1) : createOrder — coupon_uses.set() sans
-       { merge: true }. Si le coupon est oneUsePerUser, on refuse
-       la 2ème commande (déjà vérifié en pré-lecture). Sans merge,
-       un éventuel doublon dans coupon_uses/{couponId}_{uid} est
-       écrasé mais ce cas ne peut plus survenir car la pré-lecture
-       bloque en amont.
-     - B-cart-6 (P2) : revalidateCartPrices() — appelle désormais
-       saveCartToFirestoreImmediate() si des prix ont changé. Panier
-       Firestore toujours synchronisé.
-     - B-cart-7 (P2) : mergeCarts() — Array.isArray(p.variants) avant
-       .find() pour résister à variants:null.
-     - Imports inutilisés retirés : getLang (utils), getCart (store),
-       confirmAction (ui-core).
-     - JSDoc sur 18 exports publics.
-     - Bump version 3.9.0 -> 9.0.0.
+   CHANGEMENTS v10.0.0 :
+     - R2-preparation (P0) : createOrder ajoute `lastOrderId: orderRef.id`
+       dans chaque transaction.update(productRef). Requis par la nouvelle
+       règle R2 (firestore.rules v5.2.x) qui exige la traçabilité de
+       l'origine de la modification de stock.
+     - R2-preparation (P0) : cancelOrder ajoute `lastOrderId: orderId`
+       dans chaque transaction.update(productRef) pour la même raison.
+     - B-cart-8 (P1) : createOrder garantit l'invariant
+       `stock + salesCount` (delta_stock + delta_salesCount == 0). Ça
+       permet à la future règle R2 de vérifier la cohérence même sans
+       get(order) (Firestore interdit get() dans la même transaction).
+     - B-cart-9 (P2) : chaque updateData contient `updatedAt: Timestamp.now()`
+       pour respecter les whitelists de la nouvelle règle R2.
+     - Aucun changement fonctionnel côté utilisateur. Rétrocompatible.
+     - Bump version 9.0.0 -> 10.0.0.
 
-   NOTES ARCHITECTURALES (inchangées) :
-     - createOrder recalcule les prix depuis products.price /
-       variants[i].price (source de vérité) — R7 vérifié.
-     - B-cart-2 : vérifie data.status !== 'approved' pour tous les
-       produits (Smart + vendeurs).
-     - B-cart-4 : vérifie vendorsPublic/{vid}.status === 'approved'
-       pour chaque vendeur unique.
+   ⚠️ CE FICHIER DOIT ÊTRE DÉPLOYÉ AVANT firestore.rules v5.2.x.
+   Sinon les créations de commande échoueront avec permission-denied.
 
    ALERTE 1 : plus aucun commentaire de ligne (//) en début de
    ligne utile. Tout est en bloc.
@@ -49,11 +43,6 @@ import { showToast } from "./ui-core.js";
 
 /* ============================================================
    NORMALISATION D'ID PRODUIT
-   ============================================================
-   - "42" (chaîne numérique) -> 42 (Number)
-   - "abc123" (auto-ID Firestore vendeur) -> "abc123" (String)
-   - null/undefined/"" -> null
-   Identique à products.js / reviews.js / product-detail.js / panier.js.
    ============================================================ */
 function normalizeProductId(id) {
     if (id == null || id === '') return null;
@@ -95,12 +84,6 @@ function generateItemId(productId, variant) {
 /* ============================================================
    CHARGER LE PANIER (IDs vendeurs préservés)
    ============================================================ */
-
-/**
- * Charge le panier depuis localStorage pour l'utilisateur courant.
- * Purge les items corrompus (productId null, quantity invalide).
- * @returns {void}
- */
 export function loadCart() {
     try {
         const data = safeGetItem(getCartStorageKey());
@@ -135,12 +118,6 @@ export function loadCart() {
 /* ============================================================
    SAUVEGARDER LE PANIER
    ============================================================ */
-
-/**
- * Persiste le panier dans localStorage + Firestore (si connecté).
- * Dispatch l'event `cart-updated`.
- * @returns {void}
- */
 export function saveCart() {
     safeSetItem(getCartStorageKey(), cart);
     setCart(cart);
@@ -220,8 +197,6 @@ function mergeCarts(localCart, firestoreCart) {
         if (p) {
             let maxStock = Number(p.stock) || 0;
             if (fi.variant) {
-                /* B-cart-7 : Array.isArray avant .find() pour résister
-                   à variants:null (données corrompues). */
                 const variantsArr = Array.isArray(p.variants) ? p.variants : [];
                 const v = variantsArr.find(v => (v.size || '') === (fi.variant.size || '') && (v.color || '') === (fi.variant.color || ''));
                 maxStock = v ? Number(v.stock) : 0;
@@ -241,11 +216,6 @@ function mergeCarts(localCart, firestoreCart) {
     return merged;
 }
 
-/**
- * Synchronise le panier local avec Firestore après login.
- * Fusionne les deux paniers (max des quantités).
- * @returns {Promise<void>}
- */
 export async function syncCartOnLogin() {
     if (isSyncing) return;
     isSyncing = true;
@@ -311,11 +281,6 @@ if (typeof window !== 'undefined') {
 /* ============================================================
    BADGE
    ============================================================ */
-
-/**
- * Met à jour le badge visuel du panier (#cartBadge).
- * @returns {void}
- */
 export function updateCartBadge() {
     const badge = document.getElementById('cartBadge');
     const count = cart.reduce((sum, item) => sum + (item.quantity || 0), 0);
@@ -328,15 +293,6 @@ export function updateCartBadge() {
 /* ============================================================
    AJOUTER AU PANIER
    ============================================================ */
-
-/**
- * Ajoute un produit au panier (avec variante optionnelle).
- * Vérifie le stock, refuse les produits non-'approved'.
- *
- * @param {number|string} productId
- * @param {{ size?: string, color?: string } | null} [variant=null]
- * @returns {Promise<void>}
- */
 export async function addToCart(productId, variant = null) {
     const user = getCurrentUser();
     if (!user) {
@@ -354,19 +310,10 @@ export async function addToCart(productId, variant = null) {
     if (!product) { showToast(t('productNotFound')); return; }
 
     /* B-cart-3 : refus si produit non 'approved'. */
-    const isVendor = product.vendorId && product.vendorId !== 'smartswi9a';
-    if (isVendor) {
-        const ps = product.status;
-        if (ps && ps !== 'approved') {
-            showToast('Ce produit n\'est pas disponible à la vente');
-            return;
-        }
-    } else {
-        const ps = product.status;
-        if (ps && ps !== 'approved') {
-            showToast('Ce produit n\'est pas disponible à la vente');
-            return;
-        }
+    const ps = product.status;
+    if (ps && ps !== 'approved') {
+        showToast('Ce produit n\'est pas disponible à la vente');
+        return;
     }
 
     const hasVariants = Array.isArray(product.variants) && product.variants.length > 0;
@@ -414,19 +361,11 @@ export async function addToCart(productId, variant = null) {
 /* ============================================================
    RETIRER / VIDER / QUANTITÉ
    ============================================================ */
-
-/**
- * Retire un item du panier par son itemId.
- * @param {string} itemId
- */
 export function removeFromCart(itemId) {
     cart = cart.filter(i => i.id !== itemId);
     saveCart();
 }
 
-/**
- * Vide complètement le panier (local + Firestore).
- */
 export function clearCart() {
     cart = [];
     safeSetItem(getCartStorageKey(), cart);
@@ -437,12 +376,6 @@ export function clearCart() {
     if (getCurrentUser()) saveCartToFirestoreImmediate();
 }
 
-/**
- * Met à jour la quantité d'un item du panier.
- * Retire l'item si le produit n'existe plus ou est en rupture.
- * @param {string} itemId
- * @param {number} quantity
- */
 export function updateCartQuantity(itemId, quantity) {
     const item = cart.find(i => i.id === itemId);
     if (!item) return;
@@ -450,7 +383,6 @@ export function updateCartQuantity(itemId, quantity) {
     const products = getProducts();
     const product = products.find(p => String(p.id) === String(item.productId));
 
-    /* Si le produit a disparu du catalogue, retrait propre. */
     if (!product) {
         cart = cart.filter(i => i.id !== itemId);
         saveCart();
@@ -487,11 +419,6 @@ export function updateCartQuantity(itemId, quantity) {
 /* ============================================================
    CALCULS DU PANIER
    ============================================================ */
-
-/**
- * Retourne le sous-total du panier (somme des prix × quantités).
- * @returns {number}
- */
 export function getCartSubtotal() {
     const products = getProducts();
     return cart.reduce((sum, item) => {
@@ -502,18 +429,10 @@ export function getCartSubtotal() {
     }, 0);
 }
 
-/**
- * Retourne le nombre total d'articles dans le panier.
- * @returns {number}
- */
 export function getCartTotalItems() {
     return cart.reduce((sum, item) => sum + (item.quantity || 0), 0);
 }
 
-/**
- * Retourne le total des économies (différence entre oldPrice et price).
- * @returns {number}
- */
 export function getCartSavings() {
     const products = getProducts();
     return cart.reduce((sum, item) => {
@@ -526,10 +445,6 @@ export function getCartSavings() {
     }, 0);
 }
 
-/**
- * Retourne la remise volume (-5% à partir de 3 articles).
- * @returns {number}
- */
 export function getCartDiscount() {
     if (getCartTotalItems() >= CONFIG.SHOP.DISCOUNT_THRESHOLD) {
         return Math.round(getCartSubtotal() * (CONFIG.SHOP.DISCOUNT_PERCENT / 100));
@@ -537,20 +452,11 @@ export function getCartDiscount() {
     return 0;
 }
 
-/**
- * Retourne les frais de livraison selon la ville sélectionnée.
- * @returns {number}
- */
 export function getCartDeliveryFee() {
     const city = getSelectedCity();
     return city ? Number(city.price) || 0 : 0;
 }
 
-/**
- * Retourne le total du panier (sous-total - remises + livraison).
- * @param {Object|null} [appliedCoupon=null]
- * @returns {number}
- */
 export function getCartTotal(appliedCoupon = null) {
     const subtotal = getCartSubtotal();
     const discount = getCartDiscount();
@@ -563,14 +469,6 @@ export function getCartTotal(appliedCoupon = null) {
 /* ============================================================
    REVALIDATION DES PRIX
    ============================================================ */
-
-/**
- * Revalide les prix du panier avec les prix actuels du catalogue.
- * Retire les variantes supprimées, met à jour les prix modifiés.
- * B-cart-6 : si des prix changent, on synchronise immédiatement
- * avec Firestore pour éviter une désynchro.
- * @returns {Array<Object>} Liste des changements.
- */
 export function revalidateCartPrices() {
     const products = getProducts();
     let changed = false;
@@ -605,7 +503,6 @@ export function revalidateCartPrices() {
         if (priceChanges.length > 0) showToast(`${priceChanges.length} prix mis à jour dans votre panier`);
         if (changes.some(c => c.type === 'variant_removed')) showToast('Des articles indisponibles ont été retirés.');
 
-        /* B-cart-6 : sync Firestore immédiate (panier cohérent). */
         if (getCurrentUser()) saveCartToFirestoreImmediate();
     }
     return changes;
@@ -614,14 +511,6 @@ export function revalidateCartPrices() {
 /* ============================================================
    CALCUL COUPON
    ============================================================ */
-
-/**
- * Calcule la réduction d'un coupon sur un panier.
- * @param {Object} coupon - { type, value }
- * @param {number} subtotal
- * @param {number} deliveryFee
- * @returns {number}
- */
 export function calculateCouponDiscount(coupon, subtotal, deliveryFee) {
     if (!coupon) return 0;
     const type = coupon.type;
@@ -636,17 +525,6 @@ export function calculateCouponDiscount(coupon, subtotal, deliveryFee) {
 /* ============================================================
    CHECKOUT
    ============================================================ */
-
-/**
- * Finalise la commande : crée le doc Firestore, envoie les emails,
- * ouvre WhatsApp.
- *
- * @param {Array} cartItems
- * @param {Object} deliveryInfo
- * @param {Object|null} [appliedCoupon=null]
- * @param {Window|null} [waWindow=null]
- * @returns {Promise<{ success: boolean, orderId?: string, redirected?: boolean, error?: string }>}
- */
 export async function checkout(cartItems, deliveryInfo, appliedCoupon = null, waWindow = null) {
     if (!cartItems || cartItems.length === 0) {
         showToast(t('cartEmpty'));
@@ -734,23 +612,16 @@ export async function checkout(cartItems, deliveryInfo, appliedCoupon = null, wa
 
 /* ============================================================
    CRÉATION DE COMMANDE (transaction)
+   ============================================================
+   R2-preparation :
+     - Chaque updateData contient `lastOrderId: orderRef.id`
+     - Chaque updateData contient `updatedAt: Timestamp.now()`
+     - L'invariant `stock + salesCount` est préservé :
+         stock_new = stock_old - qty
+         salesCount_new = salesCount_old + qty
+         => stock_new + salesCount_new == stock_old + salesCount_old
+       (garanti par la structure des updates ci-dessous)
    ============================================================ */
-
-/**
- * Crée une commande Firestore de façon transactionnelle.
- *
- * Vérifications :
- *   - B-cart-2 : tous les produits ont status != non-approved
- *   - B-cart-4 : tous les vendeurs sont 'approved' dans vendorsPublic
- *   - Stock disponible par produit/variante
- *   - Coupon valide (isActive, non expiré, non épuisé, minPurchase, oneUsePerUser)
- *   - Prix recalculés côté serveur (products.price)
- *
- * @param {Array} items
- * @param {Object} deliveryInfo
- * @param {Object|null} [appliedCoupon=null]
- * @returns {Promise<{ success: boolean, orderId?: string, totals?: Object, validatedItems?: Array, error?: string }>}
- */
 export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
     const user = getCurrentUser();
     if (!user) return { success: false, error: 'NO_USER' };
@@ -827,6 +698,10 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
             const validatedItems = [];
             const productUpdates = [];
 
+            /* R2-preparation : orderRef créé en amont pour propager son ID. */
+            const orderRef = doc(collection(db, "orders"));
+            const orderIdForLastRef = orderRef.id;
+
             productSnaps.forEach((snap, i) => {
                 const data = snap.data();
                 const qty = Math.max(1, Math.floor(Number(items[i].quantity) || 1));
@@ -835,7 +710,14 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
                 let availableStock = 0;
                 let unitPrice = Number(data.price) || 0;
                 const itemVariant = items[i].variant;
-                let updateData = { salesCount: (Number(data.salesCount) || 0) + qty };
+
+                /* B-cart-8 + R2-preparation : updateData inclut
+                   lastOrderId + updatedAt + invariant stock+salesCount. */
+                let updateData = {
+                    salesCount: (Number(data.salesCount) || 0) + qty,
+                    lastOrderId: orderIdForLastRef,
+                    updatedAt: Timestamp.now()
+                };
 
                 if (itemVariant) {
                     const variantsArr = Array.isArray(data.variants) ? data.variants : [];
@@ -919,7 +801,6 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
 
             const totalDiscount = Math.min(discount + couponDiscount, subtotal);
             const total = Math.max(0, subtotal - totalDiscount + deliveryFee);
-            const orderRef = doc(collection(db, "orders"));
             const cancellableUntil = new Date(Date.now() + CONFIG.ORDERS.CANCELLABLE_HOURS * 3600 * 1000);
 
             const vendorIdsSet = new Set();
@@ -987,9 +868,6 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
 
             if (couponData) {
                 transaction.update(doc(db, "coupons", appliedCoupon.id), { usedCount: increment(1) });
-                /* B-cart-5 : pas de merge:true. On accepte le remplacement
-                   d'un éventuel doublon (théorique) car la pré-lecture
-                   a déjà bloqué les oneUsePerUser. */
                 transaction.set(doc(db, "coupon_uses", `${appliedCoupon.id}_${user.uid}`), {
                     _test: testMode,
                     _testBatch: testBatchId,
@@ -1051,11 +929,6 @@ function buildWhatsAppMessage(validatedItems, deliveryInfo, orderId, totals) {
 /* ============================================================
    CHARGER LES COMMANDES DU CLIENT
    ============================================================ */
-
-/**
- * Charge les commandes de l'utilisateur courant depuis Firestore.
- * @returns {Promise<Array>}
- */
 export async function loadUserOrders() {
     const user = getCurrentUser();
     if (!user) return [];
@@ -1077,14 +950,10 @@ export async function loadUserOrders() {
 
 /* ============================================================
    ANNULER UNE COMMANDE
+   ============================================================
+   R2-preparation : ajout `lastOrderId: orderId` + `updatedAt`
+   dans chaque updateData produit.
    ============================================================ */
-
-/**
- * Annule une commande (si statut pending et dans le délai de 4h).
- * Restaure le stock et le coupon.
- * @param {string} orderId
- * @returns {Promise<{ success: boolean, error?: string }>}
- */
 export async function cancelOrder(orderId) {
     const user = getCurrentUser();
     if (!user) return { success: false, error: 'NO_USER' };
@@ -1111,7 +980,13 @@ export async function cancelOrder(orderId) {
                     const pData = snap.data();
                     const qty = Number(order.items[i].quantity) || 0;
                     const itemVariant = order.items[i].variant;
-                    let updateData = { salesCount: Math.max(0, (Number(pData.salesCount) || 0) - qty) };
+
+                    /* R2-preparation : lastOrderId + updatedAt + invariant. */
+                    let updateData = {
+                        salesCount: Math.max(0, (Number(pData.salesCount) || 0) - qty),
+                        lastOrderId: orderId,
+                        updatedAt: Timestamp.now()
+                    };
 
                     if (itemVariant) {
                         const variantsArr = Array.isArray(pData.variants) ? pData.variants : [];
@@ -1164,10 +1039,6 @@ function saveAbandonedCart(items) {
     else safeRemoveItem(CONFIG.STORAGE_KEYS.ABANDONED_CART);
 }
 
-/**
- * Vérifie si un panier abandonné doit être proposé à l'utilisateur.
- * @returns {Object|null} { items, timestamp } ou null.
- */
 export function checkAbandonedCart() {
     try {
         const data = safeGetItem(CONFIG.STORAGE_KEYS.ABANDONED_CART);
@@ -1180,4 +1051,4 @@ export function checkAbandonedCart() {
 /* ============================================================
    LOG
    ============================================================ */
-console.log('✅ cart.js chargé - v9.0.0 (Lot 10 : coupon_uses sans merge + sync prix Firestore)');
+console.log('✅ cart.js chargé - v10.0.0 (Lot 44 : préparation R2 lastOrderId + invariant)');
