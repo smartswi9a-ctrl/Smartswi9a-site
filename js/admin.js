@@ -511,10 +511,15 @@ async function handleLogin() {
             'auth/wrong-password': 'Mot de passe incorrect.',
             'auth/invalid-credential': 'Email ou mot de passe incorrect.',
             'auth/too-many-requests': 'Trop de tentatives. Patientez.',
-            'auth/network-request-failed': 'Pas de connexion internet.'
+            'auth/network-request-failed': 'Pas de connexion internet.',
+            'auth/operation-not-allowed': 'La connexion par email/mot de passe est désactivée dans Firebase.',
+            'auth/user-disabled': 'Ce compte est désactivé.',
+            'auth/invalid-api-key': 'Configuration Firebase invalide.',
+            'auth/timeout': 'Délai dépassé. Réessayez.',
+            'permission-denied': 'Firebase refuse la vérification du rôle administrateur. Vérifiez les règles Firestore.'
         };
         if (msgEl) {
-            msgEl.textContent = errorMap[e.code] || 'Erreur inconnue';
+            msgEl.textContent = errorMap[e.code] || `Connexion impossible (${e.code || 'erreur'}). Vérifiez la console et la configuration Firebase.`;
             msgEl.style.color = 'var(--danger)';
         }
     } finally {
@@ -563,7 +568,10 @@ function initAdmin() {
         }
     });
 
-    document.getElementById('adminLoginBtn')?.addEventListener('click', handleLogin);
+    const loginButton = document.getElementById('adminLoginBtn');
+    loginButton?.addEventListener('click', (event) => { event.preventDefault(); handleLogin(); });
+    const loginForm = document.getElementById('adminLoginForm');
+    loginForm?.addEventListener('submit', (event) => { event.preventDefault(); handleLogin(); });
     document.getElementById('adminEmail')?.addEventListener('input', () => {
         pendingLoginError = null;
         const m = document.getElementById('adminLoginMsg');
