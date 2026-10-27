@@ -1,8 +1,29 @@
-// js/product-detail.js
-// ============================================================
-// PAGE PRODUIT DYNAMIQUE - SMART SWI9A
-// Version 8.1.0 — Marketplace (correctifs E10/E13 + IDs strings)
-// ============================================================
+/* ============================================================
+   js/product-detail.js
+   PAGE PRODUIT DYNAMIQUE - SMART SWI9A
+   Version 9.0.0 - Lot 20/30 : gallery dedup + image fallback + prix guard
+
+   CHANGEMENTS v9.0.0 :
+     - B10 (P2) : renderMediaGallery déduplique [img, ...gallery]
+       via Set. Plus de doublons visuels si img est aussi dans
+       gallery.
+     - B-PD-2 (P2) : renderMediaGallery utilise getFallbackImage()
+       si product.img est null/vide. Fini l'icône cassée.
+     - B-PD-4 (P2) : updateVariantDisplay garde le prix variante
+       null/0 et fallback sur product.price. Fini "null MAD".
+     - Faux-positif (annonce précédente) : openSizeGuideModal n'a
+       PAS de data-photo-url. Aucune correction nécessaire.
+     - JSDoc sur renderProductDetail.
+     - Bump version 8.1.0 -> 9.0.0.
+
+   NOTE (conservé) : la modale guide des tailles affiche un tableau
+   statique S/M/L/XL/XXL. Si les tailles doivent être dynamiques
+   par produit, il faudra un nouveau champ Firestore et une
+   refonte (hors scope).
+
+   ALERTE 1 : plus aucun commentaire de ligne (//) en début de
+   ligne utile. Tout est en bloc.
+   ============================================================ */
 
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "./firebase.js";
@@ -17,16 +38,18 @@ import { getCurrentUser } from "./auth.js";
 import { toggleFavorite } from "./products.js";
 import { createReview, canUserReviewProduct, toggleLike } from "./reviews.js";
 import { showToast, openImageLightbox } from "./ui-core.js";
-// B1 : plus de preloadVendorNames (fuite PII) ; on utilise le label async ciblé.
 import { getProductVendorLabel, getProductVendorLabelSync } from "./vendor-attribution.js";
 
-// ============================================================
-// HELPERS LOCAUX
-// ============================================================
+/* ============================================================
+   HELPERS LOCAUX
+   ============================================================ */
+
 /**
  * Normalise un ID produit.
- * Numérique (compat favoris/reviews historiques) → Number.
- * Alphanumérique (produits vendeurs Firestore auto-ID) → String.
+ * Numérique (compat favoris/reviews historiques) -> Number.
+ * Alphanumérique (produits vendeurs Firestore auto-ID) -> String.
+ * @param {*} id
+ * @returns {number|string|null}
  */
 function normalizeProductId(id) {
     if (id == null || id === '') return null;
@@ -34,39 +57,50 @@ function normalizeProductId(id) {
     return Number.isFinite(n) && String(n) === String(id) ? n : String(id);
 }
 
-// ============================================================
-// ÉTAT LOCAL
-// ============================================================
+/* ============================================================
+   ÉTAT LOCAL
+   ============================================================ */
 let currentProduct = null;
 let currentVideoElement = null;
 
-// État de sélection des variantes
+/* État de sélection des variantes. */
 let selectedSize = null;
 let selectedColor = null;
 let currentVariant = null;
 
-// État pour l'affichage des avis
+/* État pour l'affichage des avis. */
 let allReviewsCache = [];
 let showAllReviews = false;
 const REVIEWS_LIMIT = 3;
 
-// ============================================================
-// LECTURE DU SLUG
-// ============================================================
+/* ============================================================
+   LECTURE DU SLUG
+   ============================================================ */
 function getSlugFromUrl() {
     const params = new URLSearchParams(window.location.search);
     return params.get('slug');
 }
 
-// ============================================================
-// RENDU PRINCIPAL
-// ============================================================
+/* ============================================================
+   RENDU PRINCIPAL
+   ============================================================ */
+
+/**
+ * Point d'entrée : lit le slug, charge le produit et rend toutes
+ * les sections de la page produit.
+ *
+ * Comportement :
+ *   - Slug absent ou produit introuvable -> renderNotFound.
+ *   - Produit vendeur suspendu/rejeté -> renderNotFound.
+ *   - Sinon : rendu complet + attache events.
+ *
+ * @returns {Promise<void>}
+ */
 export async function renderProductDetail() {
     const mainEl = document.querySelector('main[data-product-page]');
     if (!mainEl) return;
 
     const slug = getSlugFromUrl();
-
     if (!slug) {
         renderNotFound(mainEl);
         return;
@@ -82,7 +116,7 @@ export async function renderProductDetail() {
                 products = getProducts();
             }
         } catch (e) {
-            console.warn('⚠️ Attente produits échouée :', e);
+            console.warn('Attente produits échouée :', e);
         }
     }
 
@@ -92,13 +126,12 @@ export async function renderProductDetail() {
         return;
     }
 
-    // B4 : vérifier le statut vendeur (frais) avant tout rendu.
-    // Le cache de products.js peut être obsolète (suspension après chargement).
+    /* Vérifier le statut vendeur (le cache products peut être obsolète). */
     let vendorLabel = { type: 'smart', name: 'Smart Swi9a' };
     try {
         vendorLabel = await getProductVendorLabel(product);
     } catch (e) {
-        console.warn('⚠️ Lecture statut vendeur impossible :', e?.code || e);
+        console.warn('Lecture statut vendeur impossible :', e?.code || e);
     }
     if (vendorLabel.type === 'vendor'
         && (vendorLabel.status === 'suspended' || vendorLabel.status === 'rejected')) {
@@ -110,7 +143,7 @@ export async function renderProductDetail() {
     selectedSize = null;
     selectedColor = null;
     currentVariant = null;
-    showAllReviews = false; // Reset le filtre des avis
+    showAllReviews = false;
     _relatedForProductId = null;
     _relatedProductsCache = null;
 
@@ -129,9 +162,9 @@ export async function renderProductDetail() {
     attachProductEvents(product);
 }
 
-// ============================================================
-// PRODUIT NON TROUVÉ
-// ============================================================
+/* ============================================================
+   PRODUIT NON TROUVÉ
+   ============================================================ */
 function renderNotFound(mainEl) {
     mainEl.innerHTML = `
         <div style="text-align:center;padding:4rem 1rem;">
@@ -143,9 +176,9 @@ function renderNotFound(mainEl) {
     `;
 }
 
-// ============================================================
-// META TAGS DYNAMIQUES (SEO)
-// ============================================================
+/* ============================================================
+   META TAGS DYNAMIQUES (SEO)
+   ============================================================ */
 function updateMetaTags(product) {
     const name = getProductName(product);
     const desc = getProductDesc(product);
@@ -217,9 +250,9 @@ function setMeta(attrName, attrValue, content) {
     el.setAttribute('content', content || '');
 }
 
-// ============================================================
-// BREADCRUMBS
-// ============================================================
+/* ============================================================
+   BREADCRUMBS
+   ============================================================ */
 function renderBreadcrumbs(product) {
     const el = document.getElementById('breadcrumbs');
     if (!el) return;
@@ -250,9 +283,12 @@ function renderBreadcrumbs(product) {
     }
 }
 
-// ============================================================
-// SECTION GALERIE MÉDIA (Images + Vidéo unifiées)
-// ============================================================
+/* ============================================================
+   SECTION GALERIE MÉDIA (Images + Vidéo unifiées)
+   ============================================================
+   B10 : déduplique [img, ...gallery] via Set.
+   B-PD-2 : utilise getFallbackImage si img null/vide.
+   ============================================================ */
 function renderMediaGallery(product) {
     const wrapper = document.getElementById('mainMediaWrapper');
     const galleryContainer = document.getElementById('galleryThumbnails');
@@ -269,7 +305,9 @@ function renderMediaGallery(product) {
 
     const showImage = (src, activeThumb) => {
         if (currentVideoElement) { currentVideoElement.pause(); currentVideoElement = null; }
-        wrapper.innerHTML = `<img id="mainImage" class="main-media-element" src="${escapeHTML(src)}" alt="${escapeHTML(getProductName(product))}" loading="eager">`;
+        /* B-PD-2 : fallback si src vide/null. */
+        const safeSrc = (src && String(src).trim()) || getFallbackImage(getProductName(product));
+        wrapper.innerHTML = `<img id="mainImage" class="main-media-element" src="${escapeHTML(safeSrc)}" alt="${escapeHTML(getProductName(product))}" loading="eager" onerror="this.onerror=null;this.src='${getFallbackImage(getProductName(product))}'">`;
         const mainImg = document.getElementById('mainImage');
         if (mainImg) mainImg.addEventListener('click', () => openImageLightbox(mainImg.src));
         galleryContainer.querySelectorAll('.thumb-img, .thumb-video').forEach(el => el.classList.remove('active'));
@@ -283,7 +321,10 @@ function renderMediaGallery(product) {
         if (activeThumb) activeThumb.classList.add('active');
     };
 
-    const images = (product.gallery && product.gallery.length > 0) ? [product.img, ...product.gallery] : [product.img];
+    /* B10 : déduplique [img, ...gallery] via Set. */
+    const rawImages = [product.img, ...(Array.isArray(product.gallery) ? product.gallery : [])];
+    const images = [...new Set(rawImages.filter(Boolean))];
+
     let firstImageThumb = null;
 
     images.forEach((imgUrl, index) => {
@@ -322,9 +363,9 @@ function renderMediaGallery(product) {
     }
 }
 
-// ============================================================
-// SECTION INFO (Prix, Stock, Boutons)
-// ============================================================
+/* ============================================================
+   SECTION INFO (Prix, Stock, Boutons)
+   ============================================================ */
 function renderInfoSection(product) {
     const titleEl = document.getElementById('productTitleEl');
     const priceEl = document.getElementById('productPrice');
@@ -369,7 +410,7 @@ function renderInfoSection(product) {
             : `<span style="color:#b03a2e;">${t('productOutOfStock')}</span>`;
     }
 
-    // Bloc vendeur — sync, la donnée est déjà en cache (chargée en amont).
+    /* Bloc vendeur — sync (données en cache préchargées). */
     renderProductVendorBlock(product);
 
     const addBtn = document.getElementById('addToCartBtn');
@@ -384,9 +425,9 @@ function renderInfoSection(product) {
     if (waBtn) waBtn.dataset.productId = String(product.id);
 }
 
-// ============================================================
-// Bloc "Vendu par" (sync — utilise le cache préchargé en amont)
-// ============================================================
+/* ============================================================
+   Bloc "Vendu par"
+   ============================================================ */
 function renderProductVendorBlock(product) {
     const titleEl = document.getElementById('productTitleEl');
     if (!titleEl) return;
@@ -394,8 +435,6 @@ function renderProductVendorBlock(product) {
     const existing = document.getElementById('productVendorBlock');
     if (existing) existing.remove();
 
-    // B5 : sync — la donnée a été chargée par getProductVendorLabel dans
-    // renderProductDetail (cache d'vendor-attribution.js).
     const vendorInfo = getProductVendorLabelSync(product);
     const owner = getProductOwner(product);
     const isVendorProduct = owner && owner !== 'smartswi9a';
@@ -427,14 +466,14 @@ function renderProductVendorBlock(product) {
     titleEl.insertAdjacentHTML('afterend', html);
 }
 
-// ============================================================
-// SECTION DES VARIANTES (Tailles / Couleurs)
-// ============================================================
+/* ============================================================
+   SECTION DES VARIANTES (Tailles / Couleurs)
+   ============================================================ */
 function renderVariantsSection(product) {
     const root = document.getElementById('productVariantsRoot');
     if (!root) return;
 
-    if (!product.variants || product.variants.length === 0) {
+    if (!Array.isArray(product.variants) || product.variants.length === 0) {
         root.innerHTML = '';
         return;
     }
@@ -443,7 +482,7 @@ function renderVariantsSection(product) {
     const colors = [...new Set(product.variants.map(v => v.color).filter(Boolean))];
 
     let html = '';
-    const guideBtnHtml = product.hasSizeGuide ? `<button class="size-guide-btn" id="openSizeGuideBtn">📏 Guide des tailles (US/EU)</button>` : '';
+    const guideBtnHtml = product.hasSizeGuide ? `<button class="size-guide-btn" id="openSizeGuideBtn">Guide des tailles (US/EU)</button>` : '';
 
     if (sizes.length > 0) {
         html += `
@@ -511,19 +550,19 @@ function selectVariantOption(type, value) {
     updateVariantDisplay();
 }
 
+/* B-PD-4 : prix variante null/0 -> fallback product.price. */
 function updateVariantDisplay() {
     const priceEl = document.getElementById('productPrice');
     const oldPriceEl = document.getElementById('productOldPrice');
     const stockEl = document.getElementById('productStockStatus');
     const addBtn = document.getElementById('addToCartBtn');
 
-    // B7 : null guards pour stockEl / addBtn
     if (!currentVariant) {
         if (stockEl) {
             if (selectedSize && selectedColor) {
-                stockEl.innerHTML = `<span style="color:var(--danger);font-weight:600;">❌ Combinaison indisponible</span>`;
+                stockEl.innerHTML = `<span style="color:var(--danger);font-weight:600;">Combinaison indisponible</span>`;
             } else {
-                stockEl.innerHTML = `<span style="color:var(--text-muted);">👇 Sélectionnez les options</span>`;
+                stockEl.innerHTML = `<span style="color:var(--text-muted);">Sélectionnez les options</span>`;
             }
         }
         if (addBtn) {
@@ -534,10 +573,16 @@ function updateVariantDisplay() {
         return;
     }
 
-    if (priceEl) priceEl.textContent = `${currentVariant.price} ${t('currency')}`;
+    /* B-PD-4 : guard prix null/0. */
+    const variantPrice = Number(currentVariant.price);
+    const safePrice = Number.isFinite(variantPrice) && variantPrice > 0
+        ? variantPrice
+        : (Number(currentProduct?.price) || 0);
+
+    if (priceEl) priceEl.textContent = `${safePrice} ${t('currency')}`;
 
     if (oldPriceEl) {
-        if (currentProduct && currentProduct.oldPrice && currentProduct.oldPrice > currentVariant.price) {
+        if (currentProduct && currentProduct.oldPrice && currentProduct.oldPrice > safePrice) {
             oldPriceEl.textContent = `${currentProduct.oldPrice} ${t('currency')}`;
             oldPriceEl.style.display = 'inline-block';
         } else {
@@ -562,19 +607,18 @@ function updateVariantDisplay() {
     }
 }
 
-// ============================================================
-// DIMENSIONS
-// ============================================================
+/* ============================================================
+   DIMENSIONS
+   ============================================================ */
 function renderDimensions(product) {
     const root = document.getElementById('productDimensionsRoot');
     if (!root) return;
-    // B11 : garde sur le type de `dimensions`
     if (!product.dimensions || typeof product.dimensions !== 'object') { root.innerHTML = ''; return; }
 
     const { weight, length, width, height } = product.dimensions;
     if (!weight && !length && !width && !height) { root.innerHTML = ''; return; }
 
-    let html = `<h4 style="font-family:var(--font-secondary);color:var(--gold);margin-top:1.5rem;margin-bottom:0.5rem;font-size:1.1rem;">📏 ${t('productDimensionsTitle') || 'Dimensions & Poids'}</h4><table class="dimensions-table">`;
+    let html = `<h4 style="font-family:var(--font-secondary);color:var(--gold);margin-top:1.5rem;margin-bottom:0.5rem;font-size:1.1rem;">${t('productDimensionsTitle') || 'Dimensions & Poids'}</h4><table class="dimensions-table">`;
     if (weight) html += `<tr><th>${t('productWeight') || 'Poids'}</th><td>${escapeHTML(String(weight))} g</td></tr>`;
     if (length) html += `<tr><th>${t('productLength') || 'Longueur'}</th><td>${escapeHTML(String(length))} cm</td></tr>`;
     if (width) html += `<tr><th>${t('productWidth') || 'Largeur'}</th><td>${escapeHTML(String(width))} cm</td></tr>`;
@@ -583,9 +627,9 @@ function renderDimensions(product) {
     root.innerHTML = html;
 }
 
-// ============================================================
-// CARACTÉRISTIQUES
-// ============================================================
+/* ============================================================
+   CARACTÉRISTIQUES
+   ============================================================ */
 function renderFeaturesSection(product) {
     const el = document.getElementById('productFeaturesEl');
     if (!el) return;
@@ -602,16 +646,15 @@ function renderFeaturesSection(product) {
     el.innerHTML = features.map(f => `<li><span class="feature-check">✓</span><span class="feature-text">${escapeHTML(f)}</span></li>`).join('');
 }
 
-// ============================================================
-// AVIS
-// ============================================================
+/* ============================================================
+   AVIS
+   ============================================================ */
 async function renderReviewsSection(product) {
     const container = document.getElementById('productReviewsRoot');
     if (!container) return;
 
-    container.innerHTML = `<div style="text-align:center;padding:1rem;color:var(--text-muted);">⏳ ${t('loadingReviews')}</div>`;
+    container.innerHTML = `<div style="text-align:center;padding:1rem;color:var(--text-muted);">${t('loadingReviews')}</div>`;
 
-    // B2 : normalisation de l'ID produit (numérique OU string).
     const productId = normalizeProductId(product.id);
     if (productId == null) {
         container.innerHTML = `<p style="text-align:center;color:var(--text-muted);">${t('noReviewsYet')}</p>`;
@@ -631,7 +674,7 @@ async function renderReviewsSection(product) {
         const user = getCurrentUser();
         const reviewCheck = user ? await canUserReviewProduct(productId) : { canReview: false, reason: 'not_logged' };
 
-        let html = `<h3 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;font-size:1.3rem;">⭐ ${t('reviews')} (${allReviewsCache.length})</h3>`;
+        let html = `<h3 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;font-size:1.3rem;">${t('reviews')} (${allReviewsCache.length})</h3>`;
 
         if (allReviewsCache.length > 0) {
             const avg = (allReviewsCache.reduce((s, r) => s + (r.rating || 0), 0) / allReviewsCache.length).toFixed(1);
@@ -651,11 +694,13 @@ async function renderReviewsSection(product) {
         if (reviewCheck.canReview) {
             html += renderReviewForm();
         } else if (!user) {
-            html += `<p style="font-size:0.85rem;color:var(--text-muted);margin-top:1rem;text-align:center;">🔒 ${t('loginRequired')}</p>`;
+            html += `<p style="font-size:0.85rem;color:var(--text-muted);margin-top:1rem;text-align:center;">${t('loginRequired')}</p>`;
         } else if (reviewCheck.reason === 'not_purchased') {
-            html += `<p style="font-size:0.85rem;color:var(--text-muted);margin-top:1rem;text-align:center;">🛒 ${t('reviewOnlyAfterOrder')}</p>`;
+            html += `<p style="font-size:0.85rem;color:var(--text-muted);margin-top:1rem;text-align:center;">${t('reviewOnlyAfterOrder')}</p>`;
         } else if (reviewCheck.reason === 'already_reviewed') {
-            html += `<p style="font-size:0.85rem;color:var(--text-muted);margin-top:1rem;text-align:center;">✅ ${t('reviewAlreadyExists')}</p>`;
+            html += `<p style="font-size:0.85rem;color:var(--text-muted);margin-top:1rem;text-align:center;">${t('reviewAlreadyExists')}</p>`;
+        } else if (reviewCheck.reason === 'check_failed') {
+            html += `<p style="font-size:0.85rem;color:var(--text-muted);margin-top:1rem;text-align:center;">${t('error') || 'Vérification impossible. Réessayez.'}</p>`;
         }
 
         container.innerHTML = html;
@@ -699,7 +744,7 @@ function renderReviewsList() {
                     <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
                         <div class="review-stars" style="color:var(--gold); font-size:1rem;">${renderStars(r.rating || 0)}</div>
                         <span style="font-size:0.85rem; color:var(--text); font-weight:600;">${userName}</span>
-                        ${r.verifiedPurchase ? `<span style="background:var(--success-bg);color:var(--success);font-size:0.65rem;padding:0.15rem 0.5rem;border-radius:30px;display:inline-flex;align-items:center;gap:0.2rem;">✅ ${t('reviewVerifiedPurchase')}</span>` : ''}
+                        ${r.verifiedPurchase ? `<span style="background:var(--success-bg);color:var(--success);font-size:0.65rem;padding:0.15rem 0.5rem;border-radius:30px;display:inline-flex;align-items:center;gap:0.2rem;">${t('reviewVerifiedPurchase')}</span>` : ''}
                     </div>
                     <div style="font-size:0.75rem; color:var(--text-dim);">${dateStr}</div>
                 </div>
@@ -718,7 +763,7 @@ function renderReviewsList() {
                 <div style="display:flex; justify-content:flex-end;">
                     <button class="review-like-btn ${isLiked ? 'liked' : ''}" data-review-id="${escapeHTML(r.id)}" data-liked="${isLiked}"
                         style="background:transparent; border:1px solid var(--border); color:var(--text-muted); border-radius:30px; padding:0.3rem 0.8rem; font-size:0.8rem; cursor:pointer; display:flex; align-items:center; gap:0.3rem;">
-                        👍 ${t('reviewHelpful')} (${likeCount})
+                        ${t('reviewHelpful')} (${likeCount})
                     </button>
                 </div>
             </div>
@@ -753,12 +798,12 @@ function renderReviewsList() {
 
     listEl.querySelectorAll('.review-like-btn').forEach(btn => {
         btn.addEventListener('click', async () => {
-            if (!user) { showToast('🔒 ' + t('loginRequired')); document.dispatchEvent(new CustomEvent('open-account')); return; }
+            if (!user) { showToast(t('loginRequired')); document.dispatchEvent(new CustomEvent('open-account')); return; }
             try {
                 const result = await toggleLike(btn.dataset.reviewId);
                 const countMatch = btn.textContent.match(/\((\d+)\)/);
                 const newCount = countMatch ? parseInt(countMatch[1]) + (result.liked ? 1 : -1) : (result.liked ? 1 : 0);
-                btn.innerHTML = `👍 ${t('reviewHelpful')} (${Math.max(0, newCount)})`;
+                btn.innerHTML = `${t('reviewHelpful')} (${Math.max(0, newCount)})`;
                 btn.classList.toggle('liked', result.liked);
             } catch (e) { console.error(e); }
         });
@@ -769,11 +814,11 @@ function renderReviewForm() {
     return `
         <div class="review-form" style="margin-top:1.5rem; padding:1.2rem; background:var(--bg-surface); border:1px solid var(--border-gold); border-radius:var(--radius-md);">
             <h4 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;">
-                ✍️ ${t('leaveReview')}
+                ${t('leaveReview')}
             </h4>
             <div id="reviewFormMessage" style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.5rem;"></div>
 
-            <label style="display:block;font-size:0.85rem;color:var(--text-muted);margin-bottom:0.3rem;">${t('reviewRating') || 'Note'} (${t('reviews')}) *</label>
+            <label style="display:block;font-size:0.85rem;color:var(--text-muted);margin-bottom:0.3rem;">${t('reviewRating') || 'Note'} *</label>
             <div style="display:flex; align-items:center; gap:0.8rem; margin-bottom:1rem;">
                 <div class="review-star-input" id="reviewStarInput" style="display:flex; gap:0.2rem; font-size:1.8rem; cursor:pointer; direction:ltr;">
                     <span class="star" data-star="1" role="button" tabindex="0" aria-label="1 étoile">★</span>
@@ -796,7 +841,7 @@ function renderReviewForm() {
             <div id="reviewPhotoPreviews" class="review-photo-grid"></div>
 
             <button class="btn-primary" id="submitReviewBtn" style="width:100%;justify-content:center;margin-top:1rem; padding:0.8rem;">
-                📤 ${t('reviewSubmit')}
+                ${t('reviewSubmit')}
             </button>
         </div>
     `;
@@ -825,7 +870,6 @@ function attachReviewEvents(product, productId) {
         star.addEventListener('click', () => {
             applyRating(parseInt(star.dataset.star));
         });
-        // B10 : support clavier minimal
         star.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
@@ -867,20 +911,19 @@ function attachReviewEvents(product, productId) {
             const comment = commentInput?.value.trim() || '';
 
             if (selectedRating < 1) {
-                if (msgEl) { msgEl.textContent = '⚠️ ' + (t('reviewRatingRequired') || 'Veuillez sélectionner une note (étoiles)'); msgEl.style.color = 'var(--danger)'; }
+                if (msgEl) { msgEl.textContent = t('reviewRatingRequired') || 'Veuillez sélectionner une note'; msgEl.style.color = 'var(--danger)'; }
                 return;
             }
             if (!comment) {
-                if (msgEl) { msgEl.textContent = '⚠️ ' + t('reviewComment'); msgEl.style.color = 'var(--danger)'; }
+                if (msgEl) { msgEl.textContent = t('reviewComment'); msgEl.style.color = 'var(--danger)'; }
                 return;
             }
 
             submitBtn.disabled = true;
-            submitBtn.textContent = '⏳ ' + t('loading');
+            submitBtn.textContent = t('loading');
             if (msgEl) msgEl.textContent = '';
 
             try {
-                // B2 : productId normalisé (string ou number)
                 await createReview(productId, {
                     rating: selectedRating,
                     title,
@@ -888,12 +931,11 @@ function attachReviewEvents(product, productId) {
                     photoFiles: selectedPhotos
                 });
                 if (msgEl) {
-                    msgEl.textContent = '✅ ' + t('reviewThanks') + ' ' + t('reviewPendingApproval');
+                    msgEl.textContent = t('reviewThanks') + ' ' + t('reviewPendingApproval');
                     msgEl.style.color = 'var(--success)';
                 }
-                showToast('✅ ' + t('reviewThanks'));
+                showToast(t('reviewThanks'));
 
-                // B8 : null guards sur les resets
                 if (commentInput) commentInput.value = '';
                 if (titleInput) titleInput.value = '';
                 selectedRating = 0;
@@ -904,20 +946,20 @@ function attachReviewEvents(product, productId) {
             } catch (e) {
                 console.error('Erreur envoi avis :', e);
                 if (msgEl) {
-                    msgEl.textContent = '❌ ' + (e.message || t('error'));
+                    msgEl.textContent = e.message || t('error');
                     msgEl.style.color = 'var(--danger)';
                 }
             } finally {
                 submitBtn.disabled = false;
-                submitBtn.textContent = '📤 ' + t('reviewSubmit');
+                submitBtn.textContent = t('reviewSubmit');
             }
         });
     }
 }
 
-// ============================================================
-// PRODUITS SIMILAIRES
-// ============================================================
+/* ============================================================
+   PRODUITS SIMILAIRES
+   ============================================================ */
 let _relatedProductsCache = null;
 let _relatedForProductId = null;
 
@@ -925,7 +967,6 @@ function renderRelatedProducts(product) {
     const container = document.getElementById('relatedProductsRoot');
     if (!container) return;
 
-    // B12 : comparaison d'ID normalisés
     const currentPid = normalizeProductId(product.id);
 
     if (_relatedForProductId !== currentPid) {
@@ -952,7 +993,6 @@ function renderRelatedProducts(product) {
     }
 
     const user = getCurrentUser();
-    // B3 : normalisation des favoris pour matcher IDs strings + numbers
     const favs = Array.isArray(user?.favorites)
         ? user.favorites.map(normalizeProductId).filter(f => f != null)
         : [];
@@ -961,7 +1001,6 @@ function renderRelatedProducts(product) {
     html += `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:1rem;">`;
 
     _relatedProductsCache.forEach(p => {
-        // B3 : normalisation pid
         const pid = normalizeProductId(p.id);
         if (pid == null) return;
         const isFav = favs.includes(pid);
@@ -976,7 +1015,7 @@ function renderRelatedProducts(product) {
         const isVendor = p.vendorId && p.vendorId !== 'smartswi9a';
         const vendorBadge = isVendor
             ? `<div style="font-size:0.65rem;color:#6b46c1;font-weight:700;margin-top:0.2rem;">🏪 ${escapeHTML(p.vendorName || 'Boutique')}</div>`
-            : `<div style="font-size:0.65rem;color:var(--gold);font-weight:700;margin-top:0.2rem;">✅ ${t('vendorSmartSwi9a') || 'Smart Swi9a'}</div>`;
+            : `<div style="font-size:0.65rem;color:var(--gold);font-weight:700;margin-top:0.2rem;">${t('vendorSmartSwi9a') || 'Smart Swi9a'}</div>`;
 
         html += `
             <div class="product-card" data-id="${escapeHTML(String(pid))}" data-slug="${escapeHTML(p.slug || '')}" style="cursor:pointer;">
@@ -1009,16 +1048,15 @@ function renderRelatedProducts(product) {
         if (favBtn) {
             favBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
-                // B3 : passer la valeur normalisée (toggleFavorite gère aussi)
                 toggleFavorite(normalizeProductId(favBtn.dataset.id));
             });
         }
     });
 }
 
-// ============================================================
-// ÉVÉNEMENTS PRINCIPAUX
-// ============================================================
+/* ============================================================
+   ÉVÉNEMENTS PRINCIPAUX
+   ============================================================ */
 function attachProductEvents(product) {
     const addBtn = document.getElementById('addToCartBtn');
     if (addBtn && !addBtn._listenerAttached) {
@@ -1031,22 +1069,21 @@ function attachProductEvents(product) {
 
             if (currentProduct.variants && currentProduct.variants.length > 0) {
                 if (!selectedSize && currentProduct.variants.some(v => v.size)) {
-                    showToast('⚠️ Veuillez choisir une taille');
+                    showToast('Veuillez choisir une taille');
                     return;
                 }
                 if (!selectedColor && currentProduct.variants.some(v => v.color)) {
-                    showToast('⚠️ Veuillez choisir une couleur');
+                    showToast('Veuillez choisir une couleur');
                     return;
                 }
                 if (!currentVariant) {
-                    showToast('⚠️ Cette combinaison est introuvable');
+                    showToast('Cette combinaison est introuvable');
                     return;
                 }
                 if (currentVariant.stock <= 0) {
-                    showToast('⚠️ ' + t('outOfStock'));
+                    showToast(t('outOfStock'));
                     return;
                 }
-                // L'ID passé est la valeur brute Firestore (string OU number) — cart.js gère.
                 import('./cart.js').then(m => m.addToCart(currentProduct.id, currentVariant));
             } else {
                 import('./cart.js').then(m => m.addToCart(currentProduct.id));
@@ -1059,12 +1096,16 @@ function attachProductEvents(product) {
         waBtn.dataset.productId = String(product.id);
     }
 
-    console.log('📦 Page produit prête :', product.slug);
+    console.log('Page produit prête :', product.slug);
 }
 
-// ============================================================
-// MODALE GUIDE DES TAILLES
-// ============================================================
+/* ============================================================
+   MODALE GUIDE DES TAILLES
+   ============================================================
+   NOTE : le tableau est statique (S/M/L/XL/XXL). Si les tailles
+   doivent être dynamiques par produit, il faudra un nouveau champ
+   Firestore et une refonte (hors scope).
+   ============================================================ */
 function openSizeGuideModal() {
     document.getElementById('sizeGuideModal')?.remove();
 
@@ -1072,7 +1113,7 @@ function openSizeGuideModal() {
         <div class="modal-overlay open" id="sizeGuideModal" style="z-index:2000;">
             <div class="modal" style="max-width:600px;">
                 <button class="modal-close" id="closeSizeGuideBtn" aria-label="Fermer">✕</button>
-                <h2 style="font-family:var(--font-secondary);color:var(--gold);text-align:center;margin-bottom:1rem;">📏 ${t('sizeGuideTitle') || 'Guide des tailles'}</h2>
+                <h2 style="font-family:var(--font-secondary);color:var(--gold);text-align:center;margin-bottom:1rem;">${t('sizeGuideTitle') || 'Guide des tailles'}</h2>
 
                 <div style="background:var(--bg-surface);padding:1rem;border-radius:var(--radius-sm);margin-bottom:1rem;">
                     <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.5rem;text-align:center;">
@@ -1080,8 +1121,8 @@ function openSizeGuideModal() {
                     </p>
 
                     <div style="display:flex; justify-content:center; gap:1rem; margin-bottom:1rem;">
-                        <button class="variant-btn active" id="tabUS">🇺🇸 US</button>
-                        <button class="variant-btn" id="tabEU">🇪🇺 EU</button>
+                        <button class="variant-btn active" id="tabUS">US</button>
+                        <button class="variant-btn" id="tabEU">EU</button>
                     </div>
 
                     <table class="acc-table" id="sizeGuideTable">
@@ -1142,7 +1183,7 @@ function openSizeGuideModal() {
     ];
 
     const renderTable = (standard) => {
-        col1Header.textContent = standard === 'us' ? '🇺🇸 US' : '🇪🇺 EU';
+        col1Header.textContent = standard === 'us' ? 'US' : 'EU';
         let rows = '';
         sizeData.forEach(row => {
             rows += `<tr>
@@ -1163,7 +1204,7 @@ function openSizeGuideModal() {
     renderTable('us');
 }
 
-// ============================================================
-// LOG
-// ============================================================
-console.log('✅ product-detail.js chargé — v8.1.0 (Marketplace)');
+/* ============================================================
+   LOG
+   ============================================================ */
+console.log('✅ product-detail.js chargé - v9.0.0 (Lot 20 : gallery dedup + image fallback + prix guard)');
