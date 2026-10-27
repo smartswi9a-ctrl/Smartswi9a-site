@@ -37,6 +37,7 @@
     <link rel="stylesheet" href="/style.css">
     <link rel="stylesheet" href="/style-patches.css">
     <script src="/translations.js"></script>
+    <script src="/translations-livo.js" defer></script>
 
     <style>
         body { padding-top: 1rem; padding-bottom: 4rem; }
@@ -413,11 +414,11 @@
         <div style="display:flex;flex-direction:column;gap:1rem;max-width:420px;width:100%;">
             <button id="chooseRealModeBtn" class="mode-choice-btn real">
                 <div class="mode-title">🟢 Mode Réel</div>
-                <div class="mode-desc">Site normal — données réelles — Speedaf activé</div>
+                <div class="mode-desc">Site normal — données réelles — Livo activé</div>
             </button>
             <button id="chooseTestModeBtn" class="mode-choice-btn test">
                 <div class="mode-title">🔴 Mode Test</div>
-                <div class="mode-desc">Snapshot base — Speedaf désactivé — Rollback total</div>
+                <div class="mode-desc">Snapshot base — Livo désactivé — Rollback total</div>
             </button>
         </div>
         <p style="margin-top:2rem;font-size:0.75rem;color:var(--text-dim);max-width:420px;">
@@ -426,7 +427,7 @@
     </div>
 
     <div id="testModeBanner">
-        <span>🔴 MODE TEST — Speedaf DÉSACTIVÉ — Toutes les actions seront annulées</span>
+        <span>🔴 MODE TEST — Livo DÉSACTIVÉ — Toutes les actions seront annulées</span>
         <button id="endTestBtn" type="button">🟢 Test Terminé (Rollback)</button>
     </div>
 
@@ -442,7 +443,14 @@
         </p>
     </div>
 
-    <div class="admin-container" id="adminPanel" style="display:none;">
+    <!-- ═══════════════════════════════════════════════════════════════ -->
+    <!-- FIN DE LA PARTIE 1/2                                          -->
+    <!-- La PARTIE 2/2 (prochain message) commence par :               -->
+    <!--   <div class="admin-container" id="adminPanel" ...>            -->
+    <!-- Elle contient : 12 onglets + migration Speedaf→Livo +         -->
+    <!-- alert banner + pickup modal + toast + scripts + </html>       -->
+    <!-- ═══════════════════════════════════════════════════════════════ -->
+        <div class="admin-container" id="adminPanel" style="display:none;">
 
         <div class="admin-header">
             <h1>⚙️ Administration Smart Swi9a</h1>
@@ -458,7 +466,7 @@
             <button data-tab="products">📦 Produits</button>
             <button data-tab="orders">📋 Commandes</button>
             <button data-tab="vendors">🏪 Vendeurs</button>
-            <button data-tab="speedaf">🚀 Speedaf</button>
+            <button data-tab="livo">🚚 Livo</button>
             <button data-tab="users">👥 Clients</button>
             <button data-tab="reviews">⭐ Avis</button>
             <button data-tab="blog">📝 Blog</button>
@@ -535,7 +543,7 @@
                     </div>
                 </div>
 
-                <h4>📏 Dimensions & Poids (Requis pour Speedaf)</h4>
+                <h4>📏 Dimensions & Poids (Requis pour Livo)</h4>
                 <div class="admin-form-row cols-4">
                     <div><label>Poids (g)</label><input type="number" id="pWeight" placeholder="500" min="0"></div>
                     <div><label>Longueur (cm)</label><input type="number" id="pLength" placeholder="20" min="0" step="0.1"></div>
@@ -636,25 +644,25 @@
             <div id="adminVendorsList"><div class="admin-loading">⏳ Chargement des vendeurs...</div></div>
         </div>
 
-        <div class="admin-content" id="tab-speedaf">
+        <div class="admin-content" id="tab-livo">
             <div class="admin-header" style="margin-bottom:1rem; padding:1rem; display:flex; justify-content:space-between; flex-wrap:wrap; gap:1rem;">
-                <h2 style="font-family:var(--font-secondary);color:var(--gold);margin:0;">🚀 Livraisons Speedaf</h2>
+                <h2 style="font-family:var(--font-secondary);color:var(--gold);margin:0;">🚚 Livraisons Livo</h2>
                 <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
-                    <button class="admin-btn-secondary" id="pickupSpeedafBtn" style="margin:0;">📦 Ramassage</button>
-                    <button class="admin-btn-primary" id="syncAllSpeedafBtn" style="margin:0;">🔄 Synchroniser</button>
+                    <button class="admin-btn-secondary" id="pickupLivoBtn" style="margin:0;">📦 Ramassage</button>
+                    <button class="admin-btn-primary" id="syncAllLivoBtn" style="margin:0;">🔄 Synchroniser</button>
                 </div>
             </div>
 
             <div class="admin-stats" style="margin-bottom:1.5rem;">
-                <div class="admin-stat-card"><span class="stat-value" id="speedafStatPending">—</span><span class="stat-label">⏳ À expédier</span></div>
-                <div class="admin-stat-card"><span class="stat-value" id="speedafStatShipping">—</span><span class="stat-label">🚚 En cours</span></div>
-                <div class="admin-stat-card"><span class="stat-value" id="speedafStatDelivered">—</span><span class="stat-label">📦 Livrés</span></div>
-                <div class="admin-stat-card"><span class="stat-value" id="speedafStatStorage">—</span><span class="stat-label">🏬 Stockés (Max 10)</span></div>
+                <div class="admin-stat-card"><span class="stat-value" id="livoStatPending">—</span><span class="stat-label">⏳ À expédier</span></div>
+                <div class="admin-stat-card"><span class="stat-value" id="livoStatShipping">—</span><span class="stat-label">🚚 En cours</span></div>
+                <div class="admin-stat-card"><span class="stat-value" id="livoStatDelivered">—</span><span class="stat-label">📦 Livrés</span></div>
+                <div class="admin-stat-card"><span class="stat-value" id="livoStatStorage">—</span><span class="stat-label">🏬 Stockés (Max 10)</span></div>
             </div>
 
             <div class="admin-search-bar">
-                <input type="text" id="speedafSearchAdmin" placeholder="🔍 Rechercher...">
-                <select id="speedafStatusFilter">
+                <input type="text" id="livoSearchAdmin" placeholder="🔍 Rechercher...">
+                <select id="livoStatusFilter">
                     <option value="all">Tous les statuts</option>
                     <option value="pending">⏳ À expédier</option>
                     <option value="shipping">🚚 En cours</option>
@@ -662,7 +670,7 @@
                     <option value="returned">↩️ Retournés</option>
                 </select>
             </div>
-            <div id="adminSpeedafList"><div class="admin-loading">⏳ Chargement...</div></div>
+            <div id="adminLivoList"><div class="admin-loading">⏳ Chargement...</div></div>
         </div>
 
         <div class="admin-content" id="tab-users">
@@ -840,7 +848,7 @@
                                 <option value="marketing">📢 Marketing</option>
                                 <option value="software">💻 Logiciels</option>
                                 <option value="utilities">💡 Électricité</option>
-                                <option value="speedaf">🚀 Speedaf</option>
+                                <option value="livo">🚚 Livo</option>
                                 <option value="tax">🏛️ Taxes</option>
                                 <option value="other">📝 Autre</option>
                             </select>
@@ -1052,7 +1060,7 @@
     <div class="modal-overlay" id="pickupModal" style="z-index:2500;">
         <div class="modal" style="max-width:450px;">
             <button class="modal-close" id="closePickupModalBtn">✕</button>
-            <h2 style="font-family:var(--font-secondary);color:var(--gold);text-align:center;margin-bottom:1rem;">📦 Ramassage</h2>
+            <h2 style="font-family:var(--font-secondary);color:var(--gold);text-align:center;margin-bottom:1rem;">📦 Ramassage Livo</h2>
             <div class="admin-form-row">
                 <div><label>Date *</label><input type="date" id="pickupDate"></div>
                 <div><label>Nb colis *</label><input type="number" id="pickupPackages" min="1" value="1"></div>
@@ -1061,7 +1069,7 @@
                 <div><label>Poids (kg) *</label><input type="number" id="pickupWeight" min="1" value="1" step="0.5"></div>
                 <div><label>Note</label><input type="text" id="pickupNote"></div>
             </div>
-            <button class="admin-btn-primary" id="confirmPickupBtn" style="width:100%;justify-content:center;margin-top:1.5rem;">🚀 Envoyer</button>
+            <button class="admin-btn-primary" id="confirmPickupBtn" style="width:100%;justify-content:center;margin-top:1.5rem;">🚚 Envoyer</button>
         </div>
     </div>
 
