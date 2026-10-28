@@ -770,8 +770,78 @@ export async function loadCities(force = false) {
     const { db } = await import("./firebase.js");
     const snap = await getDocs(collection(db, "cities"));
     if (!snap.empty) {
-      const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      let data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       data.sort((a, b) => Number(a.id) - Number(b.id));
+
+      /* * Synchronisation des tarifs publics Livo : les noms sont normalisés * pour ignorer les accents, la casse et les espaces. On ne remplace * un prix Firestore que si une correspondance exacte de ville existe. * Si Livo est indisponible ou si une ville ne correspond pas, le prix * existant est conservé : aucun tarif arbitraire n'est inventé. */
+      try {
+        const workerUrl = CONFIG.LOGISTICS?.PROXY_WORKER_URL;
+        if (workerUrl) {
+          const feeResponse = await fetchWithRetry(
+            `${workerUrl.replace(/\/+$/, "")}/fees`,
+            { method: "GET", headers: { Accept: "application/json" } },
+            1,
+            300
+          );
+          if (!feeResponse.ok)
+            throw new Error(`Livo fees HTTP ${feeResponse.status}`);
+          const feeJson = await feeResponse.json();
+          const feeRows =
+            feeJson?.data?.data?.order_fees ||
+            feeJson?.data?.order_fees ||
+            feeJson?.order_fees;
+          if (!Array.isArray(feeRows))
+            throw new Error("Format de la grille de tarifs Livo non reconnu");
+          const normalizeCity = (value) =>
+            String(value || "")
+              .normalize("NFD")
+              .replace(/[\u0300-\u036f]/g, "")
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, " ")
+              .trim();
+          const feeMap = new Map();
+          feeRows.forEach((row) => {
+            const key = normalizeCity(row?.city);
+            const fee = Number(row?.fee);
+            if (key && Number.isFinite(fee) && fee >= 0) feeMap.set(key, fee);
+          });
+          data = data.map((city) => {
+            const candidates = [
+              city.nameFr,
+              city.nameEn,
+              city.name,
+              city.key,
+              city.slug,
+            ]
+              .map(normalizeCity)
+              .filter(Boolean);
+            const match = candidates
+              .map((key) => feeMap.get(key))
+              .find((value) => value !== undefined);
+            return match === undefined
+              ? city
+              : {
+                  ...city,
+                  price: match,
+                  livoFee: match,
+                  feeSource: "livo",
+                  feeUpdatedAt:
+                    feeJson?.data?.data?.request_date ||
+                    feeJson?.data?.request_date ||
+                    null,
+                };
+          });
+          console.info(
+            `[Livo] ${feeMap.size} tarifs reçus; villes du site mises à jour uniquement en cas de correspondance exacte.`
+          );
+        }
+      } catch (feeError) {
+        console.warn(
+          "[Livo] Tarifs indisponibles; conservation des tarifs Firestore existants.",
+          feeError
+        );
+      }
+
       setDeliveryData(data);
       safeSetItem(CACHE_KEY, {
         data,
