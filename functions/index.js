@@ -3,6 +3,7 @@ const { initializeApp } = require("firebase-admin/app");
 const { getAuth } = require("firebase-admin/auth");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 const bcrypt = require("bcryptjs");
+const crypto = require("node:crypto");
 
 initializeApp();
 const db = getFirestore();
@@ -88,6 +89,54 @@ function statusMessage(profile) {
   if (status === "approved")
     return "Votre contrat vendeur doit être accepté avant l’accès au tableau de bord.";
   return "Ce compte ne dispose pas d’un accès vendeur approuvé.";
+}
+
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_MAX_FAILURES = 8;
+function throttleId(email, ip) {
+  return crypto
+    .createHash("sha256")
+    .update(`${email}|${ip || "unknown"}`)
+    .digest("hex");
+}
+async function isLoginThrottled(email, ip) {
+  const ref = db.collection("vendorLoginThrottle").doc(throttleId(email, ip));
+  const snap = await ref.get();
+  if (!snap.exists) return false;
+  const data = snap.data();
+  const now = Date.now();
+  if (data.windowStartedAt && now - data.windowStartedAt > LOGIN_WINDOW_MS) {
+    await ref.delete().catch(() => {});
+    return false;
+  }
+  return (
+    Number(data.failures || 0) >= LOGIN_MAX_FAILURES &&
+    Number(data.windowStartedAt || now) + LOGIN_WINDOW_MS > now
+  );
+}
+async function recordLoginFailure(email, ip) {
+  const ref = db.collection("vendorLoginThrottle").doc(throttleId(email, ip));
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const now = Date.now();
+    const data = snap.exists ? snap.data() : {};
+    const inWindow =
+      data.windowStartedAt && now - data.windowStartedAt <= LOGIN_WINDOW_MS;
+    tx.set(ref, {
+      email,
+      ip: String(ip || "unknown").slice(0, 80),
+      failures: inWindow ? Number(data.failures || 0) + 1 : 1,
+      windowStartedAt: inWindow ? data.windowStartedAt : now,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  });
+}
+async function clearLoginFailures(email, ip) {
+  await db
+    .collection("vendorLoginThrottle")
+    .doc(throttleId(email, ip))
+    .delete()
+    .catch(() => {});
 }
 
 exports.setVendorPassword = onRequest(
@@ -185,15 +234,29 @@ exports.loginVendor = onRequest(
           message: "Adresse e-mail ou mot de passe invalide.",
         });
     }
+    const clientIp = String(req.ip || req.get("x-forwarded-for") || "unknown")
+      .split(",")[0]
+      .trim()
+      .slice(0, 80);
     try {
+      if (await isLoginThrottled(email, clientIp)) {
+        return res
+          .status(429)
+          .json({
+            success: false,
+            message: "Trop de tentatives. Réessayez dans 15 minutes.",
+          });
+      }
       const userRecord = await findUserByEmail(email);
-      if (!userRecord)
+      if (!userRecord) {
+        await recordLoginFailure(email, clientIp);
         return res
           .status(401)
           .json({
             success: false,
             message: "Identifiants incorrects ou compte vendeur introuvable.",
           });
+      }
       const { uid, data: profile } = userRecord;
       // Check the independent seller password first.
       const credentialSnap = await db
@@ -227,13 +290,16 @@ exports.loginVendor = onRequest(
             String(authData.email || "").toLowerCase() === email;
         }
       }
-      if (!validCredential)
+      if (!validCredential) {
+        await recordLoginFailure(email, clientIp);
         return res
           .status(401)
           .json({
             success: false,
             message: "Identifiants incorrects ou compte vendeur introuvable.",
           });
+      }
+      await clearLoginFailures(email, clientIp);
       if (!approved(profile))
         return res
           .status(403)
@@ -250,6 +316,109 @@ exports.loginVendor = onRequest(
           success: false,
           message:
             "Erreur temporaire de connexion. Réessayez dans quelques instants.",
+        });
+    }
+  }
+);
+
+exports.acceptVendorContract = onRequest(
+  { region: "europe-west1", maxInstances: 5, timeoutSeconds: 15 },
+  async (req, res) => {
+    if (cors(req, res)) return;
+    try {
+      const authHeader = req.get("authorization") || "";
+      const match = authHeader.match(/^Bearer\s+(.+)$/i);
+      if (!match)
+        return res
+          .status(401)
+          .json({ success: false, message: "Connexion requise." });
+      const decoded = await getAuth().verifyIdToken(match[1], true);
+      const contractId = String(req.body?.contractId || "");
+      const version = String(req.body?.version || "");
+      if (
+        !/^contract_[A-Za-z0-9_-]+_v\d+\.\d+\.\d+$/.test(contractId) ||
+        !/^\d+\.\d+\.\d+$/.test(version)
+      ) {
+        return res
+          .status(400)
+          .json({ success: false, message: "Référence de contrat invalide." });
+      }
+      const expectedPrefix = `contract_${decoded.uid}_v`;
+      if (!contractId.startsWith(expectedPrefix))
+        return res
+          .status(403)
+          .json({ success: false, message: "Contrat non autorisé." });
+      const userRef = db.collection("users").doc(decoded.uid);
+      const contractRef = db.collection("contracts").doc(contractId);
+      const [userSnap, contractSnap] = await Promise.all([
+        userRef.get(),
+        contractRef.get(),
+      ]);
+      if (!userSnap.exists || !contractSnap.exists)
+        return res
+          .status(404)
+          .json({ success: false, message: "Profil ou contrat introuvable." });
+      const profile = userSnap.data();
+      const contract = contractSnap.data();
+      if (
+        profile.role !== "vendor" ||
+        !profile.vendorInfo ||
+        !["pending", "approved"].includes(profile.vendorInfo.status)
+      ) {
+        return res
+          .status(403)
+          .json({
+            success: false,
+            message: "La demande vendeur n’est pas valide.",
+          });
+      }
+      if (
+        contract.vendorId !== decoded.uid ||
+        contract.status !== "accepted" ||
+        contract.version !== version ||
+        contractId !== `contract_${decoded.uid}_v${version}` ||
+        !["fr", "ar", "en"].includes(contract.language) ||
+        !contract.termsSnapshot ||
+        typeof contract.termsSnapshot !== "object" ||
+        !/^[0-9a-f]{64}$/i.test(contract.textHash || "") ||
+        !/^[0-9a-f]{64}$/i.test(contract.contractHash || "")
+      ) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+            message: "La signature du contrat est invalide.",
+          });
+      }
+      const expectedHash = crypto
+        .createHash("sha256")
+        .update(
+          [decoded.uid, version, contract.language, contract.textHash].join("|")
+        )
+        .digest("hex");
+      if (expectedHash !== String(contract.contractHash).toLowerCase())
+        return res
+          .status(400)
+          .json({
+            success: false,
+            message: "La vérification cryptographique du contrat a échoué.",
+          });
+      await userRef.update({
+        "vendorInfo.contractStatus": "accepted",
+        "vendorInfo.currentContractId": contractId,
+        "vendorInfo.contractVersion": version,
+        "vendorInfo.contractSignedAt":
+          contract.acceptedAt || FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      return res.status(200).json({ success: true });
+    } catch (error) {
+      console.error("[acceptVendorContract]", error?.message || error);
+      return res
+        .status(500)
+        .json({
+          success: false,
+          message: "Impossible de valider le contrat pour le moment.",
         });
     }
   }
