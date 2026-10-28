@@ -19,7 +19,8 @@
       "generer-villes.html",
       "js/emailjs.js",
       "logo-generator.html",
-      "README.md"
+      "README.md",
+      "**/functions/**"
     ],
     "cleanUrls": true,
     "trailingSlashBehavior": "remove",
@@ -99,6 +100,17 @@
           "functionId": "loginVendor",
           "region": "europe-west1"
         }
+      },
+      {
+        "source": "/api/acceptVendorContract",
+        "function": {
+          "functionId": "acceptVendorContract",
+          "region": "europe-west1"
+        }
+      },
+      {
+        "source": "/vendor/dashboard",
+        "destination": "/vendor/dashboard.html"
       },
       {
         "source": "/villes",
