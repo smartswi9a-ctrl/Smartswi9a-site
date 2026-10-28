@@ -1,4 +1,3 @@
---- js/vendor-dashboard.js ---
 /* ============================================================
    js/vendor-dashboard.js
    Logique du dashboard vendeur - Smart Swi9a
@@ -57,10 +56,8 @@ let ordersLastDoc = null;
 let ordersHasMore = false;
 let ordersLoading = false;
 
-/* Contrat courant (dernier connu du vendeur). */
 let currentContractDoc = null;
 
-/* Contexte de la modale contrat. */
 let _contractTextHash = null;
 let _contractLang = DEFAULT_LANGUAGE;
 let _contractVersion = null;
@@ -69,7 +66,6 @@ let _contractScrollReached = false;
 let _contractReadOnly = false;
 let _contractSignatureSource = "dashboard";
 
-/* Guard contre les doubles fetch/renders. */
 let _productsLoading = false;
 let _renderInProgress = false;
 
@@ -117,7 +113,6 @@ const MINIMAL_FALLBACKS = {
     "vendor.contract.loadFailed": { fr: "Impossible de charger le contrat.", ar: "تعذّر تحميل العقد.", en: "Cannot load contract." },
     "vendor.contract.verifyFail": { fr: "Intégrité non vérifiable : {reason}", ar: "تعذّر التحقق: {reason}", en: "Cannot verify: {reason}" },
     "vendor.contract.verifyRunning": { fr: "Vérification...", ar: "جارٍ التحقق...", en: "Verifying..." },
-    /* v9.2.0 : messages explicites pour race + garde */
     "vendor.error.authNotReady": { fr: "Session non initialisée. Redirection vers l'accueil...", ar: "الجلسة غير مهيأة. إعادة التوجيه...", en: "Session not ready. Redirecting..." },
     "vendor.error.notVendor": { fr: "Ce compte n'est pas un compte vendeur. Redirection...", ar: "هذا الحساب ليس حساب بائع.", en: "This account is not a vendor account." },
     "vendor.error.profileMissing": { fr: "Profil vendeur introuvable. Contactez le support.", ar: "ملف البائع غير موجود.", en: "Vendor profile missing." },
@@ -280,9 +275,6 @@ function buildBanners(profile) {
     else if (status === VENDOR_STATUS.REJECTED) banners.push({ type: 'danger', text: tr('vendor.banner.rejected', "Votre inscription a été refusée. Contactez le support pour plus d'informations.") });
     else if (status === VENDOR_STATUS.SUSPENDED) banners.push({ type: 'danger', text: tr('vendor.banner.suspended', "Votre compte est suspendu. Vous ne pouvez plus vendre. Contactez le support.") });
 
-    /* v9.2.0 : walletMissing n'est affiché QUE si le vendeur est approuvé.
-       Le wallet est créé par l'admin à l'approbation ; un vendeur pending
-       n'a pas à voir cette alerte. */
     if (!currentWallet && status === VENDOR_STATUS.APPROVED) banners.push({ type: 'warning', text: tr('vendor.banner.walletMissing', "Votre portefeuille vendeur n'est pas encore initialisé. Contactez le support.") });
     if (!emailVerified && !params.get('verifyEmail')) banners.push({ type: 'warning', text: tr('vendor.banner.emailNotVerified', "Votre e-mail n'est pas vérifié. Cliquez sur « Renvoyer » pour recevoir un nouveau lien."), actionId: 'resendVerify', actionLabel: tr('vendor.banner.resend', 'Renvoyer') });
 
@@ -1399,9 +1391,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         authBound = true;
     }
 
-    /* v9.2.0 : attente active de isAuthReady() (poll 100ms, max 5s).
-       authReadyPromise peut se résoudre par timeout 10s sans que
-       authReady soit à true, ce qui laissait passer un user null. */
     try { await authReadyPromise; } catch (e) { console.warn('[vendor-dashboard] authReadyPromise', e); }
     let waitedMs = 0;
     while (!isAuthReady() && waitedMs < 5000) {
@@ -1452,4 +1441,3 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 console.log('[vendor-dashboard] v9.2.0 chargé (Lot 51 : race authReady + garde visible)');
---- fin js/vendor-dashboard.js ---
