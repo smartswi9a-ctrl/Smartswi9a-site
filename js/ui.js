@@ -1,4 +1,3 @@
---- js/ui.js ---
 /* ============================================================
    js/ui.js
    INTERFACE UTILISATEUR - SMART SWI9A
@@ -61,9 +60,6 @@ import {
 
 /**
  * Normalise un ID produit.
- * - "42" (chaîne numérique) -> 42
- * - "abc123" (auto-ID Firestore) -> "abc123"
- * - null/undefined/"" -> null
  * @param {*} id
  * @returns {number|string|null}
  */
@@ -82,8 +78,6 @@ let _globalUIListenersAttached = false;
 let _cookieConsentInitialized = false;
 let _accountRenderId = 0;
 
-/* P2-22 : interval de polling vérification email.
-   Démarré uniquement quand nécessaire, stoppé sur close/logout. */
 let _emailVerifyInterval = null;
 
 let _abandonedCartNotifEl = null;
@@ -93,7 +87,7 @@ const PENDING_REVIEWS_CACHE_TTL = 60000;
 let _pendingReviewsCache = { count: 0, timestamp: 0, userId: null };
 
 /**
- * Invalide le cache des avis en attente (à appeler après dépôt d'avis).
+ * Invalide le cache des avis en attente.
  * @returns {void}
  */
 export function invalidatePendingReviewsCache() {
@@ -101,8 +95,7 @@ export function invalidatePendingReviewsCache() {
 }
 
 /**
- * Récupère le nombre d'avis en attente (review_request) pour l'user courant.
- * Cache 60s pour éviter les appels Firestore répétés.
+ * Récupère le nombre d'avis en attente pour l'user courant.
  * @param {boolean} [force=false]
  * @returns {Promise<number>}
  */
@@ -136,17 +129,8 @@ async function waitForElement(selector, timeout = 3000) {
 }
 
 /* ============================================================
-   P2-22 : POLLING EMAIL VERIFY (démarré/arrêté à la demande)
+   POLLING EMAIL VERIFY
    ============================================================ */
-
-/**
- * Démarre le polling de vérification email.
- * - No-op si déjà en cours.
- * - Poll toutes les 30s tant que la modale est ouverte et que
- *   l'utilisateur n'est pas vérifié.
- * - Stoppé automatiquement quand verified ou modale fermée.
- * @returns {void}
- */
 function startEmailVerifyPolling() {
     if (_emailVerifyInterval) return;
     _emailVerifyInterval = setInterval(async () => {
@@ -169,10 +153,6 @@ function startEmailVerifyPolling() {
     }, 30000);
 }
 
-/**
- * Stoppe le polling de vérification email.
- * @returns {void}
- */
 function stopEmailVerifyPolling() {
     if (_emailVerifyInterval) {
         clearInterval(_emailVerifyInterval);
@@ -198,8 +178,7 @@ function showFloatingButtons() {
 
 /**
  * Injecte le HTML de la modale compte si absente, puis attache
- * les listeners globaux (une seule fois grâce au guard
- * _globalUIListenersAttached).
+ * les listeners globaux.
  * @returns {void}
  */
 export function injectSharedUI() {
@@ -227,7 +206,6 @@ function attachGlobalUIEvents() {
     if (_globalUIListenersAttached) return;
     _globalUIListenersAttached = true;
 
-    /* Fermeture modale compte. */
     const accClose = document.getElementById('accountModalClose');
     if (accClose && !accClose._initialized) {
         accClose.addEventListener('click', closeAccountModal);
@@ -252,7 +230,6 @@ function attachGlobalUIEvents() {
         updateNotificationBadge();
         _reviewReminderShownThisSession = false;
         invalidatePendingReviewsCache();
-        /* P2-22 : logout = arrêt du polling. */
         stopEmailVerifyPolling();
     });
 
@@ -301,7 +278,6 @@ function attachGlobalUIEvents() {
         updateAccountButton();
     });
 
-    /* Refocus fenêtre : vérifier si email vérifié (poll léger). */
     window.addEventListener('focus', async () => {
         const user = getCurrentUser();
         if (user && user.needsVerification) {
@@ -312,16 +288,8 @@ function attachGlobalUIEvents() {
             }
         }
     });
-
-    /* P2-22 : plus de setInterval global. Le polling est démarré
-       à la demande dans openAccountModal (si user needsVerification). */
 }
 
-/**
- * Met à jour le badge sur l'onglet "Commandes" si des avis
- * review_request sont en attente.
- * @returns {Promise<void>}
- */
 async function refreshOrdersTabBadge() {
     const ordersTabBtn = document.querySelector('#accountContent [data-tab="orders"]');
     if (!ordersTabBtn) return;
@@ -347,7 +315,6 @@ async function refreshOrdersTabBadge() {
 
 /**
  * Redirige vers la page panier dédiée (/panier).
- * No-op si déjà sur la page panier.
  * @deprecated Conservé pour compatibilité events.js.
  * @returns {void}
  */
@@ -358,7 +325,7 @@ export function openCart() {
 }
 
 /**
- * No-op historique (sidebar panier supprimée).
+ * No-op historique.
  * @deprecated Conservé pour compatibilité events.js.
  * @returns {void}
  */
@@ -398,8 +365,7 @@ export function initCitySearch() {}
    ============================================================ */
 
 /**
- * Ouvre la modale compte. Charge le contenu selon l'état d'auth.
- * P2-22 : démarre le polling email si user needsVerification.
+ * Ouvre la modale compte.
  * @returns {Promise<void>}
  */
 export async function openAccountModal() {
@@ -413,7 +379,6 @@ export async function openAccountModal() {
     await renderAccountContent();
     trapFocus(modal);
 
-    /* P2-22 : polling email si nécessaire. */
     const user = getCurrentUser();
     if (user && user.needsVerification) {
         startEmailVerifyPolling();
@@ -430,7 +395,6 @@ export async function openAccountModal() {
 
 /**
  * Ferme la modale compte et nettoie les états.
- * P2-22 : arrête le polling email.
  * @returns {void}
  */
 export function closeAccountModal() {
@@ -449,7 +413,7 @@ export function closeAccountModal() {
    ============================================================ */
 
 /**
- * Met à jour le bouton compte de la navbar (nom + état connecté).
+ * Met à jour le bouton compte de la navbar.
  * @returns {void}
  */
 export function updateAccountButton() {
@@ -492,11 +456,7 @@ export function updateAccountButton() {
    ============================================================ */
 
 /**
- * Décide quoi afficher dans #accountContent selon l'état :
- * - Non connecté + pendingVerificationEmail -> vue vérification email
- * - Non connecté -> vue auth (login/register/forgot)
- * - Connecté + needsVerification -> vue vérification email
- * - Connecté + vérifié -> dashboard
+ * Décide quoi afficher dans #accountContent selon l'état.
  * @returns {Promise<void>}
  */
 export async function renderAccountContent() {
@@ -834,20 +794,6 @@ function switchAuthView(view) {
 }
 
 /* ============================================================
-   FIN PARTIE 1/2
-   ------------------------------------------------------------
-   Partie 2/2 contient :
-     - handleLogin / handleRegister / handleForgot
-     - renderDashboard / attachDashboardEvents
-     - loadDashboardTab (dashboard/orders/favorites/myreviews/settings)
-     - renderFavorites / renderMyReviews / renderSettingsForm
-     - toggleTheme / loadTheme
-     - initCookieConsent
-     - showAbandonedCartNotification
-     - log final
-   ------------------------------------------------------------
-   ============================================================ */
-   /* ============================================================
    PARTIE 2/2 - Handlers auth, dashboard, favoris, avis,
                  settings, thème, cookie consent, panier abandonné
    ============================================================ */
@@ -886,7 +832,7 @@ async function handleLogin() {
 }
 
 /* ============================================================
-   INSCRIPTION CLIENT (min 6 chars conservé - aligné sur HTML)
+   INSCRIPTION CLIENT
    ============================================================ */
 async function handleRegister() {
     const lastName = document.getElementById('regLastName').value.trim();
@@ -962,7 +908,6 @@ function renderDashboard(user, pendingReviews = 0) {
         `
         : '';
 
-    /* CORRECTION ICI : /vendor/dashboard en minuscule */
     const vendorBanner = isVendor
         ? `
             <div style="background:linear-gradient(135deg,#6b46c1,#5a3aa3);border-radius:var(--radius-md);padding:1.2rem;margin-bottom:1.2rem;color:#fff;text-align:center;">
@@ -1123,17 +1068,14 @@ async function renderMyReviews(container, user) {
         reviews.forEach(r => {
             const statusEmoji = r.status === 'approved' ? '🟢' : (r.status === 'rejected' ? '🔴' : '🟡');
             const statusLabel = r.status === 'approved' ? t('reviewPublished') : (r.status === 'rejected' ? t('reviewStatusRejected') : t('reviewPendingApproval'));
-            /* Guard : IDs normalisés + fallback échappé. */
             const targetPid = normalizeProductId(r.productId);
             const product = getProducts().find(p => normalizeProductId(p.id) === targetPid);
             const productName = product
                 ? escapeHTML(getProductName(product))
                 : `#${escapeHTML(String(r.productId ?? ''))}`;
-            /* Guard : photos array + URLs échappées. */
             const photosHtml = (Array.isArray(r.photos) && r.photos.length > 0)
                 ? `<div class="review-photos">${r.photos.filter(u => typeof u === 'string').map(url => `<img src="${escapeHTML(url)}" alt="Photo" data-photo-url="${escapeHTML(url)}" style="cursor:zoom-in;">`).join('')}</div>`
                 : '';
-            /* Guard : title null-safe. */
             const titleHtml = r.title ? `<div style="font-weight:600;font-size:0.9rem;margin-top:0.3rem;">${escapeHTML(r.title)}</div>` : '';
             html += `
                 <div class="review-item" style="margin-bottom:0.8rem;">
@@ -1164,8 +1106,6 @@ async function renderMyReviews(container, user) {
    PARAMÈTRES DU COMPTE
    ============================================================ */
 function renderSettingsForm(container, user) {
-    /* Un user "password" = otp (email+mdp natif), vendor (email+mdp), ou
-       email/password (futurs). Google/Facebook n'ont pas de mdp local. */
     const isPasswordUser = !user.signupMethod
         || user.signupMethod === 'otp'
         || user.signupMethod === 'vendor'
@@ -1277,7 +1217,6 @@ export function loadTheme() {
 
 /**
  * Affiche le bandeau cookie si l'utilisateur n'a pas encore choisi.
- * Guard _cookieConsentInitialized pour éviter les doublons.
  * @returns {void}
  */
 export function initCookieConsent() {
@@ -1319,13 +1258,10 @@ export function initCookieConsent() {
    ============================================================ */
 
 /**
- * Affiche une notification si un panier abandonné est détecté
- * (panier non finalisé depuis > 30 min).
- * Cleanup propre : retire toute notification précédente avant.
+ * Affiche une notification si un panier abandonné est détecté.
  * @returns {void}
  */
 export function showAbandonedCartNotification() {
-    /* Cleanup des notifications précédentes. */
     if (_abandonedCartNotifEl) {
         try { _abandonedCartNotifEl.remove(); } catch (e) { /* ignore */ }
         _abandonedCartNotifEl = null;
@@ -1363,7 +1299,6 @@ export function showAbandonedCartNotification() {
     notif.querySelector('.btn-abandoned-dismiss').addEventListener('click', () => {
         notif.remove();
         _abandonedCartNotifEl = null;
-        /* On retire la trace pour ne pas re-proposer en boucle. */
         try {
             localStorage.removeItem(CONFIG.STORAGE_KEYS.ABANDONED_CART);
         } catch (e) { /* ignore */ }
@@ -1374,4 +1309,3 @@ export function showAbandonedCartNotification() {
    LOG
    ============================================================ */
 console.log('✅ ui.js chargé - v9.1.1 (Lot 51 : lien /vendor/dashboard corrigé)');
---- fin js/ui.js ---
