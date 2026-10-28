@@ -1,7 +1,8 @@
+--- js/vendor-dashboard.js ---
 /* ============================================================
    js/vendor-dashboard.js
    Logique du dashboard vendeur - Smart Swi9a
-   Version 9.1.0 - Lot 29/30 + Fix images orphelines
+   Version 9.2.0 - Lot 51 : race authReadyPromise + garde visible
    ============================================================ */
 
 import {
@@ -15,6 +16,7 @@ import {
     getCurrentUser,
     logoutUser,
     initAuthListener,
+    isAuthReady,
     authReadyPromise,
     resendVerificationEmail
 } from "./auth.js";
@@ -114,7 +116,12 @@ function getCurrentLanguage() {
 const MINIMAL_FALLBACKS = {
     "vendor.contract.loadFailed": { fr: "Impossible de charger le contrat.", ar: "تعذّر تحميل العقد.", en: "Cannot load contract." },
     "vendor.contract.verifyFail": { fr: "Intégrité non vérifiable : {reason}", ar: "تعذّر التحقق: {reason}", en: "Cannot verify: {reason}" },
-    "vendor.contract.verifyRunning": { fr: "Vérification...", ar: "جارٍ التحقق...", en: "Verifying..." }
+    "vendor.contract.verifyRunning": { fr: "Vérification...", ar: "جارٍ التحقق...", en: "Verifying..." },
+    /* v9.2.0 : messages explicites pour race + garde */
+    "vendor.error.authNotReady": { fr: "Session non initialisée. Redirection vers l'accueil...", ar: "الجلسة غير مهيأة. إعادة التوجيه...", en: "Session not ready. Redirecting..." },
+    "vendor.error.notVendor": { fr: "Ce compte n'est pas un compte vendeur. Redirection...", ar: "هذا الحساب ليس حساب بائع.", en: "This account is not a vendor account." },
+    "vendor.error.profileMissing": { fr: "Profil vendeur introuvable. Contactez le support.", ar: "ملف البائع غير موجود.", en: "Vendor profile missing." },
+    "vendor.error.loading": { fr: "Erreur de chargement des données.", ar: "خطأ في تحميل البيانات.", en: "Failed to load data." }
 };
 
 function tr(key, fallback) {
@@ -273,7 +280,10 @@ function buildBanners(profile) {
     else if (status === VENDOR_STATUS.REJECTED) banners.push({ type: 'danger', text: tr('vendor.banner.rejected', "Votre inscription a été refusée. Contactez le support pour plus d'informations.") });
     else if (status === VENDOR_STATUS.SUSPENDED) banners.push({ type: 'danger', text: tr('vendor.banner.suspended', "Votre compte est suspendu. Vous ne pouvez plus vendre. Contactez le support.") });
 
-    if (!currentWallet) banners.push({ type: 'warning', text: tr('vendor.banner.walletMissing', "Votre portefeuille vendeur n'est pas encore initialisé. Contactez le support.") });
+    /* v9.2.0 : walletMissing n'est affiché QUE si le vendeur est approuvé.
+       Le wallet est créé par l'admin à l'approbation ; un vendeur pending
+       n'a pas à voir cette alerte. */
+    if (!currentWallet && status === VENDOR_STATUS.APPROVED) banners.push({ type: 'warning', text: tr('vendor.banner.walletMissing', "Votre portefeuille vendeur n'est pas encore initialisé. Contactez le support.") });
     if (!emailVerified && !params.get('verifyEmail')) banners.push({ type: 'warning', text: tr('vendor.banner.emailNotVerified', "Votre e-mail n'est pas vérifié. Cliquez sur « Renvoyer » pour recevoir un nouveau lien."), actionId: 'resendVerify', actionLabel: tr('vendor.banner.resend', 'Renvoyer') });
 
     return banners;
@@ -585,10 +595,6 @@ function closeProductModal() {
     currentProductIdEditing = null;
 }
 
-/**
- * Soumet la création/édition d'un produit.
- * CORRECTION : Nettoyage de l'image en cas d'échec Firestore.
- */
 async function submitProduct() {
     const nameFr = (document.getElementById('vProdNameFr').value || '').trim();
     const nameAr = (document.getElementById('vProdNameAr').value || '').trim();
@@ -616,12 +622,11 @@ async function submitProduct() {
     let oldImagePath = null;
 
     try {
-        /* 1. Récupérer l'ancienne image (si édition) */
         if (currentProductIdEditing) {
             const snap = await getDoc(doc(db, "products", currentProductIdEditing));
             if (snap.exists()) {
                 const oldData = snap.data();
-                newImageUrl = oldData.img || null; // On garde l'ancienne par défaut
+                newImageUrl = oldData.img || null;
                 if (oldData.img && /firebasestorage\.googleapis\.com/.test(oldData.img)) {
                     const m = oldData.img.match(/\/o\/([^?]+)/);
                     if (m && m[1]) oldImagePath = decodeURIComponent(m[1]);
@@ -629,7 +634,6 @@ async function submitProduct() {
             }
         }
 
-        /* 2. Uploader la nouvelle image si fournie */
         if (file) {
             const ts = Date.now();
             const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -642,7 +646,6 @@ async function submitProduct() {
         btn.textContent = 'Enregistrement...';
         const vendorName = (currentVendor?.vendorInfo?.shopName || currentVendor?.name || 'Vendeur').slice(0, 60);
 
-        /* 3. Enregistrer dans Firestore */
         if (currentProductIdEditing) {
             const snap = await getDoc(doc(db, "products", currentProductIdEditing));
             const oldData = snap.exists() ? snap.data() : {};
@@ -678,7 +681,6 @@ async function submitProduct() {
             showToast('Produit envoyé pour validation admin.');
         }
 
-        /* 4. SUCCÈS : Nettoyer l'ancienne image si elle a été remplacée */
         if (file && oldImagePath && oldImagePath.startsWith(`vendors/${currentUserUid}/`)) {
             try { await deleteObject(ref(storage, oldImagePath)); } catch (_) { /* ignore */ }
         }
@@ -690,12 +692,9 @@ async function submitProduct() {
     } catch (e) {
         console.error('[vendor-dashboard] Erreur création/édition produit :', e);
         errEl.textContent = 'Erreur : ' + (e.message || 'inconnue');
-        
-        /* 5. ÉCHEC : Nettoyer la nouvelle image orpheline */
         if (newImagePath) {
             try { await deleteObject(ref(storage, newImagePath)); } catch (_) { /* ignore */ }
         }
-        
         btn.disabled = false;
         btn.textContent = currentProductIdEditing ? 'Mettre à jour' : 'Envoyer pour validation';
     }
@@ -1399,18 +1398,43 @@ document.addEventListener('DOMContentLoaded', async () => {
         try { initAuthListener(); } catch (e) { console.warn('[vendor-dashboard] initAuthListener déjà appelé', e); }
         authBound = true;
     }
+
+    /* v9.2.0 : attente active de isAuthReady() (poll 100ms, max 5s).
+       authReadyPromise peut se résoudre par timeout 10s sans que
+       authReady soit à true, ce qui laissait passer un user null. */
     try { await authReadyPromise; } catch (e) { console.warn('[vendor-dashboard] authReadyPromise', e); }
+    let waitedMs = 0;
+    while (!isAuthReady() && waitedMs < 5000) {
+        await new Promise(r => setTimeout(r, 100));
+        waitedMs += 100;
+    }
+
     const user = getCurrentUser();
-    if (!user || !user.uid) { window.location.href = '/'; return; }
+    if (!user || !user.uid) {
+        showToast(tr('vendor.error.authNotReady', "Session non initialisée. Redirection vers l'accueil..."), 3000);
+        setTimeout(() => { window.location.href = '/'; }, 1500);
+        return;
+    }
     currentUserUid = user.uid;
 
     let loaded;
     try { loaded = await loadVendorData(user.uid); } catch (e) {
         console.error('[vendor-dashboard] Chargement vendeur échoué :', e);
-        showToast(tr('vendor.error.loading', "Erreur de chargement des données."));
+        showToast(tr('vendor.error.loading', "Erreur de chargement des données."), 4000);
         return;
     }
-    if (!loaded || !loaded.profile) { window.location.href = '/'; return; }
+    if (!loaded || !loaded.profile) {
+        const reason = loaded?.reason || 'profile-missing';
+        if (reason === 'not-vendor') {
+            showToast(tr('vendor.error.notVendor', "Ce compte n'est pas un compte vendeur. Redirection..."), 4000);
+        } else if (reason === 'profile-missing') {
+            showToast(tr('vendor.error.profileMissing', "Profil vendeur introuvable. Contactez le support."), 5000);
+        } else {
+            showToast(tr('vendor.error.loading', "Erreur de chargement des données."), 4000);
+        }
+        setTimeout(() => { window.location.href = '/'; }, 2000);
+        return;
+    }
 
     currentVendor = loaded.profile;
     currentWallet = loaded.wallet;
@@ -1427,4 +1451,5 @@ document.addEventListener('DOMContentLoaded', async () => {
     await renderTab('overview');
 });
 
-console.log('[vendor-dashboard] v9.1.0 chargé (Lot 29 + Fix images orphelines)');
+console.log('[vendor-dashboard] v9.2.0 chargé (Lot 51 : race authReady + garde visible)');
+--- fin js/vendor-dashboard.js ---
