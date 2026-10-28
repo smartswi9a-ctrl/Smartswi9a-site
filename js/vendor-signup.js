@@ -1,7 +1,8 @@
+--- js/vendor-signup.js ---
 /* ============================================================
    js/vendor-signup.js
-   Logique d'inscription vendeur — Lot 28/30
-   Version 9.2.0 — Isolation et Upgrade Client -> Vendeur
+   Logique d'inscription vendeur — Lot 51
+   Version 9.3.0 — Chemin /Vendor/dashboard + gestion conversion request
    ============================================================ */
 
 import { registerVendorWithFirebase, convertUserToVendor } from "./auth.js";
@@ -64,6 +65,7 @@ const MINIMAL_FALLBACKS = {
     "vendor.signup.error":          { fr: "Erreur lors de l'inscription",          ar: "خطأ أثناء التسجيل",                    en: "Registration error" },
     "vendor.signup.invalidFields":  { fr: "Champs invalides :",                    ar: "حقول غير صالحة:",                      en: "Invalid fields:" },
     "vendor.signup.contractSignError": { fr: "Erreur de sécurité. Le site doit être en HTTPS pour signer.",          ar: "خطأ في توقيع العقد.",                  en: "Security error. Site must be HTTPS to sign." },
+    "vendor.signup.conversionRequested": { fr: "Votre demande de conversion en compte vendeur a été envoyée à l'administrateur. Vous recevrez une notification après approbation.", ar: "تم إرسال طلب التحويل إلى المسؤول.", en: "Your conversion request has been sent to the administrator." },
     "vendor.field.shopName":        { fr: "nom de boutique",                       ar: "اسم المتجر",                          en: "shop name" },
     "vendor.field.email":           { fr: "email",                                 ar: "البريد الإلكتروني",                    en: "email" },
     "vendor.field.phone":           { fr: "téléphone",                             ar: "الهاتف",                              en: "phone" },
@@ -179,7 +181,7 @@ async function computePreSignature() {
     const lang = getCurrentLanguage();
     const version = CONFIG.VENDOR.CONTRACT_VERSION;
 
-    // SÉCURITÉ : Vérification de l'API Web Crypto (HTTPS requis)
+    /* SÉCURITÉ : Vérification de l'API Web Crypto (HTTPS requis) */
     if (typeof crypto === "undefined" || !crypto.subtle) {
         console.error("[vendor-signup] Web Crypto API non disponible. Le site doit être en HTTPS.");
         showToast("Erreur de sécurité : le site doit être en HTTPS pour signer le contrat.");
@@ -217,7 +219,7 @@ async function openContractModal() {
 
     try {
         const { text, lang, ok } = await computePreSignature();
-        
+
         if (!text) {
             showToast(tr("vendor.signup.contractSignError"));
             return;
@@ -323,7 +325,7 @@ document.addEventListener("DOMContentLoaded", () => {
     els.btnOpenContract?.addEventListener("click", (e) => { e.preventDefault(); openContractModal(); });
     els.btnCloseContract?.addEventListener("click", (e) => { e.preventDefault(); closeContractModal(); });
     els.modal.addEventListener("click", (e) => { if (e.target === els.modal) closeContractModal(); });
-    
+
     document.addEventListener("keydown", (e) => {
         if (!els.modal.classList.contains("open")) return;
         if (e.key === "Escape") { e.preventDefault(); closeContractModal(); }
@@ -411,19 +413,20 @@ document.addEventListener("DOMContentLoaded", () => {
             /* 🚨 SI L'EMAIL EXISTE DÉJÀ : On tente l'Upgrade */
             if (err.code === "auth/email-already-in-use") {
                 try {
-                    console.log("[vendor-signup] Email existant détecté. Tentative d'upgrade...");
+                    console.log("[vendor-signup] Email existant détecté. Création d'une demande de conversion...");
                     authResult = await convertUserToVendor(email, password, vendorData);
                     isUpgrade = true;
                 } catch (upgradeErr) {
-                    console.error("[vendor-signup] Échec de l'upgrade :", upgradeErr);
-                    showToast(upgradeErr.message || "Erreur : Impossible de convertir ce compte client en vendeur.", 8000);
+                    console.error("[vendor-signup] Échec de la conversion [" + (upgradeErr.code || "unknown") + "] :", upgradeErr);
+                    showToast(upgradeErr.message || "Erreur : impossible de convertir ce compte client en vendeur.", 7000);
                     setButtonLoading(els.btnSubmitVendor, false, null, tr("vendor.signup.submit"));
                     submitInProgress = false;
                     return;
                 }
             } else {
                 /* Autre erreur Firebase */
-                showToast(err?.message || tr("vendor.signup.error"));
+                console.error("[vendor-signup] Erreur inscription vendeur [" + (err.code || "unknown") + "] :", err);
+                showToast(err?.message || tr("vendor.signup.error"), 6000);
                 setButtonLoading(els.btnSubmitVendor, false, null, tr("vendor.signup.submit"));
                 submitInProgress = false;
                 return;
@@ -431,18 +434,40 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         if (!authResult || !authResult.uid) {
+            console.error("[vendor-signup] authResult invalide :", authResult);
             showToast(tr("vendor.signup.error"));
             setButtonLoading(els.btnSubmitVendor, false, null, tr("vendor.signup.submit"));
             submitInProgress = false;
             return;
         }
 
+        /* ============================================================
+           CAS UPGRADE : conversion request (pas de signature de contrat)
+           ============================================================
+           L'utilisateur reste `user` jusqu'à approbation admin. Il n'a
+           donc pas le droit d'écrire dans `contracts` ni `users.vendorInfo`.
+           On affiche un message clair et on redirige vers l'accueil.
+           ============================================================ */
+        if (isUpgrade && authResult.isConversionRequest) {
+            showToast(tr("vendor.signup.conversionRequested"), 7000);
+            setButtonLoading(els.btnSubmitVendor, false, null, tr("vendor.signup.submit"));
+            /* On garde submitInProgress = true pour empêcher un re-clic
+               pendant la redirection. */
+            setTimeout(() => {
+                window.location.href = "/";
+            }, 2500);
+            return;
+        }
+
+        /* ============================================================
+           CAS INSCRIPTION NORMALE : signature du contrat
+           ============================================================ */
         let contractText;
         try {
             contractText = getContractText(preSignature.language, preSignature.version, preSignature.termsSnapshot);
         } catch (err) {
             console.error("[vendor-signup] Reconstruction du contrat impossible :", err);
-            showToast(tr("vendor.signup.contractSignError"));
+            showToast(tr("vendor.signup.contractSignError"), 6000);
             setButtonLoading(els.btnSubmitVendor, false, null, tr("vendor.signup.submit"));
             submitInProgress = false;
             return;
@@ -463,7 +488,7 @@ document.addEventListener("DOMContentLoaded", () => {
             }
             contractSigned = true;
         } catch (err) {
-            console.error("[vendor-signup] Signature contrat échouée :", err);
+            console.error("[vendor-signup] Signature contrat échouée [" + (err.code || err.message || "unknown") + "] :", err);
         }
 
         let transitionOk = false;
@@ -478,10 +503,12 @@ document.addEventListener("DOMContentLoaded", () => {
                 });
                 transitionOk = true;
             } catch (err) {
-                console.error("[vendor-signup] Transition users.vendorInfo échouée :", err);
+                console.error("[vendor-signup] Transition users.vendorInfo échouée [" + (err.code || "unknown") + "] :", err);
             }
         }
 
+        /* Construction de l'URL de redirection : /Vendor/dashboard
+           (majuscule + cleanUrls => pas de .html). */
         const params = new URLSearchParams();
         params.set("welcome", "1");
         params.set("verifyEmail", "1");
@@ -489,22 +516,30 @@ document.addEventListener("DOMContentLoaded", () => {
         else if (!transitionOk) params.set("contractTransitionFailed", "1");
 
         let toastMsg;
+        let redirectDelayMs;
+        let toastDurationMs;
+
         if (!contractSigned) {
             toastMsg = tr("vendor.signup.successContractFailed");
+            redirectDelayMs = 4000;
+            toastDurationMs = 6000;
         } else if (!transitionOk) {
             toastMsg = tr("vendor.signup.transitionFailed");
+            redirectDelayMs = 4000;
+            toastDurationMs = 6000;
         } else {
-            toastMsg = isUpgrade 
-                ? "🎉 Compte client converti en compte vendeur avec succès ! Vérifiez votre email."
-                : tr("vendor.signup.success");
+            toastMsg = tr("vendor.signup.success");
+            redirectDelayMs = 1200;
+            toastDurationMs = 4000;
         }
-        showToast(toastMsg, 5000);
+        showToast(toastMsg, toastDurationMs);
 
         const queryString = params.toString() ? "?" + params.toString() : "";
         setTimeout(() => {
-            window.location.href = "/vendor/dashboard.html" + queryString;
-        }, 2000);
+            window.location.href = "/Vendor/dashboard" + queryString;
+        }, redirectDelayMs);
     });
 });
 
-console.log("[vendor-signup] v9.2.0 chargé (Isolation + Upgrade Client -> Vendeur)");
+console.log("[vendor-signup] v9.3.0 chargé (chemin /Vendor/dashboard + conversion request)");
+--- fin js/vendor-signup.js ---
