@@ -38,7 +38,7 @@ export const CONFIG = {
     messagingSenderId: "933677210664",
     appId: "1:933677210664:web:1ee39f36dfa0806656e91d",
   },
-  VERSION: { CITIES_SCHEMA: 3 },
+  VERSION: { CITIES_SCHEMA: 4 },
   SHOP: {
     NAME: "Smart Swi9a",
     WHATSAPP_NUMBER: "212656613303",
