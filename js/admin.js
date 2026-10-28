@@ -1,4 +1,3 @@
---- js/admin.js (PARTIE 1/3, lignes 1 à ~1210) ---
 /* ============================================================
    js/admin.js
    PANNEAU ADMINISTRATION - SMART SWI9A
