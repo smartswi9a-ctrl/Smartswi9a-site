@@ -90,6 +90,7 @@
         <div style="text-align: center; margin-bottom: 2rem;">
             <h1 class="v-page-title" style="font-size:2rem;">🚀 Devenir Vendeur</h1>
             <p style="color:var(--text-muted);">Rejoignez la marketplace et vendez vos produits partout au Maroc.</p>
+            <p><a href="/vendor-login.html">Déjà inscrit comme vendeur ? Se connecter à l’espace vendeur</a></p>
         </div>
 
         <form id="vendorSignupForm" class="vendor-form" method="post" action="#" autocomplete="on">
@@ -123,11 +124,17 @@
                                placeholder="contact@boutique.com">
                     </div>
                     <div class="v-field">
-                        <label class="v-label" for="vPassword">Mot de passe *</label>
+                        <label class="v-label" for="vPassword">Mot de passe du compte acheteur *</label>
                         <input type="password" id="vPassword" name="vPassword" class="v-input" required
                                minlength="8" maxlength="128"
                                autocomplete="new-password"
-                               placeholder="Min. 8 caractères (lettres + chiffres)">
+                               placeholder="Mot de passe du compte acheteur">
+                        <span class="v-hint">Pour un compte existant, saisissez le mot de passe acheteur afin de vérifier que vous êtes bien le titulaire.</span>
+                    </div>
+                    <div class="v-field">
+                        <label class="v-label" for="vVendorPassword">Nouveau mot de passe vendeur *</label>
+                        <input type="password" id="vVendorPassword" name="vVendorPassword" class="v-input" required minlength="8" maxlength="128" autocomplete="new-password" placeholder="Min. 8 caractères (lettres + chiffres)">
+                        <span class="v-hint">Ce mot de passe sera accepté uniquement sur la connexion vendeur, et seulement après approbation.</span>
                     </div>
                 </div>
 
