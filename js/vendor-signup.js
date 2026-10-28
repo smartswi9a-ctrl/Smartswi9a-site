@@ -6,8 +6,7 @@ import {
   computeContractTextHash,
 } from "./vendor-contract.js";
 import { getContractText, buildTermsSnapshot } from "./vendor-contract-text.js";
-import { doc, updateDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "./firebase.js";
+import { auth } from "./firebase.js";
 import {
   CONFIG,
   SIGNUP_METHODS,
@@ -644,20 +643,34 @@ document.addEventListener("DOMContentLoaded", () => {
       console.error("[vendor-signup] Signature contrat échouée :", err);
     }
 
-    /* Transition users/{uid} si la signature a réussi. */
+    /* Synchronisation du statut via Cloud Function : le navigateur ne peut plus s'attribuer lui-même le statut de contrat accepté. */
     let transitionOk = false;
     if (contractSigned && signResult) {
       try {
-        await updateDoc(doc(db, "users", authResult.uid), {
-          "vendorInfo.contractStatus": "accepted",
-          "vendorInfo.currentContractId": signResult.contractId,
-          "vendorInfo.contractVersion": signResult.version,
-          updatedAt: serverTimestamp(),
+        const currentUser = auth.currentUser;
+        if (!currentUser || currentUser.uid !== authResult.uid)
+          throw new Error("Session Firebase invalide.");
+        const idToken = await currentUser.getIdToken(true);
+        const response = await fetch("/api/acceptVendorContract", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${idToken}`,
+          },
+          body: JSON.stringify({
+            contractId: signResult.contractId,
+            version: signResult.version,
+          }),
         });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.success)
+          throw new Error(
+            result.message || "Validation du contrat impossible."
+          );
         transitionOk = true;
       } catch (err) {
         console.error(
-          "[vendor-signup] Transition users.vendorInfo échouée (reprise possible depuis le dashboard) :",
+          "[vendor-signup] Validation serveur du contrat échouée :",
           err
         );
       }
