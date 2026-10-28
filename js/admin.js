@@ -1538,21 +1538,13 @@ function filterUsersList() {
 }
 
 /* ============================================================
-   FIN PARTIE 1/3
    ------------------------------------------------------------
    Prochaines parties :
      - PARTIE 2/3 : Blog + Coupons + Livo + Alertes + Chart + Finances
      - PARTIE 3/3 : Rapports + Exports + Simulateur + Vendeurs
                      + Conversions + Payouts + Tools + Events
                      + initAdmin() + log final
-   ============================================================ */
---- fin PARTIE 1/3 ---
---- js/admin.js (PARTIE 2/3, lignes ~1211 à ~2400) ---
-/* ============================================================
-   PARTIE 2/3 — Blog + Coupons + Livo + Alertes + Chart + Finances
-   Version 12.2.0 - Lot 51 : badges vendeurs + conversions
-   ============================================================ */
-
+   
 /* ============================================================
    BLOG
    ============================================================ */
@@ -3089,16 +3081,13 @@ async function renderTransactionsList() {
     container.innerHTML = html;
 }
 
-/* ============================================================
-   FIN PARTIE 2/3
+/* =========================================================
    ------------------------------------------------------------
    Prochaine partie :
      - PARTIE 3/3 : Rapports + Exports + Simulateur + Vendeurs
                      + Conversions + Payouts + Tools + Events
                      + initAdmin() + log final
-   ============================================================ */
---- fin PARTIE 2/3 ---
---- js/admin.js (PARTIE 3/3, lignes ~2401 à fin) ---
+   
 /* ============================================================
    PARTIE 3/3 — Rapports, exports, simulateur, vendeurs,
                  conversions, payouts, tools, events, init finale,
