@@ -1,7 +1,9 @@
+--- js/auth.js ---
 /* ============================================================
    js/auth.js
    AUTHENTIFICATION - SMART SWI9A
-   Version 9.1.0 - Ajout Upgrade Client -> Vendeur
+   Version 9.2.0 - Lot 51 : wallet à l'approbation + upgrade via
+                             demande de conversion
    ============================================================ */
 
 import {
@@ -18,7 +20,10 @@ import {
     FacebookAuthProvider,
     signInWithPopup
 } from "firebase/auth";
-import { doc, setDoc, getDoc, deleteDoc, Timestamp, serverTimestamp } from "firebase/firestore";
+import {
+    doc, setDoc, getDoc, deleteDoc, Timestamp, serverTimestamp,
+    collection, addDoc, query, where, getDocs, limit
+} from "firebase/firestore";
 import { auth, db } from "./firebase.js";
 import { CONFIG, SIGNUP_METHODS, ROLES, VENDOR_STATUS, CONTRACT_STATUS } from "./config.js";
 import {
@@ -280,6 +285,14 @@ export async function registerWithFirebase(name, email, phone, dob, password) {
 
 /* ============================================================
    INSCRIPTION VENDEUR
+   ============================================================
+   v9.2.0 :
+     - Le wallet n'est PLUS créé ici. Il est créé par l'admin à
+       l'approbation du vendeur (voir admin.js handleVendorAction).
+       Avantage : un seul point d'entrée, impossible pour un
+       vendeur pending de créer un wallet.
+     - Une alerte est créée dans admin_alerts pour prévenir
+       l'admin de la nouvelle inscription (non bloquant).
    ============================================================ */
 export async function registerVendorWithFirebase(vendorData, password) {
     console.log("registerVendorWithFirebase");
@@ -323,7 +336,7 @@ export async function registerVendorWithFirebase(vendorData, password) {
     try {
         userCredential = await createUserWithEmailAndPassword(auth, vendorData.email, password);
     } catch (error) {
-        logAuthError("registerVendorWithFirebase (create)", error);
+        logAuthError("registerVendorWithFirebase (create) [" + (error.code || "unknown") + "]", error);
         throw error;
     }
 
@@ -352,26 +365,27 @@ export async function registerVendorWithFirebase(vendorData, password) {
 
     const profileOk = await saveUserProfile(uid, profile);
     if (!profileOk) {
-        try { await deleteUser(user); } catch (e) { logAuthError("registerVendorWithFirebase (deleteUser après profile failed)", e); }
+        try { await deleteUser(user); } catch (e) {
+            logAuthError("registerVendorWithFirebase (deleteUser après profile failed)", e);
+        }
         throw new Error("Impossible d'enregistrer le profil vendeur.");
     }
 
-    let walletCreated = false;
+    /* Le wallet est créé par l'admin à l'approbation (voir admin.js). */
+
+    /* Créer une alerte admin pour prévenir de la nouvelle inscription.
+       Non bloquant : si ça échoue, l'inscription reste valide. */
     try {
-        await setDoc(doc(db, "wallets", uid), {
+        await addDoc(collection(db, "admin_alerts"), {
+            type: "vendor_signup",
             vendorId: uid,
-            pendingBalance: 0,
-            availableBalance: 0,
-            totalEarnings: 0,
-            totalWithdrawn: 0,
-            negativeBalance: 0,
-            createdAt: serverTimestamp(),
-            lastUpdated: serverTimestamp()
+            shopName,
+            city,
+            status: "pending",
+            createdAt: serverTimestamp()
         });
-        walletCreated = true;
-        console.log("Wallet vendeur initialisé");
-    } catch (walletErr) {
-        logAuthError("registerVendorWithFirebase (wallet)", walletErr);
+    } catch (alertErr) {
+        logAuthError("registerVendorWithFirebase (admin_alerts) [" + (alertErr.code || "unknown") + "]", alertErr);
     }
 
     try {
@@ -392,31 +406,38 @@ export async function registerVendorWithFirebase(vendorData, password) {
         createdAt: new Date()
     });
 
-    return { success: true, uid, needsVerification: true };
+    return { success: true, uid, needsVerification: true, isNewVendor: true };
 }
 
 /* ============================================================
-   UPGRADE CLIENT -> VENDEUR (Compte existant)
+   UPGRADE CLIENT -> VENDEUR (via demande de conversion)
    ============================================================
-   Si un client veut devenir vendeur avec le même email, on ne crée
-   pas de doublon. On le connecte et on met à jour son profil.
+   v9.2.0 :
+     - Le client ne modifie PLUS son propre rôle. À la place, on
+       crée un document dans `vendor_conversion_requests` qui sera
+       examiné par l'admin.
+     - L'admin exécute la mise à jour users/{uid} (rôle + vendorInfo)
+       via isAdmin() dans firestore.rules, à l'approbation.
+     - Le wallet est créé par l'admin à l'approbation finale.
+     - Retourne { success: true, uid, isConversionRequest: true }
+       pour que vendor-signup.js affiche le bon message et redirige.
    ============================================================ */
 export async function convertUserToVendor(email, password, vendorData) {
     console.log("convertUserToVendor");
 
-    // 1. Connexion avec le mot de passe existant
+    /* 1. Connexion avec le mot de passe existant */
     let userCredential;
     try {
         userCredential = await signInWithEmailAndPassword(auth, email, password);
     } catch (error) {
-        logAuthError("convertUserToVendor (login)", error);
+        logAuthError("convertUserToVendor (login) [" + (error.code || "unknown") + "]", error);
         throw new Error("Mot de passe incorrect pour ce compte existant.");
     }
 
     const user = userCredential.user;
     const uid = user.uid;
 
-    // 2. Vérifier le rôle actuel
+    /* 2. Vérifier le rôle actuel */
     const profileStatus = await getUserProfileStatus(uid);
     if (!profileStatus.exists) {
         throw new Error("Profil introuvable.");
@@ -428,7 +449,7 @@ export async function convertUserToVendor(email, password, vendorData) {
         throw new Error("Un administrateur ne peut pas devenir vendeur.");
     }
 
-    // 3. Validation des données vendeur
+    /* 3. Validation des données vendeur */
     const shopName = (vendorData.shopName || "").trim();
     const city = (vendorData.city || "").trim();
     const iceCin = (vendorData.iceCin || "").trim().toUpperCase();
@@ -442,59 +463,53 @@ export async function convertUserToVendor(email, password, vendorData) {
         throw new Error("Mode de livraison invalide.");
     }
 
-    // 4. Mise à jour du profil (Upgrade)
-    const updateData = {
-        role: ROLES.VENDOR,
-        signupMethod: SIGNUP_METHODS.VENDOR,
-        phone: vendorData.phone,
-        vendorInfo: {
+    /* 4. Vérifier qu'il n'y a pas déjà une demande en attente */
+    try {
+        const existingQ = query(
+            collection(db, "vendor_conversion_requests"),
+            where("userId", "==", uid),
+            where("status", "==", "pending"),
+            limit(1)
+        );
+        const existing = await getDocs(existingQ);
+        if (!existing.empty) {
+            throw new Error("Vous avez déjà une demande de conversion en cours d'examen.");
+        }
+    } catch (e) {
+        /* Si l'erreur vient de notre propre throw, on la propage.
+           Sinon (erreur réseau Firestore), on continue mais on log. */
+        if (e && e.message && e.message.includes("déjà une demande")) {
+            throw e;
+        }
+        logAuthError("convertUserToVendor (check existing)", e);
+    }
+
+    /* 5. Créer la demande de conversion.
+       Champs EXACTEMENT conformes à firestore.rules
+       (vendor_conversion_requests.create) :
+       userId, shopName, iceCin, city, shippingMethod, phone, status, createdAt.
+       Aucun champ en plus. */
+    try {
+        await addDoc(collection(db, "vendor_conversion_requests"), {
+            userId: uid,
             shopName,
             iceCin,
             city,
             shippingMethod: vendorData.shippingMethod,
-            status: VENDOR_STATUS.PENDING,
-            contractStatus: CONTRACT_STATUS.PENDING,
-            delayCount: 0,
-            commissionRate: CONFIG.VENDOR.COMMISSION_RATE
-        }
-    };
-
-    const updateOk = await saveUserProfile(uid, updateData);
-    if (!updateOk) {
-        throw new Error("Impossible de mettre à jour le profil vendeur.");
+            phone: vendorData.phone || "",
+            status: "pending",
+            createdAt: serverTimestamp()
+        });
+    } catch (e) {
+        logAuthError("convertUserToVendor (create request) [" + (e.code || "unknown") + "]", e);
+        throw new Error("Impossible d'enregistrer votre demande de conversion. Contactez le support.");
     }
 
-    // 5. Créer le wallet s'il n'existe pas
-    const walletRef = doc(db, "wallets", uid);
-    const walletSnap = await getDoc(walletRef);
-    if (!walletSnap.exists()) {
-        try {
-            await setDoc(walletRef, {
-                vendorId: uid,
-                pendingBalance: 0,
-                availableBalance: 0,
-                totalEarnings: 0,
-                totalWithdrawn: 0,
-                negativeBalance: 0,
-                createdAt: serverTimestamp(),
-                lastUpdated: serverTimestamp()
-            });
-        } catch (e) {
-            console.warn("Erreur création wallet lors de l'upgrade", e);
-        }
-    }
+    /* 6. NE PAS toucher à users/{uid} : le rôle reste 'user' jusqu'à
+       approbation admin. NE PAS créer de wallet (admin le fera).
+       NE PAS modifier setCurrentUser (auth-updated s'en chargera). */
 
-    // 6. Mettre à jour l'utilisateur en mémoire
-    setCurrentUser({
-        uid,
-        email: cleanEmail(email),
-        emailVerified: user.emailVerified,
-        needsVerification: !user.emailVerified,
-        ...profileStatus.data,
-        ...updateData
-    });
-
-    return { success: true, uid, isUpgrade: true };
+    return { success: true, uid, isConversionRequest: true };
 }
 
 /* ============================================================
@@ -879,4 +894,5 @@ export function restoreSession() {
 /* ============================================================
    LOG
    ============================================================ */
-console.log("✅ auth.js chargé - v9.1.0 (Lot 8 + Upgrade Client->Vendeur)");
+console.log("✅ auth.js chargé - v9.2.0 (Lot 51 : wallet à l'approbation + upgrade via conversion request)");
+--- fin js/auth.js ---
