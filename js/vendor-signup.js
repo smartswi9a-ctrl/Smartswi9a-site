@@ -1,10 +1,10 @@
 /* ============================================================
    js/vendor-signup.js
    Logique d'inscription vendeur — Lot 28/30
-   Version 9.1.0 — Fix superposition + gestion crypto + activation bouton
+   Version 9.2.0 — Isolation et Upgrade Client -> Vendeur
    ============================================================ */
 
-import { registerVendorWithFirebase } from "./auth.js";
+import { registerVendorWithFirebase, convertUserToVendor } from "./auth.js";
 import { signVendorContract, computeContractTextHash } from "./vendor-contract.js";
 import { getContractText, buildTermsSnapshot } from "./vendor-contract-text.js";
 import { doc, updateDoc, serverTimestamp } from "firebase/firestore";
@@ -30,8 +30,6 @@ let preSignature = {
 };
 let submitInProgress = false;
 let scrollReached = false;
-
-/* Guard contre les double-clics sur "Lire et signer". */
 let _openInProgress = false;
 
 const els = {};
@@ -57,7 +55,7 @@ const MINIMAL_FALLBACKS = {
     "vendor.contract.scrollHint":   { fr: "Faites défiler pour lire le contrat.",  ar: "مرّر لقراءة العقد.",                    en: "Scroll to read the contract." },
     "vendor.contract.checkbox":     { fr: "J'ai lu et j'accepte le contrat",        ar: "لقد قرأت وأوافق على العقد",             en: "I have read and accept the contract" },
     "vendor.contract.accepted":     { fr: "Contrat accepté le {date}. Il sera signé après création du compte.", ar: "تم قبول العقد في {date}. سيتم التوقيع بعد إنشاء الحساب.", en: "Contract accepted on {date}. Will be signed after account creation." },
-    "vendor.contract.required":     { fr: "Vous devez lire et accepter le contrat.", ar: "يجب قراءة العقد وقبوله.",            en: "You must read and accept the contract." },
+    "vendor.contract.required":     { fr: "Vous devez lire et accepter le contrat avant de créer votre compte.", ar: "يجب قراءة العقد وقبوله قبل إنشاء حسابك.",            en: "You must read and accept the contract before creating your account." },
     "vendor.signup.creating":       { fr: "Création du compte...",                 ar: "جارٍ إنشاء الحساب...",                en: "Creating account..." },
     "vendor.signup.submit":         { fr: "Créer mon compte vendeur",              ar: "إنشاء حساب البائع",                   en: "Create my vendor account" },
     "vendor.signup.success":        { fr: "Inscription réussie ! Vérifiez votre email.", ar: "تم التسجيل! تحقق من بريدك.",     en: "Registration successful! Check your email." },
@@ -65,7 +63,7 @@ const MINIMAL_FALLBACKS = {
     "vendor.signup.transitionFailed": { fr: "Compte créé et contrat signé, mais la synchronisation du profil a échoué. Finalisez depuis le dashboard.", ar: "تم إنشاء الحساب وتوقيع العقد، لكن مزامنة الملف الشخصي فشلت. أكمل من لوحة التحكم.", en: "Account created and contract signed, but profile sync failed. Complete from the dashboard." },
     "vendor.signup.error":          { fr: "Erreur lors de l'inscription",          ar: "خطأ أثناء التسجيل",                    en: "Registration error" },
     "vendor.signup.invalidFields":  { fr: "Champs invalides :",                    ar: "حقول غير صالحة:",                      en: "Invalid fields:" },
-    "vendor.signup.contractSignError": { fr: "Erreur signature contrat.",          ar: "خطأ في توقيع العقد.",                  en: "Contract signature error." },
+    "vendor.signup.contractSignError": { fr: "Erreur de sécurité. Le site doit être en HTTPS pour signer.",          ar: "خطأ في توقيع العقد.",                  en: "Security error. Site must be HTTPS to sign." },
     "vendor.field.shopName":        { fr: "nom de boutique",                       ar: "اسم المتجر",                          en: "shop name" },
     "vendor.field.email":           { fr: "email",                                 ar: "البريد الإلكتروني",                    en: "email" },
     "vendor.field.phone":           { fr: "téléphone",                             ar: "الهاتف",                              en: "phone" },
@@ -90,10 +88,7 @@ function tr(key, params = {}) {
 /* ============================================================
    VALIDATEURS
    ============================================================ */
-function isValidEmail(v) {
-    return typeof v === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v) && v.length <= 254;
-}
-
+function isValidEmail(v) { return typeof v === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v) && v.length <= 254; }
 function normalizePhone(raw) {
     if (typeof raw !== "string") return "";
     const s = raw.replace(/[\s\-\(\)\.]/g, "");
@@ -102,38 +97,22 @@ function normalizePhone(raw) {
     if (/^00212[67]\d{8}$/.test(s)) return "+" + s.substring(2);
     return s;
 }
-
-function isValidMoroccanPhone(raw) {
-    const s = normalizePhone(raw);
-    return /^\+212[67]\d{8}$/.test(s);
-}
-
+function isValidMoroccanPhone(raw) { return /^\+212[67]\d{8}$/.test(normalizePhone(raw)); }
 function isValidIceCin(v) {
     if (typeof v !== "string") return false;
     const t = v.trim().toUpperCase();
-    if (/^\d{15}$/.test(t)) return true;
-    if (/^[A-Z]{1,2}\d{5,6}$/.test(t)) return true;
-    if (/^\d{6,8}$/.test(t)) return true;
-    return false;
+    return /^\d{15}$/.test(t) || /^[A-Z]{1,2}\d{5,6}$/.test(t) || /^\d{6,8}$/.test(t);
 }
-
-function isValidPassword(p) {
-    if (typeof p !== "string" || p.length < 8 || p.length > 128) return false;
-    return /[A-Za-z]/.test(p) && /\d/.test(p);
-}
-
+function isValidPassword(p) { return typeof p === "string" && p.length >= 8 && p.length <= 128 && /[A-Za-z]/.test(p) && /\d/.test(p); }
 function isValidShopName(s) {
     if (typeof s !== "string") return false;
     const t = s.trim();
-    if (t.length < 2 || t.length > 60) return false;
-    return /^[\p{L}\p{N}\s\-'&\.]{2,60}$/u.test(t);
+    return t.length >= 2 && t.length <= 60 && /^[\p{L}\p{N}\s\-'&\.]{2,60}$/u.test(t);
 }
-
 function isValidCity(s) {
     if (typeof s !== "string") return false;
     const t = s.trim();
-    if (t.length < 2 || t.length > 80) return false;
-    return /^[\p{L}\p{N}\s\-'\.]{2,80}$/u.test(t);
+    return t.length >= 2 && t.length <= 80 && /^[\p{L}\p{N}\s\-'\.]{2,80}$/u.test(t);
 }
 
 /* ============================================================
@@ -233,13 +212,13 @@ async function computePreSignature() {
    MODALE CONTRAT
    ============================================================ */
 async function openContractModal() {
-    if (!els.modal) return;
-    if (_openInProgress) return;
+    if (!els.modal || _openInProgress) return;
     _openInProgress = true;
 
     try {
         const { text, lang, ok } = await computePreSignature();
-        if (!ok) {
+        
+        if (!text) {
             showToast(tr("vendor.signup.contractSignError"));
             return;
         }
@@ -253,13 +232,17 @@ async function openContractModal() {
 
         resetContractUI();
 
+        if (!ok && els.scrollHint) {
+            els.scrollHint.textContent = "⚠️ Erreur de sécurité. Le site doit être en HTTPS pour valider la signature.";
+            els.scrollHint.style.color = "var(--danger)";
+        }
+
         els.modal.classList.add("open");
         els.modal.setAttribute("aria-modal", "true");
         els.modal.setAttribute("role", "dialog");
         document.body.style.overflow = "hidden";
 
         if (els.btnAcceptContract) els.btnAcceptContract.focus();
-
         requestAnimationFrame(() => requestAnimationFrame(checkScrollReached));
     } catch (err) {
         console.error("[vendor-signup] Erreur à l'ouverture du contrat :", err);
@@ -278,18 +261,14 @@ function closeContractModal() {
 function trapFocus(e) {
     if (!els.modal || !els.modal.classList.contains("open")) return;
     if (e.key !== "Tab") return;
-    const focusables = els.modal.querySelectorAll(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-    );
+    const focusables = els.modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
     if (!focusables.length) return;
     const first = focusables[0];
     const last = focusables[focusables.length - 1];
     if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
+        e.preventDefault(); last.focus();
     } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
+        e.preventDefault(); first.focus();
     }
 }
 
@@ -312,7 +291,6 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
     }
 
-    // Case à cocher (créée si absente du HTML)
     els.contractCheckbox = document.getElementById("contractCheckbox");
     if (!els.contractCheckbox) {
         const label = document.createElement("label");
@@ -333,7 +311,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (els.scrollHint) els.scrollHint.setAttribute("aria-live", "polite");
 
-    // Cartes de livraison
     document.querySelectorAll(".v-choice").forEach(card => {
         card.addEventListener("click", () => {
             document.querySelectorAll(".v-choice").forEach(c => c.classList.remove("selected"));
@@ -343,27 +320,25 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     });
 
-    // Ouverture / fermeture modale
     els.btnOpenContract?.addEventListener("click", (e) => { e.preventDefault(); openContractModal(); });
     els.btnCloseContract?.addEventListener("click", (e) => { e.preventDefault(); closeContractModal(); });
     els.modal.addEventListener("click", (e) => { if (e.target === els.modal) closeContractModal(); });
+    
     document.addEventListener("keydown", (e) => {
         if (!els.modal.classList.contains("open")) return;
         if (e.key === "Escape") { e.preventDefault(); closeContractModal(); }
         else trapFocus(e);
     });
 
-    // Scroll contrat
     els.contractText?.addEventListener("scroll", checkScrollReached, { passive: true });
     window.addEventListener("resize", () => {
         if (els.modal && els.modal.classList.contains("open")) checkScrollReached();
     });
 
-    // Acceptation
     els.btnAcceptContract?.addEventListener("click", async () => {
-        if (!preSignature.textHash || !preSignature.version) {
-            const { ok } = await computePreSignature();
-            if (!ok) { showToast(tr("vendor.signup.contractSignError")); return; }
+        if (!preSignature.textHash) {
+            showToast(tr("vendor.signup.contractSignError"));
+            return;
         }
         contractAccepted = true;
         closeContractModal();
@@ -381,21 +356,20 @@ document.addEventListener("DOMContentLoaded", () => {
         showToast(tr("vendor.contract.canSign"));
     });
 
-    // Soumission finale
+    /* ============================================================
+       SOUMISSION FINALE (avec Upgrade automatique)
+       ============================================================ */
     els.form.addEventListener("submit", async (e) => {
         e.preventDefault();
         if (submitInProgress) return;
 
-        const honeypot = document.getElementById("vWebsite");
-        if (honeypot && honeypot.value.trim()) {
-            console.warn("[vendor-signup] Honeypot déclenché - soumission ignorée.");
-            return;
-        }
-
-        if (!contractAccepted || !preSignature.textHash || !preSignature.version || !preSignature.termsSnapshot) {
+        if (!contractAccepted || !preSignature.textHash) {
             showToast(tr("vendor.contract.required"));
             return;
         }
+
+        const honeypot = document.getElementById("vWebsite");
+        if (honeypot && honeypot.value.trim()) return;
 
         const shopName = (document.getElementById("vShopName")?.value || "").trim();
         const email = (document.getElementById("vEmail")?.value || "").trim().toLowerCase();
@@ -415,8 +389,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!shippingRadio) fieldErrors.push("shipping");
 
         if (fieldErrors.length) {
-            const labels = fieldErrors.map(k => tr("vendor.field." + k)).join(", ");
-            showToast(tr("vendor.signup.invalidFields") + " " + labels);
+            showToast(tr("vendor.signup.invalidFields") + " " + fieldErrors.map(k => tr("vendor.field." + k)).join(", "));
             return;
         }
 
@@ -424,28 +397,40 @@ document.addEventListener("DOMContentLoaded", () => {
         setButtonLoading(els.btnSubmitVendor, true, tr("vendor.signup.creating"), tr("vendor.signup.submit"));
 
         const vendorData = {
-            shopName,
-            email,
-            phone: normalizePhone(phoneRaw),
-            city,
-            iceCin,
-            shippingMethod: shippingRadio.value,
-            signupMethod: SIGNUP_METHODS.VENDOR
+            shopName, email, phone: normalizePhone(phoneRaw), city, iceCin,
+            shippingMethod: shippingRadio.value, signupMethod: SIGNUP_METHODS.VENDOR
         };
 
         let authResult;
+        let isUpgrade = false;
+
         try {
+            /* 1. On tente de créer un nouveau compte */
             authResult = await registerVendorWithFirebase(vendorData, password);
         } catch (err) {
-            console.error("[vendor-signup] Inscription échouée :", err);
-            showToast(err?.message || tr("vendor.signup.error"));
-            setButtonLoading(els.btnSubmitVendor, false, null, tr("vendor.signup.submit"));
-            submitInProgress = false;
-            return;
+            /* 🚨 SI L'EMAIL EXISTE DÉJÀ : On tente l'Upgrade */
+            if (err.code === "auth/email-already-in-use") {
+                try {
+                    console.log("[vendor-signup] Email existant détecté. Tentative d'upgrade...");
+                    authResult = await convertUserToVendor(email, password, vendorData);
+                    isUpgrade = true;
+                } catch (upgradeErr) {
+                    console.error("[vendor-signup] Échec de l'upgrade :", upgradeErr);
+                    showToast(upgradeErr.message || "Erreur : Impossible de convertir ce compte client en vendeur.", 8000);
+                    setButtonLoading(els.btnSubmitVendor, false, null, tr("vendor.signup.submit"));
+                    submitInProgress = false;
+                    return;
+                }
+            } else {
+                /* Autre erreur Firebase */
+                showToast(err?.message || tr("vendor.signup.error"));
+                setButtonLoading(els.btnSubmitVendor, false, null, tr("vendor.signup.submit"));
+                submitInProgress = false;
+                return;
+            }
         }
 
         if (!authResult || !authResult.uid) {
-            console.error("[vendor-signup] Pas d'UID retourné :", authResult);
             showToast(tr("vendor.signup.error"));
             setButtonLoading(els.btnSubmitVendor, false, null, tr("vendor.signup.submit"));
             submitInProgress = false;
@@ -454,11 +439,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         let contractText;
         try {
-            contractText = getContractText(
-                preSignature.language,
-                preSignature.version,
-                preSignature.termsSnapshot
-            );
+            contractText = getContractText(preSignature.language, preSignature.version, preSignature.termsSnapshot);
         } catch (err) {
             console.error("[vendor-signup] Reconstruction du contrat impossible :", err);
             showToast(tr("vendor.signup.contractSignError"));
@@ -492,25 +473,20 @@ document.addEventListener("DOMContentLoaded", () => {
                     "vendorInfo.contractStatus": "accepted",
                     "vendorInfo.currentContractId": signResult.contractId,
                     "vendorInfo.contractVersion": signResult.version,
+                    "vendorInfo.contractSignedAt": serverTimestamp(),
                     "updatedAt": serverTimestamp()
                 });
                 transitionOk = true;
             } catch (err) {
-                console.error(
-                    "[vendor-signup] Transition users.vendorInfo échouée (reprise possible depuis le dashboard) :",
-                    err
-                );
+                console.error("[vendor-signup] Transition users.vendorInfo échouée :", err);
             }
         }
 
         const params = new URLSearchParams();
         params.set("welcome", "1");
         params.set("verifyEmail", "1");
-        if (!contractSigned) {
-            params.set("contractFailed", "1");
-        } else if (!transitionOk) {
-            params.set("contractTransitionFailed", "1");
-        }
+        if (!contractSigned) params.set("contractFailed", "1");
+        else if (!transitionOk) params.set("contractTransitionFailed", "1");
 
         let toastMsg;
         if (!contractSigned) {
@@ -518,15 +494,17 @@ document.addEventListener("DOMContentLoaded", () => {
         } else if (!transitionOk) {
             toastMsg = tr("vendor.signup.transitionFailed");
         } else {
-            toastMsg = tr("vendor.signup.success");
+            toastMsg = isUpgrade 
+                ? "🎉 Compte client converti en compte vendeur avec succès ! Vérifiez votre email."
+                : tr("vendor.signup.success");
         }
-        showToast(toastMsg);
+        showToast(toastMsg, 5000);
 
         const queryString = params.toString() ? "?" + params.toString() : "";
         setTimeout(() => {
             window.location.href = "/vendor/dashboard.html" + queryString;
-        }, 1800);
+        }, 2000);
     });
 });
 
-console.log("[vendor-signup] v9.1.0 chargé (Fix superposition + Web Crypto + Submit)");
+console.log("[vendor-signup] v9.2.0 chargé (Isolation + Upgrade Client -> Vendeur)");
