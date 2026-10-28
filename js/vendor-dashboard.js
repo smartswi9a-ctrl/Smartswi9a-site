@@ -22,7 +22,7 @@ import {
   getDownloadURL,
   deleteObject,
 } from "firebase/storage";
-import { db, storage } from "./firebase.js";
+import { db, storage, auth } from "./firebase.js";
 import {
   getCurrentUser,
   logoutUser,
@@ -1202,6 +1202,25 @@ function updateContractAcceptButton() {
   }
 }
 
+async function finalizeVendorContractOnServer(contractId, version) {
+  const user = auth.currentUser;
+  if (!user || user.uid !== currentUserUid)
+    throw new Error("Session Firebase invalide.");
+  const idToken = await user.getIdToken(true);
+  const response = await fetch("/api/acceptVendorContract", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${idToken}`,
+    },
+    body: JSON.stringify({ contractId, version }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.success)
+    throw new Error(result.message || "Validation du contrat impossible.");
+  return true;
+}
+
 async function submitContractSignature() {
   const btn = document.getElementById("vContractAcceptBtn");
   if (!btn || btn.disabled || _contractReadOnly) return;
@@ -1240,13 +1259,10 @@ async function submitContractSignature() {
   }
 
   try {
-    await updateDoc(doc(db, "users", currentUserUid), {
-      "vendorInfo.contractStatus": CONTRACT_STATUS.ACCEPTED,
-      "vendorInfo.currentContractId": signResult.contractId,
-      "vendorInfo.contractVersion": signResult.version,
-      "vendorInfo.contractSignedAt": serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
+    await finalizeVendorContractOnServer(
+      signResult.contractId,
+      signResult.version
+    );
   } catch (e) {
     console.error(
       "[vendor-dashboard] Transition users/{uid}.vendorInfo.contractStatus échouée :",
@@ -1317,26 +1333,8 @@ async function retryContractTransition() {
   currentContractDoc = loaded;
 
   const version = loaded.data.version || CONFIG.VENDOR.CONTRACT_VERSION;
-  let signedAt = serverTimestamp();
   try {
-    const v = loaded.data.acceptedAt;
-    if (v && typeof v.toDate === "function")
-      signedAt = Timestamp.fromDate(v.toDate());
-    else if (v && typeof v.seconds === "number")
-      signedAt = Timestamp.fromMillis(v.seconds * 1000);
-    else if (v instanceof Date) signedAt = Timestamp.fromDate(v);
-  } catch (_) {
-    /* ignore */
-  }
-
-  try {
-    await updateDoc(doc(db, "users", currentUserUid), {
-      "vendorInfo.contractStatus": CONTRACT_STATUS.ACCEPTED,
-      "vendorInfo.currentContractId": loaded.id,
-      "vendorInfo.contractVersion": version,
-      "vendorInfo.contractSignedAt": signedAt,
-      updatedAt: serverTimestamp(),
-    });
+    await finalizeVendorContractOnServer(loaded.id, version);
     showToast(tr("vendor.banner.finalizeSuccess", "Profil synchronisé"));
   } catch (e) {
     console.error("[vendor-dashboard] retryContractTransition :", e);
