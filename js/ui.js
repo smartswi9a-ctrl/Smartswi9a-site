@@ -2,15 +2,13 @@
 /* ============================================================
    js/ui.js
    INTERFACE UTILISATEUR - SMART SWI9A
-   Version 9.1.0 - Lot 51 : lien /Vendor/dashboard corrigé
+   Version 9.1.1 - Lot 51 : lien /vendor/dashboard (minuscule) corrigé
    PARTIE 1/2 : imports, helpers, modales, auth views
 
-   CHANGEMENTS v9.1.0 :
-     - Fix cause n°2 : dans renderDashboard, le lien vendeur
-       pointe désormais sur /Vendor/dashboard (majuscule, sans
-       .html, compatible cleanUrls). Corrige le 404 qui
-       empêchait l'accès au dashboard vendeur depuis la bannière
-       "Espace Vendeur" de la modale compte.
+   CHANGEMENTS v9.1.1 :
+     - Fix chemin : dans renderDashboard, le lien vendeur pointe
+       désormais sur /vendor/dashboard (minuscule, sans .html,
+       compatible cleanUrls et dossier physique `vendor/`).
 
    CHANGEMENTS v9.0.0 (rappel) :
      - P2-22 : polling email conditionnel.
@@ -964,14 +962,14 @@ function renderDashboard(user, pendingReviews = 0) {
         `
         : '';
 
-    /* Lien vendeur : /Vendor/dashboard (dossier physique : Vendor/). */
+    /* CORRECTION ICI : /vendor/dashboard en minuscule */
     const vendorBanner = isVendor
         ? `
             <div style="background:linear-gradient(135deg,#6b46c1,#5a3aa3);border-radius:var(--radius-md);padding:1.2rem;margin-bottom:1.2rem;color:#fff;text-align:center;">
                 <div style="font-size:2rem;margin-bottom:0.5rem;">🏪</div>
                 <h3 style="margin:0 0 0.5rem 0;font-size:1.1rem;">Espace Vendeur</h3>
                 <p style="font-size:0.85rem;opacity:0.9;margin-bottom:1rem;">Gérez vos produits, commandes et wallet.</p>
-                <a href="/Vendor/dashboard" style="display:inline-flex;align-items:center;gap:0.4rem;background:#fff;color:#6b46c1;padding:0.7rem 1.5rem;border-radius:30px;font-weight:800;text-decoration:none;font-size:0.9rem;">
+                <a href="/vendor/dashboard" style="display:inline-flex;align-items:center;gap:0.4rem;background:#fff;color:#6b46c1;padding:0.7rem 1.5rem;border-radius:30px;font-weight:800;text-decoration:none;font-size:0.9rem;">
                     Accéder à mon espace →
                 </a>
             </div>
@@ -1375,5 +1373,5 @@ export function showAbandonedCartNotification() {
 /* ============================================================
    LOG
    ============================================================ */
-console.log('✅ ui.js chargé - v9.1.0 (Lot 51 : lien /Vendor/dashboard corrigé)');
+console.log('✅ ui.js chargé - v9.1.1 (Lot 51 : lien /vendor/dashboard corrigé)');
 --- fin js/ui.js ---
