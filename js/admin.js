@@ -1,24 +1,15 @@
 /* ============================================================
    js/admin.js
    PANNEAU ADMINISTRATION - SMART SWI9A
-   Version 12.2.0 - Lot 51 : wallet à l'approbation + badge vendeurs
-                              + demandes de conversion
+   Version 12.1.0 - Lot 50 : createLivoPickup (client_id Worker)
    PARTIE 1/3 : header, imports, constantes, state, helpers,
                 mode test, login, initAdmin, produits CRUD, users
 
-   CHANGEMENTS v12.2.0 (Lot 51) :
-     - Import needsResign depuis ./vendor-contract.js (filtre
-       "Contrats obsolètes").
-     - Ajout de `cachedConversionRequests` dans l'état local.
-     - loadStats() : nouveau KPI #statVendorsPending (compteur
-       de vendeurs en attente d'approbation).
-     - Le wallet est désormais créé à l'approbation (voir P3/3,
-       handleVendorAction) au lieu de l'inscription.
-
-   CHANGEMENTS v12.1.0 (rappel) :
-     - Ajout createLivoPickup dans l'import de ./orders.js.
+   CHANGEMENTS v12.1.0 :
+     - Ajout `createLivoPickup` dans l'import de ./orders.js.
      - handleConfirmPickup (P2/3) appelle createLivoPickup en
        premier, fallback Firestore sinon.
+     - Log final v12.1.0 (P3/3).
 
    ALERTE 1 : plus aucun commentaire de ligne (//) en début de
    ligne utile. Tout est en bloc.
@@ -38,7 +29,7 @@ import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage
 import {
     ROLES, ORDER_STATUS, CATEGORY_GROUPS, CONFIG, normalizeOrderStatus,
     normalizeCategory, getCategoryById, APP_MODE, isTestMode,
-    VENDOR_STATUS, CONTRACT_STATUS, SIGNUP_METHODS
+    VENDOR_STATUS, CONTRACT_STATUS
 } from "./config.js";
 import {
     escapeHTML, slugify, getStoragePathFromUrl, isStorageUrl,
@@ -50,8 +41,6 @@ import {
 } from "./orders.js";
 import { renderAdminReviews } from "./reviews.js";
 import { showToast, confirmAction } from "./ui-core.js";
-/* v9.1.0 : utilisé par le filtre "Contrats obsolètes" (P3/3). */
-import { needsResign } from "./vendor-contract.js";
 
 /* ============================================================
    MODE TEST - CONFIGURATION
@@ -72,7 +61,6 @@ let currentAdmin = null;
 let cachedProducts = [];
 let cachedVendors = [];
 let cachedPayouts = [];
-let cachedConversionRequests = [];
 let cachedUsers = [];
 let cachedBlogPosts = [];
 let cachedPurchases = [];
@@ -707,21 +695,6 @@ async function loadStats() {
             const elPP = document.getElementById('statProductsPending');
             if (elPP) elPP.textContent = cPending.data().count;
         } catch (e) { /* ignore */ }
-
-        /* v12.2.0 : KPI vendeurs en attente d'approbation.
-           Index composite requis : users(role ASC, vendorInfo.status ASC). */
-        try {
-            const cVPending = await getCountFromServer(query(
-                collection(db, "users"),
-                where("role", "==", "vendor"),
-                where("vendorInfo.status", "==", "pending")
-            ));
-            const elVP = document.getElementById('statVendorsPending');
-            if (elVP) elVP.textContent = cVPending.data().count;
-        } catch (e) {
-            const elVP = document.getElementById('statVendorsPending');
-            if (elVP) elVP.textContent = '—';
-        }
 
         try {
             const cc = await getCountFromServer(collection(db, "cities"));
@@ -1538,13 +1511,18 @@ function filterUsersList() {
 }
 
 /* ============================================================
+   FIN PARTIE 1/3
    ------------------------------------------------------------
    Prochaines parties :
      - PARTIE 2/3 : Blog + Coupons + Livo + Alertes + Chart + Finances
      - PARTIE 3/3 : Rapports + Exports + Simulateur + Vendeurs
-                     + Conversions + Payouts + Tools + Events
-                     + initAdmin() + log final
-   
+                     + Payouts + Tools + Events + initAdmin() + log final
+   ============================================================ */
+   /* ============================================================
+   PARTIE 2/3 — Blog + Coupons + Livo + Alertes + Chart + Finances
+   Version 12.1.0 - Lot 50 (handleConfirmPickup + createLivoPickup)
+   ============================================================ */
+
 /* ============================================================
    BLOG
    ============================================================ */
@@ -2470,30 +2448,6 @@ function initAdminAlerts() {
     });
     document.getElementById('alertOrdersBtn')?.addEventListener('click', () => document.querySelector('[data-tab="orders"]')?.click());
     document.getElementById('alertReviewsBtn')?.addEventListener('click', () => document.querySelector('[data-tab="reviews"]')?.click());
-
-    /* v12.2.0 : handler du badge produits à valider (déjà présent dans admin.html). */
-    document.getElementById('alertProductsPendingBtn')?.addEventListener('click', () => {
-        tempStockFilter = null;
-        document.querySelector('[data-tab="products"]')?.click();
-    });
-
-    /* v12.2.0 : handler du badge vendeurs à approuver. */
-    document.getElementById('alertVendorsPendingBtn')?.addEventListener('click', async () => {
-        document.querySelector('[data-tab="vendors"]')?.click();
-        document.querySelectorAll('[data-vendor-filter]').forEach(b => b.classList.remove('active'));
-        document.querySelector('[data-vendor-filter="pending"]')?.classList.add('active');
-        await loadVendors();
-        renderVendorsList(cachedVendors.filter(v => (v.vendorInfo?.status || 'pending') === 'pending'));
-    });
-
-    /* v12.2.0 : handler du badge conversions en attente. */
-    document.getElementById('alertConversionsPendingBtn')?.addEventListener('click', async () => {
-        document.querySelector('[data-tab="vendors"]')?.click();
-        document.querySelectorAll('[data-vendor-filter]').forEach(b => b.classList.remove('active'));
-        document.querySelector('[data-vendor-filter="conversions"]')?.classList.add('active');
-        await loadConversionRequests();
-    });
-
     document.getElementById('alertStockOutBtn')?.addEventListener('click', () => {
         tempStockFilter = 'out';
         document.querySelector('[data-tab="products"]')?.click();
@@ -2509,27 +2463,13 @@ async function refreshAdminAlerts() {
     if (!banner || !auth.currentUser) return;
 
     try {
-        /* v12.2.0 : 5 compteurs en parallèle (orders, reviews, products, vendors, conversions). */
-        const [ordersSnap, reviewsSnap, productsSnap, vendorsSnap, conversionsSnap] = await Promise.allSettled([
+        const [ordersSnap, reviewsSnap] = await Promise.allSettled([
             getCountFromServer(query(collection(db, "orders"), where("status", "==", "pending"))),
-            getCountFromServer(query(collection(db, "reviews"), where("status", "==", "pending"))),
-            getCountFromServer(query(collection(db, "products"), where("status", "==", "pending_admin_approval"))),
-            getCountFromServer(query(
-                collection(db, "users"),
-                where("role", "==", "vendor"),
-                where("vendorInfo.status", "==", "pending")
-            )),
-            getCountFromServer(query(
-                collection(db, "vendor_conversion_requests"),
-                where("status", "==", "pending")
-            ))
+            getCountFromServer(query(collection(db, "reviews"), where("status", "==", "pending")))
         ]);
 
         const pendingOrdersCount = ordersSnap.value?.data().count || 0;
         const pendingReviewsCount = reviewsSnap.value?.data().count || 0;
-        const pendingProductsCount = productsSnap.value?.data().count || 0;
-        const pendingVendorsCount = vendorsSnap.value?.data().count || 0;
-        const pendingConversionsCount = conversionsSnap.value?.data().count || 0;
 
         const stockOutNames = [];
         const stockLowNames = [];
@@ -2554,9 +2494,6 @@ async function refreshAdminAlerts() {
 
         const btnO = document.getElementById('alertOrdersBtn');
         const btnR = document.getElementById('alertReviewsBtn');
-        const btnP = document.getElementById('alertProductsPendingBtn');
-        const btnVP = document.getElementById('alertVendorsPendingBtn');
-        const btnCV = document.getElementById('alertConversionsPendingBtn');
         const btnSO = document.getElementById('alertStockOutBtn');
         const btnSL = document.getElementById('alertStockLowBtn');
         let hasAlerts = false;
@@ -2574,28 +2511,6 @@ async function refreshAdminAlerts() {
                 btnR.style.display = 'inline-flex';
                 hasAlerts = true;
             } else btnR.style.display = 'none';
-        }
-        if (btnP) {
-            if (pendingProductsCount > 0) {
-                document.getElementById('alertProductsPendingCount').textContent = pendingProductsCount;
-                btnP.style.display = 'inline-flex';
-                hasAlerts = true;
-            } else btnP.style.display = 'none';
-        }
-        /* v12.2.0 : badges vendeurs + conversions. */
-        if (btnVP) {
-            if (pendingVendorsCount > 0) {
-                document.getElementById('alertVendorsPendingCount').textContent = pendingVendorsCount;
-                btnVP.style.display = 'inline-flex';
-                hasAlerts = true;
-            } else btnVP.style.display = 'none';
-        }
-        if (btnCV) {
-            if (pendingConversionsCount > 0) {
-                document.getElementById('alertConversionsPendingCount').textContent = pendingConversionsCount;
-                btnCV.style.display = 'inline-flex';
-                hasAlerts = true;
-            } else btnCV.style.display = 'none';
         }
         if (btnSO) {
             if (stockOutNames.length > 0) {
@@ -3081,18 +2996,17 @@ async function renderTransactionsList() {
     container.innerHTML = html;
 }
 
-/* =========================================================
+/* ============================================================
+   FIN PARTIE 2/3
    ------------------------------------------------------------
    Prochaine partie :
      - PARTIE 3/3 : Rapports + Exports + Simulateur + Vendeurs
-                     + Conversions + Payouts + Tools + Events
-                     + initAdmin() + log final
-   
-/* ============================================================
+                     + Payouts + Tools + Events + initAdmin() + log final
+   ============================================================ */
+   /* ============================================================
    PARTIE 3/3 — Rapports, exports, simulateur, vendeurs,
-                 conversions, payouts, tools, events, init finale,
-                 log final
-   Version 12.2.0 - Lot 51 : wallet à l'approbation + conversions
+                 payouts, tools, events, init finale, log final
+   Version 12.1.0 - Lot 50 (identique v12.0.0 sauf log final)
    ============================================================ */
 
 /* ============================================================
@@ -3522,25 +3436,6 @@ async function handleVendorAction(vendorId, newStatus) {
             }
             tx.update(userRef, userUpdate);
 
-            /* v12.2.0 : création du wallet à l'approbation (déplacé depuis auth.js).
-               On ne crée le wallet que si le vendeur est approuvé ET s'il n'existe pas déjà. */
-            if (newStatus === VENDOR_STATUS.APPROVED) {
-                const walletRef = doc(db, 'wallets', vendorId);
-                const walletSnap = await tx.get(walletRef);
-                if (!walletSnap.exists()) {
-                    tx.set(walletRef, {
-                        vendorId: vendorId,
-                        pendingBalance: 0,
-                        availableBalance: 0,
-                        totalEarnings: 0,
-                        totalWithdrawn: 0,
-                        negativeBalance: 0,
-                        createdAt: serverTimestamp(),
-                        lastUpdated: serverTimestamp()
-                    });
-                }
-            }
-
             const publicRef = doc(db, 'vendorsPublic', vendorId);
             const shopName = vendorInfo.shopName || data.name || 'Boutique';
             const city = vendorInfo.city || '';
@@ -3578,218 +3473,6 @@ async function handleVendorAction(vendorId, newStatus) {
         await loadVendors();
     } catch (e) {
         console.error('[admin] handleVendorAction :', e);
-        showToast(e.message || 'Erreur');
-    }
-}
-
-/* ============================================================
-   VENDOR_CONVERSION_REQUESTS (v12.2.0)
-   ============================================================
-   Gestion des demandes de conversion client -> vendeur.
-   Contrairement au flux normal (registerVendorWithFirebase),
-   ces clients n'ont pas encore de vendorInfo ni de contrat signé.
-   L'admin approuve d'abord la conversion (création users.vendorInfo
-   + role='vendor' + wallet + vendorsPublic), puis le vendeur signe
-   son contrat depuis son dashboard.
-   ============================================================ */
-async function loadConversionRequests() {
-    const container = document.getElementById('adminVendorsList');
-    if (!container) return;
-    container.innerHTML = `<div class="admin-loading">Chargement des demandes de conversion...</div>`;
-
-    try {
-        const q = query(
-            collection(db, "vendor_conversion_requests"),
-            where("status", "==", "pending"),
-            orderBy("createdAt", "desc"),
-            limit(200)
-        );
-        const snap = await getDocs(q);
-        cachedConversionRequests = snap.docs.map(d => ({
-            id: d.id,
-            ...d.data(),
-            createdAt: toDate(d.data().createdAt)
-        }));
-        renderConversionRequests(cachedConversionRequests);
-    } catch (e) {
-        console.error('[admin] loadConversionRequests :', e);
-        container.innerHTML = `<div class="admin-empty" style="color:var(--danger);">Erreur de chargement des conversions.</div>`;
-    }
-}
-
-function renderConversionRequests(requests) {
-    const container = document.getElementById('adminVendorsList');
-    if (!container) return;
-
-    if (!requests || requests.length === 0) {
-        container.innerHTML = `<div class="admin-empty">Aucune demande de conversion en attente.</div>`;
-        return;
-    }
-
-    let html = '';
-    requests.forEach(r => {
-        const shopName = escapeHTML(r.shopName || 'Boutique');
-        const city = escapeHTML(r.city || '');
-        const iceCin = escapeHTML(r.iceCin || '');
-        const phone = escapeHTML(r.phone || '');
-        const userId = escapeHTML(r.userId || '');
-        const shippingMethod = r.shippingMethod === 'dropoff' ? 'Drop-off' : 'Fulfillment';
-        const createdAt = r.createdAt ? r.createdAt.toLocaleDateString('fr-FR') : '—';
-
-        html += `
-            <div class="admin-list-item" style="flex-direction:column;align-items:stretch;padding:1rem;">
-                <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">
-                    <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;">
-                        <strong style="color:var(--gold);font-size:1rem;">🔄 ${shopName}</strong>
-                        <span style="background:var(--info);color:#fff;padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;">Demande de conversion</span>
-                    </div>
-                    <div style="font-size:0.8rem;color:var(--text-dim);">Demandé le ${createdAt}</div>
-                </div>
-                <div style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.3rem;">
-                    UserID : <code style="font-size:0.75rem;">${userId.slice(0, 12)}…</code><br>
-                    ${phone} · ${city} · ${iceCin}<br>
-                    Mode : <strong>${shippingMethod}</strong>
-                </div>
-                <div style="display:flex;justify-content:flex-end;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem;">
-                    <button class="admin-btn-approve" data-action="conversion-approve" data-id="${r.id}">Approuver la conversion</button>
-                    <button class="admin-btn-icon admin-btn-danger" data-action="conversion-reject" data-id="${r.id}">Rejeter</button>
-                </div>
-            </div>
-        `;
-    });
-
-    container.innerHTML = html;
-
-    container.querySelectorAll('[data-action="conversion-approve"]').forEach(btn => {
-        btn.addEventListener('click', () => handleConversionAction(btn.dataset.id, 'approve'));
-    });
-    container.querySelectorAll('[data-action="conversion-reject"]').forEach(btn => {
-        btn.addEventListener('click', () => handleConversionAction(btn.dataset.id, 'reject'));
-    });
-}
-
-async function handleConversionAction(requestId, action) {
-    const isApprove = action === 'approve';
-    const label = isApprove ? 'approuver cette demande de conversion' : 'rejeter cette demande';
-    const confirmed = await confirmAction(`Voulez-vous vraiment ${label} ?`, {
-        title: 'Confirmation',
-        confirmText: isApprove ? 'Approuver' : 'Rejeter',
-        cancelText: 'Annuler',
-        variant: isApprove ? 'primary' : 'danger'
-    });
-    if (!confirmed) return;
-
-    try {
-        const requestRef = doc(db, 'vendor_conversion_requests', requestId);
-        const requestSnap = await getDoc(requestRef);
-        if (!requestSnap.exists()) throw new Error('Demande introuvable.');
-
-        const requestData = requestSnap.data();
-        if (requestData.status !== 'pending') throw new Error('Cette demande a déjà été traitée.');
-        const userId = requestData.userId;
-        if (!userId) throw new Error('UserID manquant dans la demande.');
-
-        if (isApprove) {
-            /* Approbation : créer users.vendorInfo + role='vendor' + wallet,
-               dans une seule transaction. Le contrat reste 'pending' —
-               le vendeur devra signer depuis son dashboard. */
-            await runTransaction(db, async (tx) => {
-                const userRef = doc(db, 'users', userId);
-                const userSnap = await tx.get(userRef);
-                if (!userSnap.exists()) throw new Error('Utilisateur introuvable.');
-                const userData = userSnap.data();
-                if (userData.role === ROLES.VENDOR) throw new Error('Cet utilisateur est déjà vendeur.');
-                if (userData.role === ROLES.ADMIN) throw new Error('Impossible de convertir un admin en vendeur.');
-
-                tx.update(userRef, {
-                    role: ROLES.VENDOR,
-                    signupMethod: SIGNUP_METHODS.VENDOR,
-                    phone: requestData.phone || userData.phone || '',
-                    'vendorInfo.shopName': requestData.shopName,
-                    'vendorInfo.iceCin': requestData.iceCin,
-                    'vendorInfo.city': requestData.city,
-                    'vendorInfo.shippingMethod': requestData.shippingMethod,
-                    'vendorInfo.status': VENDOR_STATUS.APPROVED,
-                    'vendorInfo.contractStatus': CONTRACT_STATUS.PENDING,
-                    'vendorInfo.delayCount': 0,
-                    'vendorInfo.commissionRate': CONFIG.VENDOR.COMMISSION_RATE,
-                    'vendorInfo.updatedAt': serverTimestamp(),
-                    updatedAt: serverTimestamp()
-                });
-
-                /* Wallet si absent */
-                const walletRef = doc(db, 'wallets', userId);
-                const walletSnap = await tx.get(walletRef);
-                if (!walletSnap.exists()) {
-                    tx.set(walletRef, {
-                        vendorId: userId,
-                        pendingBalance: 0,
-                        availableBalance: 0,
-                        totalEarnings: 0,
-                        totalWithdrawn: 0,
-                        negativeBalance: 0,
-                        createdAt: serverTimestamp(),
-                        lastUpdated: serverTimestamp()
-                    });
-                }
-
-                /* vendorsPublic pour affichage catalogue */
-                tx.set(doc(db, 'vendorsPublic', userId), {
-                    vendorId: userId,
-                    shopName: String(requestData.shopName || '').slice(0, 60),
-                    city: String(requestData.city || '').slice(0, 80),
-                    status: VENDOR_STATUS.APPROVED,
-                    updatedAt: serverTimestamp()
-                }, { merge: true });
-
-                /* Marquer la demande comme approuvée */
-                tx.update(requestRef, {
-                    status: 'approved',
-                    processedAt: serverTimestamp(),
-                    processedBy: currentAdmin?.uid || 'admin'
-                });
-            });
-
-            /* Notification au client (non bloquant) */
-            try {
-                await addDoc(collection(db, 'notifications'), {
-                    userId: userId,
-                    type: 'vendor_conversion_approved',
-                    title: 'Compte vendeur activé',
-                    message: 'Votre demande de conversion a été approuvée. Connectez-vous à votre espace vendeur pour signer votre contrat.',
-                    read: false,
-                    createdAt: Timestamp.now()
-                });
-            } catch (e) { /* non bloquant */ }
-
-            showToast('Conversion approuvée. Le vendeur doit maintenant signer son contrat.', 5000);
-        } else {
-            /* Rejet */
-            await updateDoc(requestRef, {
-                status: 'rejected',
-                processedAt: serverTimestamp(),
-                processedBy: currentAdmin?.uid || 'admin'
-            });
-
-            try {
-                await addDoc(collection(db, 'notifications'), {
-                    userId: userId,
-                    type: 'vendor_conversion_rejected',
-                    title: 'Demande de conversion refusée',
-                    message: 'Votre demande de conversion en compte vendeur a été refusée. Contactez le support pour plus d\'informations.',
-                    read: false,
-                    createdAt: Timestamp.now()
-                });
-            } catch (e) { /* non bloquant */ }
-
-            showToast('Demande de conversion rejetée.');
-        }
-
-        await loadConversionRequests();
-        await loadStats();
-        await refreshAdminAlerts();
-    } catch (e) {
-        console.error('[admin] handleConversionAction :', e);
         showToast(e.message || 'Erreur');
     }
 }
@@ -4395,27 +4078,11 @@ function attachAllRemainingEvents() {
         ));
     });
     document.querySelectorAll('[data-vendor-filter]').forEach(btn => {
-        btn.addEventListener('click', async () => {
+        btn.addEventListener('click', () => {
             document.querySelectorAll('[data-vendor-filter]').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             const f = btn.dataset.vendorFilter;
-            /* v12.2.0 : routage du filtre conversions vers sa propre liste. */
-            if (f === 'conversions') {
-                await loadConversionRequests();
-                return;
-            }
-            if (f === 'all') {
-                renderVendorsList(cachedVendors);
-                return;
-            }
-            if (f === 'outdated') {
-                renderVendorsList(cachedVendors.filter(v => {
-                    const vi = v.vendorInfo || {};
-                    return vi.contractVersion && needsResign(vi);
-                }));
-                return;
-            }
-            renderVendorsList(cachedVendors.filter(v => (v.vendorInfo?.status || 'pending') === f));
+            renderVendorsList(f === 'all' ? cachedVendors : cachedVendors.filter(v => (v.vendorInfo?.status || 'pending') === f));
         });
     });
 
@@ -4532,4 +4199,4 @@ initAdmin();
 /* ============================================================
    LOG FINAL
    ============================================================ */
-console.log('[admin] v12.2.0 chargé (Lot 51 : wallet à l\'approbation + badge vendeurs + conversions)');
+console.log('[admin] v12.1.0 chargé (Lot 50 : createLivoPickup + P0-4 corrigé + B7/B8/B9 + cohérence emoji)');
