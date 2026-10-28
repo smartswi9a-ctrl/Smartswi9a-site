@@ -1,3 +1,4 @@
+--- admin.html ---
 <!DOCTYPE html>
 <html lang="fr" dir="ltr">
 <head>
@@ -238,6 +239,8 @@
             <div class="admin-stats" id="adminStats">
                 <div class="admin-stat-card"><span class="stat-value" id="statProducts">—</span><span class="stat-label">📦 Produits</span></div>
                 <div class="admin-stat-card"><span class="stat-value" id="statProductsPending">—</span><span class="stat-label">⏳ Produits à valider</span></div>
+                <!-- v9.1.0 : nouvelle carte KPI Vendeurs en attente -->
+                <div class="admin-stat-card"><span class="stat-value" id="statVendorsPending">—</span><span class="stat-label">🏪 Vendeurs à approuver</span></div>
                 <div class="admin-stat-card"><span class="stat-value" id="statOrders">—</span><span class="stat-label">📋 Commandes</span></div>
                 <div class="admin-stat-card"><span class="stat-value" id="statUsers">—</span><span class="stat-label">👥 Clients</span></div>
                 <div class="admin-stat-card"><span class="stat-value" id="statReviewsPending">—</span><span class="stat-label">⭐ Avis en attente</span></div>
@@ -341,6 +344,8 @@
                 <button data-vendor-filter="suspended">🚫 Suspendus</button>
                 <button data-vendor-filter="rejected">❌ Rejetés</button>
                 <button data-vendor-filter="outdated">📜 Contrats obsolètes</button>
+                <!-- v9.1.0 : nouveau filtre Demandes de conversion -->
+                <button data-vendor-filter="conversions">🔄 Demandes de conversion</button>
                 <button data-vendor-filter="all">📊 Tous</button>
             </div>
             <div class="admin-search-bar"><input type="text" id="vendorSearchAdmin" placeholder="🔍 Rechercher par boutique, email ou téléphone..."></div>
@@ -602,6 +607,9 @@
                 <button class="alert-badge alert-danger" id="alertOrdersBtn" style="display: none;">🔴 <span id="alertOrdersCount">0</span> Commande(s)</button>
                 <button class="alert-badge alert-warning" id="alertReviewsBtn" style="display: none;">🟡 <span id="alertReviewsCount">0</span> Avis</button>
                 <button class="alert-badge alert-warning" id="alertProductsPendingBtn" style="display: none;">📦 <span id="alertProductsPendingCount">0</span> Produit(s) à valider</button>
+                <!-- v9.1.0 : nouveaux badges vendeurs + conversions -->
+                <button class="alert-badge alert-warning" id="alertVendorsPendingBtn" style="display: none;">🏪 <span id="alertVendorsPendingCount">0</span> Vendeur(s) à approuver</button>
+                <button class="alert-badge alert-info" id="alertConversionsPendingBtn" style="display: none;">🔄 <span id="alertConversionsPendingCount">0</span> Conversion(s)</button>
                 <button class="alert-badge alert-danger" id="alertStockOutBtn" style="display: none;">❌ <span id="alertStockOutCount">0</span> Rupture(s)<span class="alert-tooltip" id="alertStockOutTooltip">—</span></button>
                 <button class="alert-badge alert-info" id="alertStockLowBtn" style="display: none;">🟠 <span id="alertStockLowCount">0</span> Stock(s) bas<span class="alert-tooltip" id="alertStockLowTooltip">—</span></button>
             </div>
@@ -625,3 +633,4 @@
     <script type="module" src="/js/admin.js"></script>
 </body>
 </html>
+--- fin admin.html ---
