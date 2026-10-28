@@ -336,36 +336,40 @@ export async function registerWithFirebase(name, email, phone, dob, password) {
 export async function registerVendorWithFirebase(vendorData, password) {
   console.log("registerVendorWithFirebase");
 
-  /* B5 : mot de passe 8+ avec lettre + chiffre */
   if (!vendorData?.email || !isValidEmail(vendorData.email)) {
-    throw new Error("Email invalide");
+    throw new Error("Adresse e-mail invalide.");
   }
-  if (
-    typeof password !== "string" ||
-    password.length < 8 ||
-    !/[A-Za-z]/.test(password) ||
-    !/\d/.test(password)
-  ) {
+
+  const email = cleanEmail(vendorData.email);
+  const current = auth.currentUser;
+  const currentEmail = cleanEmail(current?.email || "");
+  if (current && currentEmail && currentEmail !== email) {
     throw new Error(
-      "Mot de passe trop faible (8 caractères min, lettres et chiffres)."
+      "Vous êtes connecté avec une autre adresse. Déconnectez-vous puis utilisez l'adresse du compte concerné."
     );
   }
 
-  /* B9 : validations alignées sur vendor-signup.js */
-  const shopName = (vendorData.shopName || "").trim();
-  if (shopName.length < 2 || shopName.length > 60) {
-    throw new Error("Nom de boutique invalide (2 à 60 caractères).");
+  /* Un utilisateur déjà connecté avec la même adresse n'a pas besoin de créer une deuxième authentification. Pour un compte existant non connecté, le mot de passe saisi sert à authentifier ce compte avant la demande vendeur. */
+  const passwordIsValid =
+    typeof password === "string" &&
+    password.length >= 8 &&
+    /[A-Za-z]/.test(password) &&
+    /\d/.test(password);
+  if (!current && !passwordIsValid) {
+    throw new Error(
+      "Mot de passe invalide : 8 caractères minimum avec lettres et chiffres."
+    );
   }
-  /* Le téléphone DOIT être normalisé par l'appelant au format +212[67]XXXXXXXX */
-  if (!/^\+212[67]\d{8}$/.test(vendorData.phone || "")) {
+
+  const shopName = (vendorData.shopName || "").trim();
+  if (shopName.length < 2 || shopName.length > 60)
+    throw new Error("Nom de boutique invalide (2 à 60 caractères).");
+  if (!/^\+212[67]\d{8}$/.test(vendorData.phone || ""))
     throw new Error(
       "Téléphone marocain invalide (06XXXXXXXX ou +2126XXXXXXXX)."
     );
-  }
   const city = (vendorData.city || "").trim();
-  if (city.length < 2 || city.length > 80) {
-    throw new Error("Ville invalide.");
-  }
+  if (city.length < 2 || city.length > 80) throw new Error("Ville invalide.");
   const iceCin = (vendorData.iceCin || "").trim().toUpperCase();
   if (
     !(
@@ -376,34 +380,94 @@ export async function registerVendorWithFirebase(vendorData, password) {
   ) {
     throw new Error("ICE ou CIN invalide.");
   }
-  if (!["dropoff", "fulfillment"].includes(vendorData.shippingMethod)) {
+  if (!["dropoff", "fulfillment"].includes(vendorData.shippingMethod))
     throw new Error("Mode de livraison invalide.");
+
+  let user = current;
+  let createdHere = false;
+  if (!user) {
+    try {
+      const credential = await createUserWithEmailAndPassword(
+        auth,
+        email,
+        password
+      );
+      user = credential.user;
+      createdHere = true;
+    } catch (createError) {
+      if (createError?.code !== "auth/email-already-in-use") {
+        logAuthError("registerVendorWithFirebase (create)", createError);
+        throw createError;
+      }
+      /* Adresse déjà enregistrée : authentifier le titulaire avec son mot de passe. Ne jamais contourner l'authentification ni créer un doublon. */
+      try {
+        const credential = await signInWithEmailAndPassword(
+          auth,
+          email,
+          password
+        );
+        user = credential.user;
+      } catch (signInError) {
+        logAuthError(
+          "registerVendorWithFirebase (existing account sign-in)",
+          signInError
+        );
+        if (
+          [
+            "auth/wrong-password",
+            "auth/invalid-credential",
+            "auth/invalid-login-credentials",
+          ].includes(signInError?.code)
+        ) {
+          throw new Error(
+            "Cette adresse e-mail possède déjà un compte. Saisissez le mot de passe de ce compte ou connectez-vous d'abord."
+          );
+        }
+        throw signInError;
+      }
+    }
   }
 
-  let userCredential;
-  try {
-    userCredential = await createUserWithEmailAndPassword(
-      auth,
-      vendorData.email,
-      password
-    );
-  } catch (error) {
-    logAuthError("registerVendorWithFirebase (create)", error);
-    throw error;
-  }
-
-  const user = userCredential.user;
   const uid = user.uid;
+  const existingStatus = await getUserProfileStatus(uid);
+  if (existingStatus.error)
+    throw new Error(
+      "Impossible de vérifier le profil existant. Réessayez dans quelques instants."
+    );
+  const existingProfile = existingStatus.data || {};
+
+  if (existingProfile.role === ROLES.ADMIN) {
+    throw new Error(
+      "Un compte administrateur ne peut pas être converti en compte vendeur."
+    );
+  }
+  if (existingProfile.role === ROLES.VENDOR) {
+    const status = existingProfile.vendorInfo?.status;
+    if (status === VENDOR_STATUS.APPROVED)
+      throw new Error(
+        "Ce compte possède déjà un accès vendeur approuvé. Connectez-vous au tableau de bord vendeur."
+      );
+    throw new Error(
+      "Une demande vendeur existe déjà pour ce compte. Connectez-vous et contactez l'administration si elle est bloquée."
+    );
+  }
+  if (existingProfile.role && existingProfile.role !== ROLES.USER) {
+    throw new Error(
+      "Le type de compte actuel ne permet pas une inscription vendeur."
+    );
+  }
 
   const profile = {
-    name: shopName,
-    email: cleanEmail(vendorData.email),
+    ...existingProfile,
+    name: existingProfile.name || shopName,
+    email,
     phone: vendorData.phone,
     role: ROLES.VENDOR,
     signupMethod: SIGNUP_METHODS.VENDOR,
-    emailVerified: false,
-    createdAt: serverTimestamp(),
+    emailVerified: !!user.emailVerified,
+    createdAt: existingProfile.createdAt || serverTimestamp(),
     vendorInfo: {
+      ...(existingProfile.vendorInfo || {}),
       shopName,
       iceCin,
       city,
@@ -412,44 +476,52 @@ export async function registerVendorWithFirebase(vendorData, password) {
       contractStatus: CONTRACT_STATUS.PENDING,
       delayCount: 0,
       commissionRate: CONFIG.VENDOR.COMMISSION_RATE,
+      applicationSubmittedAt: serverTimestamp(),
     },
   };
 
   const profileOk = await saveUserProfile(uid, profile);
   if (!profileOk) {
-    /* B-AUTH-2 : nettoyage complet (profil failed → wallet jamais créé → user delete). */
-    try {
-      await deleteUser(user);
-    } catch (e) {
-      logAuthError(
-        "registerVendorWithFirebase (deleteUser après profile failed)",
-        e
-      );
+    /* Supprimer uniquement une authentification créée pendant CET appel. Ne jamais supprimer le compte acheteur préexistant si l'écriture échoue. */
+    if (createdHere) {
+      try {
+        await deleteUser(user);
+      } catch (e) {
+        logAuthError("registerVendorWithFirebase (cleanup new account)", e);
+      }
     }
-    throw new Error("Impossible d'enregistrer le profil vendeur.");
+    throw new Error(
+      "Impossible d'enregistrer la demande vendeur. Votre compte existant a été conservé ; réessayez."
+    );
   }
 
-  /* Cohérence Firebase : les règles Firestore réservent l’écriture de wallets/{uid} à l’administrateur. Le navigateur ne doit donc pas tenter de créer le portefeuille lui-même. Le portefeuille sera créé par le flux financier de confiance / l’administration. */
-
-  try {
-    await sendEmailVerification(user, {
-      url: `${CONFIG.SHOP.URL}/`,
-      handleCodeInApp: false,
-    });
-  } catch (e) {
-    logAuthError("registerVendorWithFirebase (sendEmailVerification)", e);
+  /* Les comptes existants conservent leur adresse et leur UID. Vérification e-mail uniquement si nécessaire ; le contrat reste obligatoire dans le flux UI. */
+  if (!user.emailVerified) {
+    try {
+      await sendEmailVerification(user, {
+        url: `${CONFIG.SHOP.URL}/`,
+        handleCodeInApp: false,
+      });
+    } catch (e) {
+      logAuthError("registerVendorWithFirebase (sendEmailVerification)", e);
+    }
   }
 
   setCurrentUser({
     uid,
-    email: cleanEmail(vendorData.email),
-    emailVerified: false,
-    needsVerification: true,
+    email,
+    emailVerified: !!user.emailVerified,
+    needsVerification: !user.emailVerified,
     ...profile,
-    createdAt: new Date(),
+    createdAt: existingProfile.createdAt || new Date(),
   });
 
-  return { success: true, uid, needsVerification: true };
+  return {
+    success: true,
+    uid,
+    needsVerification: !user.emailVerified,
+    existingAccount: !createdHere,
+  };
 }
 
 /* ============================================================ RENVOYER L'EMAIL DE VÉRIFICATION ============================================================ */
