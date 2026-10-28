@@ -510,6 +510,8 @@ document.addEventListener("DOMContentLoaded", () => {
       .trim()
       .toUpperCase();
     const password = document.getElementById("vPassword")?.value || "";
+    const vendorPassword =
+      document.getElementById("vVendorPassword")?.value || "";
     const shippingRadio = document.querySelector(
       'input[name="vShipping"]:checked'
     );
@@ -521,6 +523,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!isValidCity(city)) fieldErrors.push("city");
     if (!isValidIceCin(iceCin)) fieldErrors.push("iceCin");
     if (!isValidPassword(password)) fieldErrors.push("password");
+    if (!isValidPassword(vendorPassword)) fieldErrors.push("vendorPassword");
     if (!shippingRadio) fieldErrors.push("shipping");
 
     if (fieldErrors.length) {
@@ -550,6 +553,26 @@ document.addEventListener("DOMContentLoaded", () => {
     let authResult;
     try {
       authResult = await registerVendorWithFirebase(vendorData, password);
+      const signedInUser = (await import("./firebase.js")).auth.currentUser;
+      if (!signedInUser)
+        throw new Error(
+          "Connexion manquante après vérification du compte. Reconnectez-vous puis réessayez."
+        );
+      const idToken = await signedInUser.getIdToken(true);
+      const passwordResponse = await fetch("/api/setVendorPassword", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ vendorPassword }),
+      });
+      const passwordResult = await passwordResponse.json().catch(() => ({}));
+      if (!passwordResponse.ok || !passwordResult.success)
+        throw new Error(
+          passwordResult.message ||
+            "Impossible d'enregistrer le mot de passe vendeur. Réessayez."
+        );
     } catch (err) {
       console.error("[vendor-signup] Inscription échouée :", err);
       showToast(err?.message || tr("vendor.signup.error"));
