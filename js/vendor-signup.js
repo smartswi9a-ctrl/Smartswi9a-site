@@ -2,7 +2,7 @@
 /* ============================================================
    js/vendor-signup.js
    Logique d'inscription vendeur — Lot 51
-   Version 9.3.0 — Chemin /Vendor/dashboard + gestion conversion request
+   Version 9.3.1 — Chemin /vendor/dashboard (minuscule) + conversion
    ============================================================ */
 
 import { registerVendorWithFirebase, convertUserToVendor } from "./auth.js";
@@ -507,8 +507,8 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         }
 
-        /* Construction de l'URL de redirection : /Vendor/dashboard
-           (majuscule + cleanUrls => pas de .html). */
+        /* Construction de l'URL de redirection : /vendor/dashboard
+           (minuscule + cleanUrls => pas de .html). */
         const params = new URLSearchParams();
         params.set("welcome", "1");
         params.set("verifyEmail", "1");
@@ -536,10 +536,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const queryString = params.toString() ? "?" + params.toString() : "";
         setTimeout(() => {
-            window.location.href = "/Vendor/dashboard" + queryString;
+            /* CORRECTION ICI : /vendor/dashboard en minuscule */
+            window.location.href = "/vendor/dashboard" + queryString;
         }, redirectDelayMs);
     });
 });
 
-console.log("[vendor-signup] v9.3.0 chargé (chemin /Vendor/dashboard + conversion request)");
+console.log("[vendor-signup] v9.3.1 chargé (chemin /vendor/dashboard + conversion request)");
 --- fin js/vendor-signup.js ---
