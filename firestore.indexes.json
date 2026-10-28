@@ -1,3 +1,4 @@
+--- firestore.indexes.json ---
 {
   "indexes": [
     {
@@ -156,7 +157,24 @@
         { "fieldPath": "userId", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "role", "order": "ASCENDING" },
+        { "fieldPath": "vendorInfo.status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "vendor_conversion_requests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
 }
+--- fin firestore.indexes.json ---
