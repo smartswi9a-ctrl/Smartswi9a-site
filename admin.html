@@ -42,131 +42,366 @@
     <style>
         body { padding-top: 1rem; padding-bottom: 4rem; }
         .admin-container { max-width: 1300px; margin: 2rem auto; padding: 0 1rem; }
-        .admin-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 2rem; padding: 1.5rem; background: var(--bg-card); border: 1px solid var(--border-gold); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); }
+
+        .admin-header {
+            display: flex; justify-content: space-between; align-items: center;
+            flex-wrap: wrap; gap: 1rem; margin-bottom: 2rem; padding: 1.5rem;
+            background: var(--bg-card); border: 1px solid var(--border-gold);
+            border-radius: var(--radius-lg); box-shadow: var(--shadow-sm);
+        }
         .admin-header h1 { font-family: var(--font-secondary); color: var(--gold); font-size: 1.5rem; margin: 0; }
         .admin-user-info { display: flex; align-items: center; gap: 0.8rem; font-size: 0.85rem; color: var(--text-muted); flex-wrap: wrap; }
-        .admin-tabs { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; flex-wrap: wrap; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
-        .admin-tabs button { padding: 0.6rem 1.2rem; border: 1px solid var(--border); background: transparent; color: var(--text-muted); border-radius: 30px; cursor: pointer; transition: all var(--transition-fast); font-size: 0.85rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.3rem; }
+
+        .admin-tabs {
+            display: flex; gap: 0.5rem; margin-bottom: 1.5rem; flex-wrap: wrap;
+            border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;
+        }
+        .admin-tabs button {
+            padding: 0.6rem 1.2rem; border: 1px solid var(--border);
+            background: transparent; color: var(--text-muted); border-radius: 30px;
+            cursor: pointer; transition: all var(--transition-fast);
+            font-size: 0.85rem; font-weight: 600;
+            display: inline-flex; align-items: center; gap: 0.3rem;
+        }
         .admin-tabs button:hover { border-color: var(--gold); color: var(--gold); }
         .admin-tabs button.active { background: var(--gold); color: #ffffff; border-color: var(--gold); }
-        .admin-content { display: none; } .admin-content.active { display: block; }
-        .acc-content { display: none; } .acc-content.active { display: block; }
-        .admin-login-box { max-width: 400px; margin: 4rem auto; background: var(--bg-card); border: 1px solid var(--border-gold); border-radius: var(--radius-lg); padding: 2rem; text-align: center; box-shadow: var(--shadow-md); }
+
+        .admin-content { display: none; }
+        .admin-content.active { display: block; }
+        .acc-content { display: none; }
+        .acc-content.active { display: block; }
+
+        .admin-login-box {
+            max-width: 400px; margin: 4rem auto; background: var(--bg-card);
+            border: 1px solid var(--border-gold); border-radius: var(--radius-lg);
+            padding: 2rem; text-align: center; box-shadow: var(--shadow-md);
+        }
         .admin-login-box h2 { font-family: var(--font-secondary); color: var(--gold); margin-bottom: 1rem; }
-        .admin-login-box input { width: 100%; padding: 0.8rem 1rem; margin-bottom: 0.8rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-surface); color: var(--text); font-size: 0.9rem; }
+        .admin-login-box input {
+            width: 100%; padding: 0.8rem 1rem; margin-bottom: 0.8rem;
+            border: 1px solid var(--border); border-radius: var(--radius-sm);
+            background: var(--bg-surface); color: var(--text); font-size: 0.9rem;
+        }
         .admin-login-box input:focus { border-color: var(--gold); outline: none; }
-        .admin-login-box button { width: 100%; padding: 0.8rem; background: linear-gradient(135deg, var(--gold), #7d5a1d); color: #ffffff; border: none; border-radius: 50px; font-weight: 700; cursor: pointer; font-size: 0.95rem; }
+        .admin-login-box button {
+            width: 100%; padding: 0.8rem;
+            background: linear-gradient(135deg, var(--gold), #7d5a1d);
+            color: #ffffff; border: none; border-radius: 50px;
+            font-weight: 700; cursor: pointer; font-size: 0.95rem;
+        }
+
         .admin-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
-        .admin-stat-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1.2rem; text-align: center; transition: border-color var(--transition-fast); box-shadow: var(--shadow-sm); }
+        .admin-stat-card {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--radius-md); padding: 1.2rem; text-align: center;
+            transition: border-color var(--transition-fast); box-shadow: var(--shadow-sm);
+        }
         .admin-stat-card:hover { border-color: var(--border-gold); }
         .admin-stat-card .stat-value { font-size: 1.8rem; font-weight: 800; color: var(--gold); display: block; margin-bottom: 0.3rem; }
         .admin-stat-card .stat-label { font-size: 0.8rem; color: var(--text-muted); }
-        .admin-form { background: var(--bg-card); padding: 1.5rem; border-radius: var(--radius-lg); border: 1px solid var(--border-gold); margin-bottom: 1.5rem; box-shadow: var(--shadow-sm); }
+
+        .admin-form {
+            background: var(--bg-card); padding: 1.5rem; border-radius: var(--radius-lg);
+            border: 1px solid var(--border-gold); margin-bottom: 1.5rem; box-shadow: var(--shadow-sm);
+        }
         .admin-form h3 { font-family: var(--font-secondary); color: var(--gold); margin-bottom: 1rem; font-size: 1.2rem; }
         .admin-form h4 { font-family: var(--font-secondary); color: var(--gold); margin: 1.5rem 0 0.5rem; font-size: 1.05rem; border-bottom: 1px dashed var(--border); padding-bottom: 0.3rem; }
         .admin-form label { display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.3rem; margin-top: 0.5rem; }
-        .admin-form input, .admin-form select, .admin-form textarea { width: 100%; padding: 0.6rem 0.9rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-surface); color: var(--text); font-size: 0.85rem; font-family: inherit; }
+        .admin-form input, .admin-form select, .admin-form textarea {
+            width: 100%; padding: 0.6rem 0.9rem; border: 1px solid var(--border);
+            border-radius: var(--radius-sm); background: var(--bg-surface);
+            color: var(--text); font-size: 0.85rem; font-family: inherit;
+        }
         .admin-form input:focus, .admin-form select:focus, .admin-form textarea:focus { border-color: var(--gold); outline: none; }
         .admin-form textarea { resize: vertical; min-height: 80px; }
+
         .admin-form-row { display: grid; grid-template-columns: 1fr; gap: 0.5rem; }
-        @media (min-width: 768px) { .admin-form-row { grid-template-columns: repeat(2, 1fr); gap: 0.8rem; } .admin-form-row.cols-3 { grid-template-columns: repeat(3, 1fr); } .admin-form-row.cols-4 { grid-template-columns: repeat(4, 1fr); } }
-        .admin-btn-primary { padding: 0.7rem 1.5rem; background: linear-gradient(135deg, var(--gold), #7d5a1d); color: #ffffff; border: none; border-radius: 30px; font-weight: 700; cursor: pointer; font-size: 0.9rem; margin-top: 1rem; display: inline-flex; align-items: center; gap: 0.4rem; transition: all var(--transition-spring); }
+        @media (min-width: 768px) {
+            .admin-form-row { grid-template-columns: repeat(2, 1fr); gap: 0.8rem; }
+            .admin-form-row.cols-3 { grid-template-columns: repeat(3, 1fr); }
+            .admin-form-row.cols-4 { grid-template-columns: repeat(4, 1fr); }
+        }
+
+        .admin-btn-primary {
+            padding: 0.7rem 1.5rem; background: linear-gradient(135deg, var(--gold), #7d5a1d);
+            color: #ffffff; border: none; border-radius: 30px; font-weight: 700;
+            cursor: pointer; font-size: 0.9rem; margin-top: 1rem;
+            display: inline-flex; align-items: center; gap: 0.4rem;
+            transition: all var(--transition-spring);
+        }
         .admin-btn-primary:hover { transform: scale(1.02); box-shadow: var(--shadow-gold); }
         .admin-btn-primary:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
-        .admin-btn-secondary { padding: 0.5rem 1rem; background: transparent; color: var(--text-muted); border: 1px solid var(--border); border-radius: 30px; cursor: pointer; font-size: 0.8rem; transition: all var(--transition-fast); }
+
+        .admin-btn-secondary {
+            padding: 0.5rem 1rem; background: transparent; color: var(--text-muted);
+            border: 1px solid var(--border); border-radius: 30px; cursor: pointer;
+            font-size: 0.8rem; transition: all var(--transition-fast);
+        }
         .admin-btn-secondary:hover { border-color: var(--gold); color: var(--gold); }
-        .admin-list-item { display: flex; justify-content: space-between; align-items: center; gap: 0.8rem; padding: 0.8rem 1rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 0.5rem; flex-wrap: wrap; transition: border-color var(--transition-fast); }
+
+        .admin-list-item {
+            display: flex; justify-content: space-between; align-items: center;
+            gap: 0.8rem; padding: 0.8rem 1rem; background: var(--bg-card);
+            border: 1px solid var(--border); border-radius: var(--radius-sm);
+            margin-bottom: 0.5rem; flex-wrap: wrap;
+            transition: border-color var(--transition-fast);
+        }
         .admin-list-item:hover { border-color: var(--border-gold); }
         .admin-list-item-info { flex: 1; min-width: 200px; font-size: 0.85rem; }
         .admin-list-item-info strong { color: var(--gold); }
         .admin-list-item-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; }
-        .admin-btn-icon { padding: 0.4rem 0.7rem; border-radius: 30px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer; font-size: 0.9rem; transition: all var(--transition-fast); }
+
+        .admin-btn-icon {
+            padding: 0.4rem 0.7rem; border-radius: 30px; border: 1px solid var(--border);
+            background: transparent; color: var(--text-muted); cursor: pointer;
+            font-size: 0.9rem; transition: all var(--transition-fast);
+        }
         .admin-btn-icon:hover { border-color: var(--gold); color: var(--gold); }
-        .admin-btn-danger { padding: 0.4rem 0.7rem; background: var(--danger); color: #ffffff; border: none; border-radius: 30px; cursor: pointer; font-size: 0.8rem; font-weight: 600; }
-        .admin-btn-approve { padding: 0.4rem 0.9rem; background: var(--success); color: #ffffff; border: none; border-radius: 30px; cursor: pointer; font-size: 0.8rem; font-weight: 600; }
-        .admin-preview-img { max-width: 100px; max-height: 100px; object-fit: contain; margin-top: 0.5rem; border: 1px solid var(--border); border-radius: var(--radius-sm); display: none; }
+        .admin-btn-danger {
+            padding: 0.4rem 0.7rem; background: var(--danger); color: #ffffff;
+            border: none; border-radius: 30px; cursor: pointer;
+            font-size: 0.8rem; font-weight: 600;
+        }
+        .admin-btn-approve {
+            padding: 0.4rem 0.9rem; background: var(--success); color: #ffffff;
+            border: none; border-radius: 30px; cursor: pointer;
+            font-size: 0.8rem; font-weight: 600;
+        }
+
+        .admin-preview-img {
+            max-width: 100px; max-height: 100px; object-fit: contain;
+            margin-top: 0.5rem; border: 1px solid var(--border);
+            border-radius: var(--radius-sm); display: none;
+        }
         .admin-gallery-preview { display: flex; gap: 0.3rem; flex-wrap: wrap; margin-top: 0.5rem; }
-        .admin-gallery-preview img { width: 60px; height: 60px; object-fit: cover; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+        .admin-gallery-preview img {
+            width: 60px; height: 60px; object-fit: cover;
+            border: 1px solid var(--border); border-radius: var(--radius-sm);
+        }
+
         .admin-loading { text-align: center; padding: 1rem; color: var(--text-muted); }
         .admin-empty { text-align: center; padding: 2rem; color: var(--text-muted); }
+
         .admin-search-bar { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
-        .admin-search-bar input, .admin-search-bar select { padding: 0.6rem 1rem; border: 1px solid var(--border); border-radius: 30px; background: var(--bg-surface); color: var(--text); font-size: 0.85rem; flex: 1; min-width: 150px; }
+        .admin-search-bar input, .admin-search-bar select {
+            padding: 0.6rem 1rem; border: 1px solid var(--border);
+            border-radius: 30px; background: var(--bg-surface);
+            color: var(--text); font-size: 0.85rem; flex: 1; min-width: 150px;
+        }
         .admin-search-bar input:focus, .admin-search-bar select:focus { border-color: var(--gold); outline: none; }
+
         .admin-signup-filters { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 1rem; }
-        .admin-signup-filters button { padding: 0.4rem 1rem; border: 1px solid var(--border); background: transparent; color: var(--text-muted); border-radius: 30px; cursor: pointer; font-size: 0.8rem; font-weight: 600; transition: all var(--transition-fast); }
+        .admin-signup-filters button {
+            padding: 0.4rem 1rem; border: 1px solid var(--border);
+            background: transparent; color: var(--text-muted); border-radius: 30px;
+            cursor: pointer; font-size: 0.8rem; font-weight: 600;
+            transition: all var(--transition-fast);
+        }
         .admin-signup-filters button:hover { border-color: var(--gold); color: var(--gold); }
         .admin-signup-filters button.active { background: var(--gold); color: #ffffff; border-color: var(--gold); }
-        .admin-tool-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.5rem; margin-bottom: 1rem; box-shadow: var(--shadow-sm); }
+
+        .admin-tool-card {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--radius-lg); padding: 1.5rem;
+            margin-bottom: 1rem; box-shadow: var(--shadow-sm);
+        }
         .admin-tool-card h4 { font-family: var(--font-secondary); color: var(--gold); font-size: 1.1rem; margin-bottom: 0.5rem; }
         .admin-tool-card p { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem; line-height: 1.6; }
-        .admin-tool-log { margin-top: 1rem; padding: 1rem; background: #1a1a2e; border: 1px solid var(--border); border-radius: var(--radius-sm); font-family: 'Courier New', monospace; font-size: 0.8rem; color: #2ecc71; max-height: 300px; overflow-y: auto; white-space: pre-wrap; display: none; }
+        .admin-tool-log {
+            margin-top: 1rem; padding: 1rem; background: #1a1a2e;
+            border: 1px solid var(--border); border-radius: var(--radius-sm);
+            font-family: 'Courier New', monospace; font-size: 0.8rem;
+            color: #2ecc71; max-height: 300px; overflow-y: auto;
+            white-space: pre-wrap; display: none;
+        }
         .admin-tool-log.active { display: block; }
         .admin-tool-log .error { color: #e74c3c; }
-        .admin-blog-item { display: flex; gap: 1rem; padding: 1rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 0.8rem; transition: border-color var(--transition-fast); }
+
+        .admin-blog-item {
+            display: flex; gap: 1rem; padding: 1rem; background: var(--bg-card);
+            border: 1px solid var(--border); border-radius: var(--radius-sm);
+            margin-bottom: 0.8rem; transition: border-color var(--transition-fast);
+        }
         .admin-blog-item:hover { border-color: var(--border-gold); }
-        .admin-blog-thumb { width: 80px; height: 80px; border-radius: var(--radius-sm); object-fit: cover; background: var(--bg-surface); flex-shrink: 0; }
+        .admin-blog-thumb {
+            width: 80px; height: 80px; border-radius: var(--radius-sm);
+            object-fit: cover; background: var(--bg-surface); flex-shrink: 0;
+        }
         .admin-blog-info { flex: 1; min-width: 0; }
         .admin-blog-info h4 { font-size: 1rem; color: var(--text); margin-bottom: 0.3rem; font-family: var(--font-secondary); }
         .admin-blog-info .meta { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.5rem; }
         .admin-blog-info .status { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 30px; font-size: 0.7rem; font-weight: 600; }
         .admin-blog-info .status.draft { background: var(--warning-bg); color: var(--warning); }
         .admin-blog-info .status.published { background: var(--success-bg); color: var(--success); }
-        .finance-slider-box { background: var(--bg-surface); border: 1px solid var(--border-gold); border-radius: var(--radius-sm); padding: 1rem; margin: 1rem 0; }
+
+        .finance-slider-box {
+            background: var(--bg-surface); border: 1px solid var(--border-gold);
+            border-radius: var(--radius-sm); padding: 1rem; margin: 1rem 0;
+        }
         .finance-slider-box label { display: flex; justify-content: space-between; font-weight: 700; color: var(--text); margin-bottom: 0.5rem; }
         .finance-slider-box input[type="range"] { width: 100%; accent-color: var(--gold); }
-        .acc-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; background: var(--bg-card); border-radius: var(--radius-md); overflow: hidden; box-shadow: var(--shadow-sm); }
-        .acc-table th { background: var(--bg-surface); padding: 0.8rem; text-align: left; border-bottom: 2px solid var(--border); color: var(--text); }
+
+        .acc-table {
+            width: 100%; border-collapse: collapse; font-size: 0.85rem;
+            background: var(--bg-card); border-radius: var(--radius-md);
+            overflow: hidden; box-shadow: var(--shadow-sm);
+        }
+        .acc-table th {
+            background: var(--bg-surface); padding: 0.8rem; text-align: left;
+            border-bottom: 2px solid var(--border); color: var(--text);
+        }
         .acc-table td { padding: 0.7rem; border-bottom: 1px solid var(--border); }
-        .chart-period-btn.active { background: var(--gold); color: #ffffff; border-color: var(--gold); }
-        .coupon-card { display: flex; flex-direction: column; gap: 0.6rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1rem; margin-bottom: 0.8rem; transition: border-color var(--transition-fast), opacity var(--transition-fast); box-shadow: var(--shadow-sm); }
+
+        .chart-period-btn.active {
+            background: var(--gold);
+            color: #ffffff;
+            border-color: var(--gold);
+        }
+
+        .coupon-card {
+            display: flex; flex-direction: column; gap: 0.6rem;
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--radius-md); padding: 1rem; margin-bottom: 0.8rem;
+            transition: border-color var(--transition-fast), opacity var(--transition-fast);
+            box-shadow: var(--shadow-sm);
+        }
         .coupon-card:hover { border-color: var(--border-gold); }
         .coupon-card.is-inactive { opacity: 0.65; background: rgba(0,0,0,0.02); }
         .coupon-card.is-expired { border-color: var(--danger); }
+
         .coupon-header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.5rem; }
-        .coupon-code-badge { font-family: 'Courier New', monospace; font-weight: 800; font-size: 1.1rem; letter-spacing: 2px; padding: 0.35rem 0.9rem; background: linear-gradient(135deg, var(--gold), #7d5a1d); color: #ffffff; border-radius: 8px; box-shadow: 0 2px 8px rgba(165,123,46,0.3); display: inline-block; }
-        .coupon-type-badge { font-size: 0.75rem; font-weight: 700; padding: 0.2rem 0.6rem; border-radius: 30px; border: 1px solid currentColor; display: inline-block; }
+        .coupon-code-badge {
+            font-family: 'Courier New', monospace; font-weight: 800; font-size: 1.1rem;
+            letter-spacing: 2px; padding: 0.35rem 0.9rem;
+            background: linear-gradient(135deg, var(--gold), #7d5a1d);
+            color: #ffffff; border-radius: 8px; box-shadow: 0 2px 8px rgba(165,123,46,0.3);
+            display: inline-block;
+        }
+
+        .coupon-type-badge {
+            font-size: 0.75rem; font-weight: 700; padding: 0.2rem 0.6rem;
+            border-radius: 30px; border: 1px solid currentColor; display: inline-block;
+        }
         .coupon-type-percentage { color: #3498db; background: rgba(52,152,219,0.1); }
         .coupon-type-fixed { color: var(--gold); background: rgba(165,123,46,0.1); }
         .coupon-type-free_shipping { color: #2ecc71; background: rgba(46,204,113,0.1); }
-        .coupon-status-badge { font-size: 0.7rem; font-weight: 700; padding: 0.2rem 0.6rem; border-radius: 30px; text-transform: uppercase; letter-spacing: 0.5px; display: inline-block; }
+
+        .coupon-status-badge {
+            font-size: 0.7rem; font-weight: 700; padding: 0.2rem 0.6rem;
+            border-radius: 30px; text-transform: uppercase; letter-spacing: 0.5px;
+            display: inline-block;
+        }
         .coupon-status-active { background: var(--success-bg); color: var(--success); }
         .coupon-status-inactive { background: var(--text-dim); color: #ffffff; }
         .coupon-status-expired { background: var(--danger-bg); color: var(--danger); }
+
         .coupon-meta { display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; font-size: 0.8rem; color: var(--text-muted); }
         .coupon-meta strong { color: var(--text); }
+
         .coupon-progress { height: 6px; background: rgba(0,0,0,0.08); border-radius: 30px; overflow: hidden; margin-top: 0.2rem; }
-        .coupon-progress-fill { height: 100%; background: linear-gradient(90deg, var(--gold), #7d5a1d); border-radius: 30px; transition: width 0.4s ease; }
+        .coupon-progress-fill {
+            height: 100%; background: linear-gradient(90deg, var(--gold), #7d5a1d);
+            border-radius: 30px; transition: width 0.4s ease;
+        }
         .coupon-progress-fill.full { background: linear-gradient(90deg, var(--danger), #7d241a); }
+
         .coupon-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.3rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
         .coupon-desc { font-size: 0.78rem; color: var(--text-dim); font-style: italic; margin-top: -0.2rem; }
-        #variantsContainer { display: none; background: var(--bg-surface); padding: 1rem; border-radius: var(--radius-sm); border: 1px solid var(--border); max-height: 300px; overflow-y: auto; margin-bottom: 1rem; }
-        .admin-alert-banner { position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg-card); border-top: 2px solid var(--gold); box-shadow: 0 -4px 20px rgba(0,0,0,0.08); z-index: 9999; padding: 0.55rem 1rem; animation: slideUpBanner 0.3s ease-out; }
+
+        #variantsContainer {
+            display: none; background: var(--bg-surface); padding: 1rem;
+            border-radius: var(--radius-sm); border: 1px solid var(--border);
+            max-height: 300px; overflow-y: auto; margin-bottom: 1rem;
+        }
+
+        .admin-alert-banner {
+            position: fixed; bottom: 0; left: 0; right: 0;
+            background: var(--bg-card); border-top: 2px solid var(--gold);
+            box-shadow: 0 -4px 20px rgba(0,0,0,0.08);
+            z-index: 9999; padding: 0.55rem 1rem;
+            animation: slideUpBanner 0.3s ease-out;
+        }
         @keyframes slideUpBanner { from { transform: translateY(100%); } to { transform: translateY(0); } }
+
         .admin-alert-content { max-width: 1300px; margin: 0 auto; display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap; }
         .admin-alert-title { font-weight: 700; color: var(--text); font-size: 0.8rem; display: flex; align-items: center; white-space: nowrap; margin-right: 0.5rem; }
         .admin-alert-items { display: flex; gap: 0.4rem; flex-wrap: wrap; flex: 1; }
-        .alert-badge { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.35rem 0.7rem; border-radius: 30px; font-size: 0.75rem; font-weight: 700; cursor: pointer; border: 1px solid transparent; transition: all 0.15s; position: relative; }
+
+        .alert-badge {
+            display: inline-flex; align-items: center; gap: 0.3rem;
+            padding: 0.35rem 0.7rem; border-radius: 30px;
+            font-size: 0.75rem; font-weight: 700; cursor: pointer;
+            border: 1px solid transparent; transition: all 0.15s; position: relative;
+        }
         .alert-badge:hover { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
         .alert-badge:hover .alert-tooltip { opacity: 1; visibility: visible; transform: translate(-50%, -100%) translateY(-5px); }
+
         .alert-danger { background: rgba(176, 58, 46, 0.1); color: var(--danger); border-color: rgba(176, 58, 46, 0.3); }
         .alert-warning { background: rgba(230, 126, 34, 0.1); color: var(--warning); border-color: rgba(230, 126, 34, 0.3); }
         .alert-info { background: rgba(52, 152, 219, 0.1); color: #3498db; border-color: rgba(52, 152, 219, 0.3); }
-        .alert-tooltip { position: absolute; bottom: 100%; left: 50%; transform: translate(-50%, -100%) translateY(-10px); background: #1a1a2e; color: #fff; padding: 0.5rem 0.8rem; border-radius: 8px; font-size: 0.72rem; font-weight: 500; white-space: nowrap; box-shadow: 0 4px 12px rgba(0,0,0,0.2); opacity: 0; visibility: hidden; transition: all 0.2s; pointer-events: none; z-index: 10001; max-width: 300px; white-space: normal; line-height: 1.4; text-align: center; }
-        .alert-tooltip::after { content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); border: 6px solid transparent; border-top-color: #1a1a2e; }
-        .admin-alert-close { background: transparent; border: none; font-size: 1.1rem; color: var(--text-muted); cursor: pointer; padding: 0.3rem 0.6rem; border-radius: 50%; transition: all 0.15s; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+
+        .alert-tooltip {
+            position: absolute; bottom: 100%; left: 50%;
+            transform: translate(-50%, -100%) translateY(-10px);
+            background: #1a1a2e; color: #fff; padding: 0.5rem 0.8rem;
+            border-radius: 8px; font-size: 0.72rem; font-weight: 500;
+            white-space: nowrap; box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            opacity: 0; visibility: hidden; transition: all 0.2s;
+            pointer-events: none; z-index: 10001; max-width: 300px;
+            white-space: normal; line-height: 1.4; text-align: center;
+        }
+        .alert-tooltip::after {
+            content: ''; position: absolute; top: 100%; left: 50%;
+            transform: translateX(-50%); border: 6px solid transparent; border-top-color: #1a1a2e;
+        }
+
+        .admin-alert-close {
+            background: transparent; border: none; font-size: 1.1rem;
+            color: var(--text-muted); cursor: pointer; padding: 0.3rem 0.6rem;
+            border-radius: 50%; transition: all 0.15s; display: flex;
+            align-items: center; justify-content: center; flex-shrink: 0;
+        }
         .admin-alert-close:hover { background: var(--danger-bg); color: var(--danger); }
-        @media (max-width: 700px) { .admin-alert-title { display: none; } .admin-alert-items { overflow-x: auto; flex-wrap: nowrap; padding-bottom: 0.2rem; scrollbar-width: thin; } .admin-alert-items::-webkit-scrollbar { height: 4px; } .admin-alert-items::-webkit-scrollbar-thumb { background: var(--border-gold); border-radius: 4px; } .alert-badge { white-space: nowrap; flex-shrink: 0; } .alert-tooltip { display: none; } }
-        #modeChoiceScreen { min-height: 100vh; display: none; align-items: center; justify-content: center; padding: 1rem; flex-direction: column; text-align: center; }
+
+        @media (max-width: 700px) {
+            .admin-alert-title { display: none; }
+            .admin-alert-items { overflow-x: auto; flex-wrap: nowrap; padding-bottom: 0.2rem; scrollbar-width: thin; }
+            .admin-alert-items::-webkit-scrollbar { height: 4px; }
+            .admin-alert-items::-webkit-scrollbar-thumb { background: var(--border-gold); border-radius: 4px; }
+            .alert-badge { white-space: nowrap; flex-shrink: 0; }
+            .alert-tooltip { display: none; }
+        }
+
+        #modeChoiceScreen {
+            min-height: 100vh; display: none; align-items: center; justify-content: center;
+            padding: 1rem; flex-direction: column; text-align: center;
+        }
         #modeChoiceScreen h1 { font-family: var(--font-secondary); color: var(--gold); margin-bottom: 0.5rem; font-size: 1.5rem; }
         #modeChoiceScreen p { color: var(--text-muted); margin-bottom: 2rem; font-size: 0.9rem; }
-        .mode-choice-btn { border: none; border-radius: var(--radius-lg); padding: 1.5rem; cursor: pointer; text-align: left; color: #fff; transition: transform 0.2s, box-shadow 0.2s; width: 100%; }
+        .mode-choice-btn {
+            border: none; border-radius: var(--radius-lg); padding: 1.5rem;
+            cursor: pointer; text-align: left; color: #fff;
+            transition: transform 0.2s, box-shadow 0.2s; width: 100%;
+        }
         .mode-choice-btn:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
         .mode-choice-btn .mode-title { font-size: 1.5rem; font-weight: 800; margin-bottom: 0.3rem; }
         .mode-choice-btn .mode-desc { font-size: 0.85rem; opacity: 0.9; }
         .mode-choice-btn.real { background: linear-gradient(135deg, #2ecc71, #1e7e34); }
         .mode-choice-btn.test { background: linear-gradient(135deg, #dc3545, #a71d2a); }
-        #testModeBanner { position: fixed; top: 0; left: 0; right: 0; background: linear-gradient(90deg, #dc3545, #a71d2a); color: #fff; text-align: center; padding: 0.5rem 1rem; font-weight: 700; font-size: 0.85rem; z-index: 9999; display: none; justify-content: center; align-items: center; gap: 0.8rem; flex-wrap: wrap; }
-        #testModeBanner button { background: rgba(255,255,255,0.2); border: 1px solid #fff; color: #fff; padding: 0.25rem 0.7rem; border-radius: 20px; cursor: pointer; font-size: 0.75rem; font-weight: 700; }
+
+        #testModeBanner {
+            position: fixed; top: 0; left: 0; right: 0;
+            background: linear-gradient(90deg, #dc3545, #a71d2a);
+            color: #fff; text-align: center; padding: 0.5rem 1rem;
+            font-weight: 700; font-size: 0.85rem; z-index: 9999;
+            display: none; justify-content: center; align-items: center;
+            gap: 0.8rem; flex-wrap: wrap;
+        }
+        #testModeBanner button {
+            background: rgba(255,255,255,0.2); border: 1px solid #fff;
+            color: #fff; padding: 0.25rem 0.7rem; border-radius: 20px;
+            cursor: pointer; font-size: 0.75rem; font-weight: 700;
+        }
     </style>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -208,7 +443,14 @@
         </p>
     </div>
 
-    <div class="admin-container" id="adminPanel" style="display:none;">
+    <!-- ═══════════════════════════════════════════════════════════════ -->
+    <!-- FIN DE LA PARTIE 1/2                                          -->
+    <!-- La PARTIE 2/2 (prochain message) commence par :               -->
+    <!--   <div class="admin-container" id="adminPanel" ...>            -->
+    <!-- Elle contient : 12 onglets + migration Speedaf→Livo +         -->
+    <!-- alert banner + pickup modal + toast + scripts + </html>       -->
+    <!-- ═══════════════════════════════════════════════════════════════ -->
+        <div class="admin-container" id="adminPanel" style="display:none;">
 
         <div class="admin-header">
             <h1>⚙️ Administration Smart Swi9a</h1>
@@ -235,11 +477,9 @@
         </div>
 
         <div class="admin-content active" id="tab-dashboard">
-            <div class="admin-stats" id="adminStats">
+                        <div class="admin-stats" id="adminStats">
                 <div class="admin-stat-card"><span class="stat-value" id="statProducts">—</span><span class="stat-label">📦 Produits</span></div>
                 <div class="admin-stat-card"><span class="stat-value" id="statProductsPending">—</span><span class="stat-label">⏳ Produits à valider</span></div>
-                <!-- v9.1.0 : nouvelle carte KPI Vendeurs en attente -->
-                <div class="admin-stat-card"><span class="stat-value" id="statVendorsPending">—</span><span class="stat-label">🏪 Vendeurs à approuver</span></div>
                 <div class="admin-stat-card"><span class="stat-value" id="statOrders">—</span><span class="stat-label">📋 Commandes</span></div>
                 <div class="admin-stat-card"><span class="stat-value" id="statUsers">—</span><span class="stat-label">👥 Clients</span></div>
                 <div class="admin-stat-card"><span class="stat-value" id="statReviewsPending">—</span><span class="stat-label">⭐ Avis en attente</span></div>
@@ -253,6 +493,7 @@
             <div class="admin-form">
                 <h3 id="productFormTitle">➕ Ajouter un produit</h3>
                 <input type="hidden" id="productEditId">
+
                 <div class="admin-form-row">
                     <div><label>🇫🇷 Nom (Français) *</label><input type="text" id="pNameFr" placeholder="Ex: Prise Connectée WiFi"></div>
                     <div><label>🇲🇦 Nom (Arabe)</label><input type="text" id="pNameAr" placeholder="اسم المنتج"></div>
@@ -262,23 +503,46 @@
                     <div><label>🔗 Slug (URL) *</label><input type="text" id="pSlug" placeholder="prise-connectee-wifi"></div>
                 </div>
                 <div class="admin-form-row">
-                    <div><label>🏷️ SKU (Référence interne) *</label><div style="display:flex; gap:0.4rem;"><input type="text" id="pSku" placeholder="Ex: SW-WEAR-2410-A1B" style="font-family:'Courier New', monospace; font-weight:700;"><button type="button" id="generateSkuBtn" class="admin-btn-secondary" style="padding:0 0.8rem; white-space:nowrap;" title="Générer un SKU">🎲</button></div></div>
-                    <div><label>📂 Catégorie Principale *</label><select id="pParentCategory"></select></div>
+                    <div>
+                        <label>🏷️ SKU (Référence interne) *</label>
+                        <div style="display:flex; gap:0.4rem;">
+                            <input type="text" id="pSku" placeholder="Ex: SW-WEAR-2410-A1B" style="font-family:'Courier New', monospace; font-weight:700;">
+                            <button type="button" id="generateSkuBtn" class="admin-btn-secondary" style="padding:0 0.8rem; white-space:nowrap;" title="Générer un SKU">🎲</button>
+                        </div>
+                    </div>
+                    <div>
+                        <label>📂 Catégorie Principale *</label>
+                        <select id="pParentCategory"></select>
+                    </div>
                 </div>
                 <div class="admin-form-row">
-                    <div><label>📂 Sous-Catégorie *</label><select id="pCategory"></select></div>
+                    <div>
+                        <label>📂 Sous-Catégorie *</label>
+                        <select id="pCategory"></select>
+                    </div>
                 </div>
+
                 <div class="admin-form-row cols-4">
                     <div><label>💰 Prix de base (MAD) *</label><input type="number" id="pPrice" placeholder="50" min="0"></div>
-                    <div><label>➕ Frais Logistique (+5 DH)</label><div style="display:flex; align-items:center; gap:0.4rem; height: 38px;"><input type="checkbox" id="pLogisticsFee" checked style="width:auto; margin:0;"><span style="font-size:0.75rem; color:var(--success); font-weight:700;">Ajouter 5 DH</span></div></div>
+                    <div>
+                        <label>➕ Frais Logistique (+5 DH)</label>
+                        <div style="display:flex; align-items:center; gap:0.4rem; height: 38px;">
+                            <input type="checkbox" id="pLogisticsFee" checked style="width:auto; margin:0;">
+                            <span style="font-size:0.75rem; color:var(--success); font-weight:700;">Ajouter 5 DH</span>
+                        </div>
+                    </div>
                     <div><label>💰 Ancien prix (MAD)</label><input type="number" id="pOldPrice" placeholder="199" min="0"></div>
                     <div><label>💸 Prix d'achat (MAD)</label><input type="number" id="pPurchasePrice" placeholder="25" min="0"></div>
                 </div>
                 <div class="admin-form-row cols-4" style="margin-top:0.5rem;">
                     <div><label>📦 Stock *</label><input type="number" id="pStock" placeholder="10" min="0"></div>
                     <div><label>⭐ Note moyenne</label><input type="number" id="pRating" placeholder="4.8" min="0" max="5" step="0.1"></div>
-                    <div style="display:flex;align-items:center;gap:0.4rem;color:var(--text);font-size:0.9rem; margin-top:1.5rem;"><input type="checkbox" id="pIsNew" style="width:auto;margin:0;"><label for="pIsNew" style="margin:0;cursor:pointer;">🆕 Nouveau Produit</label></div>
+                    <div style="display:flex;align-items:center;gap:0.4rem;color:var(--text);font-size:0.9rem; margin-top:1.5rem;">
+                        <input type="checkbox" id="pIsNew" style="width:auto;margin:0;">
+                        <label for="pIsNew" style="margin:0;cursor:pointer;">🆕 Nouveau Produit</label>
+                    </div>
                 </div>
+
                 <h4>📏 Dimensions & Poids (Requis pour Livo)</h4>
                 <div class="admin-form-row cols-4">
                     <div><label>Poids (g)</label><input type="number" id="pWeight" placeholder="500" min="0"></div>
@@ -286,40 +550,69 @@
                     <div><label>Largeur (cm)</label><input type="number" id="pWidth" placeholder="15" min="0" step="0.1"></div>
                     <div><label>Hauteur (cm)</label><input type="number" id="pHeight" placeholder="10" min="0" step="0.1"></div>
                 </div>
+
                 <h4>🎨 Variantes (Tailles / Couleurs)</h4>
                 <div class="admin-form-row">
                     <div><label>Tailles (séparées par virgule)</label><input type="text" id="pSizes" placeholder="S, M, L, XL"></div>
                     <div><label>Couleurs (séparées par virgule)</label><input type="text" id="pColors" placeholder="Rouge, Bleu, Noir"></div>
                 </div>
                 <button type="button" class="admin-btn-secondary" id="generateVariantsBtn" style="margin-top:0.5rem;margin-bottom:1rem;">🔄 Générer les combinaisons</button>
+
                 <div id="variantsContainer">
                     <p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.5rem;">Ajustez le stock et le prix pour chaque combinaison :</p>
-                    <table class="acc-table" id="variantsTable"><thead><tr><th>Combinaison</th><th>Prix (MAD)</th><th>Stock</th></tr></thead><tbody></tbody></table>
+                    <table class="acc-table" id="variantsTable">
+                        <thead><tr><th>Combinaison</th><th>Prix (MAD)</th><th>Stock</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
                 </div>
+
                 <div style="margin-top:1rem; padding:1rem; background:rgba(var(--gold-rgb), 0.05); border:1px solid var(--border-gold); border-radius:var(--radius-sm);">
-                    <div style="display:flex;align-items:center;gap:0.4rem;color:var(--text);font-size:0.9rem;"><input type="checkbox" id="pSizeGuide" style="width:auto;margin:0;"><label for="pSizeGuide" style="margin:0;cursor:pointer;font-weight:600;">📏 Activer le Guide des Tailles (US / EU)</label></div>
+                    <div style="display:flex;align-items:center;gap:0.4rem;color:var(--text);font-size:0.9rem;">
+                        <input type="checkbox" id="pSizeGuide" style="width:auto;margin:0;">
+                        <label for="pSizeGuide" style="margin:0;cursor:pointer;font-weight:600;">📏 Activer le Guide des Tailles (US / EU)</label>
+                    </div>
                 </div>
-                <label>🇫🇷 Description (Français)</label><textarea id="pDescFr" placeholder="Description en français..."></textarea>
-                <label>🇲🇦 Description (Arabe)</label><textarea id="pDescAr" placeholder="الوصف بالعربية..."></textarea>
-                <label>🇬🇧 Description (Anglais)</label><textarea id="pDescEn" placeholder="Description in English..."></textarea>
-                <label>🇫🇷 Caractéristiques FR (une par ligne)</label><textarea id="pFeaturesFr" placeholder="Bluetooth 5.3&#10;Autonomie 30h"></textarea>
-                <label>🇲🇦 Caractéristiques AR (une par ligne)</label><textarea id="pFeaturesAr" placeholder="بلوتوث 5.3&#10;بطارية 30 ساعة"></textarea>
-                <label>🇬🇧 Caractéristiques EN (une par ligne)</label><textarea id="pFeaturesEn" placeholder="Bluetooth 5.3&#10;30h battery"></textarea>
-                <label>📸 Image principale (URL ou upload)</label><input type="text" id="pImg" placeholder="https://... ou /photos/image.jpg">
-                <input type="file" id="pImgFile" accept="image/*" style="margin-top:0.5rem;"><img id="pImgPreview" class="admin-preview-img" alt="Aperçu">
-                <label>🖼️ Galerie (URLs séparées par des virgules, ou upload multiple)</label><input type="text" id="pGallery" placeholder="url1, url2, url3">
-                <input type="file" id="pGalleryFiles" accept="image/*" multiple style="margin-top:0.5rem;"><div class="admin-gallery-preview" id="pGalleryPreview"></div>
+
+                <label>🇫🇷 Description (Français)</label>
+                <textarea id="pDescFr" placeholder="Description en français..."></textarea>
+                <label>🇲🇦 Description (Arabe)</label>
+                <textarea id="pDescAr" placeholder="الوصف بالعربية..."></textarea>
+                <label>🇬🇧 Description (Anglais)</label>
+                <textarea id="pDescEn" placeholder="Description in English..."></textarea>
+                <label>🇫🇷 Caractéristiques FR (une par ligne)</label>
+                <textarea id="pFeaturesFr" placeholder="Bluetooth 5.3&#10;Autonomie 30h"></textarea>
+                <label>🇲🇦 Caractéristiques AR (une par ligne)</label>
+                <textarea id="pFeaturesAr" placeholder="بلوتوث 5.3&#10;بطارية 30 ساعة"></textarea>
+                <label>🇬🇧 Caractéristiques EN (une par ligne)</label>
+                <textarea id="pFeaturesEn" placeholder="Bluetooth 5.3&#10;30h battery"></textarea>
+
+                <label>📸 Image principale (URL ou upload)</label>
+                <input type="text" id="pImg" placeholder="https://... ou /photos/image.jpg">
+                <input type="file" id="pImgFile" accept="image/*" style="margin-top:0.5rem;">
+                <img id="pImgPreview" class="admin-preview-img" alt="Aperçu">
+
+                <label>🖼️ Galerie (URLs séparées par des virgules, ou upload multiple)</label>
+                <input type="text" id="pGallery" placeholder="url1, url2, url3">
+                <input type="file" id="pGalleryFiles" accept="image/*" multiple style="margin-top:0.5rem;">
+                <div class="admin-gallery-preview" id="pGalleryPreview"></div>
+
                 <label>🎥 Vidéo de démonstration (Nom du fichier R2)</label>
-                <div style="display:flex;gap:0.5rem;align-items:center;"><input type="text" id="pVideo" placeholder="Ex: demo-montre.mp4" style="flex:1;"><button type="button" id="clearVideoBtn" class="admin-btn-secondary" style="white-space:nowrap;">❌ Effacer</button></div>
+                <div style="display:flex;gap:0.5rem;align-items:center;">
+                    <input type="text" id="pVideo" placeholder="Ex: demo-montre.mp4" style="flex:1;">
+                    <button type="button" id="clearVideoBtn" class="admin-btn-secondary" style="white-space:nowrap;">❌ Effacer</button>
+                </div>
+
                 <div style="display:flex;gap:0.5rem;margin-top:1rem;flex-wrap:wrap;">
                     <button class="admin-btn-primary" id="saveProductBtn">💾 <span id="saveProductBtnText">Enregistrer le produit</span></button>
                     <button class="admin-btn-secondary" id="cancelProductEdit" style="display:none;">❌ Annuler la modification</button>
                 </div>
             </div>
+
             <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.8rem;margin-bottom:1rem;">
                 <h3 style="font-family:var(--font-secondary);color:var(--gold);margin:0;">📦 Liste des produits</h3>
                 <button class="admin-btn-secondary" id="exportProductsCSVBtn">📥 Exporter CSV</button>
             </div>
+
             <div class="admin-search-bar">
                 <input type="text" id="productSearchAdmin" placeholder="🔍 Rechercher un produit...">
                 <select id="productCategoryFilter"><option value="all">Toutes catégories</option></select>
@@ -343,11 +636,11 @@
                 <button data-vendor-filter="suspended">🚫 Suspendus</button>
                 <button data-vendor-filter="rejected">❌ Rejetés</button>
                 <button data-vendor-filter="outdated">📜 Contrats obsolètes</button>
-                <!-- v9.1.0 : nouveau filtre Demandes de conversion -->
-                <button data-vendor-filter="conversions">🔄 Demandes de conversion</button>
                 <button data-vendor-filter="all">📊 Tous</button>
             </div>
-            <div class="admin-search-bar"><input type="text" id="vendorSearchAdmin" placeholder="🔍 Rechercher par boutique, email ou téléphone..."></div>
+            <div class="admin-search-bar">
+                <input type="text" id="vendorSearchAdmin" placeholder="🔍 Rechercher par boutique, email ou téléphone...">
+            </div>
             <div id="adminVendorsList"><div class="admin-loading">⏳ Chargement des vendeurs...</div></div>
         </div>
 
@@ -359,12 +652,14 @@
                     <button class="admin-btn-primary" id="syncAllLivoBtn" style="margin:0;">🔄 Synchroniser</button>
                 </div>
             </div>
+
             <div class="admin-stats" style="margin-bottom:1.5rem;">
                 <div class="admin-stat-card"><span class="stat-value" id="livoStatPending">—</span><span class="stat-label">⏳ À expédier</span></div>
                 <div class="admin-stat-card"><span class="stat-value" id="livoStatShipping">—</span><span class="stat-label">🚚 En cours</span></div>
                 <div class="admin-stat-card"><span class="stat-value" id="livoStatDelivered">—</span><span class="stat-label">📦 Livrés</span></div>
                 <div class="admin-stat-card"><span class="stat-value" id="livoStatStorage">—</span><span class="stat-label">🏬 Stockés (Max 10)</span></div>
             </div>
+
             <div class="admin-search-bar">
                 <input type="text" id="livoSearchAdmin" placeholder="🔍 Rechercher...">
                 <select id="livoStatusFilter">
@@ -386,7 +681,9 @@
                 <button data-signup-filter="google">🔵 Google</button>
                 <button data-signup-filter="facebook">📘 Facebook</button>
             </div>
-            <div class="admin-search-bar"><input type="text" id="userSearchAdmin" placeholder="🔍 Rechercher..."></div>
+            <div class="admin-search-bar">
+                <input type="text" id="userSearchAdmin" placeholder="🔍 Rechercher...">
+            </div>
             <div id="adminUsersList"><div class="admin-loading">⏳ Chargement...</div></div>
         </div>
 
@@ -408,11 +705,16 @@
                     <div><label>📌 Statut *</label><select id="bStatus"><option value="draft">📝 Brouillon</option><option value="published">✅ Publié</option></select></div>
                     <div><label>✍️ Auteur</label><input type="text" id="bAuthor" value="Smart Swi9a"></div>
                 </div>
-                <label>💬 Extrait</label><textarea id="bExcerpt" maxlength="250" style="min-height:60px;"></textarea>
-                <label>📄 Contenu *</label><textarea id="bContent" rows="10" style="min-height:200px;"></textarea>
-                <label>🏷️ Tags</label><input type="text" id="bTags">
-                <label>🖼️ Image de couverture</label><input type="text" id="bImage">
-                <input type="file" id="bImageFile" accept="image/*" style="margin-top:0.5rem;"><img id="bImagePreview" class="admin-preview-img" style="max-width:200px;max-height:150px;">
+                <label>💬 Extrait</label>
+                <textarea id="bExcerpt" maxlength="250" style="min-height:60px;"></textarea>
+                <label>📄 Contenu *</label>
+                <textarea id="bContent" rows="10" style="min-height:200px;"></textarea>
+                <label>🏷️ Tags</label>
+                <input type="text" id="bTags">
+                <label>🖼️ Image de couverture</label>
+                <input type="text" id="bImage">
+                <input type="file" id="bImageFile" accept="image/*" style="margin-top:0.5rem;">
+                <img id="bImagePreview" class="admin-preview-img" style="max-width:200px;max-height:150px;">
                 <div style="display:flex;gap:0.5rem;margin-top:1rem;flex-wrap:wrap;">
                     <button class="admin-btn-primary" id="saveBlogBtn">💾 <span id="saveBlogBtnText">Enregistrer</span></button>
                     <button class="admin-btn-secondary" id="cancelBlogEdit" style="display:none;">❌ Annuler</button>
@@ -432,14 +734,31 @@
                     <div><label>📝 Description</label><input type="text" id="cDescription"></div>
                 </div>
                 <div class="admin-form-row cols-3">
-                    <div><label>💸 Type *</label><select id="cType"><option value="percentage">📊 Pourcentage</option><option value="fixed">💰 Montant fixe</option><option value="free_shipping">🚚 Livraison gratuite</option></select></div>
+                    <div>
+                        <label>💸 Type *</label>
+                        <select id="cType">
+                            <option value="percentage">📊 Pourcentage</option>
+                            <option value="fixed">💰 Montant fixe</option>
+                            <option value="free_shipping">🚚 Livraison gratuite</option>
+                        </select>
+                    </div>
                     <div><label>🔢 Valeur *</label><input type="number" id="cValue" min="0" step="0.01"></div>
                     <div><label>🛒 Min achat</label><input type="number" id="cMinPurchase" min="0" value="0"></div>
                 </div>
                 <div class="admin-form-row cols-3">
                     <div><label>🔢 Max utilisations</label><input type="number" id="cMaxUses" min="0" value="0"></div>
                     <div><label>📅 Expiration</label><input type="date" id="cExpiresAt"></div>
-                    <div><label>⚙️ Options</label><div style="display:flex;align-items:center;gap:0.4rem;padding-top:0.3rem;"><input type="checkbox" id="cOneUsePerUser" style="width:auto;margin:0;"><label for="cOneUsePerUser" style="margin:0;font-size:0.82rem;">1/client</label></div><div style="display:flex;align-items:center;gap:0.4rem;margin-top:0.4rem;"><input type="checkbox" id="cIsActive" checked style="width:auto;margin:0;"><label for="cIsActive" style="margin:0;font-size:0.82rem;color:var(--success);">✅ Actif</label></div></div>
+                    <div>
+                        <label>⚙️ Options</label>
+                        <div style="display:flex;align-items:center;gap:0.4rem;padding-top:0.3rem;">
+                            <input type="checkbox" id="cOneUsePerUser" style="width:auto;margin:0;">
+                            <label for="cOneUsePerUser" style="margin:0;font-size:0.82rem;">1/client</label>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:0.4rem;margin-top:0.4rem;">
+                            <input type="checkbox" id="cIsActive" checked style="width:auto;margin:0;">
+                            <label for="cIsActive" style="margin:0;font-size:0.82rem;color:var(--success);">✅ Actif</label>
+                        </div>
+                    </div>
                 </div>
                 <div style="display:flex;gap:0.5rem;margin-top:1rem;flex-wrap:wrap;">
                     <button class="admin-btn-primary" id="saveCouponBtn">💾 <span id="saveCouponBtnText">Créer</span></button>
@@ -453,6 +772,7 @@
 
         <div class="admin-content" id="tab-finances">
             <h2 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;">💰 Comptabilité</h2>
+
             <div class="admin-tabs" style="margin-bottom: 1.5rem;">
                 <button class="active" data-acc-tab="overview">📊 Vue d'ensemble</button>
                 <button data-acc-tab="purchases">📦 Achats</button>
@@ -461,10 +781,22 @@
                 <button data-acc-tab="reports">📈 Rapports</button>
                 <button data-acc-tab="simulator">🧮 Simulateur</button>
             </div>
+
             <div class="acc-content active" id="acc-overview">
                 <div class="admin-form" style="margin-bottom: 1rem;">
                     <div class="admin-form-row cols-3">
-                        <div><label>📅 Période</label><select id="accPeriod"><option value="today">Aujourd'hui</option><option value="week">Cette semaine</option><option value="month" selected>Ce mois</option><option value="quarter">Ce trimestre</option><option value="year">Cette année</option><option value="all">Tout</option><option value="custom">Personnalisé</option></select></div>
+                        <div>
+                            <label>📅 Période</label>
+                            <select id="accPeriod">
+                                <option value="today">Aujourd'hui</option>
+                                <option value="week">Cette semaine</option>
+                                <option value="month" selected>Ce mois</option>
+                                <option value="quarter">Ce trimestre</option>
+                                <option value="year">Cette année</option>
+                                <option value="all">Tout</option>
+                                <option value="custom">Personnalisé</option>
+                            </select>
+                        </div>
                         <div><label>Début</label><input type="date" id="accStart"></div>
                         <div><label>Fin</label><input type="date" id="accEnd"></div>
                     </div>
@@ -475,10 +807,15 @@
                 <div id="accWaterfall" style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:1rem;"><div class="admin-loading">⏳...</div></div>
                 <h3 style="font-family:var(--font-secondary);color:var(--gold);margin:1.5rem 0 1rem;">📈 Évolution CA</h3>
                 <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:1rem;">
-                    <div style="display:flex;justify-content:flex-end;gap:0.4rem;margin-bottom:0.8rem;"><button class="admin-btn-secondary chart-period-btn active" data-chart-period="7">7j</button><button class="admin-btn-secondary chart-period-btn" data-chart-period="30">30j</button><button class="admin-btn-secondary chart-period-btn" data-chart-period="90">90j</button></div>
+                    <div style="display:flex;justify-content:flex-end;gap:0.4rem;margin-bottom:0.8rem;">
+                        <button class="admin-btn-secondary chart-period-btn active" data-chart-period="7">7j</button>
+                        <button class="admin-btn-secondary chart-period-btn" data-chart-period="30">30j</button>
+                        <button class="admin-btn-secondary chart-period-btn" data-chart-period="90">90j</button>
+                    </div>
                     <div style="position:relative;height:320px;"><canvas id="revenueChart"></canvas></div>
                 </div>
             </div>
+
             <div class="acc-content" id="acc-purchases">
                 <div class="admin-form">
                     <h3>📦 Enregistrer un achat</h3>
@@ -498,11 +835,24 @@
                 <h3 style="font-family:var(--font-secondary);color:var(--gold);margin:1.5rem 0 1rem;">📜 Historique</h3>
                 <div id="purchasesList"><div class="admin-loading">⏳...</div></div>
             </div>
+
             <div class="acc-content" id="acc-expenses">
                 <div class="admin-form">
                     <h3>📉 Enregistrer une dépense</h3>
                     <div class="admin-form-row cols-3">
-                        <div><label>Catégorie *</label><select id="expCategory"><option value="rent">🏢 Loyer</option><option value="salary">👥 Salaires</option><option value="marketing">📢 Marketing</option><option value="software">💻 Logiciels</option><option value="utilities">💡 Électricité</option><option value="livo">🚚 Livo</option><option value="tax">🏛️ Taxes</option><option value="other">📝 Autre</option></select></div>
+                        <div>
+                            <label>Catégorie *</label>
+                            <select id="expCategory">
+                                <option value="rent">🏢 Loyer</option>
+                                <option value="salary">👥 Salaires</option>
+                                <option value="marketing">📢 Marketing</option>
+                                <option value="software">💻 Logiciels</option>
+                                <option value="utilities">💡 Électricité</option>
+                                <option value="livo">🚚 Livo</option>
+                                <option value="tax">🏛️ Taxes</option>
+                                <option value="other">📝 Autre</option>
+                            </select>
+                        </div>
                         <div><label>Montant (MAD) *</label><input type="number" id="expAmount" min="0" step="0.01"></div>
                         <div><label>Date *</label><input type="date" id="expDate"></div>
                     </div>
@@ -512,32 +862,59 @@
                 <h3 style="font-family:var(--font-secondary);color:var(--gold);margin:1.5rem 0 1rem;">📜 Historique</h3>
                 <div id="expensesList"><div class="admin-loading">⏳...</div></div>
             </div>
+
             <div class="acc-content" id="acc-transactions">
                 <div class="admin-form">
                     <h3>💸 Nouvelle transaction</h3>
                     <div class="admin-form-row cols-3">
-                        <div><label>Type *</label><select id="transType"><option value="income">💰 Revenu</option><option value="expense">📉 Dépense</option></select></div>
+                        <div>
+                            <label>Type *</label>
+                            <select id="transType">
+                                <option value="income">💰 Revenu</option>
+                                <option value="expense">📉 Dépense</option>
+                            </select>
+                        </div>
                         <div><label>Montant *</label><input type="number" id="transAmount" min="0" step="0.01"></div>
                         <div><label>Date *</label><input type="date" id="transDate"></div>
                     </div>
                     <div style="margin-top:0.5rem;"><label>Description *</label><input type="text" id="transDescription"></div>
                     <button class="admin-btn-primary" id="addTransactionBtn">💾 Enregistrer</button>
                 </div>
-                <div class="admin-search-bar"><input type="text" id="transSearch" placeholder="🔍 Rechercher..."><select id="transFilterType"><option value="all">Tous</option><option value="income">Revenus</option><option value="expense">Dépenses</option></select></div>
+                <div class="admin-search-bar">
+                    <input type="text" id="transSearch" placeholder="🔍 Rechercher...">
+                    <select id="transFilterType">
+                        <option value="all">Tous</option>
+                        <option value="income">Revenus</option>
+                        <option value="expense">Dépenses</option>
+                    </select>
+                </div>
                 <div id="transactionsList"><div class="admin-loading">⏳...</div></div>
             </div>
+
             <div class="acc-content" id="acc-reports">
                 <div class="admin-form">
                     <h3>📈 Générer un rapport</h3>
                     <div class="admin-form-row cols-3">
-                        <div><label>Type</label><select id="reportType"><option value="monthly">📅 Mensuel</option><option value="lastmonth">📅 Mois dernier</option><option value="custom">📅 Personnalisé</option></select></div>
+                        <div>
+                            <label>Type</label>
+                            <select id="reportType">
+                                <option value="monthly">📅 Mensuel</option>
+                                <option value="lastmonth">📅 Mois dernier</option>
+                                <option value="custom">📅 Personnalisé</option>
+                            </select>
+                        </div>
                         <div><label>Début</label><input type="date" id="reportStart"></div>
                         <div><label>Fin</label><input type="date" id="reportEnd"></div>
                     </div>
-                    <div style="display:flex;gap:0.5rem;margin-top:1rem;flex-wrap:wrap;"><button class="admin-btn-primary" id="generateReportBtn">📊 Générer</button><button class="admin-btn-secondary" id="exportCSVBtn">📥 CSV</button><button class="admin-btn-secondary" id="printReportBtn">🖨️ Imprimer</button></div>
+                    <div style="display:flex;gap:0.5rem;margin-top:1rem;flex-wrap:wrap;">
+                        <button class="admin-btn-primary" id="generateReportBtn">📊 Générer</button>
+                        <button class="admin-btn-secondary" id="exportCSVBtn">📥 CSV</button>
+                        <button class="admin-btn-secondary" id="printReportBtn">🖨️ Imprimer</button>
+                    </div>
                 </div>
                 <div id="reportContent"><div class="admin-empty">👆 Cliquez sur "Générer"</div></div>
             </div>
+
             <div class="acc-content" id="acc-simulator">
                 <h3 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;">🧮 Simulateur</h3>
                 <div class="admin-form">
@@ -549,17 +926,34 @@
                     </div>
                     <div class="admin-form-row" style="margin-top:0.8rem;">
                         <div><label>🛡️ Marge sécurité (%)</label><input type="number" id="finSafetyMargin" value="20" min="0" max="100"></div>
-                        <div><label>📉 Taux retour (%)</label><div class="finance-slider-box" style="margin:0;"><label style="margin-bottom:0.3rem;"><span style="font-size:0.85rem;color:var(--text-muted);">0-80%</span><span id="finReturnRateValue" style="color:var(--danger);font-weight:800;">20%</span></label><input type="range" id="finReturnRate" min="0" max="80" step="5" value="20"></div></div>
+                        <div>
+                            <label>📉 Taux retour (%)</label>
+                            <div class="finance-slider-box" style="margin:0;">
+                                <label style="margin-bottom:0.3rem;">
+                                    <span style="font-size:0.85rem;color:var(--text-muted);">0-80%</span>
+                                    <span id="finReturnRateValue" style="color:var(--danger);font-weight:800;">20%</span>
+                                </label>
+                                <input type="range" id="finReturnRate" min="0" max="80" step="5" value="20">
+                            </div>
+                        </div>
                     </div>
                     <h4 style="color:var(--gold);font-size:1rem;margin:1.5rem 0 0.5rem;">2. Produits à analyser</h4>
-                    <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.8rem;"><button type="button" class="admin-btn-secondary" id="finSelectTop5">🌟 Top 5</button><button type="button" class="admin-btn-secondary" id="finSelectAll">☑️ Tous</button><button type="button" class="admin-btn-secondary" id="finSelectProfitable">✅ Rentables</button><button type="button" class="admin-btn-secondary" id="finSelectNone">✖️ Aucun</button></div>
+                    <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.8rem;">
+                        <button type="button" class="admin-btn-secondary" id="finSelectTop5">🌟 Top 5</button>
+                        <button type="button" class="admin-btn-secondary" id="finSelectAll">☑️ Tous</button>
+                        <button type="button" class="admin-btn-secondary" id="finSelectProfitable">✅ Rentables</button>
+                        <button type="button" class="admin-btn-secondary" id="finSelectNone">✖️ Aucun</button>
+                    </div>
                     <div id="financeProductSelector" style="max-height:350px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.5rem;margin-bottom:1rem;"></div>
                     <button class="admin-btn-primary" id="calculateFinancesBtn" style="width:100%;">🧮 Lancer l'analyse</button>
                 </div>
                 <div id="financesResults" style="display:none;">
                     <h4 style="color:var(--gold);margin:1.5rem 0 1rem;">📊 Totaux globaux</h4>
                     <div class="admin-stats" style="margin-bottom:1rem;">
-                        <div class="admin-stat-card" style="border-color:var(--gold);"><span class="stat-value" id="finTotalRevenue" style="color:var(--gold);">0 MAD</span><span class="stat-label">💰 CA Potentiel</span></div>
+                        <div class="admin-stat-card" style="border-color:var(--gold);">
+                            <span class="stat-value" id="finTotalRevenue" style="color:var(--gold);">0 MAD</span>
+                            <span class="stat-label">💰 CA Potentiel</span>
+                        </div>
                         <div class="admin-stat-card"><span class="stat-value" id="finTotalInvestment" style="color:var(--text-muted);">0 MAD</span><span class="stat-label">📦 Investissement stock</span></div>
                         <div class="admin-stat-card"><span class="stat-value" id="finTotalLogistics" style="color:var(--text-muted);">0 MAD</span><span class="stat-label">💸 Coût logistique</span></div>
                         <div class="admin-stat-card" style="border-color:var(--info);"><span class="stat-value" id="finTotalGrossProfit" style="color:var(--info);">0 MAD</span><span class="stat-label">💵 Profit BRUT</span></div>
@@ -575,7 +969,13 @@
                     <div id="finRecommendations" style="margin-bottom:1.5rem;"></div>
                     <h4 style="color:var(--gold);margin:1.5rem 0 1rem;">📦 Détail par produit</h4>
                     <div style="overflow-x:auto;background:var(--bg-card);border-radius:var(--radius-md);">
-                        <table class="acc-table" style="min-width:1000px;"><thead><tr><th>Produit</th><th>Prix Achat</th><th>Prix Vente</th><th>Marge Nette</th><th>CPA Max</th><th>Stock</th><th>Profit</th><th>ROI</th><th>Verdict</th></tr></thead><tbody id="financesTableBody"></tbody></table>
+                        <table class="acc-table" style="min-width:1000px;">
+                            <thead><tr>
+                                <th>Produit</th><th>Prix Achat</th><th>Prix Vente</th><th>Marge Nette</th>
+                                <th>CPA Max</th><th>Stock</th><th>Profit</th><th>ROI</th><th>Verdict</th>
+                            </tr></thead>
+                            <tbody id="financesTableBody"></tbody>
+                        </table>
                     </div>
                 </div>
             </div>
@@ -584,18 +984,62 @@
         <div class="admin-content" id="tab-wallets">
             <h3 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;">💸 Demandes de Virement</h3>
             <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:1rem;">Validez les retraits Wafacash des vendeurs après avoir effectué le virement.</p>
-            <div class="admin-signup-filters" id="payoutStatusFilters"><button class="active" data-payout-filter="pending">⏳ En attente</button><button data-payout-filter="paid">✅ Payés</button><button data-payout-filter="rejected">❌ Rejetés</button><button data-payout-filter="all">📊 Tous</button></div>
-            <div class="admin-search-bar"><input type="text" id="payoutSearchAdmin" placeholder="🔍 Rechercher par boutique ou téléphone..."></div>
+            <div class="admin-signup-filters" id="payoutStatusFilters">
+                <button class="active" data-payout-filter="pending">⏳ En attente</button>
+                <button data-payout-filter="paid">✅ Payés</button>
+                <button data-payout-filter="rejected">❌ Rejetés</button>
+                <button data-payout-filter="all">📊 Tous</button>
+            </div>
+            <div class="admin-search-bar">
+                <input type="text" id="payoutSearchAdmin" placeholder="🔍 Rechercher par boutique ou téléphone...">
+            </div>
             <div id="payoutsList"><div class="admin-loading">⏳ Chargement des demandes...</div></div>
         </div>
 
         <div class="admin-content" id="tab-tools">
             <h3 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;">🛠️ Outils</h3>
-            <div class="admin-tool-card"><h4>🏙️ Migration des villes</h4><p>Migre les 240 villes de <code>villes.json</code> vers Firestore.</p><button class="admin-btn-primary" id="migrateCitiesBtn">🚀 Lancer</button><div class="admin-tool-log" id="migrationLog"></div></div>
-            <div class="admin-tool-card"><h4>🔧 Migration catégories legacy</h4><p>Migre les anciennes catégories vers la nouvelle arborescence.</p><button class="admin-btn-primary" id="migrateLegacyCategoriesBtn">🔧 Lancer</button><div class="admin-tool-log" id="legacyMigrationLog"></div></div>
-            <div class="admin-tool-card"><h4>🏷️ Générer SKU manquants</h4><p>Attribue un SKU unique aux anciens produits.</p><button class="admin-btn-primary" id="migrateSkuBtn">🏷️ Lancer</button><div class="admin-tool-log" id="skuMigrationLog"></div></div>
-            <div class="admin-tool-card"><h4>🔧 Migration statut Produits</h4><p>Ajoute <code>status: 'approved'</code> aux anciens produits (indispensable avant publication des nouvelles règles Firestore).</p><button class="admin-btn-primary" id="migrateProductsStatusBtn">🚀 Lancer la migration</button><div class="admin-tool-log" id="productStatusMigrationLog"></div></div>
-            <div class="admin-tool-card"><h4>📊 État des collections</h4><div id="collectionsStatus" style="font-size:0.85rem;line-height:2;"><div>📦 <strong>products</strong> : <span id="countProducts">—</span></div><div>📋 <strong>orders</strong> : <span id="countOrders">—</span></div><div>👥 <strong>users</strong> : <span id="countUsers">—</span></div><div>⭐ <strong>reviews</strong> : <span id="countReviews">—</span></div><div>🏙️ <strong>cities</strong> : <span id="countCities">—</span></div><div>📝 <strong>blog</strong> : <span id="countBlog">—</span></div><div>🎟️ <strong>coupons</strong> : <span id="countCoupons">—</span></div></div><button class="admin-btn-secondary" id="refreshCollectionsBtn" style="margin-top:1rem;">🔄 Actualiser</button></div>
+
+            <div class="admin-tool-card">
+                <h4>🏙️ Migration des villes</h4>
+                <p>Migre les 240 villes de <code>villes.json</code> vers Firestore.</p>
+                <button class="admin-btn-primary" id="migrateCitiesBtn">🚀 Lancer</button>
+                <div class="admin-tool-log" id="migrationLog"></div>
+            </div>
+
+            <div class="admin-tool-card">
+                <h4>🔧 Migration catégories legacy</h4>
+                <p>Migre les anciennes catégories vers la nouvelle arborescence.</p>
+                <button class="admin-btn-primary" id="migrateLegacyCategoriesBtn">🔧 Lancer</button>
+                <div class="admin-tool-log" id="legacyMigrationLog"></div>
+            </div>
+
+            <div class="admin-tool-card">
+                <h4>🏷️ Générer SKU manquants</h4>
+                <p>Attribue un SKU unique aux anciens produits.</p>
+                <button class="admin-btn-primary" id="migrateSkuBtn">🏷️ Lancer</button>
+                <div class="admin-tool-log" id="skuMigrationLog"></div>
+            </div>
+
+            <div class="admin-tool-card">
+                <h4>🔧 Migration statut Produits</h4>
+                <p>Ajoute <code>status: 'approved'</code> aux anciens produits (indispensable avant publication des nouvelles règles Firestore).</p>
+                <button class="admin-btn-primary" id="migrateProductsStatusBtn">🚀 Lancer la migration</button>
+                <div class="admin-tool-log" id="productStatusMigrationLog"></div>
+            </div>
+
+            <div class="admin-tool-card">
+                <h4>📊 État des collections</h4>
+                <div id="collectionsStatus" style="font-size:0.85rem;line-height:2;">
+                    <div>📦 <strong>products</strong> : <span id="countProducts">—</span></div>
+                    <div>📋 <strong>orders</strong> : <span id="countOrders">—</span></div>
+                    <div>👥 <strong>users</strong> : <span id="countUsers">—</span></div>
+                    <div>⭐ <strong>reviews</strong> : <span id="countReviews">—</span></div>
+                    <div>🏙️ <strong>cities</strong> : <span id="countCities">—</span></div>
+                    <div>📝 <strong>blog</strong> : <span id="countBlog">—</span></div>
+                    <div>🎟️ <strong>coupons</strong> : <span id="countCoupons">—</span></div>
+                </div>
+                <button class="admin-btn-secondary" id="refreshCollectionsBtn" style="margin-top:1rem;">🔄 Actualiser</button>
+            </div>
         </div>
     </div>
 
@@ -606,9 +1050,6 @@
                 <button class="alert-badge alert-danger" id="alertOrdersBtn" style="display: none;">🔴 <span id="alertOrdersCount">0</span> Commande(s)</button>
                 <button class="alert-badge alert-warning" id="alertReviewsBtn" style="display: none;">🟡 <span id="alertReviewsCount">0</span> Avis</button>
                 <button class="alert-badge alert-warning" id="alertProductsPendingBtn" style="display: none;">📦 <span id="alertProductsPendingCount">0</span> Produit(s) à valider</button>
-                <!-- v9.1.0 : nouveaux badges vendeurs + conversions -->
-                <button class="alert-badge alert-warning" id="alertVendorsPendingBtn" style="display: none;">🏪 <span id="alertVendorsPendingCount">0</span> Vendeur(s) à approuver</button>
-                <button class="alert-badge alert-info" id="alertConversionsPendingBtn" style="display: none;">🔄 <span id="alertConversionsPendingCount">0</span> Conversion(s)</button>
                 <button class="alert-badge alert-danger" id="alertStockOutBtn" style="display: none;">❌ <span id="alertStockOutCount">0</span> Rupture(s)<span class="alert-tooltip" id="alertStockOutTooltip">—</span></button>
                 <button class="alert-badge alert-info" id="alertStockLowBtn" style="display: none;">🟠 <span id="alertStockLowCount">0</span> Stock(s) bas<span class="alert-tooltip" id="alertStockLowTooltip">—</span></button>
             </div>
@@ -620,8 +1061,14 @@
         <div class="modal" style="max-width:450px;">
             <button class="modal-close" id="closePickupModalBtn">✕</button>
             <h2 style="font-family:var(--font-secondary);color:var(--gold);text-align:center;margin-bottom:1rem;">📦 Ramassage Livo</h2>
-            <div class="admin-form-row"><div><label>Date *</label><input type="date" id="pickupDate"></div><div><label>Nb colis *</label><input type="number" id="pickupPackages" min="1" value="1"></div></div>
-            <div class="admin-form-row" style="margin-top:0.5rem;"><div><label>Poids (kg) *</label><input type="number" id="pickupWeight" min="1" value="1" step="0.5"></div><div><label>Note</label><input type="text" id="pickupNote"></div></div>
+            <div class="admin-form-row">
+                <div><label>Date *</label><input type="date" id="pickupDate"></div>
+                <div><label>Nb colis *</label><input type="number" id="pickupPackages" min="1" value="1"></div>
+            </div>
+            <div class="admin-form-row" style="margin-top:0.5rem;">
+                <div><label>Poids (kg) *</label><input type="number" id="pickupWeight" min="1" value="1" step="0.5"></div>
+                <div><label>Note</label><input type="text" id="pickupNote"></div>
+            </div>
             <button class="admin-btn-primary" id="confirmPickupBtn" style="width:100%;justify-content:center;margin-top:1.5rem;">🚚 Envoyer</button>
         </div>
     </div>
