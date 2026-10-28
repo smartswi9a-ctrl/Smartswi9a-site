@@ -1,136 +1,87 @@
-# 🛍️ Smart Swi9a — E-commerce Tech Marocain
+Corrections authentification vendeur — Smart Swi9a
 
-> Boutique en ligne de gadgets et objets connectés au Maroc.
-> Site : [https://smartswi9a.top](https://smartswi9a.top)
+Cette archive contient uniquement les fichiers complets concernés par l'inscription et la connexion vendeur, la signature du contrat, les règles Firestore et le chemin du dashboard.
 
-![Version](https://img.shields.io/badge/version-2.0.0-blue)
-![Status](https://img.shields.io/badge/status-production-brightgreen)
-![Firebase](https://img.shields.io/badge/firebase-100%25-orange)
-![License](https://img.shields.io/badge/license-proprietary-red)
 
----
+Fichiers à remplacer à la racine du site
 
-## 📋 Table des matières
 
-- [1. Présentation](#1-présentation)
-- [2. Historique du projet](#2-historique-du-projet)
-- [3. Stack technique](#3-stack-technique)
-- [4. Architecture générale](#4-architecture-générale)
-- [5. Installation locale](#5-installation-locale)
-- [6. Configuration](#6-configuration)
-- [7. Déploiement](#7-déploiement)
-- [8. Fonctionnalités](#8-fonctionnalités)
-- [9. Sécurité](#9-sécurité)
-- [10. Maintenance](#10-maintenance)
-- [11. Troubleshooting](#11-troubleshooting)
-- [12. Roadmap](#12-roadmap)
-- [13. Contact](#13-contact)
-- [14. Licence](#14-licence)
+firebase.json
 
----
+firestore.rules
 
-## 1. Présentation
+vendor-login.html
 
-**Smart Swi9a** est une boutique e-commerce marocaine spécialisée dans les gadgets
-tech, objets connectés et Smart Home. Le site propose :
+vendor/dashboard.html (le dossier Vendor/ a été renommé en minuscules vendor/)
 
-- 🛒 **Commande via WhatsApp** — paiement à la livraison (COD)
-- 🌍 **3 langues** — Français 🇫🇷, Arabe 🇲🇦, Anglais 🇬🇧
-- 📱 **Responsive design** — optimisé mobile-first
-- 🚚 **Livraison dans 240 villes marocaines** — frais fixes 30 DH
-- ⚡ **Livraison rapide** — 24h à 72h selon région
-- ⭐ **Système d'avis clients vérifiés** avec photos
-- 🔔 **Notifications temps réel** (commande, livraison, avis)
-- 📧 **Vérification email obligatoire** à l'inscription
-- 🔵 **Connexion Google + Facebook** disponible
-- 📝 **Blog dynamique** géré depuis l'admin
-- 🛡️ **Sécurité complète** (Firebase Rules + CSP)
-- 📦 **5 statuts de commande** avec timeline visuelle
-- 📨 **Emails automatiques** à chaque changement de statut
+js/vendor-signup.js
 
-### Chiffres clés
+js/vendor-dashboard.js
 
-| Métrique | Valeur |
-|---|---|
-| **Villes couvertes** | 240 |
-| **Frais de livraison** | 30 MAD (uniforme) |
-| **Délais de livraison** | 24h à 72h selon région |
-| **Réduction auto** | -5% à partir de 3 articles |
-| **Annulation commande** | Possible pendant 4h |
-| **Langues supportées** | 3 (FR/AR/EN) |
-| **Statuts commande** | 5 |
-| **Méthodes d'inscription** | 3 (OTP, Google, Facebook) |
+functions/index.js
 
----
+functions/package.json
 
-## 2. Historique du projet
 
-### Genèse
+Le lien « Espace vendeur » est déjà présent dans le index.html du ZIP d'origine : aucun remplacement de ce fichier n'est nécessaire.
 
-Smart Swi9a a été construit comme une boutique e-commerce moderne pour
-le marché marocain, en utilisant une architecture **serverless** avec
-un frontend ultra-léger.
 
-### Phases majeures
+Corrections principales
 
-| Phase | Description |
-|---|---|
-| **Phase 1-8** | MVP initial, fonctionnalités, sécurité, migration villes, tests |
-| **Phase 9** | Migration complète vers Firebase Auth natif |
-| **Phase 10** | Ajout connexion Google + Facebook |
-| **Phase 11** | Vérification email obligatoire |
-| **Phase 12** | Blog dynamique complet |
-| **Phase 13** | Refonte 5 statuts de commande + emails automatiques |
-| **Phase 14** | Optimisations design, SEO et accessibilité |
 
-### État actuel (v2.0.0)
+L'inscription permet à un profil acheteur existant de déposer une demande vendeur en attente, sans lui permettre de s'approuver lui-même.
 
-**Le site est 100% opérationnel et prêt pour la production.**
+Le mot de passe vendeur indépendant reste stocké uniquement sous forme de hash bcrypt dans vendorCredentials/{uid}.
 
-- ✅ Circuit client complet validé
-- ✅ 100% Firebase (pas de dépendance externe pour l'auth)
-- ✅ Sécurité Firebase Rules complète
-- ✅ Migration Firestore des 240 villes effectuée
-- ✅ Blog dynamique avec CRUD admin
-- ✅ Vérification email obligatoire
-- ✅ Google + Facebook Sign-In
-- ✅ Système d'emails automatiques
-- ✅ Déploiement avec domaine HTTPS
+La connexion vendeur accepte le mot de passe vendeur ou le mot de passe Firebase de l'acheteur, mais délivre un jeton seulement si le profil est approuvé et le contrat accepté.
 
----
+La connexion vendeur applique une limitation persistante des tentatives : 8 échecs maximum par adresse/IP sur 15 minutes.
 
-## 3. Stack technique
+La signature du contrat peut être créée par son propriétaire, mais le navigateur ne peut plus modifier directement vendorInfo.contractStatus. Une Cloud Function vérifie le document et met à jour le profil.
 
-| Composant | Technologie |
-|---|---|
-| **Frontend** | HTML5, CSS3, JavaScript ES6 |
-| **Backend** | Firebase (Google Cloud) |
-| **Auth** | Firebase Authentication |
-| **Base de données** | Firebase Firestore |
-| **Stockage fichiers** | Firebase Cloud Storage |
-| **Emails** | Firebase Auth natif + Trigger Email Extension |
-| **Hébergement** | Cloudflare Workers |
-| **Domaine** | smartswi9a.top (HTTPS) |
-| **Design System** | CSS custom (thème or/glass) |
-| **Polices** | Google Fonts |
-| **Icônes** | SVG inline |
+Le chemin est uniformisé en vendor/dashboard.html, sensible à la casse sur l'hébergement.
 
-### Philosophie technique
+functions/ est exclu de l'hébergement statique.
 
-- ❌ **Pas de framework** (React, Vue, Angular…)
-- ❌ **Pas de build tool** (Webpack, Vite…)
-- ✅ **Modules ES6 natifs** dans le navigateur
-- ✅ **Firebase SDK via CDN** (importmap)
-- ✅ **Vanilla JS** — plus léger, plus rapide, plus maintenable
 
-**Pourquoi ce choix ?**
-- Temps de chargement ultra-rapide (< 1s)
-- Aucune dépendance npm à maintenir
-- Code lisible et accessible à tout développeur JS
-- Pas de régression cassée par des mises à jour de framework
+Déploiement
 
----
+Depuis le dossier racine du dépôt Firebase :
 
-## 4. Architecture générale
 
-### Organisation haut niveau
+firebase use smartswi9a-31063
+cd functions
+npm install
+cd ..
+firebase deploy --only functions,firestore:rules,hosting
+
+Vérifier dans la console Firebase que l'authentification e-mail/mot de passe est activée. Le déploiement des fonctions peut demander des autorisations IAM et une API de facturation active.
+
+
+Tests à effectuer avant production
+
+
+Inscription avec un nouvel e-mail : création du profil pending, mot de passe vendeur défini, contrat enregistré.
+
+Inscription avec un e-mail acheteur existant : le mot de passe acheteur est vérifié et l'UID acheteur est conservé.
+
+Profil vendeur pending/rejected/suspended : aucun accès dashboard.
+
+Profil approuvé avec contrat accepté : connexion avec les deux mots de passe.
+
+Acheteur ordinaire et administrateur : pas d'accès vendeur non autorisé.
+
+Tentatives erronées répétées : blocage temporaire.
+
+Signature et re-signature du contrat depuis l'inscription et depuis le dashboard.
+
+Vérifier le site sous https://smartswi9a.top et https://www.smartswi9a.top si les deux domaines sont utilisés.
+
+
+Limite importante : commandes
+
+Les règles continuent de refuser la création directe de orders/{orderId} par le navigateur. C'est volontaire : le panier actuel est côté client et les montants/stock ne doivent pas être approuvés sans vérification serveur. Pour rétablir la validation de commande, il faut créer et tester un endpoint de commande qui valide le prix, le stock, les frais, les vendeurs et l'idempotence. Ne pas remplacer cette règle par allow create: if signedIn().
+
+
+Cette archive a été contrôlée statiquement (syntaxe JavaScript et JSON). Elle n'a pas été déployée ni testée sur le projet Firebase réel ; exécuter les tests ci-dessus et idéalement Firebase Emulator avant la mise en production.
+
