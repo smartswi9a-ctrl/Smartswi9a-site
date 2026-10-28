@@ -18,7 +18,7 @@ import {
   increment,
   addDoc,
 } from "firebase/firestore";
-import { db } from "./firebase.js";
+import { db, auth } from "./firebase.js";
 import {
   CONFIG,
   ORDER_STATUS,
@@ -60,6 +60,21 @@ const LIVO_API_CONFIG = {
     PICKUP: "/create-pickup",
   },
 };
+
+/* ============================================================ AUTHENTIFICATION DU PROXY LIVO Chaque appel protégé transmet un jeton Firebase récent. Le Worker doit vérifier ce jeton et les droits côté serveur. ============================================================ */
+async function getLivoRequestHeaders(extra = {}) {
+  const user = auth.currentUser;
+  if (!user) throw new Error("Vous devez être connecté pour utiliser Livo.");
+  const token = await user.getIdToken();
+  if (!token)
+    throw new Error("Impossible de vérifier la session. Reconnectez-vous.");
+  return {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${token}`,
+    ...extra,
+  };
+}
 
 /* ============================================================ CONFIGURATION EMAILJS ============================================================ */
 const EMAILJS = {
@@ -694,7 +709,7 @@ export async function sendToLivoAPI(order) {
       `${LIVO_API_CONFIG.BASE_URL}${LIVO_API_CONFIG.ENDPOINTS.CREATE}`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await getLivoRequestHeaders(),
         body: JSON.stringify(payload),
       }
     );
@@ -714,6 +729,14 @@ export async function sendToLivoAPI(order) {
         success: false,
         error: `Erreur serveur (${response.status}). Le Worker n'a pas pu joindre Livo.`,
       };
+    }
+
+    if (!response.ok) {
+      const message =
+        data?.error ||
+        data?.message ||
+        `Erreur Worker/Livo HTTP ${response.status}`;
+      return { success: false, error: String(message) };
     }
 
     console.log("Livo create response:", JSON.stringify(data, null, 2));
@@ -760,7 +783,7 @@ export async function cancelLivoShipment(livoOrderId) {
       `${LIVO_API_CONFIG.BASE_URL}${LIVO_API_CONFIG.ENDPOINTS.CANCEL}`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await getLivoRequestHeaders(),
         body: JSON.stringify({
           id: livoOrderId,
           status: "cancelled",
@@ -774,7 +797,7 @@ export async function cancelLivoShipment(livoOrderId) {
     }
 
     const data = await response.json();
-    return data?.success === true;
+    return response.ok && data?.success === true;
   } catch (error) {
     console.error("Erreur Livo cancel:", error);
     return false;
@@ -807,7 +830,7 @@ export async function syncLivoStatus(orderId) {
       `${LIVO_API_CONFIG.BASE_URL}${ LIVO_API_CONFIG.ENDPOINTS.TRACK }/${encodeURIComponent(trackingId)}`,
       {
         method: "GET",
-        headers: { Accept: "application/json" },
+        headers: await getLivoRequestHeaders({ Accept: "application/json" }),
       }
     );
 
@@ -921,7 +944,7 @@ export async function createLivoPickup(pickupData) {
       `${LIVO_API_CONFIG.BASE_URL}${LIVO_API_CONFIG.ENDPOINTS.PICKUP}`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await getLivoRequestHeaders(),
         body: JSON.stringify(payload),
       }
     );
@@ -941,6 +964,14 @@ export async function createLivoPickup(pickupData) {
         success: false,
         error: `Erreur serveur (${response.status}). Le Worker n'a pas pu créer le ramassage.`,
       };
+    }
+
+    if (!response.ok) {
+      const message =
+        data?.error ||
+        data?.message ||
+        `Erreur Worker/Livo HTTP ${response.status}`;
+      return { success: false, error: String(message) };
     }
 
     console.log("Livo pickup response:", JSON.stringify(data, null, 2));
