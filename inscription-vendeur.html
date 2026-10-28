@@ -17,10 +17,8 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
-    <!-- Perf : précharge le module principal -->
     <link rel="modulepreload" href="/js/vendor-signup.js">
 
-    <!-- Importmap complet — storage inclus (utilisé par js/firebase.js) -->
     <script type="importmap">
     {
         "imports": {
@@ -35,9 +33,8 @@
     <link rel="stylesheet" href="/style.css">
     <link rel="stylesheet" href="/vendor-style.css">
 
-    <!-- Fallback critique (indépendant de vendor-style.css) -->
+    <!-- Fallback critique -->
     <style>
-        /* La modale NE DOIT JAMAIS apparaître sans .open */
         #contractModal:not(.open) { display: none !important; }
         #contractModal.open {
             display: flex !important;
@@ -46,8 +43,8 @@
             position: fixed;
             inset: 0;
             background: rgba(0, 0, 0, .55);
+            z-index: 999999 !important;
         }
-        /* Honeypot invisible pour les humains, visible pour les bots */
         #vWebsite {
             position: absolute !important;
             left: -9999px !important;
@@ -57,20 +54,20 @@
             opacity: 0 !important;
             pointer-events: none !important;
         }
-        /* Focus visible sur la zone scrollable du contrat */
         #contractText:focus-visible {
             outline: 2px solid var(--gold, #b8860b);
             outline-offset: -2px;
         }
+        /* Correction pour s'assurer que le contenu passe au-dessus de tout */
+        main.container {
+            position: relative;
+            z-index: 100;
+            margin-top: 1.5rem; /* Marge de sécurité sous la navbar */
+        }
     </style>
 
-    <!-- Traductions de base (chargées avant les modules ES) -->
     <script src="/translations.js"></script>
-
-    <!-- T11 : traductions marketplace vendeur (fusion dans window.translations) -->
     <script src="/translations-vendor.js" defer></script>
-
-    <!-- Lot 47 : traductions Livo + clés manquantes (cohérence avec dashboard) -->
     <script src="/translations-livo.js" defer></script>
 </head>
 <body class="vendor-page">
@@ -81,7 +78,7 @@
         </div>
     </noscript>
 
-    <nav id="navbar" style="background:#fff; border-bottom:1px solid #ddd; padding:1rem; text-align:center;">
+    <nav id="navbar" style="background:#fff; border-bottom:1px solid #ddd; padding:1rem; text-align:center; position: relative; z-index: 50;">
         <a href="/" style="font-family:var(--font-secondary);font-size:1.5rem;font-weight:800;color:var(--gold);text-decoration:none;">SMART SWI9A</a>
     </nav>
 
@@ -184,13 +181,13 @@
                 <button type="button" id="btnOpenContract" class="v-btn v-btn-secondary v-btn-block">
                     📄 Lire et signer les CGV
                 </button>
-                <!-- H-i1 : aria-live pour lecteurs d'écran -->
                 <div id="contractStatus" role="status" aria-live="polite" style="margin-top:1rem; font-size:0.9rem; font-weight:700; color:var(--danger); text-align:center;">
                     ⏳ En attente de signature
                 </div>
             </div>
 
-            <button type="submit" id="btnSubmitVendor" class="v-btn v-btn-primary v-btn-large v-btn-block" disabled style="opacity:0.5;">
+            <!-- CORRECTION : Bouton sans 'disabled' et sans opacité pour être cliquable dès le départ -->
+            <button type="submit" id="btnSubmitVendor" class="v-btn v-btn-primary v-btn-large v-btn-block">
                 ✅ Créer mon compte vendeur
             </button>
 
@@ -204,7 +201,7 @@
          aria-modal="true"
          aria-labelledby="contractModalTitle"
          aria-describedby="contractText"
-         style="z-index:9999;">
+         style="z-index:999999;">
         <div class="modal" style="max-width:800px; padding:0; display:flex; flex-direction:column; height:90vh;">
 
             <div style="padding:1.5rem; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center;">
@@ -216,7 +213,6 @@
                         style="background:none; border:none; font-size:1.5rem; cursor:pointer;">✕</button>
             </div>
 
-            <!-- Le contenu réel est injecté par vendor-signup.js (texte versionné par langue) -->
             <div id="contractText"
                  tabindex="0"
                  style="flex:1; overflow-y:auto; padding:2rem; font-size:0.9rem; line-height:1.7; color:#444;">
