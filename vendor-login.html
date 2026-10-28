@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Connexion vendeur — Smart Swi9a</title>
+  <link rel="stylesheet" href="/vendor-style.css">
+  <style>
+    body{min-height:100vh;background:linear-gradient(135deg,#0b1530,#eef2f7);display:flex;align-items:center;justify-content:center;padding:24px;font-family:Arial,sans-serif}
+    .login-card{width:min(100%,480px);background:#fff;border-radius:20px;padding:30px;box-shadow:0 20px 60px #08122b30}
+    .login-card h1{margin:0 0 8px;color:#101b38}.muted{color:#5e6678;line-height:1.5}.field{margin:18px 0}.field label{display:block;font-weight:700;margin-bottom:7px}.field input{width:100%;box-sizing:border-box;padding:13px;border:1px solid #ccd2df;border-radius:10px;font-size:16px}.btn{width:100%;padding:14px;border:0;border-radius:10px;background:#16264b;color:white;font-weight:700;font-size:16px;cursor:pointer}.btn:disabled{opacity:.6}.message{margin-top:14px;line-height:1.5}.links{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:18px}.links a{color:#283f79}.hint{font-size:13px;color:#626b7b}
+  </style>
+</head>
+<body>
+  <main class="login-card">
+    <p><a href="/" aria-label="Retour à l'accueil">← Smart Swi9a</a></p>
+    <h1>Connexion à l’espace vendeur</h1>
+    <p class="muted">Utilisez la même adresse e-mail que votre compte acheteur. Votre mot de passe acheteur ou votre mot de passe vendeur fonctionne si votre compte vendeur a été approuvé.</p>
+    <form id="vendorLoginForm">
+      <div class="field"><label for="email">Adresse e-mail</label><input id="email" name="email" type="email" autocomplete="email" required></div>
+      <div class="field"><label for="password">Mot de passe</label><input id="password" name="password" type="password" autocomplete="current-password" required minlength="8"></div>
+      <button class="btn" id="submitBtn" type="submit">Se connecter</button>
+      <p id="message" class="message" role="status" aria-live="polite"></p>
+    </form>
+    <div class="links"><a href="/inscription-vendeur.html">Devenir vendeur</a><a href="/reset-password.html">Mot de passe oublié ?</a></div>
+    <p class="hint">Les demandes en attente ou refusées ne donnent pas accès au tableau de bord vendeur.</p>
+  </main>
+  <script type="importmap">{"imports":{"firebase/app":"https://www.gstatic.com/firebasejs/11.0.0/firebase-app.js","firebase/auth":"https://www.gstatic.com/firebasejs/11.0.0/firebase-auth.js"}}</script>
+  <script type="module">
+    import { initializeApp } from 'firebase/app';
+    import { getAuth, signInWithCustomToken } from 'firebase/auth';
+    import { CONFIG } from '/js/config.js';
+    const app = initializeApp(CONFIG.FIREBASE);
+    const auth = getAuth(app);
+    const form = document.getElementById('vendorLoginForm');
+    const message = document.getElementById('message');
+    const button = document.getElementById('submitBtn');
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (button.disabled) return;
+      button.disabled = true; button.textContent = 'Vérification…'; message.textContent = '';
+      const email = document.getElementById('email').value.trim().toLowerCase();
+      const password = document.getElementById('password').value;
+      try {
+        const response = await fetch('/api/loginVendor', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({email,password})});
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.success || !result.customToken) throw new Error(result.message || 'Connexion impossible. Vérifiez vos identifiants.');
+        await signInWithCustomToken(auth, result.customToken);
+        window.location.replace('/vendor/dashboard.html');
+      } catch (error) {
+        message.textContent = error?.message || 'Connexion impossible. Réessayez.';
+        message.style.color = '#b42318';
+      } finally { button.disabled = false; button.textContent = 'Se connecter'; }
+    });
+  </script>
+</body>
+</html>
