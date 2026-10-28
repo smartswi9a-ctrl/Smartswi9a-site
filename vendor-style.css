@@ -1,9 +1,6 @@
 /* ============================================================
    VENDOR-STYLE.CSS - SMART SWI9A
-   Version 1.1.0 — Design Élégant, Simple et Clair
-   Session 3 (T1) : ajout de v-nav-label, v-kpi-label,
-   v-product-list, modales génériques .v-modal, responsive 390px,
-   compléments RTL.
+   Version 1.2.1 — Fix espace navbar + Design Élégant
    ============================================================ */
 
 /* ============================================================
@@ -14,10 +11,16 @@
     --v-transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.vendor-page {
+/* CORRECTION : Ajout de padding-top pour compenser la navbar fixe globale */
+body.vendor-page {
     background: var(--bg);
     min-height: 100dvh;
-    padding-top: 0; /* Le dashboard gère son propre layout */
+    padding-top: 80px !important; /* Pousse le contenu sous la barre de navigation */
+}
+
+/* Sur le dashboard, la sidebar gère son propre layout, on annule le padding */
+body.vendor-page.dashboard-layout {
+    padding-top: 0 !important;
 }
 
 /* ============================================================
@@ -116,7 +119,6 @@
     flex-shrink: 0;
 }
 
-/* T1 — span libellé du menu (utilisé dans dashboard.html et le JS) */
 .v-nav-label {
     flex: 1;
     min-width: 0;
@@ -146,7 +148,7 @@
     flex: 1;
     margin-left: var(--v-sidebar-width);
     padding: 2rem;
-    min-width: 0; /* Empêche le débordement flex */
+    min-width: 0;
     display: flex;
     flex-direction: column;
 }
@@ -259,7 +261,6 @@
     flex-shrink: 0;
 }
 
-/* T1 — libellé KPI (utilisé dans les cartes et les listes wallet) */
 .v-kpi-label {
     display: block;
     font-size: 0.8rem;
@@ -381,7 +382,6 @@
     border-radius: var(--radius-md);
 }
 
-/* T1 — conteneur de liste produits (utilisé par renderProducts) */
 .v-product-list {
     display: flex;
     flex-direction: column;
@@ -393,7 +393,6 @@
     display: none;
 }
 
-/* T1 — variante item (alias probable dans le JS) */
 .v-product-item {
     display: flex;
     align-items: center;
@@ -856,10 +855,7 @@
 }
 
 /* ============================================================
-   10. MODALES GÉNÉRIQUES (.v-modal) — T1
-   Utilisées par vendor-dashboard.js pour les modales
-   "Nouveau produit", "Demande de retrait", "Aperçu commande".
-   La modale contrat reste gérée par #contractModal (voir §7).
+   10. MODALES GÉNÉRIQUES (.v-modal)
    ============================================================ */
 .v-modal:not(.open) {
     display: none !important;
@@ -869,7 +865,7 @@
     display: flex;
     position: fixed;
     inset: 0;
-    z-index: 9999;
+    z-index: 999999 !important; /* Forcer au-dessus de tout */
     align-items: center;
     justify-content: center;
     background: rgba(0, 0, 0, 0.55);
@@ -954,7 +950,7 @@
 }
 
 /* ============================================================
-   11. RESPONSIVE 390px (iPhone 12/13 mini) — T1
+   11. RESPONSIVE 390px (iPhone 12/13 mini)
    ============================================================ */
 @media (max-width: 390px) {
     .v-content {
