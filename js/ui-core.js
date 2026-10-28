@@ -1,4 +1,3 @@
---- js/ui-core.js ---
 /* ============================================================
    js/ui-core.js
    UI CORE - SMART SWI9A
@@ -137,8 +136,6 @@ export function showToast(msg, duration = 2500) {
         return;
     }
 
-    /* Si le DOM n'est pas encore prêt (appel très tôt), on retente
-       au prochain DOMContentLoaded. */
     if (!document.body.contains(toast)) {
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', () => showToast(msg, duration), { once: true });
@@ -158,24 +155,13 @@ export function showToast(msg, duration = 2500) {
 
 /* ============================================================
    FOCUS TRAP (accessibilité modales)
-   ============================================================
-   Piège le focus clavier dans un conteneur (ex: modale) pour
-   respecter WCAG 2.1 §2.4.3 (focus order). L'appelant DOIT appeler
-   releaseFocusTrap() à la fermeture de la modale, sinon le listener
-   reste attaché (fuite légère, pas bloquante).
    ============================================================ */
 let focusTrapListener = null;
 let focusTrapElement = null;
 
 /**
  * Piège le focus clavier dans `modalElement`.
- * - Tab cycle entre les éléments focusables.
- * - Shift+Tab cycle en sens inverse.
- * - Focus automatique sur le premier élément focusable.
- *
- * Remplace tout focus trap précédent (releaseFocusTrap() implicite).
- *
- * @param {HTMLElement} modalElement - Conteneur (ex: .modal).
+ * @param {HTMLElement} modalElement
  */
 export function trapFocus(modalElement) {
     if (!modalElement) return;
@@ -212,7 +198,6 @@ export function trapFocus(modalElement) {
 
 /**
  * Libère le focus trap actif (s'il y en a un).
- * Idempotent.
  */
 export function releaseFocusTrap() {
     if (focusTrapListener && focusTrapElement) {
@@ -223,14 +208,13 @@ export function releaseFocusTrap() {
 }
 
 /* ============================================================
-   HELPERS MODALES (ouverture / fermeture générique)
+   HELPERS MODALES
    ============================================================ */
 
 /**
- * Ouvre une modale (ajoute .open, bloque le scroll body, piège le focus).
+ * Ouvre une modale.
  * @param {HTMLElement} modalElement
  * @param {Object} [options]
- * @param {boolean} [options.trapFocus=true] - Piéger le focus clavier.
  */
 export function openModal(modalElement, options = {}) {
     if (!modalElement) return;
@@ -242,7 +226,7 @@ export function openModal(modalElement, options = {}) {
 }
 
 /**
- * Ferme une modale (retire .open, restaure le scroll body, libère le focus).
+ * Ferme une modale.
  * @param {HTMLElement} modalElement
  */
 export function closeModal(modalElement) {
@@ -253,21 +237,7 @@ export function closeModal(modalElement) {
 }
 
 /* ============================================================
-   CONFIRMATION PERSONNALISÉE (modal custom premium)
-   ============================================================
-   Remplace window.confirm() par un modal cohérent avec le design.
-
-   SÉCURITÉ : toutes les valeurs injectées sont échappées via
-   escapeHTML() pour empêcher le XSS si un appelant passe une
-   chaîne utilisateur (ex: nom de produit dans le message).
-
-   CYCLE DE VIE :
-   - Un seul modal de confirmation à la fois.
-   - Une nouvelle confirmAction() pendant qu'une autre est en cours
-     résout l'ancienne avec false (B-UI-1).
-   - Un timeout de sécurité (120s) résout la promesse si le modal
-     est retiré du DOM par un autre code (B-UI-2).
-   - La promesse est TOUJOURS résolue (jamais bloquée).
+   CONFIRMATION PERSONNALISÉE
    ============================================================ */
 let activeConfirmModal = null;
 let activeConfirmResolver = null;
@@ -294,19 +264,11 @@ function _cleanupActiveConfirm(result) {
 
 /**
  * Affiche une modale de confirmation et retourne une promesse.
- *
- * @param {string} message - Message principal (échappé).
+ * @param {string} message
  * @param {Object} [options]
- * @param {string} [options.title='⚠️ Confirmation'] - Titre (emoji + texte).
- * @param {string} [options.confirmText='Confirmer'] - Texte du bouton OK.
- * @param {string} [options.cancelText='Annuler'] - Texte du bouton Annuler.
- * @param {'danger'|'primary'|'info'} [options.variant='danger'] - Style du bouton OK.
- * @returns {Promise<boolean>} true si confirmé, false si annulé ou timeout.
+ * @returns {Promise<boolean>}
  */
 export function confirmAction(message, options = {}) {
-    /* B-UI-1 : résoudre la promesse précédente avec false avant d'ouvrir
-       une nouvelle confirmation. Sans ça, un appelant await bloquerait
-       à vie. */
     if (activeConfirmResolver) {
         _cleanupActiveConfirm(false);
     }
@@ -335,7 +297,6 @@ export function confirmAction(message, options = {}) {
 
         const confirmColor = '#ffffff';
 
-        /* SÉCURITÉ : Échappement de toutes les variables injectées. */
         const safeMessage = escapeHTML(message);
         const safeConfirmText = escapeHTML(confirmText);
         const safeCancelText = escapeHTML(cancelText);
@@ -374,7 +335,6 @@ export function confirmAction(message, options = {}) {
         const cancelBtn = overlay.querySelector('.confirm-cancel-btn');
         const okBtn = overlay.querySelector('.confirm-ok-btn');
 
-        /* Effets visuels boutons (inchangés) */
         cancelBtn.addEventListener('mouseenter', () => {
             cancelBtn.style.borderColor = 'var(--gold)';
             cancelBtn.style.color = 'var(--gold)';
@@ -421,9 +381,6 @@ export function confirmAction(message, options = {}) {
             try { okBtn.focus(); } catch (e) { /* ignore */ }
         }, 100);
 
-        /* B-UI-2 : timeout de sécurité. Si le modal est retiré du DOM
-           sans passer par cleanup() (ex: autre code qui remove le parent),
-           on résout avec false pour éviter un await bloqué. */
         if (activeConfirmTimeout) clearTimeout(activeConfirmTimeout);
         activeConfirmTimeout = setTimeout(() => {
             console.warn('confirmAction : timeout atteint, résolution par false');
@@ -437,9 +394,9 @@ export function confirmAction(message, options = {}) {
    ============================================================ */
 
 /**
- * Scroll vers un élément avec un offset (utile pour la navbar fixed).
+ * Scroll vers un élément avec un offset.
  * @param {HTMLElement} element
- * @param {number} [offset=80] - Marge en pixels.
+ * @param {number} [offset=80]
  */
 export function scrollToElement(element, offset = 80) {
     if (!element) return;
@@ -490,12 +447,11 @@ export function clearInputs(ids) {
 }
 
 /* ============================================================
-   DÉLÉGATION D'ÉVÉNEMENTS (helper)
+   DÉLÉGATION D'ÉVÉNEMENTS
    ============================================================ */
 
 /**
  * Attache un listener délégué sur un conteneur.
- * Le handler n'est appelé que si la cible correspond au sélecteur.
  * @param {HTMLElement} root
  * @param {string} eventType
  * @param {string} selector
@@ -512,16 +468,11 @@ export function on(root, eventType, selector, handler) {
 }
 
 /* ============================================================
-   LIGHTBOX IMAGE (zoom plein écran)
-   ============================================================
-   B-UI-3 : le listener keydown est retiré dans TOUS les cas de
-   fermeture (clic overlay, bouton, ESC). Avant, un clic fermait
-   la lightbox mais laissait le listener attaché.
+   LIGHTBOX IMAGE
    ============================================================ */
 
 /**
  * Ouvre une image en plein écran avec fond noir.
- * Fermeture : clic sur l'overlay, clic sur le bouton ✕, ou ESC.
  * @param {string} imageUrl
  */
 export function openImageLightbox(imageUrl) {
@@ -535,7 +486,6 @@ export function openImageLightbox(imageUrl) {
         padding: 1rem; cursor: zoom-out;
     `;
 
-    /* SÉCURITÉ : Échappement de l'URL (défense en profondeur). */
     const safeUrl = escapeHTML(imageUrl);
 
     overlay.innerHTML = `
@@ -545,7 +495,6 @@ export function openImageLightbox(imageUrl) {
     `;
     document.body.appendChild(overlay);
 
-    /* B-UI-3 : nettoyage centralisé, appelé dans TOUS les cas. */
     const escHandler = (e) => {
         if (e.key === 'Escape') close();
     };
@@ -567,10 +516,8 @@ export function openImageLightbox(imageUrl) {
 
 /**
  * Copie du texte dans le presse-papiers.
- * Fallback automatique si navigator.clipboard indisponible
- * (navigateurs anciens, contexte HTTP non-sécurisé).
  * @param {string} text
- * @returns {Promise<boolean>} true si copié, false sinon.
+ * @returns {Promise<boolean>}
  */
 export async function copyToClipboard(text) {
     try {
@@ -579,7 +526,6 @@ export async function copyToClipboard(text) {
             showToast('Copié !');
             return true;
         }
-        /* Fallback pour navigateurs anciens */
         const ta = document.createElement('textarea');
         ta.value = text;
         ta.style.position = 'absolute';
@@ -600,4 +546,3 @@ export async function copyToClipboard(text) {
    LOG
    ============================================================ */
 console.log('✅ ui-core.js chargé - v9.1.0 (Lot 51 : showToast auto-suffisante)');
---- fin js/ui-core.js ---
