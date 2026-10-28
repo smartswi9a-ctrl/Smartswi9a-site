@@ -1,4 +1,3 @@
---- js/vendor-signup.js ---
 /* ============================================================
    js/vendor-signup.js
    Logique d'inscription vendeur — Lot 51
@@ -181,7 +180,6 @@ async function computePreSignature() {
     const lang = getCurrentLanguage();
     const version = CONFIG.VENDOR.CONTRACT_VERSION;
 
-    /* SÉCURITÉ : Vérification de l'API Web Crypto (HTTPS requis) */
     if (typeof crypto === "undefined" || !crypto.subtle) {
         console.error("[vendor-signup] Web Crypto API non disponible. Le site doit être en HTTPS.");
         showToast("Erreur de sécurité : le site doit être en HTTPS pour signer le contrat.");
@@ -358,9 +356,6 @@ document.addEventListener("DOMContentLoaded", () => {
         showToast(tr("vendor.contract.canSign"));
     });
 
-    /* ============================================================
-       SOUMISSION FINALE (avec Upgrade automatique)
-       ============================================================ */
     els.form.addEventListener("submit", async (e) => {
         e.preventDefault();
         if (submitInProgress) return;
@@ -407,10 +402,8 @@ document.addEventListener("DOMContentLoaded", () => {
         let isUpgrade = false;
 
         try {
-            /* 1. On tente de créer un nouveau compte */
             authResult = await registerVendorWithFirebase(vendorData, password);
         } catch (err) {
-            /* 🚨 SI L'EMAIL EXISTE DÉJÀ : On tente l'Upgrade */
             if (err.code === "auth/email-already-in-use") {
                 try {
                     console.log("[vendor-signup] Email existant détecté. Création d'une demande de conversion...");
@@ -424,7 +417,6 @@ document.addEventListener("DOMContentLoaded", () => {
                     return;
                 }
             } else {
-                /* Autre erreur Firebase */
                 console.error("[vendor-signup] Erreur inscription vendeur [" + (err.code || "unknown") + "] :", err);
                 showToast(err?.message || tr("vendor.signup.error"), 6000);
                 setButtonLoading(els.btnSubmitVendor, false, null, tr("vendor.signup.submit"));
@@ -441,27 +433,15 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
-        /* ============================================================
-           CAS UPGRADE : conversion request (pas de signature de contrat)
-           ============================================================
-           L'utilisateur reste `user` jusqu'à approbation admin. Il n'a
-           donc pas le droit d'écrire dans `contracts` ni `users.vendorInfo`.
-           On affiche un message clair et on redirige vers l'accueil.
-           ============================================================ */
         if (isUpgrade && authResult.isConversionRequest) {
             showToast(tr("vendor.signup.conversionRequested"), 7000);
             setButtonLoading(els.btnSubmitVendor, false, null, tr("vendor.signup.submit"));
-            /* On garde submitInProgress = true pour empêcher un re-clic
-               pendant la redirection. */
             setTimeout(() => {
                 window.location.href = "/";
             }, 2500);
             return;
         }
 
-        /* ============================================================
-           CAS INSCRIPTION NORMALE : signature du contrat
-           ============================================================ */
         let contractText;
         try {
             contractText = getContractText(preSignature.language, preSignature.version, preSignature.termsSnapshot);
@@ -507,8 +487,6 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         }
 
-        /* Construction de l'URL de redirection : /vendor/dashboard
-           (minuscule + cleanUrls => pas de .html). */
         const params = new URLSearchParams();
         params.set("welcome", "1");
         params.set("verifyEmail", "1");
@@ -536,11 +514,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const queryString = params.toString() ? "?" + params.toString() : "";
         setTimeout(() => {
-            /* CORRECTION ICI : /vendor/dashboard en minuscule */
             window.location.href = "/vendor/dashboard" + queryString;
         }, redirectDelayMs);
     });
 });
 
 console.log("[vendor-signup] v9.3.1 chargé (chemin /vendor/dashboard + conversion request)");
---- fin js/vendor-signup.js ---
