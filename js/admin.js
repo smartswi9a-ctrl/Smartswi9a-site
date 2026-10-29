@@ -3413,7 +3413,7 @@ async function handleVendorAction(vendorId, newStatus) {
         const adminUser = auth.currentUser;
         if (!adminUser) throw new Error('Session administrateur expirée. Reconnectez-vous.');
         const idToken = await adminUser.getIdToken(true);
-        const response = await fetch('https://europe-west1-smartswi9a-31063.cloudfunctions.net/adminVendorAction', {
+        const response = await fetch('/api/adminVendorAction', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
             body: JSON.stringify({ vendorId, action: newStatus })
