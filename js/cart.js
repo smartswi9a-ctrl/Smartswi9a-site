@@ -529,8 +529,19 @@ export function getCartTotal(appliedCoupon = null) {
   const couponDiscount = appliedCoupon
     ? calculateCouponDiscount(appliedCoupon, subtotal, deliveryFee)
     : 0;
-  const totalDiscount = Math.min(discount + couponDiscount, subtotal);
-  return Math.max(0, subtotal - totalDiscount + deliveryFee);
+  const isFreeShipping = appliedCoupon?.type === "free_shipping";
+  const productCouponDiscount = isFreeShipping ? 0 : couponDiscount;
+  const shippingDiscount = isFreeShipping
+    ? Math.min(deliveryFee, couponDiscount)
+    : 0;
+  const productDiscount = Math.min(
+    subtotal,
+    Math.max(0, discount) + Math.max(0, productCouponDiscount)
+  );
+  return Math.max(
+    0,
+    subtotal - productDiscount + deliveryFee - shippingDiscount
+  );
 }
 
 /* ============================================================ REVALIDATION DES PRIX ============================================================ */
