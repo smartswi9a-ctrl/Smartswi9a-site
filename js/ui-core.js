@@ -14,7 +14,7 @@ function _injectToastStyles() {
 
   const style = document.createElement("style");
   style.id = "cart-toast-styles";
-  style.textContent = ` #cartToast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px); background: #1a1a2e; color: #ffffff; padding: 12px 24px; border-radius: 30px; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-size: 0.9rem; font-weight: 600; line-height: 1.4; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25); z-index: 99999; opacity: 0; visibility: hidden; transition: opacity 0.25s ease, transform 0.25s ease, visibility 0.25s; max-width: 90vw; text-align: center; pointer-events: none; word-break: break-word; } #cartToast.show { opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0); } `;
+  style.textContent = ` #cartToast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px); background: #1a1a2e; color: #ffffff; padding: 12px 24px; border-radius: 30px; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-size: 0.9rem; font-weight: 600; line-height: 1.4; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25); z-index: 99999; opacity: 0; visibility: hidden; transition: opacity 0.25s ease, transform 0.25s ease, visibility 0.25s; width: max-content !important; min-width: 0 !important; max-width: min(90vw, 420px) !important; height: auto !important; min-height: 0 !important; max-height: 35vh !important; overflow: hidden !important; box-sizing: border-box !important; white-space: normal !important; text-align: center; pointer-events: none; word-break: break-word; } #cartToast.show { opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0); } `;
   document.head.appendChild(style);
 }
 
