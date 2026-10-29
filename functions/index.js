@@ -425,6 +425,157 @@ exports.acceptVendorContract = onRequest(
 );
 
 /* Customer checkout is performed on the trusted server. Prices, stock, seller approval, coupons and totals are read from Firestore, never trusted from the browser. */
+
+/* ============================================================ ACTIONS ADMIN SUR LES VENDEURS Utilise par /api/adminVendorAction depuis le tableau admin. Les contrôles d'autorisation sont faits côté serveur. ============================================================ */
+exports.adminVendorAction = onRequest(
+  { region: "europe-west1", maxInstances: 5, timeoutSeconds: 30 },
+  async (req, res) => {
+    if (cors(req, res)) return;
+    try {
+      const match = String(req.get("authorization") || "").match(
+        /^Bearer\s+(.+)$/i
+      );
+      if (!match)
+        return res
+          .status(401)
+          .json({
+            success: false,
+            message: "Connexion administrateur requise.",
+          });
+      const decoded = await getAuth().verifyIdToken(match[1], true);
+      const adminSnap = await db.collection("users").doc(decoded.uid).get();
+      if (!adminSnap.exists || adminSnap.data()?.role !== "admin") {
+        return res
+          .status(403)
+          .json({
+            success: false,
+            message: "Action réservée à un administrateur.",
+          });
+      }
+
+      const vendorId = String(req.body?.vendorId || "").trim();
+      const action = String(req.body?.action || "").trim();
+      if (
+        !vendorId ||
+        vendorId.length > 150 ||
+        /[\/\u0000-\u001f]/.test(vendorId)
+      ) {
+        return res
+          .status(400)
+          .json({ success: false, message: "Identifiant vendeur invalide." });
+      }
+      if (vendorId === decoded.uid)
+        return res
+          .status(400)
+          .json({
+            success: false,
+            message:
+              "Vous ne pouvez pas effectuer cette action sur votre propre compte.",
+          });
+      if (!["approved", "rejected", "suspended", "deleted"].includes(action)) {
+        return res
+          .status(400)
+          .json({ success: false, message: "Action vendeur non reconnue." });
+      }
+
+      const vendorRef = db.collection("users").doc(vendorId);
+      const vendorSnap = await vendorRef.get();
+      if (!vendorSnap.exists || vendorSnap.data()?.role !== "vendor") {
+        return res
+          .status(404)
+          .json({ success: false, message: "Profil vendeur introuvable." });
+      }
+      const vendor = vendorSnap.data();
+
+      if (
+        action === "approved" &&
+        vendor.vendorInfo?.contractStatus !== "accepted"
+      ) {
+        return res
+          .status(409)
+          .json({
+            success: false,
+            message:
+              "Impossible d’approuver ce vendeur : le contrat doit être signé.",
+          });
+      }
+
+      if (action === "deleted") {
+        // Supprimer les produits du vendeur par lots bornés, tout en conservant
+        // commandes, contrats, portefeuilles et écritures financières pour audit.
+        let deletedProducts = 0;
+        let productsRemaining = false;
+        for (let page = 0; page < 20; page++) {
+          const productsSnap = await db
+            .collection("products")
+            .where("vendorId", "==", vendorId)
+            .limit(400)
+            .get();
+          if (productsSnap.empty) {
+            productsRemaining = false;
+            break;
+          }
+          const batch = db.batch();
+          productsSnap.docs.forEach((docSnap) => batch.delete(docSnap.ref));
+          await batch.commit();
+          deletedProducts += productsSnap.size;
+          productsRemaining = productsSnap.size === 400;
+          if (!productsRemaining) break;
+        }
+        if (productsRemaining) {
+          return res
+            .status(409)
+            .json({
+              success: false,
+              message:
+                "Suppression interrompue : trop de produits pour un seul traitement. Le profil et le compte vendeur sont conservés ; contactez l’assistance.",
+              deletedProducts,
+            });
+        }
+        await vendorRef.delete();
+        try {
+          await getAuth().deleteUser(vendorId);
+        } catch (authErr) {
+          if (authErr.code !== "auth/user-not-found") {
+            console.error(
+              "[adminVendorAction] Suppression Auth incomplète:",
+              authErr.code || authErr.message
+            );
+            return res
+              .status(500)
+              .json({
+                success: false,
+                message:
+                  "Profil supprimé, mais la suppression du compte Auth a échoué. Vérifiez Firebase Authentication.",
+              });
+          }
+        }
+        return res.status(200).json({ success: true, action, deletedProducts });
+      }
+
+      await vendorRef.update({
+        "vendorInfo.status": action,
+        "vendorInfo.statusUpdatedAt": FieldValue.serverTimestamp(),
+        "vendorInfo.statusUpdatedBy": decoded.uid,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      return res.status(200).json({ success: true, action });
+    } catch (error) {
+      console.error(
+        "[adminVendorAction]",
+        error?.code || "",
+        error?.message || error
+      );
+      const message =
+        error?.code === "auth/id-token-expired" ||
+        error?.code === "auth/invalid-id-token"
+          ? "Session administrateur expirée. Reconnectez-vous."
+          : error?.message || "Action vendeur impossible.";
+      return res.status(500).json({ success: false, message });
+    }
+  }
+);
+
 exports.createCustomerOrder = onRequest(
   { region: "europe-west1", maxInstances: 10, timeoutSeconds: 30 },
   async (req, res) => {
@@ -613,7 +764,6 @@ exports.createCustomerOrder = onRequest(
                 data.nameFr || data.nameEn || item.productId
               }.`
             );
-          productUpdates.push({ ref: productRefs[i], data: update });
           subtotal += price * qty;
           discountableItems += qty;
           validatedItems.push({
