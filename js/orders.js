@@ -1444,9 +1444,11 @@ export async function updateOrderStatus(orderId, newStatus) {
 
       if (
         normalizedStatus === ORDER_STATUS.CANCELLED &&
-        [ORDER_STATUS.CONFIRMED, ORDER_STATUS.SHIPPING].includes(
-          previousStatus
-        ) &&
+        [
+          ORDER_STATUS.PENDING,
+          ORDER_STATUS.CONFIRMED,
+          ORDER_STATUS.SHIPPING,
+        ].includes(previousStatus) &&
         order.stockDeducted === true
       ) {
         productRefs = order.items.map((i) =>
@@ -1473,9 +1475,11 @@ export async function updateOrderStatus(orderId, newStatus) {
 
       if (
         normalizedStatus === ORDER_STATUS.CANCELLED &&
-        [ORDER_STATUS.CONFIRMED, ORDER_STATUS.SHIPPING].includes(
-          previousStatus
-        ) &&
+        [
+          ORDER_STATUS.PENDING,
+          ORDER_STATUS.CONFIRMED,
+          ORDER_STATUS.SHIPPING,
+        ].includes(previousStatus) &&
         order.stockDeducted === true
       ) {
         await restoreStockInTransaction(
