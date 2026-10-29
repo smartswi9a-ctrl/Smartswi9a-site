@@ -189,24 +189,36 @@ export async function signVendorContract( userId, contractText, preSignatureData
     status: "accepted",
   };
 
-  /* B-VC-1 : transaction pour get + set atomiques. */
+  /* Signature idempotente : si cette même version est déjà signée avec le même texte, retourner la preuve existante au lieu de bloquer l'utilisateur. Une autre version/un autre texte reste refusé. */
   try {
-    await runTransaction(db, async (transaction) => {
+    const transactionResult = await runTransaction(db, async (transaction) => {
       const existing = await transaction.get(contractDocRef);
       if (existing.exists()) {
-        throw new Error("CONTRACT_ALREADY_SIGNED");
+        const saved = existing.data() || {};
+        const sameSignedContract =
+          saved.status === "accepted" &&
+          saved.vendorId === userId &&
+          saved.version === version &&
+          String(saved.textHash || "").toLowerCase() === textHash &&
+          String(saved.contractHash || "").toLowerCase() === contractHash;
+        if (!sameSignedContract) {
+          throw new Error("CONTRACT_ALREADY_SIGNED");
+        }
+        return { alreadySigned: true, saved };
       }
       transaction.set(contractDocRef, contractData);
+      return { alreadySigned: false, saved: contractData };
     });
 
     return {
       success: true,
+      alreadySigned: transactionResult.alreadySigned,
       contractId: contractId,
       version: version,
-      hash: contractHash,
-      textHash: textHash,
-      ip: ip,
-      ipSource: ipSource,
+      hash: transactionResult.saved.contractHash || contractHash,
+      textHash: transactionResult.saved.textHash || textHash,
+      ip: transactionResult.saved.ipAddress || ip,
+      ipSource: transactionResult.saved.ipSource || ipSource,
     };
   } catch (e) {
     if (e && e.message === "CONTRACT_ALREADY_SIGNED") {
