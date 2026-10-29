@@ -428,7 +428,12 @@ exports.acceptVendorContract = onRequest(
 
 /* ============================================================ ACTIONS ADMIN SUR LES VENDEURS Utilise par /api/adminVendorAction depuis le tableau admin. Les contrôles d'autorisation sont faits côté serveur. ============================================================ */
 exports.adminVendorAction = onRequest(
-  { region: "europe-west1", maxInstances: 5, timeoutSeconds: 30 },
+  {
+    region: "europe-west1",
+    maxInstances: 5,
+    timeoutSeconds: 30,
+    cors: [...ALLOWED_ORIGINS],
+  },
   async (req, res) => {
     if (cors(req, res)) return;
     try {
@@ -577,7 +582,12 @@ exports.adminVendorAction = onRequest(
 );
 
 exports.createCustomerOrder = onRequest(
-  { region: "europe-west1", maxInstances: 10, timeoutSeconds: 30 },
+  {
+    region: "europe-west1",
+    maxInstances: 10,
+    timeoutSeconds: 30,
+    cors: [...ALLOWED_ORIGINS],
+  },
   async (req, res) => {
     if (cors(req, res)) return;
     try {
@@ -817,8 +827,19 @@ exports.createCustomerOrder = onRequest(
             throw new Error("Ce code ne produit aucune réduction.");
           couponData = c;
         }
-        const totalDiscount = Math.min(discount + couponDiscount, subtotal),
-          total = Math.max(0, subtotal - totalDiscount + deliveryFee);
+        const isFreeShipping = couponData?.type === "free_shipping";
+        const productCouponDiscount = isFreeShipping ? 0 : couponDiscount;
+        const shippingDiscount = isFreeShipping
+          ? Math.min(deliveryFee, couponDiscount)
+          : 0;
+        const productDiscount = Math.min(
+          subtotal,
+          Math.max(0, discount) + Math.max(0, productCouponDiscount)
+        );
+        const total = Math.max(
+          0,
+          subtotal - productDiscount + deliveryFee - shippingDiscount
+        );
         const now = Date.now(),
           vendorList = [
             ...new Set(
@@ -924,7 +945,12 @@ exports.createCustomerOrder = onRequest(
 );
 
 exports.cancelCustomerOrder = onRequest(
-  { region: "europe-west1", maxInstances: 10, timeoutSeconds: 30 },
+  {
+    region: "europe-west1",
+    maxInstances: 10,
+    timeoutSeconds: 30,
+    cors: [...ALLOWED_ORIGINS],
+  },
   async (req, res) => {
     if (cors(req, res)) return;
     try {
