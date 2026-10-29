@@ -3415,10 +3415,14 @@ async function handleVendorAction(vendorId, newStatus) {
         const idToken = await adminUser.getIdToken(true);
         const response = await fetch('/api/adminVendorAction', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+            cache: 'no-store',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}`, 'Accept': 'application/json' },
             body: JSON.stringify({ vendorId, action: newStatus })
         });
-        const result = await response.json().catch(() => ({}));
+        const responseText = await response.text();
+        let result = {};
+        try { result = responseText ? JSON.parse(responseText) : {}; }
+        catch (_) { result = { message: responseText.slice(0, 300) }; }
         if (!response.ok || !result.success) {
             const statusHint = response.status === 404
                 ? ' La fonction adminVendorAction est absente ou pas encore déployée dans europe-west1.'
