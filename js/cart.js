@@ -699,343 +699,64 @@ export async function checkout( cartItems, deliveryInfo, appliedCoupon = null, w
 export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
   const user = getCurrentUser();
   if (!user) return { success: false, error: "NO_USER" };
-  items = consolidateOrderItems(items);
-  if (items.length === 0)
+  const normalizedItems = consolidateOrderItems(items);
+  if (!normalizedItems.length)
     return { success: false, error: "Le panier est vide ou invalide." };
-
-  const testMode = isTestMode();
-  const testBatchId = testMode ? APP_MODE.testBatchId : null;
-  if (testMode) {
-    console.log("[TEST] createOrder en mode test - batch:", testBatchId);
-  }
-
   try {
-    const result = await runTransaction(db, async (transaction) => {
-      const productRefs = items.map((item) =>
-        doc(db, "products", String(item.productId))
-      );
-      const productSnaps = await Promise.all(
-        productRefs.map((ref) => transaction.get(ref))
-      );
-
-      /* B-cart-2 : vérifier data.status pour tous les produits. */
-      productSnaps.forEach((snap, i) => {
-        if (!snap.exists()) {
-          throw new Error(`Produit ${items[i].productId} introuvable`);
-        }
-        const data = snap.data();
-        if (data.status && data.status !== "approved") {
-          throw new Error(
-            `Le produit "${ data.nameFr || data.nameEn || "inconnu" }" n'est plus disponible (${data.status}).`
-          );
-        }
-      });
-
-      /* B-cart-4 : vérifier vendorsPublic pour chaque vendeur unique. */
-      const uniqueVendorIds = new Set();
-      productSnaps.forEach((snap) => {
-        const data = snap.data();
-        const vid = String(data.vendorId || "smartswi9a");
-        if (vid !== "smartswi9a") uniqueVendorIds.add(vid);
-      });
-      if (uniqueVendorIds.size > 0) {
-        const vendorArr = Array.from(uniqueVendorIds);
-        const vendorSnaps = await Promise.all(
-          vendorArr.map((vid) => transaction.get(doc(db, "vendorsPublic", vid)))
-        );
-        vendorSnaps.forEach((vs, idx) => {
-          const vid = vendorArr[idx];
-          if (!vs.exists()) {
-            throw new Error(
-              `Le vendeur "${String(vid).slice(0, 8)}…" est introuvable.`
-            );
-          }
-          if (vs.data().status !== "approved") {
-            throw new Error(
-              `Le vendeur "${String(vs.data().shopName || vid).slice( 0, 40 )}" n'est pas actif.`
-            );
-          }
-        });
-      }
-
-      /* City + coupon reads. */
-      let citySnap = null;
-      if (deliveryInfo.cityId) {
-        const cityRef = doc(db, "cities", String(deliveryInfo.cityId));
-        citySnap = await transaction.get(cityRef);
-      }
-
-      let couponSnap = null;
-      let couponUseSnap = null;
-
-      if (appliedCoupon && appliedCoupon.id) {
-        const couponRef = doc(db, "coupons", appliedCoupon.id);
-        couponSnap = await transaction.get(couponRef);
-
-        if (couponSnap.exists() && couponSnap.data().oneUsePerUser === true) {
-          const couponUseId = `${appliedCoupon.id}_${user.uid}`;
-          const couponUseRef = doc(db, "coupon_uses", couponUseId);
-          couponUseSnap = await transaction.get(couponUseRef);
-        }
-      }
-
-      /* Calcul subtotal + items validés. */
-      let subtotal = 0;
-      let discountableItems = 0;
-      const validatedItems = [];
-      const productUpdates = [];
-
-      /* R2-preparation : orderRef créé en amont pour propager son ID. */
-      const orderRef = doc(collection(db, "orders"));
-      const orderIdForLastRef = orderRef.id;
-
-      productSnaps.forEach((snap, i) => {
-        const data = snap.data();
-        const qty = Math.max(1, Math.floor(Number(items[i].quantity) || 1));
-        const productVendorId = String(data.vendorId || "smartswi9a");
-
-        let availableStock = 0;
-        let unitPrice = Number(data.price) || 0;
-        const itemVariant = items[i].variant;
-
-        /* B-cart-8 + R2-preparation : updateData inclut lastOrderId + updatedAt + invariant stock+salesCount. */
-        let updateData = {
-          salesCount: (Number(data.salesCount) || 0) + qty,
-          lastOrderId: orderIdForLastRef,
-          updatedAt: Timestamp.now(),
-        };
-
-        if (itemVariant) {
-          const variantsArr = Array.isArray(data.variants) ? data.variants : [];
-          const vIdx = variantsArr.findIndex(
-            (v) =>
-              (v.size || "") === (itemVariant.size || "") &&
-              (v.color || "") === (itemVariant.color || "")
-          );
-          if (vIdx === -1)
-            throw new Error(`La variante n'existe plus pour ${data.nameFr}`);
-
-          const variants = [...variantsArr];
-          availableStock = Number(variants[vIdx].stock) || 0;
-          const variantPrice = Number(variants[vIdx].price);
-          unitPrice =
-            Number.isFinite(variantPrice) && variantPrice > 0
-              ? variantPrice
-              : unitPrice;
-
-          if (availableStock < qty)
-            throw new Error(
-              `Stock insuffisant pour ${data.nameFr} (${itemVariant.size}/${itemVariant.color})`
-            );
-
-          variants[vIdx].stock = Math.max(0, availableStock - qty);
-          updateData.variants = variants;
-          updateData.stock = variants.reduce(
-            (s, v) => s + (Number(v.stock) || 0),
-            0
-          );
-        } else {
-          availableStock = Number(data.stock) || 0;
-          if (availableStock < qty)
-            throw new Error(`Stock insuffisant pour ${data.nameFr}`);
-          updateData.stock = Math.max(0, availableStock - qty);
-        }
-
-        /* B-cart-1 : refuser un prix <= 0. */
-        if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
-          throw new Error(`Prix invalide pour ${data.nameFr || "ce produit"}.`);
-        }
-
-        productUpdates.push({ ref: productRefs[i], data: updateData });
-
-        subtotal += unitPrice * qty;
-        discountableItems += qty;
-
-        validatedItems.push({
-          id: String(items[i].id),
-          productId: String(items[i].productId),
-          vendorId: productVendorId,
-          variant: itemVariant || null,
-          quantity: Number(qty),
-          price: Number(unitPrice),
-          name: String(data.nameFr || data.nameEn || "Produit"),
-          weight: Number(data.dimensions?.weight) || 0,
-        });
-      });
-
-      /* City data. */
-      let cityData = null;
-      if (citySnap && citySnap.exists()) {
-        cityData = citySnap.data();
-      }
-
-      const discountRate =
-        discountableItems >= CONFIG.SHOP.DISCOUNT_THRESHOLD
-          ? CONFIG.SHOP.DISCOUNT_PERCENT / 100
-          : 0;
-      const discount = Math.round(subtotal * discountRate) || 0;
-
-      const deliveryFee = cityData ? Number(cityData.price) || 0 : 0;
-      let couponData = null;
-      let couponDiscount = 0;
-
-      if (appliedCoupon && appliedCoupon.id) {
-        if (!couponSnap.exists()) throw new Error("Code promo introuvable");
-        const c = couponSnap.data();
-
-        if (c.isActive !== true) throw new Error("Code promo inactif");
-        if (c.expiresAt) {
-          const expDate = c.expiresAt.toDate
-            ? c.expiresAt.toDate()
-            : new Date(c.expiresAt);
-          if (expDate.getTime() < Date.now())
-            throw new Error("Code promo expiré");
-        }
-        const maxUses = Number(c.maxUses) || 0;
-        if (maxUses > 0 && (Number(c.usedCount) || 0) >= maxUses)
-          throw new Error("Code promo épuisé");
-        if (
-          (Number(c.minPurchase) || 0) > 0 &&
-          subtotal < Number(c.minPurchase)
-        )
-          throw new Error(`Minimum ${c.minPurchase} MAD requis`);
-
-        if (c.oneUsePerUser === true) {
-          if (couponUseSnap && couponUseSnap.exists()) {
-            throw new Error("Vous avez déjà utilisé ce code promo");
-          }
-        }
-
-        couponDiscount = calculateCouponDiscount(c, subtotal, deliveryFee) || 0;
-        if (couponDiscount <= 0)
-          throw new Error("Ce code ne produit aucune réduction");
-        couponData = c;
-      }
-
-      const totalDiscount = Math.min(discount + couponDiscount, subtotal);
-      const total = Math.max(0, subtotal - totalDiscount + deliveryFee);
-      const cancellableUntil = new Date(
-        Date.now() + CONFIG.ORDERS.CANCELLABLE_HOURS * 3600 * 1000
-      );
-
-      const vendorIdsSet = new Set();
-      validatedItems.forEach((it) => {
-        if (it.vendorId && it.vendorId !== "smartswi9a") {
-          vendorIdsSet.add(it.vendorId);
-        }
-      });
-      const vendorIds = Array.from(vendorIdsSet);
-
-      const orderData = {
-        _test: testMode,
-        _testBatch: testBatchId,
-        userId: String(user.uid),
-        userName: String(user.name || ""),
-        userEmail: String(user.email || ""),
-        items: validatedItems,
-        vendorIds,
-        status: ORDER_STATUS.PENDING,
-        paymentStatus: "unpaid",
-        subtotal: Number(subtotal) || 0,
-        discount: Number(discount) || 0,
-        couponId: appliedCoupon?.id ? String(appliedCoupon.id) : null,
-        couponCode: appliedCoupon?.code ? String(appliedCoupon.code) : null,
-        couponDiscount: Number(couponDiscount) || 0,
-        deliveryFee: Number(deliveryFee) || 0,
-        total: Number(total) || 0,
-        stockDeducted: true,
-        couponRestored: false,
-        deliveryAddress: {
-          name: String(deliveryInfo.name || "")
-            .trim()
-            .slice(0, 100),
-          phone: String(deliveryInfo.phone || "")
-            .trim()
-            .slice(0, 20),
-          address: String(deliveryInfo.address || "")
-            .trim()
-            .slice(0, 300),
-          city: String(deliveryInfo.city || "")
-            .trim()
-            .slice(0, 100),
-          cityId: deliveryInfo.cityId ? String(deliveryInfo.cityId) : null,
-          cityAr: deliveryInfo.cityAr ? String(deliveryInfo.cityAr) : null,
-          cityFr: deliveryInfo.cityFr ? String(deliveryInfo.cityFr) : null,
-          email: String(deliveryInfo.email || user.email || ""),
-          note: deliveryInfo.note
-            ? String(deliveryInfo.note).trim().slice(0, 300)
-            : null,
+    const { auth } = await import("./firebase.js");
+    const firebaseUser = auth.currentUser;
+    if (!firebaseUser) return { success: false, error: "NO_USER" };
+    const idToken = await firebaseUser.getIdToken();
+    const response = await fetch("/api/createCustomerOrder", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${idToken}`,
+      },
+      body: JSON.stringify({
+        items: normalizedItems.map((item) => ({
+          id: String(item.id),
+          productId: String(item.productId),
+          quantity: Number(item.quantity),
+          variant: item.variant || null,
+        })),
+        deliveryInfo: {
+          name: String(deliveryInfo?.name || ""),
+          phone: String(deliveryInfo?.phone || ""),
+          address: String(deliveryInfo?.address || ""),
+          city: String(deliveryInfo?.city || ""),
+          cityId: deliveryInfo?.cityId || null,
+          cityAr: deliveryInfo?.cityAr || null,
+          cityFr: deliveryInfo?.cityFr || null,
+          email: String(deliveryInfo?.email || user.email || ""),
+          note: deliveryInfo?.note || null,
         },
-        createdAt: Timestamp.now(),
-        updatedAt: Timestamp.now(),
-        cancellableUntil: Timestamp.fromDate(cancellableUntil),
-        cancelledAt: null,
-      };
-
-      const notifRef = doc(collection(db, "notifications"));
-      const notifData = {
-        _test: testMode,
-        _testBatch: testBatchId,
-        userId: String(user.uid),
-        type: "order_created",
-        title: String(t("notificationOrderCreated") || "Commande reçue"),
-        message: String(
-          (
-            t("notificationOrderCreatedMsg") ||
-            "Merci pour votre commande #{id} !"
-          ).replace("{id}", orderRef.id.slice(0, 8).toUpperCase())
-        ),
-        orderId: String(orderRef.id),
-        read: false,
-        createdAt: Timestamp.now(),
-      };
-
-      productUpdates.forEach((update) => {
-        transaction.update(update.ref, update.data);
-      });
-
-      transaction.set(orderRef, orderData);
-
-      if (couponData) {
-        transaction.update(doc(db, "coupons", appliedCoupon.id), {
-          usedCount: increment(1),
-        });
-        transaction.set(
-          doc(db, "coupon_uses", `${appliedCoupon.id}_${user.uid}`),
-          {
-            _test: testMode,
-            _testBatch: testBatchId,
-            couponId: String(appliedCoupon.id),
-            code: String(couponData.code),
-            userId: String(user.uid),
-            orderId: String(orderRef.id),
-            discountApplied: Number(couponDiscount) || 0,
-            usedAt: Timestamp.now(),
-          }
-        );
-      }
-
-      transaction.set(notifRef, notifData);
-
-      return {
-        orderId: orderRef.id,
-        totals: {
-          subtotal,
-          discount,
-          couponCode: appliedCoupon?.code || null,
-          couponDiscount,
-          deliveryFee,
-          total,
-          vendorIds,
-        },
-        validatedItems,
-      };
+        appliedCoupon: appliedCoupon
+          ? {
+              id: String(appliedCoupon.id || ""),
+              code: String(appliedCoupon.code || ""),
+            }
+          : null,
+      }),
     });
-
-    return { success: true, ...result };
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || result.success !== true)
+      return {
+        success: false,
+        error: result.message || "Création de commande impossible.",
+      };
+    return {
+      success: true,
+      orderId: result.orderId,
+      totals: result.totals,
+      validatedItems: result.validatedItems,
+    };
   } catch (error) {
-    console.error("Erreur création commande détaillée :", error);
-    return { success: false, error: error.message };
+    console.error("Erreur création commande serveur :", error);
+    return {
+      success: false,
+      error: error.message || "Erreur réseau pendant la création de commande.",
+    };
   }
 }
 
@@ -1097,111 +818,32 @@ export async function loadUserOrders() {
 export async function cancelOrder(orderId) {
   const user = getCurrentUser();
   if (!user) return { success: false, error: "NO_USER" };
-
   try {
-    await runTransaction(db, async (transaction) => {
-      const orderRef = doc(db, "orders", orderId);
-      const orderSnap = await transaction.get(orderRef);
-      if (!orderSnap.exists()) throw new Error("Commande introuvable");
-
-      const order = orderSnap.data();
-      if (order.userId !== user.uid) throw new Error("Non autorisé");
-      if (normalizeOrderStatus(order.status) !== ORDER_STATUS.PENDING)
-        throw new Error("Cette commande ne peut plus être annulée");
-
-      const cancellableUntilDate =
-        toDate(order.cancellableUntil) ||
-        (order.createdAt?.toDate
-          ? new Date(
-              order.createdAt.toDate().getTime() +
-                CONFIG.ORDERS.CANCELLABLE_HOURS * 3600000
-            )
-          : null);
-      if (cancellableUntilDate && Date.now() > cancellableUntilDate.getTime())
-        throw new Error(t("orderCancelTooLate"));
-
-      if (order.stockDeducted === true) {
-        const cancellationItems = consolidateOrderItems(order.items);
-        const productRefs = cancellationItems.map((i) =>
-          doc(db, "products", String(i.productId))
-        );
-        const productSnaps = await Promise.all(
-          productRefs.map((r) => transaction.get(r))
-        );
-
-        productSnaps.forEach((snap, i) => {
-          if (!snap.exists()) return;
-          const pData = snap.data();
-          const qty = Number(cancellationItems[i].quantity) || 0;
-          const itemVariant = cancellationItems[i].variant;
-
-          /* R2-preparation : lastOrderId + updatedAt + invariant. */
-          let updateData = {
-            salesCount: Math.max(0, (Number(pData.salesCount) || 0) - qty),
-            lastOrderId: orderId,
-            updatedAt: Timestamp.now(),
-          };
-
-          if (itemVariant) {
-            const variantsArr = Array.isArray(pData.variants)
-              ? pData.variants
-              : [];
-            const variants = [...variantsArr];
-            const idx = variants.findIndex(
-              (v) =>
-                (v.size || "") === (itemVariant.size || "") &&
-                (v.color || "") === (itemVariant.color || "")
-            );
-            if (idx > -1) {
-              variants[idx].stock = (Number(variants[idx].stock) || 0) + qty;
-              updateData.variants = variants;
-              updateData.stock = variants.reduce(
-                (sum, v) => sum + (Number(v.stock) || 0),
-                0
-              );
-            }
-          } else {
-            updateData.stock = (Number(pData.stock) || 0) + qty;
-          }
-          transaction.update(productRefs[i], updateData);
-        });
-      }
-
-      if (order.couponId && !order.couponRestored) {
-        transaction.update(doc(db, "coupons", order.couponId), {
-          usedCount: increment(-1),
-        });
-        transaction.delete(
-          doc(db, "coupon_uses", `${order.couponId}_${user.uid}`)
-        );
-      }
-
-      transaction.update(orderRef, {
-        status: ORDER_STATUS.CANCELLED,
-        cancelledAt: Timestamp.now(),
-        updatedAt: Timestamp.now(),
-        stockDeducted: false,
-        couponRestored: true,
-      });
-
-      transaction.set(doc(collection(db, "notifications")), {
-        _test: order._test === true,
-        _testBatch: order._testBatch || null,
-        userId: user.uid,
-        type: "order_cancelled",
-        title: t("notificationOrderCancelled"),
-        message: t("notificationOrderCancelledMsg").replace(
-          "{id}",
-          orderId.slice(0, 8).toUpperCase()
-        ),
-        orderId: orderId,
-        read: false,
-        createdAt: Timestamp.now(),
-      });
+    const { auth } = await import("./firebase.js");
+    const firebaseUser = auth.currentUser;
+    if (!firebaseUser) return { success: false, error: "NO_USER" };
+    const idToken = await firebaseUser.getIdToken();
+    const response = await fetch("/api/cancelCustomerOrder", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${idToken}`,
+      },
+      body: JSON.stringify({ orderId: String(orderId || "") }),
     });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || result.success !== true)
+      return {
+        success: false,
+        error: result.message || "Annulation impossible.",
+      };
     return { success: true };
   } catch (error) {
-    return { success: false, error: error.message };
+    console.error("Erreur annulation commande serveur :", error);
+    return {
+      success: false,
+      error: error.message || "Erreur réseau pendant l’annulation.",
+    };
   }
 }
 
