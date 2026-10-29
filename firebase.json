@@ -109,6 +109,20 @@
         }
       },
       {
+        "source": "/api/createCustomerOrder",
+        "function": {
+          "functionId": "createCustomerOrder",
+          "region": "europe-west1"
+        }
+      },
+      {
+        "source": "/api/cancelCustomerOrder",
+        "function": {
+          "functionId": "cancelCustomerOrder",
+          "region": "europe-west1"
+        }
+      },
+      {
         "source": "/vendor/dashboard",
         "destination": "/vendor/dashboard.html"
       },
