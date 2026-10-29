@@ -3413,7 +3413,7 @@ async function handleVendorAction(vendorId, newStatus) {
         const adminUser = auth.currentUser;
         if (!adminUser) throw new Error('Session administrateur expirée. Reconnectez-vous.');
         const idToken = await adminUser.getIdToken(true);
-        const response = await fetch('/api/adminVendorAction', {
+        const response = await fetch('https://europe-west1-smartswi9a-31063.cloudfunctions.net/adminVendorAction', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
             body: JSON.stringify({ vendorId, action: newStatus })
@@ -3421,10 +3421,14 @@ async function handleVendorAction(vendorId, newStatus) {
         const result = await response.json().catch(() => ({}));
         if (!response.ok || !result.success) {
             const statusHint = response.status === 404
-                ? ' La fonction adminVendorAction est absente ou sa route Firebase n’est pas déployée.'
-                : response.status === 403
-                    ? ' Vérifiez le rôle administrateur du compte connecté.'
-                    : '';
+                ? ' La fonction adminVendorAction est absente ou pas encore déployée dans europe-west1.'
+                : response.status === 405
+                    ? ' La fonction refuse cette méthode HTTP : vérifiez que la version serveur adminVendorAction est bien déployée.'
+                    : response.status === 403
+                        ? ' Vérifiez le rôle administrateur du compte connecté et les autorisations CORS.'
+                        : response.status === 401
+                            ? ' La session administrateur a expiré : reconnectez-vous.'
+                            : '';
             throw new Error((result.message || `Action vendeur impossible (HTTP ${response.status}).`) + statusHint);
         }
 
