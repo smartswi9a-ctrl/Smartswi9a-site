@@ -3419,7 +3419,14 @@ async function handleVendorAction(vendorId, newStatus) {
             body: JSON.stringify({ vendorId, action: newStatus })
         });
         const result = await response.json().catch(() => ({}));
-        if (!response.ok || !result.success) throw new Error(result.message || 'Action vendeur impossible.');
+        if (!response.ok || !result.success) {
+            const statusHint = response.status === 404
+                ? ' La fonction adminVendorAction est absente ou sa route Firebase n’est pas déployée.'
+                : response.status === 403
+                    ? ' Vérifiez le rôle administrateur du compte connecté.'
+                    : '';
+            throw new Error((result.message || `Action vendeur impossible (HTTP ${response.status}).`) + statusHint);
+        }
 
         const verb = newStatus === 'approved' ? 'approuvé'
             : newStatus === 'rejected' ? 'rejeté'
