@@ -109,6 +109,13 @@
         }
       },
       {
+        "source": "/api/adminVendorAction",
+        "function": {
+          "functionId": "adminVendorAction",
+          "region": "europe-west1"
+        }
+      },
+      {
         "source": "/api/createCustomerOrder",
         "function": {
           "functionId": "createCustomerOrder",
