@@ -3360,6 +3360,7 @@ function renderVendorsList(vendors) {
             const approveStyle = contractAccepted ? '' : 'opacity:0.5;cursor:not-allowed;';
             actionsHtml = `<button class="admin-btn-approve" data-action="vendor-approve" data-id="${v.id}" ${approveDisabled} style="${approveStyle}">Réactiver</button>`;
         }
+        actionsHtml += `<button class="admin-btn-icon admin-btn-danger" data-action="vendor-delete" data-id="${v.id}">Supprimer le compte</button>`;
 
         html += `
             <div class="admin-list-item" style="flex-direction:column;align-items:stretch;padding:1rem;">
@@ -3393,88 +3394,43 @@ function renderVendorsList(vendors) {
     container.querySelectorAll('[data-action="vendor-suspend"]').forEach(btn => {
         btn.addEventListener('click', () => handleVendorAction(btn.dataset.id, VENDOR_STATUS.SUSPENDED));
     });
+    container.querySelectorAll('[data-action="vendor-delete"]').forEach(btn => {
+        btn.addEventListener('click', () => handleVendorAction(btn.dataset.id, 'deleted'));
+    });
 }
 
 async function handleVendorAction(vendorId, newStatus) {
-    const labels = { approved: 'approuver', rejected: 'rejeter', suspended: 'suspendre' };
-    const confirmed = await confirmAction(`Voulez-vous vraiment ${labels[newStatus]} ce vendeur ?`, {
-        title: 'Confirmation',
-        confirmText: 'Oui',
+    const labels = { approved: 'approuver', rejected: 'rejeter', suspended: 'suspendre', deleted: 'supprimer définitivement' };
+    const confirmed = await confirmAction(`Voulez-vous vraiment ${labels[newStatus]} ce vendeur ?${newStatus === 'deleted' ? ' Ses produits seront supprimés ; les commandes, contrats et écritures financières seront conservés pour audit.' : ''}`, {
+        title: newStatus === 'deleted' ? 'Suppression du compte vendeur' : 'Confirmation',
+        confirmText: newStatus === 'deleted' ? 'Supprimer' : 'Oui',
         cancelText: 'Annuler',
         variant: newStatus === 'approved' ? 'primary' : 'danger'
     });
     if (!confirmed) return;
 
     try {
-        const vendorDoc = await getDoc(doc(db, 'users', vendorId));
-        if (!vendorDoc.exists()) throw new Error('Utilisateur vendeur introuvable.');
-        const vendorData = vendorDoc.data();
-
-        if (newStatus === VENDOR_STATUS.APPROVED) {
-            if ((vendorData.vendorInfo?.contractStatus || 'pending') !== 'accepted') {
-                throw new Error('Contrat non signé. Approbation refusée.');
-            }
-        }
-
-        await runTransaction(db, async (tx) => {
-            const userRef = doc(db, 'users', vendorId);
-            const userSnap = await tx.get(userRef);
-            if (!userSnap.exists()) throw new Error('Utilisateur vendeur introuvable.');
-
-            const data = userSnap.data();
-            const vendorInfo = data.vendorInfo || {};
-
-            const userUpdate = {
-                'vendorInfo.status': newStatus,
-                'vendorInfo.updatedAt': serverTimestamp()
-            };
-            if (newStatus === VENDOR_STATUS.APPROVED) {
-                userUpdate['vendorInfo.contractStatus'] = CONTRACT_STATUS.ACCEPTED;
-                if (vendorInfo.currentContractId) {
-                    userUpdate['vendorInfo.currentContractId'] = vendorInfo.currentContractId;
-                }
-            }
-            tx.update(userRef, userUpdate);
-
-            const publicRef = doc(db, 'vendorsPublic', vendorId);
-            const shopName = vendorInfo.shopName || data.name || 'Boutique';
-            const city = vendorInfo.city || '';
-            tx.set(publicRef, {
-                vendorId: vendorId,
-                shopName: String(shopName).slice(0, 60),
-                status: newStatus,
-                city: String(city).slice(0, 80),
-                updatedAt: serverTimestamp()
-            }, { merge: true });
+        const adminUser = auth.currentUser;
+        if (!adminUser) throw new Error('Session administrateur expirée. Reconnectez-vous.');
+        const idToken = await adminUser.getIdToken(true);
+        const response = await fetch('/api/adminVendorAction', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+            body: JSON.stringify({ vendorId, action: newStatus })
         });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.success) throw new Error(result.message || 'Action vendeur impossible.');
 
-        const notifMessages = {
-            approved: { title: 'Compte vendeur approuvé', msg: 'Votre compte vendeur a été approuvé. Vous pouvez publier vos produits.' },
-            rejected: { title: 'Inscription refusée', msg: 'Votre inscription a été refusée. Contactez le support.' },
-            suspended: { title: 'Compte suspendu', msg: 'Votre compte a été suspendu. Contactez le support.' }
-        };
-        const n = notifMessages[newStatus];
-        if (n) {
-            try {
-                await addDoc(collection(db, 'notifications'), {
-                    userId: vendorId,
-                    type: 'vendor_' + newStatus,
-                    title: n.title,
-                    message: n.msg,
-                    read: false,
-                    createdAt: Timestamp.now()
-                });
-            } catch (e) { /* non bloquant */ }
-        }
-
-        const verb = newStatus === VENDOR_STATUS.APPROVED ? 'approuvé'
-            : newStatus === VENDOR_STATUS.REJECTED ? 'rejeté' : 'suspendu';
+        const verb = newStatus === 'approved' ? 'approuvé'
+            : newStatus === 'rejected' ? 'rejeté'
+            : newStatus === 'suspended' ? 'suspendu' : 'supprimé';
         showToast('Vendeur ' + verb);
         await loadVendors();
     } catch (e) {
         console.error('[admin] handleVendorAction :', e);
         showToast(e.message || 'Erreur');
     }
+
 }
 
 /* ============================================================
