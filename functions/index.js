@@ -423,3 +423,489 @@ exports.acceptVendorContract = onRequest(
     }
   }
 );
+
+/* Customer checkout is performed on the trusted server. Prices, stock, seller approval, coupons and totals are read from Firestore, never trusted from the browser. */
+exports.createCustomerOrder = onRequest(
+  { region: "europe-west1", maxInstances: 10, timeoutSeconds: 30 },
+  async (req, res) => {
+    if (cors(req, res)) return;
+    try {
+      const match = String(req.get("authorization") || "").match(
+        /^Bearer\s+(.+)$/i
+      );
+      if (!match)
+        return res
+          .status(401)
+          .json({ success: false, message: "Connexion requise." });
+      const decoded = await getAuth().verifyIdToken(match[1], true);
+      const input = req.body || {};
+      const delivery = input.deliveryInfo || {};
+      const rawItems = Array.isArray(input.items) ? input.items : [];
+      if (!rawItems.length || rawItems.length > 50)
+        return res
+          .status(400)
+          .json({ success: false, message: "Panier vide ou trop volumineux." });
+      for (const k of ["name", "phone", "address", "city"]) {
+        if (typeof delivery[k] !== "string" || !delivery[k].trim())
+          return res
+            .status(400)
+            .json({
+              success: false,
+              message: `Champ de livraison obligatoire : ${k}`,
+            });
+      }
+      if (
+        delivery.phone.trim().length > 20 ||
+        delivery.address.trim().length > 300
+      )
+        return res
+          .status(400)
+          .json({
+            success: false,
+            message: "Coordonnées de livraison invalides.",
+          });
+      const merged = new Map();
+      for (const it of rawItems) {
+        const productId = String(it?.productId ?? "").trim();
+        const qty = Math.floor(Number(it?.quantity));
+        if (!productId || !Number.isFinite(qty) || qty < 1 || qty > 99)
+          return res
+            .status(400)
+            .json({ success: false, message: "Article ou quantité invalide." });
+        const v =
+          it.variant && typeof it.variant === "object"
+            ? {
+                size: String(it.variant.size || ""),
+                color: String(it.variant.color || ""),
+              }
+            : null;
+        const key = JSON.stringify([productId, v?.size || "", v?.color || ""]);
+        const old = merged.get(key);
+        if (old) old.quantity += qty;
+        else
+          merged.set(key, {
+            productId,
+            quantity: qty,
+            variant: v,
+            id: String(it.id || productId),
+          });
+      }
+      const items = [...merged.values()];
+      if (items.some((i) => i.quantity > 99))
+        return res
+          .status(400)
+          .json({ success: false, message: "Quantité maximale dépassée." });
+      const orderRef = db.collection("orders").doc();
+      const couponId = String(input.appliedCoupon?.id || "").trim();
+      const outcome = await db.runTransaction(async (tx) => {
+        const productRefs = items.map((i) =>
+          db.collection("products").doc(i.productId)
+        );
+        const productSnaps = await Promise.all(
+          productRefs.map((ref) => tx.get(ref))
+        );
+        const vendorIdsSet = new Set();
+        for (let i = 0; i < productSnaps.length; i++) {
+          if (!productSnaps[i].exists)
+            throw new Error(`Produit ${items[i].productId} introuvable.`);
+          const pd = productSnaps[i].data();
+          if (pd.status && pd.status !== "approved")
+            throw new Error(
+              `Le produit ${
+                pd.nameFr || pd.nameEn || ""
+              } n'est plus disponible.` ); const vid = String(pd.vendorId || "smartswi9a"); if (vid !== "smartswi9a") vendorIdsSet.add(vid); } const vendorIds = [...vendorIdsSet]; const vendorSnaps = await Promise.all( vendorIds.map((id) => tx.get(db.collection("vendorsPublic").doc(id))) ); vendorSnaps.forEach((snap, i) => { if (!snap.exists || snap.data().status !== "approved") throw new Error(`Le vendeur ${vendorIds[i]} n'est pas actif.`);
+        });
+        let citySnap = null;
+        if (delivery.cityId)
+          citySnap = await tx.get(
+            db.collection("cities").doc(String(delivery.cityId))
+          );
+        let couponSnap = null,
+          couponUseSnap = null;
+        if (couponId) {
+          couponSnap = await tx.get(db.collection("coupons").doc(couponId));
+          if (couponSnap.exists && couponSnap.data().oneUsePerUser === true)
+            couponUseSnap = await tx.get(
+              db.collection("coupon_uses").doc(`${couponId}_${decoded.uid}`)
+            );
+        }
+        let subtotal = 0,
+          discountableItems = 0;
+        const validatedItems = [];
+        const productUpdates = new Map();
+        const workingProducts = new Map(
+          productSnaps.map((snap, i) => [
+            items[i].productId,
+            {
+              ...snap.data(),
+              variants: Array.isArray(snap.data().variants)
+                ? snap.data().variants.map((v) => ({ ...v }))
+                : undefined,
+            },
+          ])
+        );
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i],
+            snap = productSnaps[i],
+            data = workingProducts.get(item.productId),
+            qty = item.quantity;
+          let stock = 0,
+            price = Number(data.price) || 0;
+          const update = productUpdates.get(item.productId)?.data || {
+            salesCount: Number(data.salesCount) || 0,
+          };
+          update.salesCount = (Number(update.salesCount) || 0) + qty;
+          update.lastOrderId = orderRef.id;
+          update.updatedAt = FieldValue.serverTimestamp();
+          if (item.variant) {
+            const variants = Array.isArray(update.variants)
+              ? update.variants.map((v) => ({ ...v }))
+              : Array.isArray(data.variants)
+              ? data.variants.map((v) => ({ ...v }))
+              : [];
+            const idx = variants.findIndex(
+              (v) =>
+                String(v.size || "") === item.variant.size &&
+                String(v.color || "") === item.variant.color
+            );
+            if (idx < 0)
+              throw new Error(
+                `Variante indisponible pour ${
+                  data.nameFr || data.nameEn || item.productId
+                }.`
+              );
+            stock = Number(variants[idx].stock) || 0;
+            const vp = Number(variants[idx].price);
+            if (Number.isFinite(vp) && vp > 0) price = vp;
+            if (stock < qty)
+              throw new Error(
+                `Stock insuffisant pour ${
+                  data.nameFr || data.nameEn || item.productId
+                }.`
+              );
+            variants[idx].stock = stock - qty;
+            update.variants = variants;
+            update.stock = variants.reduce(
+              (sum, v) => sum + (Number(v.stock) || 0),
+              0
+            );
+            data.variants = variants;
+            data.stock = update.stock;
+          } else {
+            stock = Number(update.stock ?? data.stock) || 0;
+            if (stock < qty)
+              throw new Error(
+                `Stock insuffisant pour ${
+                  data.nameFr || data.nameEn || item.productId
+                }.`
+              );
+            update.stock = stock - qty;
+            data.stock = update.stock;
+          }
+          data.salesCount = update.salesCount;
+          productUpdates.set(item.productId, {
+            ref: productRefs[i],
+            data: update,
+          });
+          if (!Number.isFinite(price) || price <= 0)
+            throw new Error(
+              `Prix invalide pour ${
+                data.nameFr || data.nameEn || item.productId
+              }.`
+            );
+          productUpdates.push({ ref: productRefs[i], data: update });
+          subtotal += price * qty;
+          discountableItems += qty;
+          validatedItems.push({
+            id: item.id,
+            productId: item.productId,
+            vendorId: String(data.vendorId || "smartswi9a"),
+            variant: item.variant,
+            quantity: qty,
+            price,
+            name: String(data.nameFr || data.nameEn || "Produit"),
+            weight: Number(data.dimensions?.weight) || 0,
+          });
+        }
+        const cityData = citySnap?.exists ? citySnap.data() : null;
+        const deliveryFee = cityData
+          ? Math.max(0, Number(cityData.price) || 0)
+          : 0;
+        const discount =
+          discountableItems >= 3 ? Math.round(subtotal * 0.05) : 0;
+        let couponDiscount = 0,
+          couponData = null;
+        if (couponId) {
+          if (!couponSnap?.exists) throw new Error("Code promo introuvable.");
+          const c = couponSnap.data();
+          if (c.isActive !== true) throw new Error("Code promo inactif.");
+          if (c.expiresAt) {
+            const exp = c.expiresAt.toDate
+              ? c.expiresAt.toDate()
+              : new Date(c.expiresAt);
+            if (exp.getTime() < Date.now())
+              throw new Error("Code promo expiré.");
+          }
+          if (
+            Number(c.maxUses) > 0 &&
+            (Number(c.usedCount) || 0) >= Number(c.maxUses)
+          )
+            throw new Error("Code promo épuisé.");
+          if (Number(c.minPurchase) > 0 && subtotal < Number(c.minPurchase))
+            throw new Error(`Minimum ${Number(c.minPurchase)} MAD requis.`);
+          if (c.oneUsePerUser === true && couponUseSnap?.exists)
+            throw new Error("Vous avez déjà utilisé ce code promo.");
+          const value = Math.max(0, Number(c.value) || 0);
+          if (c.type === "percentage")
+            couponDiscount = Math.round(
+              (subtotal * Math.min(100, value)) / 100
+            );
+          else if (c.type === "fixed")
+            couponDiscount = Math.min(value, subtotal);
+          else if (c.type === "free_shipping") couponDiscount = deliveryFee;
+          if (couponDiscount <= 0)
+            throw new Error("Ce code ne produit aucune réduction.");
+          couponData = c;
+        }
+        const totalDiscount = Math.min(discount + couponDiscount, subtotal),
+          total = Math.max(0, subtotal - totalDiscount + deliveryFee);
+        const now = Date.now(),
+          vendorList = [
+            ...new Set(
+              validatedItems
+                .map((i) => i.vendorId)
+                .filter((v) => v && v !== "smartswi9a")
+            ),
+          ];
+        const orderData = {
+          _test: false,
+          _testBatch: null,
+          userId: decoded.uid,
+          userName: String(delivery.name).trim().slice(0, 100),
+          userEmail: String(decoded.email || delivery.email || ""),
+          items: validatedItems,
+          vendorIds: vendorList,
+          status: "pending",
+          paymentStatus: "unpaid",
+          subtotal,
+          discount,
+          couponId: couponData ? couponId : null,
+          couponCode: couponData
+            ? String(couponData.code || input.appliedCoupon?.code || "")
+            : null,
+          couponDiscount,
+          deliveryFee,
+          total,
+          stockDeducted: true,
+          couponRestored: false,
+          deliveryAddress: {
+            name: String(delivery.name).trim().slice(0, 100),
+            phone: String(delivery.phone).trim().slice(0, 20),
+            address: String(delivery.address).trim().slice(0, 300),
+            city: String(delivery.city).trim().slice(0, 100),
+            cityId: delivery.cityId ? String(delivery.cityId) : null,
+            cityAr: delivery.cityAr ? String(delivery.cityAr) : null,
+            cityFr: delivery.cityFr ? String(delivery.cityFr) : null,
+            email: String(delivery.email || decoded.email || ""),
+            note: delivery.note
+              ? String(delivery.note).trim().slice(0, 300)
+              : null,
+          },
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+          cancellableUntil: new Date(now + 4 * 3600000),
+          cancelledAt: null,
+        };
+        productUpdates.forEach((u) => tx.update(u.ref, u.data));
+        tx.set(orderRef, orderData);
+        if (couponData) {
+          tx.update(db.collection("coupons").doc(couponId), {
+            usedCount: FieldValue.increment(1),
+          });
+          tx.set(
+            db.collection("coupon_uses").doc(`${couponId}_${decoded.uid}`),
+            {
+              couponId,
+              code: String(couponData.code || ""),
+              userId: decoded.uid,
+              orderId: orderRef.id,
+              discountApplied: couponDiscount,
+              usedAt: FieldValue.serverTimestamp(),
+            }
+          );
+        }
+        const notifRef = db.collection("notifications").doc();
+        tx.set(notifRef, {
+          userId: decoded.uid,
+          type: "order_created",
+          title: "Commande reçue",
+          message: `Merci pour votre commande #${orderRef.id
+            .slice(0, 8)
+            .toUpperCase()} !`,
+          orderId: orderRef.id,
+          read: false,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+        return {
+          orderId: orderRef.id,
+          totals: {
+            subtotal,
+            discount,
+            couponCode: orderData.couponCode,
+            couponDiscount,
+            deliveryFee,
+            total,
+            vendorIds: vendorList,
+          },
+          validatedItems,
+        };
+      });
+      return res.status(200).json({ success: true, ...outcome });
+    } catch (error) {
+      console.error("[createCustomerOrder]", error?.message || error);
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: error.message || "Création de commande impossible.",
+        });
+    }
+  }
+);
+
+exports.cancelCustomerOrder = onRequest(
+  { region: "europe-west1", maxInstances: 10, timeoutSeconds: 30 },
+  async (req, res) => {
+    if (cors(req, res)) return;
+    try {
+      const match = String(req.get("authorization") || "").match(
+        /^Bearer\s+(.+)$/i
+      );
+      if (!match)
+        return res
+          .status(401)
+          .json({ success: false, message: "Connexion requise." });
+      const decoded = await getAuth().verifyIdToken(match[1], true);
+      const orderId = String(req.body?.orderId || "").trim();
+      if (!orderId || orderId.length > 150)
+        return res
+          .status(400)
+          .json({ success: false, message: "Commande invalide." });
+      await db.runTransaction(async (tx) => {
+        const orderRef = db.collection("orders").doc(orderId),
+          orderSnap = await tx.get(orderRef);
+        if (!orderSnap.exists) throw new Error("Commande introuvable.");
+        const order = orderSnap.data();
+        if (order.userId !== decoded.uid) throw new Error("Non autorisé.");
+        if (!["pending", "confirmed"].includes(order.status))
+          throw new Error("Cette commande ne peut plus être annulée.");
+        const created = order.createdAt?.toDate
+          ? order.createdAt.toDate().getTime()
+          : Date.now();
+        const deadline = order.cancellableUntil?.toDate
+          ? order.cancellableUntil.toDate().getTime()
+          : created + 4 * 3600000;
+        if (Date.now() > deadline)
+          throw new Error("Le délai d’annulation est dépassé.");
+        const items = Array.isArray(order.items) ? order.items : [];
+        const productIds = [...new Set(items.map((i) => String(i.productId)))];
+        const refs = productIds.map((id) => db.collection("products").doc(id));
+        const snaps = await Promise.all(refs.map((ref) => tx.get(ref)));
+        let couponSnap = null,
+          couponUseSnap = null;
+        if (order.couponId && !order.couponRestored) {
+          couponSnap = await tx.get(
+            db.collection("coupons").doc(String(order.couponId))
+          );
+          couponUseSnap = await tx.get(
+            db.collection("coupon_uses").doc(`${order.couponId}_${decoded.uid}`)
+          );
+        }
+        if (order.stockDeducted === true) {
+          for (let i = 0; i < productIds.length; i++) {
+            if (!snaps[i].exists) continue;
+            const p = snaps[i].data(),
+              productItems = items.filter(
+                (item) => String(item.productId) === productIds[i]
+              );
+            const upd = {
+              salesCount: Math.max(
+                0,
+                (Number(p.salesCount) || 0) -
+                  productItems.reduce(
+                    (sum, item) =>
+                      sum + Math.max(1, Math.floor(Number(item.quantity) || 1)),
+                    0
+                  )
+              ),
+              lastOrderId: orderId,
+              updatedAt: FieldValue.serverTimestamp(),
+            };
+            const variants = Array.isArray(p.variants)
+              ? p.variants.map((v) => ({ ...v }))
+              : [];
+            let simpleStock = Number(p.stock) || 0;
+            for (const item of productItems) {
+              const qty = Math.max(1, Math.floor(Number(item.quantity) || 1));
+              if (item.variant) {
+                const idx = variants.findIndex(
+                  (v) =>
+                    String(v.size || "") === String(item.variant.size || "") &&
+                    String(v.color || "") === String(item.variant.color || "")
+                );
+                if (idx >= 0)
+                  variants[idx].stock =
+                    (Number(variants[idx].stock) || 0) + qty;
+              } else simpleStock += qty;
+            }
+            if (productItems.some((item) => item.variant)) {
+              upd.variants = variants;
+              upd.stock = variants.reduce(
+                (sum, v) => sum + (Number(v.stock) || 0),
+                0
+              );
+            } else upd.stock = simpleStock;
+            tx.update(refs[i], upd);
+          }
+        }
+        if (order.couponId && !order.couponRestored) {
+          if (couponSnap?.exists)
+            tx.update(db.collection("coupons").doc(String(order.couponId)), {
+              usedCount: FieldValue.increment(-1),
+            });
+          if (couponUseSnap?.exists)
+            tx.delete(
+              db
+                .collection("coupon_uses")
+                .doc(`${order.couponId}_${decoded.uid}`)
+            );
+        }
+        tx.update(orderRef, {
+          status: "cancelled",
+          cancelledAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+          stockDeducted: false,
+          couponRestored: true,
+        });
+        tx.set(db.collection("notifications").doc(), {
+          userId: decoded.uid,
+          type: "order_cancelled",
+          title: "Commande annulée",
+          message: `Commande #${orderId.slice(0, 8).toUpperCase()} annulée.`,
+          orderId,
+          read: false,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+      });
+      return res.status(200).json({ success: true });
+    } catch (error) {
+      console.error("[cancelCustomerOrder]", error?.message || error);
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: error.message || "Annulation impossible.",
+        });
+    }
+  }
+);
