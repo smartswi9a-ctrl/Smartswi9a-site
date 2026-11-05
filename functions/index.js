@@ -482,7 +482,8 @@ exports.syncVendorPublic = onDocumentWritten('users/{userId}', async (event) => 
     data.role !== 'vendor' ||
     !data.vendorInfo ||
     data.vendorInfo.status !== 'approved' ||
-    data.vendorInfo.contractStatus !== 'accepted'
+    data.vendorInfo.contractStatus !== 'accepted' ||
+    String(data.vendorInfo.contractVersion || '') !== OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION
   ) {
     return db.collection('vendorsPublic').doc(event.params.userId).delete().catch(() => {});
   }
@@ -969,6 +970,12 @@ exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
       if (vendorInfo.contractStatus !== 'accepted') {
         return res.status(409).json({ success: false, message: 'Impossible d’approuver : contrat non signé.' });
       }
+      if (String(vendorInfo.contractVersion || '') !== OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION) {
+        return res.status(409).json({
+          success: false,
+          message: 'Impossible d’approuver : le vendeur doit accepter le contrat ' + OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION + '.'
+        });
+      }
 
       const contractId = vendorInfo.currentContractId ||
         (vendorInfo.contractVersion ? `contract_${vendorId}_v${vendorInfo.contractVersion}` : '');
@@ -1163,12 +1170,19 @@ exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
       return res.status(200).json({ success: true, action, deletedProducts });
     }
 
-    await vendorRef.update({
+    const vendorUpdate = {
       'vendorInfo.status': action,
       'vendorInfo.statusUpdatedAt': FieldValue.serverTimestamp(),
       'vendorInfo.statusUpdatedBy': decoded.uid,
       updatedAt: FieldValue.serverTimestamp()
-    });
+    };
+    if (action === 'approved') {
+      // Le taux de commission est défini côté serveur, jamais par le vendeur.
+      vendorUpdate['vendorInfo.commissionRate'] = OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE;
+      vendorUpdate['vendorInfo.commissionRateMin'] = OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE_MIN;
+      vendorUpdate['vendorInfo.commissionRateMax'] = OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE_MAX;
+    }
+    await vendorRef.update(vendorUpdate);
     return res.status(200).json({ success: true, action });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
@@ -1363,7 +1377,8 @@ exports.requestWithdrawal = onRequest({ region: 'europe-west1', cors: [...ALLOWE
 
       const vendorData = vendorSnap.data();
       if (vendorData.vendorInfo?.status !== 'approved' ||
-          vendorData.vendorInfo?.contractStatus !== 'accepted') {
+          vendorData.vendorInfo?.contractStatus !== 'accepted' ||
+          String(vendorData.vendorInfo?.contractVersion || '') !== OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION) {
         throw new Error('Votre compte vendeur doit être approuvé et votre contrat accepté.');
       }
 
