@@ -1265,12 +1265,17 @@ exports.onOrderStatusChanged = onDocumentUpdated('orders/{orderId}', async (even
             if (remaining > 0) negative -= remaining;
 
             const txRef = db.collection('wallet_transactions').doc();
-            tx.update(walletRef, {
+            const walletUpdate = {
+              vendorId,
               pendingBalance: pending,
               availableBalance: available,
               negativeBalance: negative,
+              totalEarnings: Number(w.totalEarnings) || 0,
+              totalWithdrawn: Number(w.totalWithdrawn) || 0,
               lastUpdated: FieldValue.serverTimestamp()
-            });
+            };
+            if (freshWalletSnap.exists) tx.update(walletRef, walletUpdate);
+            else tx.set(walletRef, { ...w, ...walletUpdate });
             tx.set(txRef, {
               vendorId,
               type: 'return_fee',
