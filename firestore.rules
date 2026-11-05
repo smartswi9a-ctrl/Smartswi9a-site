@@ -139,7 +139,8 @@ service cloud.firestore {
         request.resource.data.vendorId == request.auth.uid &&
         request.resource.data.status == 'pending_admin_approval' &&
         !('salesCount' in request.resource.data) &&
-        !('ratingAvg' in request.resource.data)
+        !('ratingAvg' in request.resource.data) &&
+        !('ratingCount' in request.resource.data)
       );
 
       allow update: if isAdmin() || (
@@ -147,7 +148,7 @@ service cloud.firestore {
         resource.data.vendorId == request.auth.uid &&
         request.resource.data.vendorId == resource.data.vendorId &&
         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'salesCount', 'ratingAvg'
+          'salesCount', 'ratingAvg', 'ratingCount'
         ]) &&
         (
           (
