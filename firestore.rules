@@ -99,6 +99,38 @@ service cloud.firestore {
     }
 
     /* ============================================================
+       PANIERS CLIENTS
+       Données privées : chaque utilisateur ne lit et ne modifie que son panier.
+       ============================================================ */
+
+    match /carts/{uid} {
+      allow read: if isSelf(uid);
+      allow create, update: if isSelf(uid) &&
+        request.resource.data.get('userId', '') == uid &&
+        request.resource.data.keys().hasOnly(['userId', 'items', 'selectedCity', 'updatedAt']) &&
+        request.resource.data.items is list &&
+        request.resource.data.items.size() <= 100 &&
+        (
+          request.resource.data.get('selectedCity', null) == null ||
+          request.resource.data.selectedCity is map
+        ) &&
+        request.resource.data.updatedAt is timestamp;
+      allow delete: if isSelf(uid);
+    }
+
+    /* ============================================================
+       SAUVEGARDES DU MODE TEST ADMIN
+       ============================================================ */
+
+    match /_test_snapshots/{batchId} {
+      allow read, write: if isAdmin();
+
+      match /{collectionName}/{docId} {
+        allow read, write: if isAdmin();
+      }
+    }
+
+    /* ============================================================
        FICHES VENDEURS PUBLIQUES
        ============================================================ */
 
