@@ -1736,7 +1736,7 @@ exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}',
 exports.createVerifiedReview = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS], timeoutSeconds: 30 }, async (req, res) => {
   if (cors(req, res)) return;
   try {
-    const match = String(req.get('authorization') || '').match(/^Bearer\\s+(.+)$/i);
+    const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
     if (!match) return res.status(401).json({ success: false, message: 'Connexion requise.' });
     const decoded = await getAuth().verifyIdToken(match[1], true);
     const productId = String(req.body?.productId ?? '').trim();
@@ -1798,7 +1798,7 @@ exports.createVerifiedReview = onRequest({ region: 'europe-west1', cors: [...ALL
       const reviewData = {
         userId: decoded.uid,
         userName: String(user.name || decoded.name || decoded.email || 'Client').slice(0, 100),
-        productId: /^\\d+$/.test(productId) ? Number(productId) : productId,
+        productId: /^\d+$/.test(productId) ? Number(productId) : productId,
         productName: String(product.nameFr || product.nameEn || product.nameAr || 'Produit').slice(0, 150),
         productSlug: String(product.slug || '').slice(0, 180),
         rating,
@@ -1958,18 +1958,21 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
         });
       }
 
-      // C2 : deliveryFee depuis Firestore
-      let deliveryFee = FALLBACK_DELIVERY_FEE;
-      if (delivery.cityId) {
-        try {
-          const citySnap = await tx.get(db.collection('cities').doc(String(delivery.cityId)));
-          if (citySnap.exists) {
-            deliveryFee = Math.max(0, Number(citySnap.data().price) || 0);
-          }
-        } catch (e) {
-          console.warn('[createCustomerOrder] cities read failed, fallback:', e.message);
-        }
+      // Le tarif doit provenir d'une ville Firestore identifiée et correspondre
+      // au nom français sélectionné. Le client ne peut pas choisir un cityId
+      // moins cher tout en saisissant une autre ville.
+      if (!delivery.cityId) throw new Error('Veuillez sélectionner une ville de livraison valide.');
+      const citySnap = await tx.get(db.collection('cities').doc(String(delivery.cityId)));
+      if (!citySnap.exists) throw new Error('Ville de livraison introuvable. Actualisez la liste des villes.');
+      const cityData = citySnap.data();
+      const submittedCity = normalizeCityKey(delivery.cityFr || delivery.city || '');
+      const acceptedCityNames = [cityData.key, cityData.nameFr, cityData.nameEn, cityData.name]
+        .map(normalizeCityKey)
+        .filter(Boolean);
+      if (!submittedCity || !acceptedCityNames.includes(submittedCity)) {
+        throw new Error('La ville sélectionnée ne correspond pas à la ville de livraison.');
       }
+      const deliveryFee = Math.max(0, Number(cityData.price) || 0);
 
       // M1 : réduction volume
       const volumeDiscount = totalQty >= 3 ? Math.round(subtotal * 0.05) : 0;
