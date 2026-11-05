@@ -800,6 +800,11 @@ exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
       await getStorage().bucket('smartswi9a-31063.firebasestorage.app')
         .deleteFiles({ prefix: `vendors/${vendorId}/products/` });
 
+      // Retirer explicitement la fiche publique avant la suppression du profil.
+      // Le trigger syncVendorPublic effectue aussi ce nettoyage, mais cet appel
+      // synchrone garantit qu'une boutique ne reste pas publiée si le trigger tarde.
+      await db.collection('vendorsPublic').doc(vendorId).delete();
+
       // Supprimer les identifiants vendeurs avant le profil, et ne pas masquer une erreur réelle.
       await db.collection('vendorCredentials').doc(vendorId).delete().catch(error => {
         if (error.code !== 5) throw error; // NOT_FOUND
