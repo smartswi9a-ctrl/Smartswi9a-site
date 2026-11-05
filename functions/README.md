@@ -12,7 +12,7 @@ Installer les dépendances : cd functions && npm install.
 
 Déployer les fonctions et l'hébergement : cd .. && firebase deploy --only functions,hosting.
 
-Déployer les règles Firestore modifiées avec firebase deploy --only firestore:rules.
+Déployer toutes les ressources Firebase avec firebase deploy --only functions,hosting,firestore:rules,firestore:indexes,storage.
 
 Dans Firebase Console > Authentication > Settings, vérifier que l'authentification par e-mail/mot de passe est activée.
 
@@ -39,3 +39,12 @@ Sécurité
 
 Ne jamais rendre vendorCredentials lisible depuis le navigateur. La collection est bloquée par les règles Firestore. Configurez Firebase App Check et une limitation de tentatives (par exemple Cloud Armor / API Gateway) avant une mise en production publique. N'enregistrez jamais de mots de passe en clair dans les logs ou Firestore.
 
+
+
+Migration des commandes vendeurs existantes
+
+Après le déploiement des fonctions, un administrateur doit exécuter POST /api/backfillVendorOrderViews avec un jeton Firebase valide dans Authorization: Bearer. Le corps accepte pageSize (maximum 100) et cursor. Répéter l'appel avec nextCursor jusqu'à ce que complete soit true. La migration est idempotente et crée une vue privée par vendeur sans exposer les articles des autres boutiques. Elle doit être terminée avant de considérer l'historique vendeur comme entièrement migré.
+
+Contrôles automatisés
+
+Le workflow GitHub Actions exécute node --check, valide les fichiers JSON et lance les tests d'autorisation Firestore/Storage dans les émulateurs Firebase. Un déploiement de production ne doit pas être lancé si le workflow échoue.
