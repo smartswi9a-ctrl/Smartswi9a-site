@@ -3790,16 +3790,16 @@ async function handleMigrateProductStatus() {
 
     try {
         const snap = await getDocs(collection(db, "products"));
-        let updatedCount = 0;
+        const candidates = [];
         let skippedVendorCount = 0;
         let alreadyHadStatusCount = 0;
-        let batch = writeBatch(db);
-        let batchCount = 0;
 
+        // Phase 1 : audit sans écriture. Aucun document n'est modifié avant
+        // affichage du nombre exact de produits concernés et confirmation admin.
         for (const docSnap of snap.docs) {
             const p = docSnap.data();
-
             const isVendor = p.vendorId && p.vendorId !== 'smartswi9a';
+
             if (isVendor) {
                 skippedVendorCount++;
                 continue;
@@ -3810,6 +3810,40 @@ async function handleMigrateProductStatus() {
                 continue;
             }
 
+            candidates.push(docSnap);
+        }
+
+        log(`Produits Smart sans statut : ${candidates.length}`);
+        log(`Produits Smart déjà avec statut (ignorés) : ${alreadyHadStatusCount}`);
+        log(`Produits vendeurs (ignorés) : ${skippedVendorCount}`);
+
+        if (candidates.length === 0) {
+            log('Aucun produit à migrer.');
+            showToast('Aucun produit Smart sans statut.');
+            return;
+        }
+
+        const confirmed = await confirmAction(
+            `La migration va définir status="approved" sur ${candidates.length} produit(s) Smart actuellement sans statut.\\n\\nProduits vendeurs ignorés : ${skippedVendorCount}.\\nProduits ayant déjà un statut et conservés sans changement : ${alreadyHadStatusCount}.\\n\\nCette opération rendra ces produits visibles dans le catalogue public après activation des nouvelles règles. Continuer ?`,
+            {
+                title: 'Confirmer la migration des produits',
+                confirmText: `Approuver ${candidates.length} produit(s)`,
+                cancelText: 'Annuler',
+                variant: 'danger'
+            }
+        );
+        if (!confirmed) {
+            log('Migration annulée : aucune donnée modifiée.');
+            return;
+        }
+
+        let batch = writeBatch(db);
+        let batchCount = 0;
+        let updatedCount = 0;
+
+        // Phase 2 : écrire uniquement les documents examinés pendant la phase 1.
+        for (const docSnap of candidates) {
+            const p = docSnap.data();
             batch.update(docSnap.ref, { status: 'approved' });
             updatedCount++;
             batchCount++;
@@ -3817,7 +3851,7 @@ async function handleMigrateProductStatus() {
 
             if (batchCount === 400) {
                 await batch.commit();
-                log(`Lot de 400 produits sauvegardé...`);
+                log('Lot de 400 produits sauvegardé...');
                 batchCount = 0;
                 batch = writeBatch(db);
             }
@@ -3827,16 +3861,11 @@ async function handleMigrateProductStatus() {
 
         log(`--- Résumé ---`);
         log(`Produits Smart migrés : ${updatedCount}`);
-        log(`Produits déjà avec status (ignorés) : ${alreadyHadStatusCount}`);
-        log(`Produits vendeurs (ignorés - status manuel) : ${skippedVendorCount}`);
-
-        if (updatedCount === 0 && skippedVendorCount === 0 && alreadyHadStatusCount === 0) {
-            log(`Aucun produit à migrer.`);
-        } else {
-            log(`Migration terminée !`);
-            showToast(`${updatedCount} produit(s) Smart approuvés (${skippedVendorCount} vendeurs ignorés)`);
-            await loadProducts(true);
-        }
+        log(`Produits Smart déjà avec statut (ignorés) : ${alreadyHadStatusCount}`);
+        log(`Produits vendeurs (ignorés) : ${skippedVendorCount}`);
+        log('Migration terminée.');
+        showToast(`${updatedCount} produit(s) Smart approuvés (${skippedVendorCount} vendeurs ignorés)`);
+        await loadProducts(true);
     } catch (e) {
         log(`Erreur : ${e.message}`, true);
     } finally {
