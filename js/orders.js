@@ -1068,6 +1068,65 @@ export async function renderAdminOrders(containerId = 'ordersList') {
         <button id="refreshAdminOrdersBtn" class="admin-btn-secondary" style="font-size:0.8rem;">Rafraîchir</button>
     </div>`;
 
+    const renderReturnFeePanel = (order) => {
+        const returns = Array.isArray(order.returns) ? order.returns : [];
+        if (!returns.length) return '';
+        return returns.map((entry, returnIndex) => {
+            const byVendor = {};
+            (entry.items || []).forEach(retItem => {
+                const variant = retItem.variant || {};
+                const item = (order.items || []).find(i => {
+                    const iv = i.variant || {};
+                    return String(i.productId) === String(retItem.productId) &&
+                        String(iv.size || '') === String(variant.size || '') &&
+                        String(iv.color || '') === String(variant.color || '');
+                });
+                if (!item || !item.vendorId || item.vendorId === 'smartswi9a') return;
+                const id = String(item.vendorId);
+                if (!byVendor[id]) byVendor[id] = { qty: 0, name: item.vendorName || item.shopName || id };
+                byVendor[id].qty += Number(retItem.delta) || 0;
+            });
+            const vendors = Object.entries(byVendor);
+            if (!vendors.length) return '';
+            const rows = vendors.map(([vendorId, info]) => {
+                const fee = entry.vendorFees?.[vendorId];
+                const debit = order.vendorDebits?.[`${vendorId}_ret${returnIndex}`];
+                const label = escapeHTML(String(info.name));
+                if (debit) {
+                    return `<div style="padding:0.45rem 0;border-top:1px solid var(--border);font-size:0.8rem;">
+                        <strong>${label}</strong> · ${info.qty} article(s) · ${Number(debit.amount).toFixed(2)} MAD
+                        <span style="color:var(--success);font-weight:700;">Débité</span>
+                    </div>`;
+                }
+                if (fee) {
+                    return `<div style="padding:0.45rem 0;border-top:1px solid var(--border);font-size:0.8rem;">
+                        <strong>${label}</strong> · ${info.qty} article(s) · ${Number(fee.amount).toFixed(2)} MAD
+                        <span style="color:var(--warning);font-weight:700;">Enregistré (${escapeHTML(fee.source || 'manuel')}) — débit en attente</span>
+                    </div>`;
+                }
+                return `<div style="display:flex;gap:0.45rem;align-items:center;flex-wrap:wrap;padding:0.5rem 0;border-top:1px solid var(--border);">
+                    <strong style="font-size:0.8rem;">${label}</strong>
+                    <span style="font-size:0.75rem;color:var(--text-muted);">${info.qty} article(s)</span>
+                    <input type="number" min="0.01" max="100000" step="0.01" inputmode="decimal"
+                        placeholder="Frais MAD" data-return-fee-amount="1"
+                        data-order-id="${escapeHTML(order.id)}" data-return-index="${returnIndex}"
+                        data-vendor-id="${escapeHTML(vendorId)}"
+                        style="width:110px;padding:0.35rem;border:1px solid var(--border);border-radius:8px;background:var(--bg-surface);color:var(--text);">
+                    <button class="admin-btn-primary" data-action="admin:set-return-fee"
+                        data-order-id="${escapeHTML(order.id)}" data-return-index="${returnIndex}"
+                        data-vendor-id="${escapeHTML(vendorId)}" style="font-size:0.75rem;padding:0.35rem 0.65rem;">
+                        Enregistrer les frais
+                    </button>
+                </div>`;
+            }).join('');
+            return `<div style="margin-top:0.6rem;padding:0.65rem;border:1px solid var(--border-gold);border-radius:10px;">
+                <strong style="font-size:0.82rem;color:var(--gold);">Retour ${returnIndex + 1} — frais par vendeur</strong>
+                <div style="font-size:0.72rem;color:var(--text-muted);margin:0.2rem 0 0.35rem;">Aucun montant automatique : saisir le montant facturé à chaque vendeur.</div>
+                ${rows}
+            </div>`;
+        }).join('');
+    };
+
     adminOrdersCache.forEach(order => {
         const status = normalizeOrderStatus(order.status);
         const emoji = getOrderStatusEmoji(status);
@@ -1132,6 +1191,7 @@ export async function renderAdminOrders(containerId = 'ordersList') {
                     </div>
                 </div>
                 ${livoHtml}
+                ${renderReturnFeePanel(order)}
                 <div style="display:flex;gap:0.4rem;flex-wrap:wrap;align-items:center; margin-top:0.5rem;">
                     <select class="status-select" data-order-id="${order.id}" data-field="status" style="padding:0.3rem 0.6rem;border-radius:30px;border:1px solid var(--border);background:var(--bg-surface);color:var(--text);">
                         <option value="pending" ${status === 'pending' ? 'selected' : ''}>${t('orderStatusPending')}</option>
@@ -1159,6 +1219,42 @@ export async function renderAdminOrders(containerId = 'ordersList') {
         e.target.textContent = '...';
         adminOrdersCache = [];
         await renderAdminOrders(containerId);
+    });
+
+    container.querySelectorAll('[data-action="admin:set-return-fee"]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const orderId = btn.dataset.orderId;
+            const returnIndex = Number(btn.dataset.returnIndex);
+            const vendorId = btn.dataset.vendorId;
+            const input = container.querySelector(`[data-return-fee-amount="1"][data-order-id="${orderId}"][data-return-index="${returnIndex}"][data-vendor-id="${vendorId}"]`);
+            const amount = Number(input?.value);
+            if (!Number.isFinite(amount) || amount <= 0 || amount > 100000) {
+                showToast('Saisissez un montant valide supérieur à zéro.');
+                return;
+            }
+            btn.disabled = true;
+            const previousText = btn.textContent;
+            btn.textContent = 'Enregistrement…';
+            try {
+                const user = auth.currentUser;
+                if (!user) throw new Error('Session administrateur expirée.');
+                const token = await user.getIdToken(true);
+                const response = await fetch('/api/adminSetReturnFee', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ orderId, returnIndex, vendorId, amount })
+                });
+                const result = await response.json().catch(() => ({}));
+                if (!response.ok || !result.success) throw new Error(result.message || 'Impossible d’enregistrer les frais.');
+                showToast(result.message || 'Frais enregistrés.');
+                adminOrdersCache = [];
+                await renderAdminOrders(containerId);
+            } catch (error) {
+                showToast(error.message || 'Erreur lors de l’enregistrement.');
+                btn.disabled = false;
+                btn.textContent = previousText;
+            }
+        });
     });
 
     container.querySelectorAll('.status-select').forEach(select => {
