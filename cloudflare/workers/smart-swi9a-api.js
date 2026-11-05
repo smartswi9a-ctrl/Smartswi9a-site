@@ -8,6 +8,7 @@ const ALLOWED_FUNCTIONS = new Set([
   "adminSetReturnFee",
   "requestWithdrawal",
   "createCustomerOrder",
+  "createVerifiedReview",
   "cancelCustomerOrder",
   "adminPayoutAction",
   "releaseDueFunds"

@@ -1596,6 +1596,19 @@ exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}',
 
   const orderId = event.params.orderId;
 
+  // Synchroniser uniquement le statut dans les vues privées de chaque vendeur.
+  // Les articles et montants propres à chaque vendeur restent cloisonnés.
+  if (before.status !== after.status && Array.isArray(after.vendorIds)) {
+    await Promise.all(after.vendorIds.map(vendorId =>
+      db.collection('vendor_orders').doc(String(vendorId))
+        .collection('orders').doc(orderId)
+        .set({
+          status: after.status,
+          updatedAt: after.updatedAt || FieldValue.serverTimestamp()
+        }, { merge: true })
+    ));
+  }
+
   // Le trigger est aussi relancé lorsqu'un administrateur valide les frais
   // d'un retour déjà enregistré. Les débits sont idempotents via vendorDebits.
 
@@ -1717,6 +1730,101 @@ exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}',
 });
 
 /* ============================================================
+   CF : createVerifiedReview
+   Création d'avis avec vérification d'achat côté serveur.
+   ============================================================ */
+exports.createVerifiedReview = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS], timeoutSeconds: 30 }, async (req, res) => {
+  if (cors(req, res)) return;
+  try {
+    const match = String(req.get('authorization') || '').match(/^Bearer\\s+(.+)$/i);
+    if (!match) return res.status(401).json({ success: false, message: 'Connexion requise.' });
+    const decoded = await getAuth().verifyIdToken(match[1], true);
+    const productId = String(req.body?.productId ?? '').trim();
+    const rating = Number(req.body?.rating);
+    const title = String(req.body?.title || '').trim().slice(0, 80);
+    const comment = String(req.body?.comment || '').trim().slice(0, 500);
+    const photos = Array.isArray(req.body?.photos) ? req.body.photos.slice(0, 5) : [];
+
+    if (!productId || productId.length > 150 || !Number.isInteger(rating) || rating < 1 || rating > 5 || !comment) {
+      return res.status(400).json({ success: false, message: 'Avis invalide.' });
+    }
+    for (const photo of photos) {
+      if (typeof photo !== 'string' || photo.length > 2048) {
+        return res.status(400).json({ success: false, message: 'Photo invalide.' });
+      }
+      let validPath = false;
+      try {
+        const parsed = new URL(photo);
+        const decodedPath = decodeURIComponent(parsed.pathname);
+        validPath = parsed.hostname === 'firebasestorage.googleapis.com' &&
+          decodedPath.includes('/o/reviews/' + decoded.uid + '/');
+      } catch (_) {}
+      if (!validPath) return res.status(400).json({ success: false, message: 'Photo non autorisée.' });
+    }
+
+    const reviewId = 'review_' + decoded.uid + '_' + productId;
+    const reviewRef = db.collection('reviews').doc(reviewId);
+    const productRef = db.collection('products').doc(productId);
+    const ordersSnap = await db.collection('orders')
+      .where('userId', '==', decoded.uid)
+      .where('status', 'in', ['delivered', 'received'])
+      .limit(50)
+      .get();
+
+    const matchingOrder = ordersSnap.docs.find(docSnap =>
+      (docSnap.data().items || []).some(item => String(item.productId) === productId)
+    );
+    if (!matchingOrder) {
+      return res.status(403).json({ success: false, message: 'Un achat livré de ce produit est nécessaire pour publier un avis.' });
+    }
+
+    const result = await db.runTransaction(async tx => {
+      const [reviewSnap, orderSnap, productSnap, userSnap] = await Promise.all([
+        tx.get(reviewRef),
+        tx.get(matchingOrder.ref),
+        tx.get(productRef),
+        tx.get(db.collection('users').doc(decoded.uid))
+      ]);
+      if (reviewSnap.exists) throw new Error('Vous avez déjà publié un avis pour ce produit.');
+      if (!orderSnap.exists || !['delivered', 'received'].includes(orderSnap.data().status)) {
+        throw new Error('La commande ne permet plus de vérifier cet achat.');
+      }
+      if (!(orderSnap.data().items || []).some(item => String(item.productId) === productId)) {
+        throw new Error('Produit absent de la commande.');
+      }
+      if (!productSnap.exists) throw new Error('Produit introuvable.');
+      const product = productSnap.data();
+      const user = userSnap.exists ? userSnap.data() : {};
+      const reviewData = {
+        userId: decoded.uid,
+        userName: String(user.name || decoded.name || decoded.email || 'Client').slice(0, 100),
+        productId: /^\\d+$/.test(productId) ? Number(productId) : productId,
+        productName: String(product.nameFr || product.nameEn || product.nameAr || 'Produit').slice(0, 150),
+        productSlug: String(product.slug || '').slice(0, 180),
+        rating,
+        title,
+        comment,
+        status: 'pending',
+        createdAt: FieldValue.serverTimestamp(),
+        orderId: matchingOrder.id,
+        photos,
+        verifiedPurchase: true,
+        likes: [],
+        likesCount: 0,
+        featured: false
+      };
+      tx.create(reviewRef, reviewData);
+      return { reviewId, orderId: matchingOrder.id };
+    });
+
+    return res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    console.error('[createVerifiedReview]', error);
+    return res.status(400).json({ success: false, message: error.message || 'Création de l’avis impossible.' });
+  }
+});
+
+/* ============================================================
    CF : createCustomerOrder
    ============================================================ */
 exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 10, timeoutSeconds: 30, cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
@@ -1765,8 +1873,15 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
       for (let i = 0; i < productSnaps.length; i++) {
         if (!productSnaps[i].exists) throw new Error(`Produit introuvable.`);
         const pd = productSnaps[i].data();
-        if (pd.status && pd.status !== 'approved') throw new Error(`Produit indisponible.`);
         const vid = String(pd.vendorId || 'smartswi9a');
+        // Les produits vendeurs doivent explicitement être approuvés.
+        // La tolérance au champ status absent est réservée au catalogue historique Smart Swi9a.
+        if (vid !== 'smartswi9a' && pd.status !== 'approved') {
+          throw new Error('Produit vendeur indisponible ou non approuvé.');
+        }
+        if (vid === 'smartswi9a' && pd.status && pd.status !== 'approved') {
+          throw new Error('Produit indisponible.');
+        }
         if (vid !== 'smartswi9a') vendorIdsSet.add(vid);
       }
       const vendorIds = [...vendorIdsSet];
@@ -1937,6 +2052,31 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
 
       productUpdates.forEach(u => tx.update(u.ref, u.data));
       tx.set(orderRef, orderData);
+
+      // Vue cloisonnée par vendeur : aucun vendeur ne reçoit les articles
+      // des autres boutiques ni les totaux globaux de la commande.
+      for (const vendorId of vendorList) {
+        const vendorItems = validatedItems.filter(item => item.vendorId === vendorId);
+        const vendorSubtotal = vendorItems.reduce(
+          (sum, item) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 0),
+          0
+        );
+        const vendorOrderRef = db.collection('vendor_orders').doc(vendorId)
+          .collection('orders').doc(orderRef.id);
+        tx.set(vendorOrderRef, {
+          orderId: orderRef.id,
+          vendorId,
+          vendorCount: vendorList.length,
+          userId: decoded.uid,
+          userName: String(delivery.name).trim().slice(0, 100),
+          deliveryAddress: delivery,
+          items: vendorItems,
+          vendorSubtotal,
+          status: 'pending',
+          createdAt: orderData.createdAt,
+          updatedAt: orderData.updatedAt
+        });
+      }
 
       const notifRef = db.collection('notifications').doc();
       tx.set(notifRef, {
@@ -2230,7 +2370,8 @@ exports.releaseDueFunds = onRequest({ region: 'europe-west1', cors: [...ALLOWED_
     const decoded = await getAuth().verifyIdToken(match[1], true);
 
     const adminSnap = await db.collection('users').doc(decoded.uid).get();
-    if (!adminSnap.exists || adminSnap.data()?.role !== 'admin') {
+    const isAdmin = decoded.admin === true || (adminSnap.exists && adminSnap.data()?.role === 'admin');
+    if (!isAdmin) {
       return res.status(403).json({ success: false, message: 'Action réservée à un administrateur.' });
     }
 

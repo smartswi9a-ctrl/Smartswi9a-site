@@ -1139,7 +1139,7 @@ async function renderOrders(container) {
 
     if (cachedOrders.length === 0) {
         try {
-            const q = query(collection(db, "orders"), where("vendorIds", "array-contains", currentUserUid), orderBy("createdAt", "desc"), limit(10));
+            const q = query(collection(db, "vendor_orders", currentUserUid, "orders"), orderBy("createdAt", "desc"), limit(10));
             const snap = await getDocs(q);
             cachedOrders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
             ordersLastDoc = snap.docs[snap.docs.length - 1] || null;
@@ -1159,7 +1159,7 @@ async function renderOrders(container) {
         const shortId = (o.id || '').slice(0, 8).toUpperCase();
         const status = o.status || 'pending';
         const date = o.createdAt?.toDate?.()?.toLocaleDateString?.('fr-FR') || '—';
-        const myItems = (o.items || []).filter(it => String(it.vendorId) === String(currentUserUid));
+        const myItems = Array.isArray(o.items) ? o.items : [];
         const myGross = myItems.reduce((s, i) => s + (Number(i.price) || 0) * (Number(i.quantity) || 0), 0);
 
         let commissionInfo;
@@ -1178,7 +1178,7 @@ async function renderOrders(container) {
         // Une commande multi-vendeurs partage un statut global : un seul vendeur
         // ne doit pas pouvoir faire avancer le flux de tous les autres vendeurs.
         let actionHtml = '';
-        const isMultiVendorOrder = Array.isArray(o.vendorIds) && o.vendorIds.length > 1;
+        const isMultiVendorOrder = Number(o.vendorCount) > 1;
         if (isMultiVendorOrder) {
             actionHtml = `<span style="font-size:0.75rem;color:var(--text-muted);">Suivi de cette commande géré par l’administration (commande multi-vendeurs).</span>`;
         } else if (status === 'pending') {
@@ -1231,7 +1231,7 @@ async function renderOrders(container) {
     document.getElementById('loadMoreOrdersBtn')?.addEventListener('click', async (e) => {
         const btn = e.target; btn.disabled = true; btn.textContent = '...';
         try {
-            const q = query(collection(db, "orders"), where("vendorIds", "array-contains", currentUserUid), orderBy("createdAt", "desc"), startAfter(ordersLastDoc), limit(10));
+            const q = query(collection(db, "vendor_orders", currentUserUid, "orders"), orderBy("createdAt", "desc"), startAfter(ordersLastDoc), limit(10));
             const snap = await getDocs(q);
             const more = snap.docs.map(d => ({ id: d.id, ...d.data() }));
             cachedOrders = [...cachedOrders, ...more];

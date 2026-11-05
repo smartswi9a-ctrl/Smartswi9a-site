@@ -306,8 +306,26 @@ export async function createReview( productId, { rating, title, comment, photoFi
     createdAt: Timestamp.now(),
   };
 
-  await setDoc(doc(db, "reviews", reviewId), reviewData);
-  console.log("Avis créé :", reviewId);
+  const token = await user.getIdToken();
+  const response = await fetch("/api/createVerifiedReview", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`
+    },
+    body: JSON.stringify({
+      productId: String(pid),
+      rating: Number(rating),
+      title: (title || "").substring(0, 80),
+      comment: (comment || "").substring(0, 500),
+      photos: photoUrls
+    })
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || result.success !== true) {
+    throw new Error(result.message || "Impossible de publier cet avis.");
+  }
+  console.log("Avis créé :", result.reviewId || reviewId);
 
   /* Dette : nettoyer la notification review_request liée à la commande. Non bloquant. */
   if (check.orderId) {
