@@ -113,7 +113,7 @@ export const CONFIG = {
         LABEL_FORMAT: 'PDF',
         PRODUCT_VALIDATION_HOURS: 48,
         VENDOR_VALIDATION_HOURS: 72,
-        CONTRACT_VERSION: '1.3.0',
+        CONTRACT_VERSION: '1.4.0',
         CONTRACT_RESIGN_GRACE_DAYS: 30,
         ALLOWED_CATEGORIES: []
     },
@@ -371,8 +371,10 @@ export function calculateDeliveryFee(vendorCount = 1) {
     return base + Math.max(0, count - 1) * extra;
 }
 
+// Aucun forfait de retour n'est appliqué côté client.
+// Le montant réel est enregistré et validé par l'administrateur par vendeur.
 export function getReturnFeeForVendor() {
-    return CONFIG.VENDOR.RETURN_FEE_LIVO;
+    return null;
 }
 
 export function canVendorSell(vendor) {
