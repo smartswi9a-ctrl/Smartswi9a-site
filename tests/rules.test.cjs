@@ -11,7 +11,8 @@ const {
   getDoc,
   updateDoc,
   arrayUnion,
-  increment
+  increment,
+  Timestamp
 } = require("firebase/firestore");
 const { ref, uploadBytes } = require("firebase/storage");
 
@@ -26,6 +27,7 @@ async function main() {
     await env.withSecurityRulesDisabled(async (ctx) => {
       const db = ctx.firestore();
       await setDoc(doc(db, "users", "buyerA"), { role: "user", isAdmin: false, permissions: [] });
+      await setDoc(doc(db, "users", "adminA"), { role: "admin", isAdmin: true, permissions: [] });
       await setDoc(doc(db, "users", "vendorA"), {
         role: "vendor",
         isAdmin: false,
@@ -58,6 +60,14 @@ async function main() {
         status: "pending",
         items: [{ productId: "a", vendorId: "vendorA" }]
       });
+      await setDoc(doc(db, "carts", "buyerA"), {
+        userId: "buyerA",
+        items: [],
+        selectedCity: null,
+        updatedAt: Timestamp.now()
+      });
+      await setDoc(doc(db, "_test_snapshots", "batchA"), { batchId: "batchA", status: "active" });
+      await setDoc(doc(db, "_test_snapshots", "batchA", "users", "buyerA"), { role: "user" });
       await setDoc(doc(db, "reviews", "review_buyerA_1"), {
         userId: "buyerA",
         productId: 1,
@@ -74,6 +84,7 @@ async function main() {
     const vendorDb = env.authenticatedContext("vendorA").firestore();
     const vendorBDb = env.authenticatedContext("vendorB").firestore();
     const oldVendorDb = env.authenticatedContext("vendorOld").firestore();
+    const adminDb = env.authenticatedContext("adminA").firestore();
 
     await assertSucceeds(getDoc(doc(buyerDb, "products", "publicProduct")));
     await assertFails(getDoc(doc(buyerDb, "products", "privateProduct")));
@@ -96,6 +107,18 @@ async function main() {
       nameFr: "Old contract product",
       price: 100
     }));
+
+    await assertSucceeds(getDoc(doc(buyerDb, "carts", "buyerA")));
+    await assertFails(getDoc(doc(vendorDb, "carts", "buyerA")));
+    await assertFails(setDoc(doc(buyerDb, "carts", "buyerB"), {
+      userId: "buyerB", items: [], selectedCity: null, updatedAt: Timestamp.now()
+    }));
+    await assertSucceeds(updateDoc(doc(buyerDb, "carts", "buyerA"), {
+      items: [{ productId: "publicProduct", quantity: 1 }],
+      updatedAt: Timestamp.now()
+    }));
+    await assertSucceeds(getDoc(doc(adminDb, "_test_snapshots", "batchA", "users", "buyerA")));
+    await assertFails(getDoc(doc(buyerDb, "_test_snapshots", "batchA", "users", "buyerA")));
 
     await assertFails(updateDoc(doc(buyerDb, "users", "buyerA"), { role: "admin" }));
     await assertFails(setDoc(doc(buyerDb, "reviews", "fakeVerified"), {
