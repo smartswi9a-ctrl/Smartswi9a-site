@@ -715,12 +715,12 @@ export async function updateOrderStatus(orderId, newStatus) {
             let productRefs = [];
 
             if (normalizedStatus === ORDER_STATUS.CONFIRMED && previousStatus === ORDER_STATUS.PENDING && order.stockDeducted !== true) {
-                productRefs = order.items.map(i => doc(db, "products", String(i.productId)));
+                productRefs = [...new Set(order.items.map(i => String(i.productId)))].map(productId => doc(db, "products", productId));
                 productSnaps = await Promise.all(productRefs.map(r => transaction.get(r)));
             }
 
             if (normalizedStatus === ORDER_STATUS.CANCELLED && [ORDER_STATUS.PENDING, ORDER_STATUS.CONFIRMED, ORDER_STATUS.SHIPPING].includes(previousStatus) && order.stockDeducted === true) {
-                productRefs = order.items.map(i => doc(db, "products", String(i.productId)));
+                productRefs = [...new Set(order.items.map(i => String(i.productId)))].map(productId => doc(db, "products", productId));
                 productSnaps = await Promise.all(productRefs.map(r => transaction.get(r)));
             }
 
@@ -869,65 +869,73 @@ function consolidateStockItems(items) {
 
 async function deductStockInTransaction(transaction, order, productSnaps, productRefs) {
     productSnaps.forEach((snap, i) => {
-        if (!snap.exists()) throw new Error(`Produit introuvable`);
+        const productId = productRefs[i].id;
+        if (!snap.exists()) throw new Error(`Produit ${productId} introuvable`);
         const pData = snap.data();
-        const qty = Number(order.items[i].quantity) || 0;
-        const itemVariant = order.items[i].variant;
-        let availableStock = 0;
-        if (itemVariant) {
-            const variantsArr = Array.isArray(pData.variants) ? pData.variants : [];
-            const v = variantsArr.find(v => (v.size || '') === (itemVariant.size || '') && (v.color || '') === (itemVariant.color || ''));
-            availableStock = v ? Number(v.stock) : 0;
-        } else {
-            availableStock = Number(pData.stock) || 0;
-        }
-        if (availableStock < qty) throw new Error(`Stock insuffisant pour ${pData.nameFr || 'ce produit'}`);
-
-        let updateData = {
-            salesCount: (Number(pData.salesCount) || 0) + qty,
-            lastOrderId: order.id,
-            updatedAt: Timestamp.now()
-        };
-        if (itemVariant) {
-            const variantsArr = Array.isArray(pData.variants) ? pData.variants : [];
-            const variants = [...variantsArr];
-            const idx = variants.findIndex(v => (v.size || '') === (itemVariant.size || '') && (v.color || '') === (itemVariant.color || ''));
-            if (idx > -1) {
-                variants[idx].stock = Math.max(0, Number(variants[idx].stock) - qty);
-                updateData.variants = variants;
-                updateData.stock = variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
+        const productItems = order.items.filter(item => String(item.productId) === productId);
+        if (!productItems.length) return;
+        const variants = Array.isArray(pData.variants) ? pData.variants.map(v => ({ ...v })) : [];
+        let simpleStock = Number(pData.stock) || 0;
+        let hasVariantItems = false, hasSimpleItems = false, totalQty = 0;
+        for (const item of productItems) {
+            const qty = Number(item.quantity);
+            if (!Number.isInteger(qty) || qty <= 0) throw new Error(`Quantité invalide pour ${pData.nameFr || productId}`);
+            totalQty += qty;
+            if (item.variant) {
+                hasVariantItems = true;
+                const idx = variants.findIndex(v => String(v.size || '') === String(item.variant.size || '') && String(v.color || '') === String(item.variant.color || ''));
+                if (idx < 0) throw new Error(`Variante introuvable pour ${pData.nameFr || productId}`);
+                const available = Number(variants[idx].stock);
+                if (!Number.isFinite(available) || available < qty) throw new Error(`Stock insuffisant pour ${pData.nameFr || 'ce produit'}`);
+                variants[idx].stock = available - qty;
+            } else {
+                hasSimpleItems = true;
+                if (simpleStock < qty) throw new Error(`Stock insuffisant pour ${pData.nameFr || 'ce produit'}`);
+                simpleStock -= qty;
             }
-        } else {
-            updateData.stock = Math.max(0, (Number(pData.stock) || 0) - qty);
         }
+        if (hasVariantItems && hasSimpleItems) throw new Error(`Structure de stock incohérente pour ${productId}`);
+        const updateData = { salesCount: (Number(pData.salesCount) || 0) + totalQty, lastOrderId: order.id, updatedAt: Timestamp.now() };
+        if (hasVariantItems) {
+            updateData.variants = variants;
+            updateData.stock = variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
+        } else updateData.stock = simpleStock;
         transaction.update(productRefs[i], updateData);
     });
 }
 
 async function restoreStockInTransaction(transaction, order, productSnaps, productRefs) {
     productSnaps.forEach((snap, i) => {
-        if (!snap.exists()) return;
+        const productId = productRefs[i].id;
+        if (!snap.exists()) throw new Error(`Produit ${productId} introuvable : restitution du stock impossible.`);
         const pData = snap.data();
-        const qty = Number(order.items[i].quantity) || 0;
-        const itemVariant = order.items[i].variant;
-
-        let updateData = {
-            salesCount: Math.max(0, (Number(pData.salesCount) || 0) - qty),
-            lastOrderId: order.id,
-            updatedAt: Timestamp.now()
-        };
-        if (itemVariant) {
-            const variantsArr = Array.isArray(pData.variants) ? pData.variants : [];
-            const variants = [...variantsArr];
-            const idx = variants.findIndex(v => (v.size || '') === (itemVariant.size || '') && (v.color || '') === (itemVariant.color || ''));
-            if (idx > -1) {
-                variants[idx].stock = (Number(variants[idx].stock) || 0) + qty;
-                updateData.variants = variants;
-                updateData.stock = variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
+        const productItems = order.items.filter(item => String(item.productId) === productId);
+        if (!productItems.length) return;
+        const variants = Array.isArray(pData.variants) ? pData.variants.map(v => ({ ...v })) : [];
+        let simpleStock = Number(pData.stock) || 0;
+        let hasVariantItems = false, hasSimpleItems = false, totalQty = 0;
+        for (const item of productItems) {
+            const qty = Number(item.quantity);
+            if (!Number.isInteger(qty) || qty <= 0) throw new Error(`Quantité invalide pour ${productId}`);
+            totalQty += qty;
+            if (item.variant) {
+                hasVariantItems = true;
+                const idx = variants.findIndex(v => String(v.size || '') === String(item.variant.size || '') && String(v.color || '') === String(item.variant.color || ''));
+                if (idx < 0) throw new Error(`Variante introuvable pour ${productId} : restitution du stock impossible.`);
+                const currentStock = Number(variants[idx].stock);
+                if (!Number.isFinite(currentStock) || currentStock < 0) throw new Error(`Stock de variante invalide pour ${productId}`);
+                variants[idx].stock = currentStock + qty;
+            } else {
+                hasSimpleItems = true;
+                simpleStock += qty;
             }
-        } else {
-            updateData.stock = (Number(pData.stock) || 0) + qty;
         }
+        if (hasVariantItems && hasSimpleItems) throw new Error(`Structure de stock incohérente pour ${productId}`);
+        const updateData = { salesCount: Math.max(0, (Number(pData.salesCount) || 0) - totalQty), lastOrderId: order.id, updatedAt: Timestamp.now() };
+        if (hasVariantItems) {
+            updateData.variants = variants;
+            updateData.stock = variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
+        } else updateData.stock = simpleStock;
         transaction.update(productRefs[i], updateData);
     });
 }
@@ -943,7 +951,7 @@ export async function deleteOrderCompletely(orderId) {
 
     if (order.stockDeducted === true && ![ORDER_STATUS.CANCELLED, ORDER_STATUS.RETURNED].includes(normalizeOrderStatus(order.status))) {
         await runTransaction(db, async (transaction) => {
-            const productRefs = order.items.map(i => doc(db, "products", String(i.productId)));
+            const productRefs = [...new Set(order.items.map(i => String(i.productId)))].map(productId => doc(db, "products", productId));
             const productSnaps = await Promise.all(productRefs.map(r => transaction.get(r)));
             await restoreStockInTransaction(transaction, order, productSnaps, productRefs);
         });
