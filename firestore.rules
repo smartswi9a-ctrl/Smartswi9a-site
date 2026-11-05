@@ -277,6 +277,21 @@ service cloud.firestore {
     }
 
     /* ============================================================
+       JUSTIFICATIFS DES FRAIS DE RETOUR
+       Lecture admin ou vendeur propriétaire uniquement.
+       Toute écriture passe par Cloud Functions Admin SDK.
+       ============================================================ */
+
+    match /order_return_fees/{feeId} {
+      allow read: if isAdmin() || (
+        isSignedIn() &&
+        resource.data.get('vendorId', '') == request.auth.uid &&
+        isVendorOwner(request.auth.uid)
+      );
+      allow create, update, delete: if false;
+    }
+
+    /* ============================================================
        COLLECTIONS DIVERSES
        ============================================================ */
 
