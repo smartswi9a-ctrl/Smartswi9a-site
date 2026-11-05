@@ -56,9 +56,6 @@ function statusMessage(profile) {
   return 'Ce compte ne dispose pas d’un accès vendeur approuvé.';
 }
 
-/* ============================================================
-   TEMPLATES CONTRAT (Reproduction stricte côté serveur)
-   ============================================================ */
 function getContractText(lang, version, snapshot) {
     const templates = {
         "1.1.0": {
@@ -76,11 +73,7 @@ function getContractText(lang, version, snapshot) {
     return t[lang] ? t[lang](snapshot) : t["fr"](snapshot);
 }
 
-/* ============================================================
-   CLOUD FUNCTIONS
-   ============================================================ */
-
-// 1. Synchronisation de vendorsPublic (Trigger)
+// 1. Synchronisation de vendorsPublic
 exports.syncVendorPublic = onDocumentWritten('users/{userId}', async (event) => {
   const snap = event.data.after;
   if (!snap || !snap.exists) return;
@@ -234,7 +227,7 @@ exports.setVendorPassword = onRequest({ region: 'europe-west1', maxInstances: 5,
   }
 });
 
-// 5. Actions Admin
+// 5. Actions Admin Vendeur
 exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
   if (cors(req, res)) return;
   try {
@@ -594,5 +587,104 @@ exports.releaseDueFunds = onRequest({ region: 'europe-west1', cors: [...ALLOWED_
   } catch (error) {
     console.error('[releaseDueFunds]', error);
     return res.status(500).json({ success: false, message: 'Erreur serveur.' });
+  }
+});
+
+// 11. Action Admin : Payer ou Rejeter un retrait
+exports.adminPayoutAction = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
+  if (cors(req, res)) return;
+  try {
+    const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
+    if (!match) return res.status(401).json({ success: false, message: 'Connexion requise.' });
+    const decoded = await getAuth().verifyIdToken(match[1], true);
+    
+    const adminSnap = await db.collection('users').doc(decoded.uid).get();
+    if (!adminSnap.exists || adminSnap.data()?.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Action réservée à un administrateur.' });
+    }
+
+    const payoutId = String(req.body?.payoutId || '');
+    const action = String(req.body?.action || ''); // 'paid' ou 'rejected'
+
+    if (!payoutId || !['paid', 'rejected'].includes(action)) {
+      return res.status(400).json({ success: false, message: 'Paramètres invalides.' });
+    }
+
+    await db.runTransaction(async (t) => {
+      const payoutRef = db.collection('payout_requests').doc(payoutId);
+      const payoutSnap = await t.get(payoutRef);
+      if (!payoutSnap.exists) throw new Error('Demande introuvable');
+
+      const payoutData = payoutSnap.data();
+      if (payoutData.status !== 'pending') throw new Error('Cette demande a déjà été traitée.');
+
+      if (action === 'paid') {
+        const amount = Number(payoutData.amount) || 0;
+        const vendorId = payoutData.vendorId;
+        const walletRef = db.collection('wallets').doc(vendorId);
+        const walletSnap = await t.get(walletRef);
+        
+        if (!walletSnap.exists) throw new Error('Wallet introuvable');
+        const wallet = walletSnap.data();
+        
+        if (Number(wallet.availableBalance) < amount) {
+          throw new Error(`Solde insuffisant : disponible ${wallet.availableBalance}, demandé ${amount}.`);
+        }
+
+        t.update(walletRef, {
+          availableBalance: FieldValue.increment(-amount),
+          totalWithdrawn: FieldValue.increment(amount),
+          lastUpdated: FieldValue.serverTimestamp()
+        });
+
+        t.update(payoutRef, {
+          status: 'paid',
+          paidAt: FieldValue.serverTimestamp(),
+          paidBy: decoded.uid
+        });
+
+        t.set(db.collection('wallet_transactions').doc(), {
+          vendorId: vendorId,
+          type: 'payout',
+          amount: -amount,
+          status: 'released',
+          payoutRequestId: payoutId,
+          description: 'Retrait payé (admin) - ' + (payoutData.method || 'Wafacash'),
+          createdAt: FieldValue.serverTimestamp(),
+          releasedAt: FieldValue.serverTimestamp()
+        });
+
+        await db.collection('notifications').add({
+          userId: vendorId,
+          type: 'payout_paid',
+          title: 'Retrait payé',
+          message: `Votre retrait de ${amount} MAD a été payé.`,
+          read: false,
+          createdAt: FieldValue.serverTimestamp(),
+          payoutId: payoutId
+        });
+      } else {
+        t.update(payoutRef, {
+          status: 'rejected',
+          rejectedAt: FieldValue.serverTimestamp(),
+          rejectedBy: decoded.uid
+        });
+
+        await db.collection('notifications').add({
+          userId: payoutData.vendorId,
+          type: 'payout_rejected',
+          title: 'Retrait rejeté',
+          message: `Votre demande de retrait de ${payoutData.amount} MAD a été rejetée.`,
+          read: false,
+          createdAt: FieldValue.serverTimestamp(),
+          payoutId: payoutId
+        });
+      }
+    });
+
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    console.error('[adminPayoutAction]', error);
+    return res.status(500).json({ success: false, message: error.message });
   }
 });
