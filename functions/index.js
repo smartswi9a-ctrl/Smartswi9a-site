@@ -1649,7 +1649,12 @@ exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}',
         const vendorSnap = await db.collection('users').doc(vendorId).get();
         if (!vendorSnap.exists) continue;
 
-        const rate = Number(vendorSnap.data().vendorInfo?.commissionRate) || 0.07;
+        const configuredRate = Number(vendorSnap.data().vendorInfo?.commissionRate);
+        const rate = Number.isFinite(configuredRate) &&
+          configuredRate >= OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE_MIN &&
+          configuredRate <= OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE_MAX
+          ? configuredRate
+          : OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE;
         const commission = Math.round(subtotal * rate * 100) / 100;
         const net = Math.round((subtotal - commission) * 100) / 100;
         if (net <= 0) continue;
