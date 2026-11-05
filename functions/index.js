@@ -1590,8 +1590,17 @@ exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}',
     }
   }
 
-  // Les frais de retour sont traités par onOrderReturnFeeCreated,
-  // après création d'un justificatif admin validé dans order_return_fees.
+  // Rejouer les justificatifs déjà créés si une commande repasse au statut retourné.
+  // Le processeur est idempotent : une écriture wallet ne peut être créée qu'une fois.
+  if (after.status === 'returned') {
+    const feeSnap = await db.collection('order_return_fees')
+      .where('orderId', '==', orderId)
+      .get();
+    for (const feeDoc of feeSnap.docs) {
+      const fee = feeDoc.data();
+      await processReturnFeeDebit(orderId, Number(fee.returnIndex), String(fee.vendorId));
+    }
+  }
 });
 
 /* ============================================================
