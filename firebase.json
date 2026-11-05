@@ -89,43 +89,73 @@
     "rewrites": [
       {
         "source": "/api/setVendorPassword",
-        "function": { "functionId": "setVendorPassword", "region": "europe-west1" }
+        "function": {
+          "functionId": "setVendorPassword",
+          "region": "europe-west1"
+        }
       },
       {
         "source": "/api/loginVendor",
-        "function": { "functionId": "loginVendor", "region": "europe-west1" }
+        "function": {
+          "functionId": "loginVendor",
+          "region": "europe-west1"
+        }
       },
       {
         "source": "/api/signVendorContract",
-        "function": { "functionId": "signVendorContract", "region": "europe-west1" }
+        "function": {
+          "functionId": "signVendorContract",
+          "region": "europe-west1"
+        }
       },
       {
         "source": "/api/acceptVendorContract",
-        "function": { "functionId": "acceptVendorContract", "region": "europe-west1" }
+        "function": {
+          "functionId": "acceptVendorContract",
+          "region": "europe-west1"
+        }
       },
       {
         "source": "/api/adminVendorAction",
-        "function": { "functionId": "adminVendorAction", "region": "europe-west1" }
+        "function": {
+          "functionId": "adminVendorAction",
+          "region": "europe-west1"
+        }
       },
       {
         "source": "/api/adminPayoutAction",
-        "function": { "functionId": "adminPayoutAction", "region": "europe-west1" }
+        "function": {
+          "functionId": "adminPayoutAction",
+          "region": "europe-west1"
+        }
       },
       {
         "source": "/api/requestWithdrawal",
-        "function": { "functionId": "requestWithdrawal", "region": "europe-west1" }
+        "function": {
+          "functionId": "requestWithdrawal",
+          "region": "europe-west1"
+        }
       },
       {
         "source": "/api/releaseDueFunds",
-        "function": { "functionId": "releaseDueFunds", "region": "europe-west1" }
+        "function": {
+          "functionId": "releaseDueFunds",
+          "region": "europe-west1"
+        }
       },
       {
         "source": "/api/createCustomerOrder",
-        "function": { "functionId": "createCustomerOrder", "region": "europe-west1" }
+        "function": {
+          "functionId": "createCustomerOrder",
+          "region": "europe-west1"
+        }
       },
       {
         "source": "/api/cancelCustomerOrder",
-        "function": { "functionId": "cancelCustomerOrder", "region": "europe-west1" }
+        "function": {
+          "functionId": "cancelCustomerOrder",
+          "region": "europe-west1"
+        }
       },
       {
         "source": "/vendor/dashboard",
