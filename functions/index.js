@@ -343,7 +343,7 @@ function getContractText(lang, version, snapshot) {
   const t = templates[sourceVersion] || templates["1.2.0"];
   const text = t[lang] ? t[lang](snapshot) : t["fr"](snapshot);
   return version === "1.3.0"
-    ? text.replaceAll("smartswi9a.top", "smartswi9a.ma")
+    ? text.replaceAll("smartswi9a.top", "smartswi9a.ma").replace(/\\s+/g, " ").trim()
     : text;
 }
 
