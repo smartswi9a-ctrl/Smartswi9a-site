@@ -805,15 +805,25 @@ async function inspectVendorSettlement(vendorId) {
               blockers.push({ orderId: orderDoc.id, reason: `débit du retour ${returnIndex + 1} en attente de rapprochement` });
             }
           } else {
+            const hasNewFeeRecord = !!feeRecord;
             const expectedFee = Number(feeRecord?.amount ?? debit.amount);
+            const feeRecordInvalid = hasNewFeeRecord && (
+              feeRecord.status !== 'validated' ||
+              !['manual', 'livo'].includes(feeRecord.source) ||
+              !Number.isFinite(expectedFee) || expectedFee <= 0 ||
+              !feeRecord.recordedAt ||
+              (feeRecord.source === 'manual' && !feeRecord.recordedBy)
+            );
             const debitSnap = await db.collection('wallet_transactions').doc(String(debit.txId)).get();
             const debitTx = debitSnap.exists ? debitSnap.data() : null;
-            if (!Number.isFinite(expectedFee) || expectedFee <= 0 ||
+            if (feeRecordInvalid ||
+                !Number.isFinite(expectedFee) || expectedFee <= 0 ||
                 Math.abs(Number(debit.amount) - expectedFee) > 0.01 ||
                 Number(debit.returnedQty) !== returnedQty ||
                 !debitTx || debitTx.vendorId !== vendorId || debitTx.orderId !== orderDoc.id ||
                 debitTx.type !== 'return_fee' || Number(debitTx.amount) >= 0 ||
-                Math.abs(Math.abs(Number(debitTx.amount)) - expectedFee) > 0.01) {
+                Math.abs(Math.abs(Number(debitTx.amount)) - expectedFee) > 0.01 ||
+                (hasNewFeeRecord && debit.source !== feeRecord.source)) {
               blockers.push({ orderId: orderDoc.id, reason: `écriture financière du retour ${returnIndex + 1} absente ou incohérente` });
             }
           }
