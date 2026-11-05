@@ -1123,7 +1123,7 @@ exports.requestWithdrawal = onRequest({ region: 'europe-west1', cors: [...ALLOWE
 /* ============================================================
    CF : onOrderStatusChanged (Trigger)
    ============================================================ */
-exports.onOrderStatusChanged = onDocumentUpdated('orders/{orderId}', async (event) => {
+exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}', retry: true }, async (event) => {
   const before = event.data.before.data();
   const after = event.data.after.data();
 
