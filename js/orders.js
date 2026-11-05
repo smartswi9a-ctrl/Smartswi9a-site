@@ -1114,16 +1114,21 @@ export async function renderAdminOrders(containerId = 'ordersList') {
                 const fee = order.returnFeesByKey?.[`${vendorId}_ret${returnIndex}`];
                 const debit = order.vendorDebits?.[`${vendorId}_ret${returnIndex}`];
                 const label = escapeHTML(String(info.name));
+                const feeMeta = fee
+                    ? `Source : ${escapeHTML(fee.source || '—')} · enregistré le ${escapeHTML(formatDateTime(fee.recordedAt))} · admin ${escapeHTML(String(fee.recordedBy || '—'))}`
+                    : 'Ancienne écriture sans justificatif détaillé';
                 if (debit) {
                     return `<div style="padding:0.45rem 0;border-top:1px solid var(--border);font-size:0.8rem;">
                         <strong>${label}</strong> · ${info.qty} article(s) · ${Number(debit.amount).toFixed(2)} MAD
                         <span style="color:var(--success);font-weight:700;">Débité</span>
+                        <div style="font-size:0.68rem;color:var(--text-muted);">${feeMeta}</div>
                     </div>`;
                 }
                 if (fee) {
                     return `<div style="padding:0.45rem 0;border-top:1px solid var(--border);font-size:0.8rem;">
                         <strong>${label}</strong> · ${info.qty} article(s) · ${Number(fee.amount).toFixed(2)} MAD
-                        <span style="color:var(--warning);font-weight:700;">Enregistré (${escapeHTML(fee.source || 'manuel')}) — débit en attente</span>
+                        <span style="color:var(--warning);font-weight:700;">Enregistré — débit en attente</span>
+                        <div style="font-size:0.68rem;color:var(--text-muted);">${feeMeta}</div>
                     </div>`;
                 }
                 return `<div style="display:flex;gap:0.45rem;align-items:center;flex-wrap:wrap;padding:0.5rem 0;border-top:1px solid var(--border);">
