@@ -962,8 +962,6 @@ exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
         'vendorInfo.statusUpdatedBy': decoded.uid,
         updatedAt: FieldValue.serverTimestamp()
       });
-      await db.collection('vendorsPublic').doc(vendorId).delete();
-
       const restoreVendorListing = async () => {
         await vendorRef.update({
           'vendorInfo.status': restoreStatus,
@@ -981,14 +979,34 @@ exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
         }
       };
 
+      // Si le retrait de la fiche publique échoue, restaurer le compte au lieu
+      // de laisser le vendeur bloqué en deletion_pending.
+      try {
+        await db.collection('vendorsPublic').doc(vendorId).delete();
+      } catch (error) {
+        await restoreVendorListing().catch(restoreError =>
+          console.error('[adminVendorAction] restauration après échec vendorsPublic:', restoreError)
+        );
+        throw error;
+      }
+
       // Protection financière et contrôle des commandes/écritures associées.
       const walletRef = db.collection('wallets').doc(vendorId);
       const payoutQuery = db.collection('payout_requests')
         .where('vendorId', '==', vendorId);
-      const [walletSnap, payoutSnap] = await Promise.all([
-        walletRef.get(),
-        payoutQuery.get()
-      ]);
+      let walletSnap;
+      let payoutSnap;
+      try {
+        [walletSnap, payoutSnap] = await Promise.all([
+          walletRef.get(),
+          payoutQuery.get()
+        ]);
+      } catch (error) {
+        await restoreVendorListing().catch(restoreError =>
+          console.error('[adminVendorAction] restauration après échec lecture financière:', restoreError)
+        );
+        throw error;
+      }
 
       const wallet = walletSnap.exists ? walletSnap.data() : {};
       const availableBalance = Number(wallet.availableBalance) || 0;
@@ -1013,7 +1031,15 @@ exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
         financialReasons.push(`${openPayouts.length} demande(s) de retrait non traitée(s)`);
       }
 
-      const settlement = await inspectVendorSettlement(vendorId);
+      let settlement;
+      try {
+        settlement = await inspectVendorSettlement(vendorId);
+      } catch (error) {
+        await restoreVendorListing().catch(restoreError =>
+          console.error('[adminVendorAction] restauration après échec audit financier:', restoreError)
+        );
+        throw error;
+      }
       if (settlement.blockers.length > 0) {
         financialReasons.push(`${settlement.blockers.length} anomalie(s) de commande ou d'écriture financière`);
       }
