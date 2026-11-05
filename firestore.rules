@@ -212,10 +212,17 @@ service cloud.firestore {
        ============================================================ */
 
     match /orders/{orderId} {
-      // Les vendeurs ne lisent plus les commandes globales : leurs vues
-      // filtrées sont disponibles dans vendor_orders/{vendorId}/orders.
+      // Un vendeur peut lire une commande globale uniquement si elle ne
+      // contient que ses propres articles. Les commandes multi-vendeurs
+      // restent cloisonnées dans vendor_orders/{vendorId}/orders.
       allow read: if isAdmin() ||
-        (isSignedIn() && resource.data.userId == request.auth.uid);
+        (isSignedIn() && resource.data.userId == request.auth.uid) ||
+        (
+          isApprovedVendor(request.auth.uid) &&
+          resource.data.get('vendorIds', []) is list &&
+          resource.data.vendorIds.size() == 1 &&
+          resource.data.vendorIds[0] == request.auth.uid
+        );
 
       allow create: if false;
 
