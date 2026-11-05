@@ -671,3 +671,809 @@ exports.requestWithdrawal = onRequest({ region: 'europe-west1', cors: [...ALLOWE
     return res.status(500).json({ success: false, message: error.message });
   }
 });
+/* ============================================================
+   CLOUD FUNCTION : onOrderStatusChanged (Trigger)
+   ============================================================
+   - C5 : Protection contre le double-crédit (marqueur order.vendorCredits)
+   - M7 : Débit vendeur pour les retours (frais RETURN_FEE_LIVO × qty)
+   ============================================================ */
+exports.onOrderStatusChanged = onDocumentUpdated('orders/{orderId}', async (event) => {
+  const before = event.data.before.data();
+  const after = event.data.after.data();
+
+  if (before.status === after.status) return;
+
+  const orderId = event.params.orderId;
+
+  // ============================================================
+  // C5 : CRÉDIT VENDEUR À LA LIVRAISON (idempotent)
+  // ============================================================
+  if (after.status === 'delivered' && before.status !== 'delivered') {
+    const vendorItems = {};
+    (after.items || []).forEach(item => {
+      if (item.vendorId && item.vendorId !== 'smartswi9a') {
+        if (!vendorItems[item.vendorId]) vendorItems[item.vendorId] = 0;
+        vendorItems[item.vendorId] += (Number(item.price) || 0) * (Number(item.quantity) || 0);
+      }
+    });
+
+    for (const [vendorId, subtotal] of Object.entries(vendorItems)) {
+      try {
+        // C5 : marqueur idempotent
+        const alreadyCredited = after.vendorCredits && after.vendorCredits[vendorId];
+        if (alreadyCredited) {
+          console.log(`[onOrderStatusChanged] Vendeur ${vendorId} déjà crédité pour cmd ${orderId}, skip`);
+          continue;
+        }
+
+        const vendorSnap = await db.collection('users').doc(vendorId).get();
+        if (!vendorSnap.exists) continue;
+
+        const rate = Number(vendorSnap.data().vendorInfo?.commissionRate) || 0.07;
+        const commission = Math.round(subtotal * rate * 100) / 100;
+        const net = Math.round((subtotal - commission) * 100) / 100;
+
+        if (net <= 0) continue;
+
+        const walletRef = db.collection('wallets').doc(vendorId);
+        const walletSnap = await walletRef.get();
+        const unlockDays = 7;
+        const unlockAt = new Date();
+        unlockAt.setDate(unlockAt.getDate() + unlockDays);
+
+        // Écriture wallet + transaction + marqueur (atomique via transaction)
+        await db.runTransaction(async (tx) => {
+          const orderRef = db.collection('orders').doc(orderId);
+          const freshOrderSnap = await tx.get(orderRef);
+          if (!freshOrderSnap.exists) return;
+          const freshOrder = freshOrderSnap.data();
+          if (freshOrder.vendorCredits && freshOrder.vendorCredits[vendorId]) {
+            return; // double check atomique
+          }
+
+          const freshWalletSnap = await tx.get(walletRef);
+          if (!freshWalletSnap.exists) {
+            tx.set(walletRef, {
+              vendorId,
+              pendingBalance: net,
+              availableBalance: 0,
+              totalEarnings: net,
+              totalWithdrawn: 0,
+              createdAt: FieldValue.serverTimestamp(),
+              lastUpdated: FieldValue.serverTimestamp()
+            });
+          } else {
+            tx.update(walletRef, {
+              pendingBalance: FieldValue.increment(net),
+              totalEarnings: FieldValue.increment(net),
+              lastUpdated: FieldValue.serverTimestamp()
+            });
+          }
+
+          const txRef = db.collection('wallet_transactions').doc();
+          tx.set(txRef, {
+            vendorId,
+            type: 'sale',
+            amount: net,
+            commission,
+            commissionRate: rate,
+            subtotal,
+            orderId,
+            status: 'pending',
+            unlockAt,
+            description: `Vente commande #${orderId.slice(0, 8).toUpperCase()}`,
+            createdAt: FieldValue.serverTimestamp()
+          });
+
+          tx.update(orderRef, {
+            [`vendorCredits.${vendorId}`]: {
+              creditedAt: FieldValue.serverTimestamp(),
+              amount: net,
+              txId: txRef.id
+            }
+          });
+        });
+
+        console.log(`[onOrderStatusChanged] Vendeur ${vendorId} crédité de ${net} MAD (cmd ${orderId})`);
+      } catch (err) {
+        console.error(`[onOrderStatusChanged] Erreur crédit vendeur ${vendorId}:`, err);
+      }
+    }
+  }
+
+  // ============================================================
+  // M7 : DÉBIT VENDEUR POUR RETOUR
+  // ============================================================
+  if (after.status === 'returned' && before.status !== 'returned') {
+    const RETURN_FEE = 20; // CONFIG.VENDOR.RETURN_FEE_LIVO
+
+    // Récupérer le dernier retour (le plus récent)
+    const returns = Array.isArray(after.returns) ? after.returns : [];
+    const lastReturn = returns[returns.length - 1];
+    if (!lastReturn || !Array.isArray(lastReturn.items)) return;
+
+    const returnIndex = returns.length - 1;
+    const qtyByVendor = {};
+    lastReturn.items.forEach(retItem => {
+      const item = (after.items || []).find(i => String(i.productId) === String(retItem.productId));
+      if (!item) return;
+      const vid = item.vendorId;
+      if (!vid || vid === 'smartswi9a') return;
+      qtyByVendor[vid] = (qtyByVendor[vid] || 0) + (Number(retItem.delta) || 0);
+    });
+
+    for (const [vendorId, qty] of Object.entries(qtyByVendor)) {
+      if (qty <= 0) continue;
+      const fee = RETURN_FEE * qty;
+      const debitKey = `${vendorId}_ret${returnIndex}`;
+
+      try {
+        // Idempotence : marqueur order.vendorDebits
+        const alreadyDebited = after.vendorDebits && after.vendorDebits[debitKey];
+        if (alreadyDebited) {
+          console.log(`[onOrderStatusChanged] Retour ${debitKey} déjà débité, skip`);
+          continue;
+        }
+
+        const walletRef = db.collection('wallets').doc(vendorId);
+        const walletSnap = await walletRef.get();
+        if (!walletSnap.exists) continue;
+
+        await db.runTransaction(async (tx) => {
+          const orderRef = db.collection('orders').doc(orderId);
+          const freshOrderSnap = await tx.get(orderRef);
+          if (!freshOrderSnap.exists) return;
+          const freshOrder = freshOrderSnap.data();
+          if (freshOrder.vendorDebits && freshOrder.vendorDebits[debitKey]) return;
+
+          const freshWalletSnap = await tx.get(walletRef);
+          if (!freshWalletSnap.exists) return;
+          const w = freshWalletSnap.data();
+
+          let pending = Number(w.pendingBalance) || 0;
+          let available = Number(w.availableBalance) || 0;
+          let negative = Number(w.negativeBalance) || 0;
+          let remaining = fee;
+
+          // Cascade : pending → available → negative
+          const fromPending = Math.min(pending, remaining);
+          pending -= fromPending;
+          remaining -= fromPending;
+
+          const fromAvailable = Math.min(available, remaining);
+          available -= fromAvailable;
+          remaining -= fromAvailable;
+
+          if (remaining > 0) {
+            negative -= remaining;
+          }
+
+          tx.update(walletRef, {
+            pendingBalance: pending,
+            availableBalance: available,
+            negativeBalance: negative,
+            lastUpdated: FieldValue.serverTimestamp()
+          });
+
+          const txRef = db.collection('wallet_transactions').doc();
+          tx.set(txRef, {
+            vendorId,
+            type: 'return_fee',
+            amount: -fee,
+            orderId,
+            returnIndex,
+            status: 'released',
+            description: `Frais retour commande #${orderId.slice(0, 8).toUpperCase()} (${qty} colis)`,
+            createdAt: FieldValue.serverTimestamp()
+          });
+
+          tx.update(orderRef, {
+            [`vendorDebits.${debitKey}`]: {
+              debitedAt: FieldValue.serverTimestamp(),
+              amount: fee,
+              returnedQty: qty
+            }
+          });
+        });
+
+        console.log(`[onOrderStatusChanged] Vendeur ${vendorId} débité de ${fee} MAD (retour cmd ${orderId})`);
+      } catch (err) {
+        console.error(`[onOrderStatusChanged] Erreur débit retour ${vendorId}:`, err);
+      }
+    }
+  }
+});
+
+/* ============================================================
+   CLOUD FUNCTION : createCustomerOrder (Sécurisé)
+   ============================================================
+   - C2 : deliveryFee depuis Firestore cities/{cityId}.price
+   - C3 : coupons (validation + incrément usedCount)
+   - C4 : cancellableUntil = now + 4h
+   - C6 : vérif que le vendeur est approuvé (vendorsPublic.status)
+   - M1 : réduction volume >= 3 articles -> 5%
+   ============================================================ */
+exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 10, timeoutSeconds: 30, cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
+  if (cors(req, res)) return;
+  try {
+    const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
+    if (!match) return res.status(401).json({ success: false, message: 'Connexion requise.' });
+    const decoded = await getAuth().verifyIdToken(match[1], true);
+
+    const input = req.body || {};
+    const delivery = input.deliveryInfo || {};
+    const rawItems = Array.isArray(input.items) ? input.items : [];
+
+    if (!rawItems.length || rawItems.length > 50) {
+      return res.status(400).json({ success: false, message: 'Panier vide ou trop volumineux.' });
+    }
+    for (const k of ['name', 'phone', 'address', 'city']) {
+      if (typeof delivery[k] !== 'string' || !delivery[k].trim()) {
+        return res.status(400).json({ success: false, message: `Champ obligatoire : ${k}` });
+      }
+    }
+
+    // Fusion doublons
+    const merged = new Map();
+    for (const it of rawItems) {
+      const productId = String(it?.productId ?? '').trim();
+      const qty = Math.floor(Number(it?.quantity));
+      if (!productId || !Number.isFinite(qty) || qty < 1 || qty > 99) {
+        return res.status(400).json({ success: false, message: 'Article invalide.' });
+      }
+      const v = it.variant && typeof it.variant === 'object'
+        ? { size: String(it.variant.size || ''), color: String(it.variant.color || '') }
+        : null;
+      const key = JSON.stringify([productId, v?.size || '', v?.color || '']);
+      const old = merged.get(key);
+      if (old) old.quantity += qty;
+      else merged.set(key, { productId, quantity: qty, variant: v, id: String(it.id || productId) });
+    }
+    const items = [...merged.values()];
+    const orderRef = db.collection('orders').doc();
+
+    const outcome = await db.runTransaction(async tx => {
+      // ============ LECTURE PRODUITS ============
+      const productRefs = items.map(i => db.collection('products').doc(i.productId));
+      const productSnaps = await Promise.all(productRefs.map(ref => tx.get(ref)));
+      const vendorIdsSet = new Set();
+
+      for (let i = 0; i < productSnaps.length; i++) {
+        if (!productSnaps[i].exists) throw new Error(`Produit introuvable.`);
+        const pd = productSnaps[i].data();
+        if (pd.status && pd.status !== 'approved') throw new Error(`Produit indisponible.`);
+        const vid = String(pd.vendorId || 'smartswi9a');
+        if (vid !== 'smartswi9a') vendorIdsSet.add(vid);
+      }
+      const vendorIds = [...vendorIdsSet];
+
+      // ============ C6 : VÉRIF VENDEURS APPROUVÉS ============
+      if (vendorIds.length > 0) {
+        const vendorRefs = vendorIds.map(id => db.collection('vendorsPublic').doc(id));
+        const vendorSnaps = await Promise.all(vendorRefs.map(ref => tx.get(ref)));
+        vendorSnaps.forEach((snap, i) => {
+          if (!snap.exists) {
+            throw new Error(`Le vendeur ${vendorIds[i]} n'est pas actif.`);
+          }
+          const vData = snap.data();
+          if (vData.status !== 'approved') {
+            throw new Error(`Le vendeur ${vendorIds[i]} n'est pas approuvé (statut: ${vData.status || 'pending'}).`);
+          }
+        });
+      }
+
+      // ============ TRAITEMENT DES ARTICLES ============
+      let subtotal = 0;
+      let totalQty = 0;
+      const validatedItems = [];
+      const productUpdates = new Map();
+      const workingProducts = new Map(productSnaps.map((snap, i) => [
+        items[i].productId,
+        { ...snap.data(), variants: Array.isArray(snap.data().variants) ? snap.data().variants.map(v => ({ ...v })) : undefined }
+      ]));
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const data = workingProducts.get(item.productId);
+        const qty = item.quantity;
+        let stock = 0, price = Number(data.price) || 0;
+
+        const update = productUpdates.get(item.productId)?.data || { salesCount: Number(data.salesCount) || 0 };
+        update.salesCount = (Number(update.salesCount) || 0) + qty;
+        update.lastOrderId = orderRef.id;
+        update.updatedAt = FieldValue.serverTimestamp();
+
+        if (item.variant) {
+          const variants = Array.isArray(update.variants)
+            ? update.variants.map(v => ({ ...v }))
+            : (Array.isArray(data.variants) ? data.variants.map(v => ({ ...v })) : []);
+          const idx = variants.findIndex(v =>
+            String(v.size || '') === item.variant.size && String(v.color || '') === item.variant.color
+          );
+          if (idx < 0) throw new Error(`Variante indisponible.`);
+          stock = Number(variants[idx].stock) || 0;
+          const vp = Number(variants[idx].price);
+          if (Number.isFinite(vp) && vp > 0) price = vp;
+          if (stock < qty) throw new Error(`Stock insuffisant.`);
+          variants[idx].stock = stock - qty;
+          update.variants = variants;
+          update.stock = variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
+          data.variants = variants;
+          data.stock = update.stock;
+        } else {
+          stock = Number(update.stock ?? data.stock) || 0;
+          if (stock < qty) throw new Error(`Stock insuffisant.`);
+          update.stock = stock - qty;
+          data.stock = update.stock;
+        }
+
+        data.salesCount = update.salesCount;
+        productUpdates.set(item.productId, { ref: productRefs[i], data: update });
+        subtotal += price * qty;
+        totalQty += qty;
+        validatedItems.push({
+          id: item.id,
+          productId: item.productId,
+          vendorId: String(data.vendorId || 'smartswi9a'),
+          variant: item.variant,
+          quantity: qty,
+          price,
+          name: String(data.nameFr || data.nameEn || 'Produit')
+        });
+      }
+
+      // ============ C2 : FRAIS LIVRAISON DEPUIS FIRESTORE ============
+      let deliveryFee = FALLBACK_DELIVERY_FEE;
+      if (delivery.cityId) {
+        try {
+          const citySnap = await tx.get(db.collection('cities').doc(String(delivery.cityId)));
+          if (citySnap.exists) {
+            deliveryFee = Math.max(0, Number(citySnap.data().price) || 0);
+          }
+        } catch (e) {
+          console.warn('[createCustomerOrder] cities read failed, fallback:', e.message);
+        }
+      }
+
+      // ============ M1 : RÉDUCTION VOLUME (>=3 articles -> 5%) ============
+      const volumeDiscount = totalQty >= 3 ? Math.round(subtotal * 0.05) : 0;
+
+      // ============ C3 : COUPONS ============
+      let couponData = null;
+      let couponDiscount = 0;
+      const couponId = input.appliedCoupon?.id ? String(input.appliedCoupon.id) : null;
+
+      if (couponId) {
+        const couponRef = db.collection('coupons').doc(couponId);
+        const couponSnap = await tx.get(couponRef);
+        if (!couponSnap.exists) throw new Error('Code promo introuvable.');
+        const c = couponSnap.data();
+        if (c.isActive !== true) throw new Error('Code promo inactif.');
+        if (c.expiresAt) {
+          const exp = c.expiresAt.toDate ? c.expiresAt.toDate() : new Date(c.expiresAt);
+          if (exp.getTime() < Date.now()) throw new Error('Code promo expiré.');
+        }
+        if (Number(c.maxUses) > 0 && (Number(c.usedCount) || 0) >= Number(c.maxUses)) {
+          throw new Error('Code promo épuisé.');
+        }
+        if (Number(c.minPurchase) > 0 && subtotal < Number(c.minPurchase)) {
+          throw new Error(`Minimum ${Number(c.minPurchase)} MAD requis.`);
+        }
+        if (c.oneUsePerUser === true) {
+          const useSnap = await tx.get(db.collection('coupon_uses').doc(`${couponId}_${decoded.uid}`));
+          if (useSnap.exists) throw new Error('Vous avez déjà utilisé ce code promo.');
+        }
+        const value = Math.max(0, Number(c.value) || 0);
+        if (c.type === 'percentage') {
+          couponDiscount = Math.round(subtotal * Math.min(100, value) / 100);
+        } else if (c.type === 'fixed') {
+          couponDiscount = Math.min(value, subtotal);
+        } else if (c.type === 'free_shipping') {
+          couponDiscount = deliveryFee;
+        }
+        if (couponDiscount <= 0) throw new Error('Ce code ne produit aucune réduction.');
+
+        couponData = c;
+
+        // Incrément usedCount
+        tx.update(couponRef, { usedCount: FieldValue.increment(1) });
+        tx.set(db.collection('coupon_uses').doc(`${couponId}_${decoded.uid}`), {
+          couponId,
+          code: String(c.code || ''),
+          userId: decoded.uid,
+          orderId: orderRef.id,
+          discountApplied: couponDiscount,
+          usedAt: FieldValue.serverTimestamp()
+        });
+      }
+
+      // Total
+      const productDiscount = Math.min(subtotal, volumeDiscount + Math.max(0, couponDiscount - (couponData?.type === 'free_shipping' ? deliveryFee : 0)));
+      const shippingDiscount = couponData?.type === 'free_shipping' ? Math.min(deliveryFee, couponDiscount) : 0;
+      const total = Math.max(0, subtotal - productDiscount + deliveryFee - shippingDiscount);
+
+      // ============ C4 : cancellableUntil ============
+      const now = Date.now();
+      const cancellableUntil = new Date(now + 4 * 3600 * 1000); // 4h
+
+      // ============ CONSTRUCTION ORDER ============
+      const vendorList = [...new Set(validatedItems.map(i => i.vendorId).filter(v => v && v !== 'smartswi9a'))];
+      const orderData = {
+        userId: decoded.uid,
+        userName: String(delivery.name).trim().slice(0, 100),
+        userEmail: String(decoded.email || delivery.email || ''),
+        items: validatedItems,
+        vendorIds: vendorList,
+        status: 'pending',
+        paymentStatus: 'unpaid',
+        subtotal,
+        discount: volumeDiscount,
+        couponId: couponData ? couponId : null,
+        couponCode: couponData ? String(couponData.code || '') : null,
+        couponDiscount,
+        deliveryFee,
+        total,
+        stockDeducted: true,
+        couponRestored: false,
+        deliveryAddress: delivery,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        cancellableUntil,
+        vendorCredits: {},
+        vendorDebits: {}
+      };
+
+      productUpdates.forEach(u => tx.update(u.ref, u.data));
+      tx.set(orderRef, orderData);
+
+      // Notification
+      const notifRef = db.collection('notifications').doc();
+      tx.set(notifRef, {
+        userId: decoded.uid,
+        type: 'order_created',
+        title: 'Commande reçue',
+        message: `Merci pour votre commande #${orderRef.id.slice(0, 8).toUpperCase()} !`,
+        orderId: orderRef.id,
+        read: false,
+        createdAt: FieldValue.serverTimestamp()
+      });
+
+      return {
+        orderId: orderRef.id,
+        totals: {
+          subtotal,
+          discount: volumeDiscount,
+          couponCode: orderData.couponCode,
+          couponDiscount,
+          deliveryFee,
+          total,
+          vendorIds: vendorList
+        },
+        validatedItems
+      };
+    });
+
+    return res.status(200).json({ success: true, ...outcome });
+  } catch (error) {
+    console.error('[createCustomerOrder]', error);
+    return res.status(400).json({ success: false, message: error.message || 'Création de commande impossible.' });
+  }
+});
+
+/* ============================================================
+   CLOUD FUNCTION : cancelCustomerOrder (Sécurisé)
+   ============================================================
+   - Restaure le stock
+   - M2 : restaure le coupon (incrément -1 + suppression coupon_uses)
+   ============================================================ */
+exports.cancelCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 10, timeoutSeconds: 30, cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
+  if (cors(req, res)) return;
+  try {
+    const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
+    if (!match) return res.status(401).json({ success: false, message: 'Connexion requise.' });
+    const decoded = await getAuth().verifyIdToken(match[1], true);
+    const orderId = String(req.body?.orderId || '').trim();
+    if (!orderId) return res.status(400).json({ success: false, message: 'Commande invalide.' });
+
+    await db.runTransaction(async tx => {
+      const orderRef = db.collection('orders').doc(orderId);
+      const orderSnap = await tx.get(orderRef);
+      if (!orderSnap.exists) throw new Error('Commande introuvable.');
+      const order = orderSnap.data();
+      if (order.userId !== decoded.uid) throw new Error('Non autorisé.');
+      if (!['pending', 'confirmed'].includes(order.status)) throw new Error('Délai dépassé.');
+
+      // Vérifier cancellableUntil
+      if (order.cancellableUntil) {
+        const until = order.cancellableUntil.toDate
+          ? order.cancellableUntil.toDate()
+          : new Date(order.cancellableUntil);
+        if (Date.now() > until.getTime()) {
+          throw new Error('Le délai d’annulation est dépassé.');
+        }
+      }
+
+      // Restauration stock
+      const items = Array.isArray(order.items) ? order.items : [];
+      const productIds = [...new Set(items.map(i => String(i.productId)))];
+      const refs = productIds.map(id => db.collection('products').doc(id));
+      const snaps = await Promise.all(refs.map(ref => tx.get(ref)));
+
+      if (order.stockDeducted === true) {
+        for (let i = 0; i < productIds.length; i++) {
+          if (!snaps[i].exists) continue;
+          const p = snaps[i].data();
+          const productItems = items.filter(item => String(item.productId) === productIds[i]);
+          const totalQty = productItems.reduce((sum, item) => sum + Math.max(1, Math.floor(Number(item.quantity) || 1)), 0);
+          const upd = {
+            salesCount: Math.max(0, (Number(p.salesCount) || 0) - totalQty),
+            lastOrderId: orderId,
+            updatedAt: FieldValue.serverTimestamp()
+          };
+          const variants = Array.isArray(p.variants) ? p.variants.map(v => ({ ...v })) : [];
+          let simpleStock = Number(p.stock) || 0;
+          for (const item of productItems) {
+            const qty = Math.max(1, Math.floor(Number(item.quantity) || 1));
+            if (item.variant) {
+              const idx = variants.findIndex(v =>
+                String(v.size || '') === String(item.variant.size || '') &&
+                String(v.color || '') === String(item.variant.color || '')
+              );
+              if (idx >= 0) variants[idx].stock = (Number(variants[idx].stock) || 0) + qty;
+            } else {
+              simpleStock += qty;
+            }
+          }
+          if (productItems.some(item => item.variant)) {
+            upd.variants = variants;
+            upd.stock = variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
+          } else {
+            upd.stock = simpleStock;
+          }
+          tx.update(refs[i], upd);
+        }
+      }
+
+      // M2 : restauration coupon
+      if (order.couponId && !order.couponRestored) {
+        try {
+          tx.update(db.collection('coupons').doc(String(order.couponId)), {
+            usedCount: FieldValue.increment(-1)
+          });
+          tx.delete(db.collection('coupon_uses').doc(`${order.couponId}_${decoded.uid}`));
+        } catch (e) {
+          console.warn('[cancelCustomerOrder] Coupon restore failed:', e.message);
+        }
+      }
+
+      tx.update(orderRef, {
+        status: 'cancelled',
+        cancelledAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        stockDeducted: false,
+        couponRestored: true
+      });
+    });
+
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    console.error('[cancelCustomerOrder]', error);
+    return res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+/* ============================================================
+   CLOUD FUNCTION : adminPayoutAction (C1 - MANQUANTE)
+   ============================================================
+   Action admin : "paid" ou "rejected" sur une payout_request.
+   - "paid" : débite availableBalance + totalWithdrawn + transaction
+   - "rejected" : marque rejetée (pas de débit, le solde est déjà réservé côté client)
+   ============================================================ */
+exports.adminPayoutAction = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS], timeoutSeconds: 30 }, async (req, res) => {
+  if (cors(req, res)) return;
+  try {
+    const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
+    if (!match) return res.status(401).json({ success: false, message: 'Connexion requise.' });
+    const decoded = await getAuth().verifyIdToken(match[1], true);
+
+    const adminSnap = await db.collection('users').doc(decoded.uid).get();
+    if (!adminSnap.exists || adminSnap.data()?.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Action réservée à un administrateur.' });
+    }
+
+    const payoutId = String(req.body?.payoutId || '');
+    const action = String(req.body?.action || '');
+    if (!payoutId || !['paid', 'rejected'].includes(action)) {
+      return res.status(400).json({ success: false, message: 'Paramètres invalides.' });
+    }
+
+    await db.runTransaction(async (t) => {
+      const payoutRef = db.collection('payout_requests').doc(payoutId);
+      const payoutSnap = await t.get(payoutRef);
+      if (!payoutSnap.exists) throw new Error('Demande introuvable.');
+      const payoutData = payoutSnap.data();
+      if (payoutData.status !== 'pending') throw new Error('Cette demande a déjà été traitée.');
+
+      if (action === 'paid') {
+        const amount = Number(payoutData.amount) || 0;
+        const vendorId = payoutData.vendorId;
+        const walletRef = db.collection('wallets').doc(vendorId);
+        const walletSnap = await t.get(walletRef);
+        if (!walletSnap.exists) throw new Error('Wallet introuvable.');
+
+        const wallet = walletSnap.data();
+        const available = Number(wallet.availableBalance) || 0;
+        if (available < amount) {
+          throw new Error(`Solde insuffisant : disponible ${available} MAD, demandé ${amount} MAD.`);
+        }
+
+        t.update(walletRef, {
+          availableBalance: FieldValue.increment(-amount),
+          totalWithdrawn: FieldValue.increment(amount),
+          lastUpdated: FieldValue.serverTimestamp()
+        });
+
+        t.update(payoutRef, {
+          status: 'paid',
+          paidAt: FieldValue.serverTimestamp(),
+          paidBy: decoded.uid
+        });
+
+        const txRef = db.collection('wallet_transactions').doc();
+        t.set(txRef, {
+          vendorId,
+          type: 'payout',
+          amount: -amount,
+          status: 'released',
+          payoutRequestId: payoutId,
+          description: `Retrait payé (admin) - ${payoutData.method || 'Wafacash'}`,
+          createdAt: FieldValue.serverTimestamp(),
+          releasedAt: FieldValue.serverTimestamp()
+        });
+
+        // Notification
+        const notifRef = db.collection('notifications').doc();
+        t.set(notifRef, {
+          userId: vendorId,
+          type: 'payout_paid',
+          title: 'Retrait payé',
+          message: `Votre retrait de ${amount} MAD a été payé.`,
+          read: false,
+          createdAt: FieldValue.serverTimestamp(),
+          payoutId
+        });
+      } else {
+        // rejected
+        t.update(payoutRef, {
+          status: 'rejected',
+          rejectedAt: FieldValue.serverTimestamp(),
+          rejectedBy: decoded.uid
+        });
+
+        const notifRef = db.collection('notifications').doc();
+        t.set(notifRef, {
+          userId: payoutData.vendorId,
+          type: 'payout_rejected',
+          title: 'Retrait rejeté',
+          message: `Votre demande de retrait de ${payoutData.amount} MAD a été rejetée.`,
+          read: false,
+          createdAt: FieldValue.serverTimestamp(),
+          payoutId
+        });
+      }
+    });
+
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    console.error('[adminPayoutAction]', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/* ============================================================
+   CLOUD FUNCTION : releaseDueFunds (inchangé)
+   ============================================================ */
+exports.releaseDueFunds = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS], timeoutSeconds: 60 }, async (req, res) => {
+  if (cors(req, res)) return;
+  try {
+    const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
+    if (!match) return res.status(401).json({ success: false, message: 'Connexion requise.' });
+    const decoded = await getAuth().verifyIdToken(match[1], true);
+
+    const adminSnap = await db.collection('users').doc(decoded.uid).get();
+    if (!adminSnap.exists || adminSnap.data()?.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Action réservée à un administrateur.' });
+    }
+
+    const batchSize = Math.min(Number(req.body?.batchSize) || 400, 1000);
+    const now = new Date();
+
+    let totalReleased = 0;
+    let vendorsProcessed = 0;
+    let transactionsReleased = 0;
+    const errors = [];
+
+    const txQuery = db.collection('wallet_transactions')
+      .where('status', '==', 'pending')
+      .where('unlockAt', '<=', now)
+      .limit(batchSize);
+
+    const txSnap = await txQuery.get();
+    if (txSnap.empty) {
+      return res.status(200).json({ success: true, totalReleased: 0, vendorsProcessed: 0, transactionsReleased: 0, errors: [] });
+    }
+
+    const byVendor = {};
+    txSnap.forEach(doc => {
+      const data = doc.data();
+      if (!data.vendorId) return;
+      if (!byVendor[data.vendorId]) byVendor[data.vendorId] = [];
+      byVendor[data.vendorId].push({ id: doc.id, ref: doc.ref, data });
+    });
+
+    for (const [vendorId, txs] of Object.entries(byVendor)) {
+      try {
+        const walletRef = db.collection('wallets').doc(vendorId);
+
+        const result = await db.runTransaction(async (t) => {
+          const walletSnap = await t.get(walletRef);
+          if (!walletSnap.exists) throw new Error('Wallet introuvable');
+
+          const wallet = walletSnap.data();
+          let pendingBalance = Number(wallet.pendingBalance) || 0;
+          let availableBalance = Number(wallet.availableBalance) || 0;
+          let vendorReleased = 0;
+          let txsCount = 0;
+
+          for (const tx of txs) {
+            const amount = Number(tx.data.amount) || 0;
+            const reversed = Number(tx.data.reversedAmount) || 0;
+            const eligible = Math.max(0, amount - reversed);
+            const releaseForThis = Math.min(eligible, pendingBalance);
+
+            if (releaseForThis > 0) {
+              pendingBalance -= releaseForThis;
+              availableBalance += releaseForThis;
+              vendorReleased += releaseForThis;
+              txsCount++;
+            }
+
+            t.update(tx.ref, {
+              status: 'released',
+              releasedAt: FieldValue.serverTimestamp(),
+              releasedAmount: releaseForThis
+            });
+          }
+
+          if (vendorReleased > 0) {
+            t.update(walletRef, {
+              pendingBalance: Math.max(0, pendingBalance),
+              availableBalance,
+              lastUpdated: FieldValue.serverTimestamp()
+            });
+          }
+
+          return { released: vendorReleased, count: txsCount };
+        });
+
+        totalReleased += result.released;
+        transactionsReleased += result.count;
+        vendorsProcessed++;
+      } catch (err) {
+        console.error(`[releaseDueFunds] Erreur vendeur ${vendorId}:`, err);
+        errors.push({ vendorId, error: err.message });
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      totalReleased,
+      vendorsProcessed,
+      transactionsReleased,
+      errors
+    });
+  } catch (error) {
+    console.error('[releaseDueFunds]', error);
+    return res.status(500).json({ success: false, message: 'Erreur serveur.' });
+  }
+});
