@@ -54,6 +54,12 @@ async function main() {
         status: "pending",
         items: []
       });
+      await setDoc(doc(db, "orders", "singleVendorOrder"), {
+        userId: "buyerA",
+        vendorIds: ["vendorA"],
+        status: "pending",
+        items: [{ productId: "a", vendorId: "vendorA", quantity: 1 }]
+      });
       await setDoc(doc(db, "vendor_orders", "vendorA", "orders", "multiOrder"), {
         vendorId: "vendorA",
         vendorCount: 2,
@@ -92,6 +98,8 @@ async function main() {
 
     await assertSucceeds(getDoc(doc(buyerDb, "orders", "multiOrder")));
     await assertFails(getDoc(doc(vendorDb, "orders", "multiOrder")));
+    await assertSucceeds(getDoc(doc(vendorDb, "orders", "singleVendorOrder")));
+    await assertFails(getDoc(doc(vendorBDb, "orders", "singleVendorOrder")));
     await assertSucceeds(getDoc(doc(vendorDb, "vendor_orders", "vendorA", "orders", "multiOrder")));
     await assertFails(getDoc(doc(vendorBDb, "vendor_orders", "vendorA", "orders", "multiOrder")));
 
