@@ -1137,9 +1137,13 @@ async function renderOrders(container) {
             return `<div style="font-size:0.8rem;color:var(--text-muted);">${escapeHTML(i.name || 'Produit')}${escapeHTML(variantText)} × ${i.quantity}</div>`;
         }).join('');
 
-        // Actions selon le statut (autorisées par les nouvelles règles Firestore)
+        // Une commande multi-vendeurs partage un statut global : un seul vendeur
+        // ne doit pas pouvoir faire avancer le flux de tous les autres vendeurs.
         let actionHtml = '';
-        if (status === 'pending') {
+        const isMultiVendorOrder = Array.isArray(o.vendorIds) && o.vendorIds.length > 1;
+        if (isMultiVendorOrder) {
+            actionHtml = `<span style="font-size:0.75rem;color:var(--text-muted);">Suivi de cette commande géré par l’administration (commande multi-vendeurs).</span>`;
+        } else if (status === 'pending') {
             actionHtml = `<button class="v-btn v-btn-primary" data-action="advance-order" data-id="${o.id}" data-next="confirmed" style="padding:0.3rem 0.6rem;font-size:0.75rem;">Confirmer</button>`;
         } else if (status === 'confirmed') {
             actionHtml = `<button class="v-btn v-btn-primary" data-action="advance-order" data-id="${o.id}" data-next="shipping" style="padding:0.3rem 0.6rem;font-size:0.75rem;">Expédier</button>`;
