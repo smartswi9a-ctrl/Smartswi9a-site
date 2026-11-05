@@ -696,6 +696,21 @@ export async function updateOrderStatus(orderId, newStatus) {
 
             if (!Object.values(ORDER_STATUS).includes(normalizedStatus)) throw new Error('Statut invalide');
 
+            // N'autoriser que le cycle métier prévu. Sans cette vérification,
+            // une commande pending pourrait être marquée livrée directement
+            // et déclencher un crédit vendeur sans expédition réelle.
+            const allowedTransitions = {
+                [ORDER_STATUS.PENDING]: [ORDER_STATUS.CONFIRMED, ORDER_STATUS.CANCELLED],
+                [ORDER_STATUS.CONFIRMED]: [ORDER_STATUS.SHIPPING, ORDER_STATUS.CANCELLED],
+                [ORDER_STATUS.SHIPPING]: [ORDER_STATUS.DELIVERED, ORDER_STATUS.CANCELLED],
+                [ORDER_STATUS.DELIVERED]: [],
+                [ORDER_STATUS.RETURNED]: [],
+                [ORDER_STATUS.CANCELLED]: []
+            };
+            if (!(allowedTransitions[previousStatus] || []).includes(normalizedStatus)) {
+                throw new Error(`Transition de commande interdite : ${previousStatus} → ${normalizedStatus}.`);
+            }
+
             let productSnaps = [];
             let productRefs = [];
 
