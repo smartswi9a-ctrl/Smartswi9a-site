@@ -5,6 +5,7 @@ service cloud.firestore {
     /* ============================================================
        FONCTIONS UTILITAIRES
        ============================================================ */
+
     function isSignedIn() {
       return request.auth != null;
     }
@@ -16,79 +17,125 @@ service cloud.firestore {
     function isAdmin() {
       return isSignedIn() && (
         request.auth.token.admin == true ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+        (
+          exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+        )
       );
     }
 
-    function isApprovedVendor() {
-      return isSignedIn() &&
-        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'vendor' &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.vendorInfo.status == 'approved' &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.vendorInfo.contractStatus == 'accepted';
+    function userProfileExists(uid) {
+      return exists(/databases/$(database)/documents/users/$(uid));
     }
 
-    /* USERS */
+    function isApprovedVendor(uid) {
+      return isSignedIn() &&
+        request.auth.uid == uid &&
+        userProfileExists(uid) &&
+        get(/databases/$(database)/documents/users/$(uid)).data.role == 'vendor' &&
+        get(/databases/$(database)/documents/users/$(uid)).data.get('vendorInfo', {}).get('status', '') == 'approved' &&
+        get(/databases/$(database)/documents/users/$(uid)).data.get('vendorInfo', {}).get('contractStatus', '') == 'accepted';
+    }
+
+    function isVendorOwner(uid) {
+      return isSignedIn() &&
+        request.auth.uid == uid &&
+        userProfileExists(uid) &&
+        get(/databases/$(database)/documents/users/$(uid)).data.role == 'vendor';
+    }
+
+    /* ============================================================
+       PROFILS UTILISATEURS
+       ============================================================ */
+
     match /users/{uid} {
       allow read: if isAdmin() || isSelf(uid);
 
-      allow create: if isAdmin() || (isSelf(uid) &&
+      allow create: if isAdmin() || (
+        isSelf(uid) &&
         request.resource.data.get('isAdmin', false) == false &&
-        request.resource.data.get('permissions', []) == [] && (
-          request.resource.data.role == 'user' ||
-          (request.resource.data.role == 'vendor' &&
-           request.resource.data.signupMethod == 'vendor' &&
-           request.resource.data.vendorInfo.status == 'pending' &&
-           request.resource.data.vendorInfo.contractStatus == 'pending')
-        ));
-
-      allow update: if isAdmin() || (isSelf(uid) && (
+        request.resource.data.get('permissions', []) == [] &&
         (
-          request.resource.data.role == resource.data.role &&
-          request.resource.data.get('isAdmin', false) == resource.data.get('isAdmin', false) &&
-          request.resource.data.get('permissions', []) == resource.data.get('permissions', []) &&
-          request.resource.data.get('vendorId', uid) == resource.data.get('vendorId', uid) &&
-          request.resource.data.get('vendorInfo', {}).get('status', null) == resource.data.get('vendorInfo', {}).get('status', null) &&
-          request.resource.data.get('vendorInfo', {}).get('contractStatus', null) == resource.data.get('vendorInfo', {}).get('contractStatus', null) &&
-          request.resource.data.get('vendorInfo', {}).get('commissionRate', null) == resource.data.get('vendorInfo', {}).get('commissionRate', null) &&
-          request.resource.data.get('vendorInfo', {}).get('currentContractId', null) == resource.data.get('vendorInfo', {}).get('currentContractId', null) &&
-          request.resource.data.get('vendorInfo', {}).get('contractVersion', null) == resource.data.get('vendorInfo', {}).get('contractVersion', null) &&
-          request.resource.data.get('vendorInfo', {}).get('contractSignedAt', null) == resource.data.get('vendorInfo', {}).get('contractSignedAt', null)
-        ) || (
-          resource.data.get('role', 'user') == 'user' &&
-          request.resource.data.role == 'vendor' &&
-          request.resource.data.signupMethod == 'vendor' &&
-          request.resource.data.vendorInfo.status == 'pending' &&
-          request.resource.data.vendorInfo.contractStatus == 'pending' &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'name', 'email', 'phone', 'role', 'signupMethod',
-            'emailVerified', 'vendorInfo', 'updatedAt', 'createdAt'
-          ])
+          request.resource.data.role == 'user' ||
+          (
+            request.resource.data.role == 'vendor' &&
+            request.resource.data.signupMethod == 'vendor' &&
+            request.resource.data.get('vendorInfo', {}).get('status', '') == 'pending' &&
+            request.resource.data.get('vendorInfo', {}).get('contractStatus', '') == 'pending'
+          )
         )
-      ));
+      );
+
+      allow update: if isAdmin() || (
+        isSelf(uid) && (
+          (
+            request.resource.data.role == resource.data.role &&
+            request.resource.data.get('isAdmin', false) == resource.data.get('isAdmin', false) &&
+            request.resource.data.get('permissions', []) == resource.data.get('permissions', []) &&
+            request.resource.data.get('vendorId', uid) == resource.data.get('vendorId', uid) &&
+            request.resource.data.get('vendorInfo', {}).get('status', null) == resource.data.get('vendorInfo', {}).get('status', null) &&
+            request.resource.data.get('vendorInfo', {}).get('contractStatus', null) == resource.data.get('vendorInfo', {}).get('contractStatus', null) &&
+            request.resource.data.get('vendorInfo', {}).get('commissionRate', null) == resource.data.get('vendorInfo', {}).get('commissionRate', null) &&
+            request.resource.data.get('vendorInfo', {}).get('currentContractId', null) == resource.data.get('vendorInfo', {}).get('currentContractId', null) &&
+            request.resource.data.get('vendorInfo', {}).get('contractVersion', null) == resource.data.get('vendorInfo', {}).get('contractVersion', null) &&
+            request.resource.data.get('vendorInfo', {}).get('contractSignedAt', null) == resource.data.get('vendorInfo', {}).get('contractSignedAt', null)
+          ) ||
+          (
+            resource.data.get('role', 'user') == 'user' &&
+            request.resource.data.role == 'vendor' &&
+            request.resource.data.signupMethod == 'vendor' &&
+            request.resource.data.get('vendorInfo', {}).get('status', '') == 'pending' &&
+            request.resource.data.get('vendorInfo', {}).get('contractStatus', '') == 'pending' &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'name', 'email', 'phone', 'role', 'signupMethod',
+              'emailVerified', 'vendorInfo', 'updatedAt', 'createdAt'
+            ])
+          )
+        )
+      );
 
       allow delete: if isAdmin();
     }
 
-    /* VENDEURS PUBLICS */
+    /* ============================================================
+       FICHES VENDEURS PUBLIQUES
+       ============================================================ */
+
     match /vendorsPublic/{vendorId} {
       allow read: if true;
       allow write: if false;
     }
 
-    /* CONTRATS : écriture réservée aux Cloud Functions */
+    /* ============================================================
+       CONTRATS : écriture exclusivement via Cloud Functions
+       ============================================================ */
+
     match /contracts/{contractId} {
-      allow read: if isAdmin() || (isSignedIn() && resource.data.vendorId == request.auth.uid);
+      allow read: if isAdmin() ||
+        (isSignedIn() && resource.data.vendorId == request.auth.uid);
       allow create, update, delete: if false;
     }
 
-    /* PRODUITS */
+    /* ============================================================
+       PRODUITS
+       Public : uniquement les produits approuvés.
+       Vendeur : lecture de ses propres fiches.
+       Admin : accès complet.
+       Les produits legacy sans status devront être migrés vers approved
+       avant l'activation de ces règles.
+       ============================================================ */
+
     match /products/{productId} {
-      allow read: if true;
+      allow read: if isAdmin() ||
+        resource.data.get('status', '') == 'approved' ||
+        (
+          isSignedIn() &&
+          resource.data.get('vendorId', '') == request.auth.uid &&
+          isVendorOwner(request.auth.uid)
+        );
 
       allow create: if isAdmin() || (
-        isApprovedVendor() &&
+        isApprovedVendor(request.auth.uid) &&
         request.resource.data.vendorId == request.auth.uid &&
         request.resource.data.status == 'pending_admin_approval' &&
         !('salesCount' in request.resource.data) &&
@@ -96,77 +143,118 @@ service cloud.firestore {
       );
 
       allow update: if isAdmin() || (
-        isApprovedVendor() &&
+        isApprovedVendor(request.auth.uid) &&
         resource.data.vendorId == request.auth.uid &&
         request.resource.data.vendorId == resource.data.vendorId &&
-        !('salesCount' in request.resource.data.diff(resource.data).affectedKeys()) &&
-        !('ratingAvg' in request.resource.data.diff(resource.data).affectedKeys()) && (
-          (request.resource.data.diff(resource.data).affectedKeys().hasAny(['price', 'nameFr', 'nameEn', 'nameAr']) &&
-           request.resource.data.status == 'pending_admin_approval') ||
-          (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['price', 'nameFr', 'nameEn', 'nameAr']) &&
-           request.resource.data.status == resource.data.status)
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'salesCount', 'ratingAvg'
+        ]) &&
+        (
+          (
+            request.resource.data.diff(resource.data).affectedKeys().hasAny([
+              'price', 'nameFr', 'nameEn', 'nameAr'
+            ]) &&
+            request.resource.data.status == 'pending_admin_approval'
+          ) ||
+          (
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+              'price', 'nameFr', 'nameEn', 'nameAr'
+            ]) &&
+            request.resource.data.status == resource.data.status
+          )
         )
       );
 
       allow delete: if isAdmin() || (
-        isApprovedVendor() &&
+        isApprovedVendor(request.auth.uid) &&
         resource.data.vendorId == request.auth.uid
       );
     }
 
-    /* COMMANDES */
+    /* ============================================================
+       COMMANDES
+       Création et annulation client via Cloud Functions seulement.
+       Le client ne peut donc jamais modifier stockDeducted.
+       ============================================================ */
+
     match /orders/{orderId} {
       allow read: if isAdmin() ||
         (isSignedIn() && resource.data.userId == request.auth.uid) ||
-        (isSignedIn() && resource.data.vendorIds is list && request.auth.uid in resource.data.vendorIds);
+        (
+          isApprovedVendor(request.auth.uid) &&
+          resource.data.get('vendorIds', []) is list &&
+          request.auth.uid in resource.data.vendorIds
+        );
 
       allow create: if false;
 
-      allow update: if isAdmin() ||
-        (isSignedIn() && resource.data.userId == request.auth.uid &&
-         resource.data.status in ['pending', 'confirmed'] &&
-         request.resource.data.status == 'cancelled' &&
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'cancelledAt', 'updatedAt', 'stockDeducted'])) ||
-        (isApprovedVendor() &&
-         resource.data.vendorIds is list && request.auth.uid in resource.data.vendorIds &&
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']) && (
-           (resource.data.status == 'pending' && request.resource.data.status == 'confirmed') ||
-           (resource.data.status == 'confirmed' && request.resource.data.status == 'shipping') ||
-           (resource.data.status == 'shipping' && request.resource.data.status == 'delivered')
-         ));
+      allow update: if isAdmin() || (
+        isApprovedVendor(request.auth.uid) &&
+        resource.data.get('vendorIds', []) is list &&
+        request.auth.uid in resource.data.vendorIds &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'updatedAt'
+        ]) &&
+        (
+          (resource.data.status == 'pending' && request.resource.data.status == 'confirmed') ||
+          (resource.data.status == 'confirmed' && request.resource.data.status == 'shipping') ||
+          (resource.data.status == 'shipping' && request.resource.data.status == 'delivered')
+        )
+      );
 
       allow delete: if isAdmin();
     }
 
-    /* RETRAITS */
+    /* ============================================================
+       DEMANDES DE RETRAIT
+       Création via Cloud Function ; lecture limitée au vendeur approuvé.
+       ============================================================ */
+
     match /payout_requests/{requestId} {
-      allow read: if isAdmin() || (isSignedIn() && resource.data.vendorId == request.auth.uid);
+      allow read: if isAdmin() ||
+        (
+          isSignedIn() &&
+          resource.data.vendorId == request.auth.uid &&
+          isApprovedVendor(request.auth.uid)
+        );
       allow create: if false;
       allow update, delete: if isAdmin();
     }
 
-    /* PORTEFEUILLES */
+    /* ============================================================
+       PORTEFEUILLES
+       ============================================================ */
+
     match /wallets/{vendorId} {
-      allow read: if isAdmin() || (isSignedIn() && vendorId == request.auth.uid);
-      allow write: if false;
+      allow read: if isAdmin() || isApprovedVendor(vendorId);
+      allow create, update, delete: if false;
     }
 
     match /wallet_transactions/{transactionId} {
-      allow read: if isAdmin() || (isSignedIn() && resource.data.vendorId == request.auth.uid);
-      allow write: if false;
+      allow read: if isAdmin() ||
+        (
+          isSignedIn() &&
+          resource.data.vendorId == request.auth.uid &&
+          isApprovedVendor(request.auth.uid)
+        );
+      allow create, update, delete: if false;
     }
 
-    /* AVIS */
+    /* ============================================================
+       AVIS
+       ============================================================ */
+
     match /reviews/{reviewId} {
-      allow read: if resource.data.status == 'approved' ||
+      allow read: if resource.data.get('status', '') == 'approved' ||
         isAdmin() ||
-        (isSignedIn() && resource.data.userId == request.auth.uid);
+        (isSignedIn() && resource.data.get('userId', '') == request.auth.uid);
 
       allow create: if isSignedIn() &&
         request.resource.data.userId == request.auth.uid &&
         request.resource.data.keys().hasOnly([
           'userId', 'userName', 'productId', 'productName',
-          'rating', 'comment', 'status', 'createdAt', 'orderId', 'photos', 'verifiedPurchase'
+          'rating', 'comment', 'status', 'createdAt', 'orderId',
+          'photos', 'verifiedPurchase'
         ]) &&
         request.resource.data.rating is number &&
         request.resource.data.rating >= 1 &&
@@ -178,25 +266,57 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
-    /* COLLECTIONS DIVERSES */
-    match /blog/{docId} { allow read: if true; allow write: if isAdmin(); }
-    match /coupons/{docId} { allow read: if true; allow write: if isAdmin(); }
-    match /cities/{docId} { allow read: if true; allow write: if isAdmin(); }
-    match /testimonials/{docId} { allow read: if true; allow write: if isAdmin(); }
-    match /purchases/{docId} { allow read, write: if isAdmin(); }
-    match /expenses/{docId} { allow read, write: if isAdmin(); }
-    match /transactions/{docId} { allow read, write: if isAdmin(); }
+    /* ============================================================
+       COLLECTIONS DIVERSES
+       ============================================================ */
+
+    match /blog/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /coupons/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /cities/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /testimonials/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /purchases/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /expenses/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /transactions/{docId} {
+      allow read, write: if isAdmin();
+    }
+
     match /coupon_uses/{docId} {
-      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow read: if isAdmin() ||
+        (isSignedIn() && resource.data.userId == request.auth.uid);
       allow write: if isAdmin();
     }
 
     match /notifications/{docId} {
-      allow read: if isSignedIn() && (
-        resource.data.userId == request.auth.uid ||
-        resource.data.vendorId == request.auth.uid ||
-        isAdmin()
-      );
+      allow read: if isAdmin() ||
+        (
+          isSignedIn() &&
+          (
+            resource.data.get('userId', '') == request.auth.uid ||
+            resource.data.get('vendorId', '') == request.auth.uid
+          )
+        );
       allow create, update, delete: if isAdmin();
     }
 
