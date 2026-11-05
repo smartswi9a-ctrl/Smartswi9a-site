@@ -1239,8 +1239,15 @@ exports.onOrderStatusChanged = onDocumentUpdated('orders/{orderId}', async (even
             if (freshOrder.vendorDebits && freshOrder.vendorDebits[debitKey]) return;
 
             const freshWalletSnap = await tx.get(walletRef);
-            if (!freshWalletSnap.exists) throw new Error(`Wallet vendeur introuvable : ${vendorId}`);
-            const w = freshWalletSnap.data();
+            const w = freshWalletSnap.exists ? freshWalletSnap.data() : {
+              vendorId,
+              pendingBalance: 0,
+              availableBalance: 0,
+              negativeBalance: 0,
+              totalEarnings: 0,
+              totalWithdrawn: 0,
+              createdAt: FieldValue.serverTimestamp()
+            };
 
             let pending = Number(w.pendingBalance) || 0;
             let available = Number(w.availableBalance) || 0;
