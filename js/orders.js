@@ -1457,8 +1457,8 @@ async function processReturnTransaction(order, returnsToProcess) {
         // dessus créditerait artificiellement le stock une seconde fois.
         // Le retour n'est possible que si le stock de cette commande est encore
         // considéré comme déduit.
-        if (['cancelled', 'canceled'].includes(currentStatus) || currentOrder.stockDeducted !== true) {
-            throw new Error("Impossible d'enregistrer un retour : cette commande est annulée ou son stock a déjà été restitué.");
+        if (!['delivered', 'returned'].includes(currentStatus) || currentOrder.stockDeducted !== true) {
+            throw new Error("Impossible d'enregistrer un retour : la commande doit être livrée et son stock doit toujours être déduit.");
         }
 
         const alreadyReturnedMap = getReturnedQuantitiesByVariant(currentOrder);
