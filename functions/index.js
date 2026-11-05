@@ -725,12 +725,15 @@ async function inspectVendorSettlement(vendorId) {
       }
 
       const credit = order.vendorCredits?.[vendorId];
-      if (!credit?.txId || !(Number(credit.amount) > 0)) {
+      // Une commande retournée avant livraison peut légitimement ne jamais
+      // avoir généré de crédit de vente. Si un crédit existe, il doit toujours
+      // être relié à une transaction cohérente.
+      if (status === 'delivered' && (!credit?.txId || !(Number(credit.amount) > 0))) {
         blockers.push({ orderId: orderDoc.id, reason: 'crédit vendeur absent ou incomplet' });
-      } else {
-        const saleTx = await db.collection('wallet_transactions').doc(String(credit.txId)).get();
+      } else if (credit) {
+        const saleTx = await db.collection('wallet_transactions').doc(String(credit.txId || '')).get();
         const sale = saleTx.exists ? saleTx.data() : null;
-        if (!sale || sale.vendorId !== vendorId || sale.orderId !== orderDoc.id ||
+        if (!credit.txId || !sale || sale.vendorId !== vendorId || sale.orderId !== orderDoc.id ||
             sale.type !== 'sale' || !(Number(sale.amount) > 0)) {
           blockers.push({ orderId: orderDoc.id, reason: 'écriture de vente absente ou incohérente' });
         }
@@ -750,8 +753,15 @@ async function inspectVendorSettlement(vendorId) {
           if (returnedQty <= 0) continue;
           const debit = order.vendorDebits?.[`${vendorId}_ret${returnIndex}`];
           const expectedFee = RETURN_FEE_LIVO * returnedQty;
-          if (!debit || Number(debit.amount) + 0.0001 < expectedFee) {
+          if (!debit?.txId || Number(debit.amount) + 0.0001 < expectedFee) {
             blockers.push({ orderId: orderDoc.id, reason: `débit du retour ${returnIndex + 1} absent ou incomplet` });
+          } else {
+            const debitSnap = await db.collection('wallet_transactions').doc(String(debit.txId)).get();
+            const debitTx = debitSnap.exists ? debitSnap.data() : null;
+            if (!debitTx || debitTx.vendorId !== vendorId || debitTx.orderId !== orderDoc.id ||
+                debitTx.type !== 'return_fee' || Number(debitTx.amount) + 0.0001 < expectedFee) {
+              blockers.push({ orderId: orderDoc.id, reason: `écriture financière du retour ${returnIndex + 1} absente ou incohérente` });
+            }
           }
         }
       }
