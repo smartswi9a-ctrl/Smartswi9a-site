@@ -236,7 +236,6 @@ async function filterVendors(raw) {
 
 /** * Charge les produits depuis Firestore (stratégie filtrée + fallback). * @returns {Promise<Array>} */
 export async function loadProductsFromFirestore() {
-  /* ============================================================ TENTATIVE 1 : requête filtrée (règles Firestore modernes). ============================================================ */
   try {
     const q = query(
       collection(db, "products"),
@@ -254,18 +253,6 @@ export async function loadProductsFromFirestore() {
       return products;
     }
 
-    /* snapshot.size === 0 : soit aucun produit approuvé, soit migration pas faite. On tente le fallback. */
-    console.warn(
-      "[products] Requête filtrée vide - passage au fallback complet"
-    );
-  } catch (e) {
-    console.warn("[products] Requête filtrée échouée :", e?.code || e?.message);
-  }
-
-  /* Les règles Firestore imposent maintenant status == approved.
-     * Ne pas relancer une lecture non filtrée : elle sera refusée aux visiteurs
-     * et pourrait masquer une migration incomplète.
-     */
     console.warn(
       "[products] Aucun produit approuvé chargé. Vérifier la migration status='approved' et les règles Firestore."
     );
