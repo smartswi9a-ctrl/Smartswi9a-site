@@ -963,14 +963,6 @@ export async function deleteOrderCompletely(orderId) {
         throw new Error("Suppression refusée : seules les commandes annulées sans retour ni mouvement financier peuvent être supprimées.");
     }
 
-    if (order.stockDeducted === true && ![ORDER_STATUS.CANCELLED, ORDER_STATUS.RETURNED].includes(normalizeOrderStatus(order.status))) {
-        await runTransaction(db, async (transaction) => {
-            const productRefs = [...new Set(order.items.map(i => String(i.productId)))].map(productId => doc(db, "products", productId));
-            const productSnaps = await Promise.all(productRefs.map(r => transaction.get(r)));
-            await restoreStockInTransaction(transaction, order, productSnaps, productRefs);
-        });
-    }
-
     const batch = writeBatch(db);
     if (order.couponId && !order.couponRestored) {
         batch.update(doc(db, "coupons", order.couponId), { usedCount: increment(-1) });
