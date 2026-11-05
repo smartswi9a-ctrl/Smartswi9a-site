@@ -122,7 +122,9 @@ async function findUserByEmail(email) {
 
 function approved(profile) {
   return profile && profile.role === 'vendor' && profile.vendorInfo &&
-    profile.vendorInfo.status === 'approved' && profile.vendorInfo.contractStatus === 'accepted';
+    profile.vendorInfo.status === 'approved' &&
+    profile.vendorInfo.contractStatus === 'accepted' &&
+    String(profile.vendorInfo.contractVersion || '') === OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION;
 }
 
 function statusMessage(profile) {
