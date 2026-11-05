@@ -31,7 +31,10 @@ service firebase.storage {
         ).data.role == 'vendor' &&
         firestore.get(
           /databases/(default)/documents/users/$(uid)
-        ).data.vendorInfo.status == 'approved';
+        ).data.get('vendorInfo', {}).get('status', '') == 'approved' &&
+        firestore.get(
+          /databases/(default)/documents/users/$(uid)
+        ).data.get('vendorInfo', {}).get('contractStatus', '') == 'accepted';
     }
 
     function validImageUpload(maxSize) {
