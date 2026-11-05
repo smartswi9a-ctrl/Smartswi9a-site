@@ -973,7 +973,11 @@ export async function deleteOrderCompletely(orderId) {
 
     const batch = writeBatch(db);
     if (order.couponId && !order.couponRestored) {
-        batch.update(doc(db, "coupons", order.couponId), { usedCount: increment(-1) });
+        const couponRef = doc(db, "coupons", order.couponId);
+        const couponSnap = await getDoc(couponRef);
+        if (couponSnap.exists() && Number(couponSnap.data().usedCount) > 0) {
+            batch.update(couponRef, { usedCount: increment(-1) });
+        }
         batch.delete(doc(db, "coupon_uses", `${order.couponId}_${order.userId}`));
     }
     const notifQ = query(collection(db, "notifications"), where("orderId", "==", orderId));
