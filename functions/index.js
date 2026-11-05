@@ -690,7 +690,11 @@ exports.loginVendor = onRequest({ region: 'europe-west1', maxInstances: 5, timeo
     }
 
     // Ne jamais émettre de jeton vendeur pour un profil qui n'a pas le rôle vendeur.
-    const canLogin = profile.role === 'vendor' && (approved(profile) || profile.vendorInfo?.status === 'pending');
+    // Autoriser les vendeurs approuvés avec un ancien contrat à se connecter
+    // uniquement pour accéder à l'écran de re-signature (les droits métier
+    // restent bloqués par les règles tant que la version courante n'est pas acceptée).
+    const canLogin = profile.role === 'vendor' &&
+      ['pending', 'approved'].includes(String(profile.vendorInfo?.status || ''));
     if (!canLogin) {
       return res.status(403).json({ success: false, message: statusMessage(profile) });
     }

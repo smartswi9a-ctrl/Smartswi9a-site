@@ -166,7 +166,11 @@ function formatDate(ts) {
    ============================================================ */
 function getVendorStatus() { return (currentVendor?.vendorInfo?.status) || VENDOR_STATUS.PENDING; }
 function getContractStatus() { return (currentVendor?.vendorInfo?.contractStatus) || CONTRACT_STATUS.PENDING; }
-function isVendorApproved() { return getVendorStatus() === VENDOR_STATUS.APPROVED && getContractStatus() === CONTRACT_STATUS.ACCEPTED; }
+function isVendorApproved() {
+    return getVendorStatus() === VENDOR_STATUS.APPROVED &&
+        getContractStatus() === CONTRACT_STATUS.ACCEPTED &&
+        String(currentVendor?.vendorInfo?.contractVersion || '') === CONFIG.VENDOR.CONTRACT_VERSION;
+}
 
 function getPendingWithdrawalTotal() {
     return cachedWithdrawals.filter(w => w.status === 'pending').reduce((sum, w) => sum + (Number(w.amount) || 0), 0);
@@ -327,7 +331,9 @@ async function loadVendorData(uid) {
 
     const vendorStatus = profile.vendorInfo?.status || VENDOR_STATUS.PENDING;
     const contractStatus = profile.vendorInfo?.contractStatus || CONTRACT_STATUS.PENDING;
-    if (vendorStatus !== VENDOR_STATUS.APPROVED || contractStatus !== CONTRACT_STATUS.ACCEPTED) {
+    if (vendorStatus !== VENDOR_STATUS.APPROVED ||
+        contractStatus !== CONTRACT_STATUS.ACCEPTED ||
+        String(profile.vendorInfo?.contractVersion || '') !== CONFIG.VENDOR.CONTRACT_VERSION) {
         return { profile, wallet: null, reason: 'vendor-not-active' };
     }
 
@@ -1468,12 +1474,17 @@ function renderVendorAccessStatus(profile) {
             text: 'L’accès aux fonctionnalités vendeur est temporairement désactivé.',
             note: 'Veuillez contacter le support Smart Swi9a pour obtenir de l’aide.'
         };
-    } else if (contractStatus !== CONTRACT_STATUS.ACCEPTED) {
+    } else if (contractStatus !== CONTRACT_STATUS.ACCEPTED || needsResign(info)) {
+        const outdated = contractStatus === CONTRACT_STATUS.ACCEPTED && needsResign(info);
         state = {
-            icon: '📝', label: 'CONTRAT À SIGNER', heading: 'Finalisez votre inscription vendeur',
-            text: 'Pour terminer votre inscription, veuillez lire et accepter le contrat de partenariat.',
+            icon: '📝',
+            label: outdated ? 'NOUVEAU CONTRAT REQUIS' : 'CONTRAT À SIGNER',
+            heading: outdated ? 'Une nouvelle version du contrat doit être acceptée' : 'Finalisez votre inscription vendeur',
+            text: outdated
+                ? 'Votre ancien contrat reste enregistré, mais vous devez accepter la version actuelle pour retrouver les fonctionnalités vendeur.'
+                : 'Pour terminer votre inscription, veuillez lire et accepter le contrat de partenariat.',
             note: status === VENDOR_STATUS.APPROVED
-                ? 'Votre espace sera accessible après acceptation du contrat.'
+                ? 'Votre boutique sera réactivée dès la signature de la version actuelle.'
                 : 'Après signature, votre dossier restera en attente de validation par l’administration.'
         };
     } else {
@@ -1487,7 +1498,7 @@ function renderVendorAccessStatus(profile) {
     if (title) title.textContent = status === VENDOR_STATUS.PENDING ? 'Statut du compte vendeur' : 'Espace vendeur';
     if (!content) return;
 
-    const showSignButton = contractStatus !== CONTRACT_STATUS.ACCEPTED
+    const showSignButton = (contractStatus !== CONTRACT_STATUS.ACCEPTED || needsResign(info))
         && status !== VENDOR_STATUS.REJECTED && status !== VENDOR_STATUS.SUSPENDED;
 
     content.innerHTML = `
