@@ -1697,6 +1697,18 @@ exports.adminPayoutAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
       const vendorId = String(payoutData.vendorId || '');
       if (!vendorId) throw new Error('Demande sans vendorId — impossible de traiter.');
 
+      // Sérialiser le traitement d'un retrait avec le verrou de suppression
+      // du vendeur. Si la suppression est déjà engagée, aucune opération
+      // financière ne doit être créée après le contrôle des demandes ouvertes.
+      const vendorRef = db.collection('users').doc(vendorId);
+      const vendorSnap = await t.get(vendorRef);
+      if (!vendorSnap.exists || vendorSnap.data()?.role !== 'vendor') {
+        throw new Error('Profil vendeur introuvable.');
+      }
+      if (vendorSnap.data()?.vendorInfo?.status === 'deletion_pending') {
+        throw new Error('Suppression du compte vendeur en cours : retrait temporairement bloqué.');
+      }
+
       if (action === 'paid') {
         const amount = Number(payoutData.amount) || 0;
         if (amount <= 0) throw new Error('Montant invalide.');
