@@ -759,7 +759,8 @@ async function inspectVendorSettlement(vendorId) {
             const debitSnap = await db.collection('wallet_transactions').doc(String(debit.txId)).get();
             const debitTx = debitSnap.exists ? debitSnap.data() : null;
             if (!debitTx || debitTx.vendorId !== vendorId || debitTx.orderId !== orderDoc.id ||
-                debitTx.type !== 'return_fee' || Number(debitTx.amount) + 0.0001 < expectedFee) {
+                debitTx.type !== 'return_fee' || Number(debitTx.amount) >= 0 ||
+                Math.abs(Math.abs(Number(debitTx.amount)) - expectedFee) > 0.01) {
               blockers.push({ orderId: orderDoc.id, reason: `écriture financière du retour ${returnIndex + 1} absente ou incohérente` });
             }
           }
