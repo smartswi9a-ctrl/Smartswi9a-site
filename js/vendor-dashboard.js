@@ -1284,8 +1284,8 @@ async function renderWallet(container) {
         const date = tx.createdAt?.toDate?.()?.toLocaleString?.('fr-FR') || '—';
         const details = [];
         if (tx.type === 'return_fee' && Number(tx.returnedQty) > 0) details.push(`${Number(tx.returnedQty)} article(s) retourné(s)`);
-        if (Number(tx.pendingOffset) > 0) details.push(`prélevé sur attente : ${formatMAD(tx.pendingOffset)}`);
-        if (Number(tx.availableOffset) > 0) details.push(`prélevé sur disponible : ${formatMAD(tx.availableOffset)}`);
+        if (Number(tx.pendingOffsetAmount) > 0) details.push(`prélevé sur attente : ${formatMAD(tx.pendingOffsetAmount)}`);
+        if (Number(tx.availableOffsetAmount) > 0) details.push(`prélevé sur disponible : ${formatMAD(tx.availableOffsetAmount)}`);
         if (Number(tx.debtAmount) > 0) details.push(`dette créée : ${formatMAD(tx.debtAmount)}`);
         if (Number(tx.reversedAmount) > 0) details.push(`compensation : ${formatMAD(tx.reversedAmount)}`);
         if (Number(tx.releasedAmount) > 0 && tx.status === 'pending') details.push(`déjà débloqué : ${formatMAD(tx.releasedAmount)}`);
