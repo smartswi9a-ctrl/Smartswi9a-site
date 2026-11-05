@@ -623,7 +623,8 @@ exports.loginVendor = onRequest({ region: 'europe-west1', maxInstances: 5, timeo
       return res.status(401).json({ success: false, message: 'Identifiants incorrects.' });
     }
 
-    const canLogin = approved(profile) || profile.vendorInfo?.status === 'pending';
+    // Ne jamais émettre de jeton vendeur pour un profil qui n'a pas le rôle vendeur.
+    const canLogin = profile.role === 'vendor' && (approved(profile) || profile.vendorInfo?.status === 'pending');
     if (!canLogin) {
       return res.status(403).json({ success: false, message: statusMessage(profile) });
     }
