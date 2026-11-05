@@ -100,6 +100,14 @@ async function main() {
     await assertFails(getDoc(doc(vendorDb, "orders", "multiOrder")));
     await assertSucceeds(getDoc(doc(vendorDb, "orders", "singleVendorOrder")));
     await assertFails(getDoc(doc(vendorBDb, "orders", "singleVendorOrder")));
+    await assertSucceeds(updateDoc(doc(vendorDb, "orders", "singleVendorOrder"), {
+      status: "confirmed",
+      updatedAt: Timestamp.now()
+    }));
+    await assertFails(updateDoc(doc(vendorDb, "orders", "multiOrder"), {
+      status: "confirmed",
+      updatedAt: Timestamp.now()
+    }));
     await assertSucceeds(getDoc(doc(vendorDb, "vendor_orders", "vendorA", "orders", "multiOrder")));
     await assertFails(getDoc(doc(vendorBDb, "vendor_orders", "vendorA", "orders", "multiOrder")));
 
