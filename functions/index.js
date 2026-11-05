@@ -1341,10 +1341,15 @@ async function processReturnFeeDebit(orderId, returnIndex, vendorId) {
         (feeRecord.source === 'manual' && !feeRecord.recordedBy)) {
       throw new Error('Justificatif de frais de retour invalide.');
     }
-    if (!vendorSnap.exists || vendorSnap.data()?.role !== 'vendor') {
+    const vendorData = vendorSnap.exists ? vendorSnap.data() : null;
+    if (!vendorData || vendorData.role !== 'vendor') {
       throw new Error('Profil vendeur introuvable pendant le retour.');
     }
-    if (vendorSnap.data()?.vendorInfo?.status === 'deletion_pending') {
+    if (vendorData.vendorInfo?.contractStatus !== 'accepted' ||
+        String(vendorData.vendorInfo?.contractVersion || '') !== OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION) {
+      throw new Error('Débit retour bloqué : contrat vendeur 1.4.0 non accepté.');
+    }
+    if (vendorData.vendorInfo?.status === 'deletion_pending') {
       throw new Error('Débit retour bloqué : suppression du compte en cours.');
     }
 
