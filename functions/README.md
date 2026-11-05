@@ -32,7 +32,7 @@ Compte vendeur approved : les deux mots de passe doivent ouvrir le dashboard.
 
 Compte admin et compte acheteur ordinaire : aucun accès vendeur.
 
-Tester depuis https://smartswi9a.ma et https://www.smartswi9a.ma si les deux domaines sont utilisés.
+Tester depuis https://smartswika.ma et https://www.smartswika.ma si les deux domaines sont utilisés.
 
 
 Sécurité

@@ -32,7 +32,7 @@ export const CONFIG = {
         NAME: 'Smart Swi9a',
         WHATSAPP_NUMBER: '212656613303',
         EMAIL: 'smartswi9a@gmail.com',
-        URL: 'https://smartswi9a.ma',
+        URL: 'https://smartswika.ma',
         CURRENCY: 'MAD',
         DISCOUNT_THRESHOLD: 3,
         DISCOUNT_PERCENT: 5,

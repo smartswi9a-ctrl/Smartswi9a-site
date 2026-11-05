@@ -13,8 +13,8 @@ const PROJECT_ID = 'smartswi9a-31063';
 const FIREBASE_WEB_API_KEY = 'AIzaSyBhULwDxPBRqjywsSD_0ny41Bmt968ofSA';
 
 const ALLOWED_ORIGINS = new Set([
-  'https://smartswi9a.ma',
-  'https://www.smartswi9a.ma',
+  'https://smartswika.ma',
+  'https://www.smartswika.ma',
   'https://smartswi9a.top',
   'https://www.smartswi9a.top',
   'https://smartswi9a-31063.web.app',
@@ -343,7 +343,7 @@ function getContractText(lang, version, snapshot) {
   const t = templates[sourceVersion] || templates["1.2.0"];
   const text = t[lang] ? t[lang](snapshot) : t["fr"](snapshot);
   return version === "1.3.0"
-    ? text.replaceAll("smartswi9a.top", "smartswi9a.ma").replace(/\s+/g, " ").trim()
+    ? text.replaceAll("smartswi9a.top", "smartswika.ma").replace(/\s+/g, " ").trim()
     : text;
 }
 
@@ -447,10 +447,23 @@ exports.syncLivoCities = onRequest({ region: 'europe-west1', cors: [...ALLOWED_O
    ============================================================ */
 exports.syncVendorPublic = onDocumentWritten('users/{userId}', async (event) => {
   const snap = event.data.after;
-  if (!snap || !snap.exists) return;
+
+  // La suppression du profil doit aussi supprimer la fiche publique.
+  // Sans ce cas, une ancienne boutique peut rester visible après suppression du vendeur.
+  if (!snap || !snap.exists) {
+    return db.collection('vendorsPublic').doc(event.params.userId).delete();
+  }
+
   const data = snap.data();
 
-  if (data.role !== 'vendor' || !data.vendorInfo) {
+  // Seuls les vendeurs approuvés avec un contrat accepté sont publiés.
+  // Les demandes pending/rejected/suspended restent privées dans users/.
+  if (
+    data.role !== 'vendor' ||
+    !data.vendorInfo ||
+    data.vendorInfo.status !== 'approved' ||
+    data.vendorInfo.contractStatus !== 'accepted'
+  ) {
     return db.collection('vendorsPublic').doc(event.params.userId).delete().catch(() => {});
   }
 
@@ -684,6 +697,113 @@ exports.setVendorPassword = onRequest({ region: 'europe-west1', maxInstances: 5,
 });
 
 /* ============================================================
+   CONTRÔLE DE COHÉRENCE AVANT SUPPRESSION VENDEUR
+   ============================================================ */
+async function inspectVendorSettlement(vendorId) {
+  const blockers = [];
+  let cursor = null;
+  let scannedOrders = 0;
+  let orderPages = 0;
+
+  while (true) {
+    let query = db.collection('orders')
+      .where('vendorIds', 'array-contains', vendorId)
+      .limit(300);
+    if (cursor) query = query.startAfter(cursor);
+    const snap = await query.get();
+    if (snap.empty) break;
+    orderPages++;
+    scannedOrders += snap.size;
+
+    for (const orderDoc of snap.docs) {
+      const order = orderDoc.data();
+      const status = String(order.status || '').toLowerCase();
+      if (['cancelled', 'canceled'].includes(status)) continue;
+      if (!['delivered', 'returned'].includes(status)) {
+        blockers.push({ orderId: orderDoc.id, reason: `commande non clôturée (statut ${status || 'absent'})` });
+        continue;
+      }
+
+      const credit = order.vendorCredits?.[vendorId];
+      // Une commande retournée avant livraison peut légitimement ne jamais
+      // avoir généré de crédit de vente. Si un crédit existe, il doit toujours
+      // être relié à une transaction cohérente.
+      if (status === 'delivered' && (!credit?.txId || !(Number(credit.amount) > 0))) {
+        blockers.push({ orderId: orderDoc.id, reason: 'crédit vendeur absent ou incomplet' });
+      } else if (credit) {
+        const saleTx = await db.collection('wallet_transactions').doc(String(credit.txId || '')).get();
+        const sale = saleTx.exists ? saleTx.data() : null;
+        if (!credit.txId || !sale || sale.vendorId !== vendorId || sale.orderId !== orderDoc.id ||
+            sale.type !== 'sale' || !(Number(sale.amount) > 0)) {
+          blockers.push({ orderId: orderDoc.id, reason: 'écriture de vente absente ou incohérente' });
+        }
+      }
+
+      if (status === 'returned') {
+        const returns = Array.isArray(order.returns) ? order.returns : [];
+        if (returns.length === 0) {
+          blockers.push({ orderId: orderDoc.id, reason: 'commande retournée sans détail de retour' });
+        }
+        for (let returnIndex = 0; returnIndex < returns.length; returnIndex++) {
+          const entry = returns[returnIndex];
+          const returnedQty = (entry?.items || []).reduce((sum, retItem) => {
+            const item = (order.items || []).find(i => String(i.productId) === String(retItem.productId));
+            return item?.vendorId === vendorId ? sum + Math.max(0, Number(retItem.delta) || 0) : sum;
+          }, 0);
+          if (returnedQty <= 0) continue;
+          const debit = order.vendorDebits?.[`${vendorId}_ret${returnIndex}`];
+          const expectedFee = RETURN_FEE_LIVO * returnedQty;
+          if (!debit?.txId || Number(debit.amount) + 0.0001 < expectedFee) {
+            blockers.push({ orderId: orderDoc.id, reason: `débit du retour ${returnIndex + 1} absent ou incomplet` });
+          } else {
+            const debitSnap = await db.collection('wallet_transactions').doc(String(debit.txId)).get();
+            const debitTx = debitSnap.exists ? debitSnap.data() : null;
+            if (!debitTx || debitTx.vendorId !== vendorId || debitTx.orderId !== orderDoc.id ||
+                debitTx.type !== 'return_fee' || Number(debitTx.amount) + 0.0001 < expectedFee) {
+              blockers.push({ orderId: orderDoc.id, reason: `écriture financière du retour ${returnIndex + 1} absente ou incohérente` });
+            }
+          }
+        }
+      }
+    }
+
+    cursor = snap.docs[snap.docs.length - 1];
+    if (snap.size < 300) break;
+    if (orderPages >= 100) {
+      blockers.push({ reason: 'contrôle des commandes incomplet : limite de pagination atteinte' });
+      break;
+    }
+  }
+
+  // Vérifier également les écritures pending indépendamment du solde agrégé.
+  cursor = null;
+  let txPages = 0;
+  while (true) {
+    let query = db.collection('wallet_transactions')
+      .where('vendorId', '==', vendorId)
+      .limit(300);
+    if (cursor) query = query.startAfter(cursor);
+    const snap = await query.get();
+    if (snap.empty) break;
+    txPages++;
+    snap.docs.forEach(docSnap => {
+      const tx = docSnap.data();
+      if (tx.status === 'pending') {
+        blockers.push({ reason: `écriture financière en attente (${docSnap.id})` });
+      }
+    });
+    cursor = snap.docs[snap.docs.length - 1];
+    if (snap.size < 300) break;
+    if (txPages >= 100) {
+      blockers.push({ reason: 'contrôle des écritures financières incomplet : limite de pagination atteinte' });
+      break;
+    }
+  }
+
+  return { blockers, scannedOrders };
+}
+
+/* ============================================================
    CF : adminVendorAction
    ============================================================ */
 exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
@@ -710,11 +830,127 @@ exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
       return res.status(404).json({ success: false, message: 'Profil introuvable.' });
     }
 
-    if (action === 'approved' && vendorSnap.data().vendorInfo?.contractStatus !== 'accepted') {
-      return res.status(409).json({ success: false, message: 'Impossible d’approuver : contrat non signé.' });
+    if (action === 'approved') {
+      const vendorInfo = vendorSnap.data().vendorInfo || {};
+
+      // Vérifier l'état réel dans Firebase Authentication, pas uniquement
+      // le champ emailVerified du profil Firestore qui peut être obsolète.
+      const vendorAuthUser = await getAuth().getUser(vendorId);
+      if (vendorAuthUser.emailVerified !== true) {
+        return res.status(409).json({
+          success: false,
+          message: 'Impossible d’approuver : le vendeur doit d’abord vérifier son adresse e-mail.'
+        });
+      }
+
+      if (vendorInfo.contractStatus !== 'accepted') {
+        return res.status(409).json({ success: false, message: 'Impossible d’approuver : contrat non signé.' });
+      }
+
+      const contractId = vendorInfo.currentContractId ||
+        (vendorInfo.contractVersion ? `contract_${vendorId}_v${vendorInfo.contractVersion}` : '');
+      if (!contractId) {
+        return res.status(409).json({ success: false, message: 'Impossible d’approuver : référence du contrat signée introuvable.' });
+      }
+
+      const contractSnap = await db.collection('contracts').doc(contractId).get();
+      const contract = contractSnap.exists ? contractSnap.data() : null;
+      if (
+        !contract ||
+        contract.vendorId !== vendorId ||
+        contract.status !== 'accepted' ||
+        String(contract.version) !== String(vendorInfo.contractVersion || contract.version)
+      ) {
+        return res.status(409).json({ success: false, message: 'Impossible d’approuver : le document du contrat signé est absent ou incohérent.' });
+      }
     }
 
     if (action === 'deleted') {
+      // Verrouiller le vendeur et retirer sa fiche publique AVANT les contrôles :
+      // createCustomerOrder lit vendorsPublic dans sa transaction, qui sera ainsi
+      // invalidée si une commande était en cours de création.
+      const originalVendorInfo = vendorSnap.data().vendorInfo || {};
+      const restoreStatus = originalVendorInfo.statusBeforeDeletion || originalVendorInfo.status || 'pending';
+      await vendorRef.update({
+        'vendorInfo.statusBeforeDeletion': restoreStatus,
+        'vendorInfo.status': 'deletion_pending',
+        'vendorInfo.statusUpdatedAt': FieldValue.serverTimestamp(),
+        'vendorInfo.statusUpdatedBy': decoded.uid,
+        updatedAt: FieldValue.serverTimestamp()
+      });
+      await db.collection('vendorsPublic').doc(vendorId).delete();
+
+      const restoreVendorListing = async () => {
+        await vendorRef.update({
+          'vendorInfo.status': restoreStatus,
+          'vendorInfo.statusBeforeDeletion': FieldValue.delete(),
+          updatedAt: FieldValue.serverTimestamp()
+        });
+        if (restoreStatus === 'approved' && originalVendorInfo.contractStatus === 'accepted') {
+          await db.collection('vendorsPublic').doc(vendorId).set({
+            shopName: originalVendorInfo.shopName || 'Boutique',
+            status: 'approved',
+            description: originalVendorInfo.description || '',
+            createdAt: vendorSnap.data().createdAt || FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp()
+          }, { merge: true });
+        }
+      };
+
+      // Protection financière et contrôle des commandes/écritures associées.
+      const walletRef = db.collection('wallets').doc(vendorId);
+      const payoutQuery = db.collection('payout_requests')
+        .where('vendorId', '==', vendorId);
+      const [walletSnap, payoutSnap] = await Promise.all([
+        walletRef.get(),
+        payoutQuery.get()
+      ]);
+
+      const wallet = walletSnap.exists ? walletSnap.data() : {};
+      const availableBalance = Number(wallet.availableBalance) || 0;
+      const pendingBalance = Number(wallet.pendingBalance) || 0;
+      const negativeBalance = Number(wallet.negativeBalance) || 0;
+      const openPayouts = payoutSnap.docs.filter(docSnap => {
+        const status = String(docSnap.data().status || 'pending').toLowerCase();
+        return !['paid', 'rejected', 'cancelled', 'canceled'].includes(status);
+      });
+
+      const financialReasons = [];
+      if (availableBalance > 0.0001) {
+        financialReasons.push(`solde disponible de ${availableBalance.toFixed(2)} MAD`);
+      }
+      if (pendingBalance > 0.0001) {
+        financialReasons.push(`solde en attente de ${pendingBalance.toFixed(2)} MAD`);
+      }
+      if (negativeBalance < -0.0001) {
+        financialReasons.push(`dette vendeur de ${Math.abs(negativeBalance).toFixed(2)} MAD`);
+      }
+      if (openPayouts.length > 0) {
+        financialReasons.push(`${openPayouts.length} demande(s) de retrait non traitée(s)`);
+      }
+
+      const settlement = await inspectVendorSettlement(vendorId);
+      if (settlement.blockers.length > 0) {
+        financialReasons.push(`${settlement.blockers.length} anomalie(s) de commande ou d'écriture financière`);
+      }
+
+      if (financialReasons.length > 0) {
+        await restoreVendorListing();
+        return res.status(409).json({
+          success: false,
+          code: 'VENDOR_FINANCIAL_SETTLEMENT_REQUIRED',
+          message: `Suppression bloquée : ${financialReasons.join(' ; ')}. Réglez les soldes et clôturez les demandes de retrait avant de supprimer ce compte.`,
+          financial: {
+            availableBalance,
+            pendingBalance,
+            negativeBalance,
+            openPayoutCount: openPayouts.length,
+            scannedOrders: settlement.scannedOrders,
+            blockers: settlement.blockers.slice(0, 20)
+          }
+        });
+      }
+
       let deletedProducts = 0;
 
       // Nettoyage borné par requête pour éviter un dépassement du délai Cloud Functions.
@@ -756,6 +992,11 @@ exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
       await getStorage().bucket('smartswi9a-31063.firebasestorage.app')
         .deleteFiles({ prefix: `vendors/${vendorId}/products/` });
 
+      // Retirer explicitement la fiche publique avant la suppression du profil.
+      // Le trigger syncVendorPublic effectue aussi ce nettoyage, mais cet appel
+      // synchrone garantit qu'une boutique ne reste pas publiée si le trigger tarde.
+      await db.collection('vendorsPublic').doc(vendorId).delete();
+
       // Supprimer les identifiants vendeurs avant le profil, et ne pas masquer une erreur réelle.
       await db.collection('vendorCredentials').doc(vendorId).delete().catch(error => {
         if (error.code !== 5) throw error; // NOT_FOUND
@@ -795,59 +1036,87 @@ exports.requestWithdrawal = onRequest({ region: 'europe-west1', cors: [...ALLOWE
     if (!match) return res.status(401).json({ success: false, message: 'Connexion requise.' });
     const decoded = await getAuth().verifyIdToken(match[1], true);
 
-    // B-C2 : vérifier que le vendeur est approuvé + contrat signé
-    const vendorSnap = await db.collection('users').doc(decoded.uid).get();
-    if (!vendorSnap.exists) {
-      return res.status(403).json({ success: false, message: 'Profil introuvable.' });
-    }
-    const vendorData = vendorSnap.data();
-    if (vendorData.role !== 'vendor') {
-      return res.status(403).json({ success: false, message: 'Compte non vendeur.' });
-    }
-    if (vendorData.vendorInfo?.status !== 'approved') {
-      return res.status(403).json({ success: false, message: 'Votre compte vendeur n’est pas approuvé.' });
-    }
-    if (vendorData.vendorInfo?.contractStatus !== 'accepted') {
-      return res.status(403).json({ success: false, message: 'Votre contrat vendeur doit être signé.' });
-    }
-
     const amount = Number(req.body?.amount);
-    const method = String(req.body?.method || '');
-    const account = String(req.body?.account || '');
+    const method = String(req.body?.method || '').trim();
+    const account = String(req.body?.account || '').trim();
 
-    if (amount < 200) {
-      return res.status(400).json({ success: false, message: 'Minimum 200 MAD.' });
+    if (!Number.isFinite(amount) || amount < 200) {
+      return res.status(400).json({ success: false, message: 'Montant invalide. Minimum 200 MAD.' });
     }
 
-    const walletSnap = await db.collection('wallets').doc(decoded.uid).get();
-    if (!walletSnap.exists) {
-      return res.status(404).json({ success: false, message: 'Wallet introuvable.' });
+    const allowedMethods = new Set(['Wafacash', 'Cash Plus', 'Virement bancaire']);
+    if (!allowedMethods.has(method)) {
+      return res.status(400).json({ success: false, message: 'Méthode de retrait invalide.' });
     }
 
-    const pendingReq = await db.collection('payout_requests')
+    const validPhone = /^(?:\+212|0)[67]\d{8}$/.test(account);
+    const validRib = /^\d{24}$/.test(account);
+    if ((method === 'Virement bancaire' && !validRib) ||
+        (method !== 'Virement bancaire' && !validPhone)) {
+      return res.status(400).json({ success: false, message: 'Coordonnées de réception invalides.' });
+    }
+
+    const vendorRef = db.collection('users').doc(decoded.uid);
+    const walletRef = db.collection('wallets').doc(decoded.uid);
+    const payoutRef = db.collection('payout_requests').doc();
+    const pendingQuery = db.collection('payout_requests')
       .where('vendorId', '==', decoded.uid)
-      .where('status', '==', 'pending')
-      .get();
-    if (!pendingReq.empty) {
-      return res.status(400).json({ success: false, message: 'Demande déjà en cours.' });
-    }
+      .where('status', '==', 'pending');
 
-    const balance = Number(walletSnap.data().availableBalance) || 0;
-    if (amount > balance) {
-      return res.status(400).json({ success: false, message: 'Solde insuffisant.' });
-    }
+    // Transaction atomique : empêche deux demandes simultanées de passer
+    // le contrôle du solde et de l'unicité d'une demande en attente.
+    await db.runTransaction(async tx => {
+      const [vendorSnap, walletSnap, pendingSnap] = await Promise.all([
+        tx.get(vendorRef),
+        tx.get(walletRef),
+        tx.get(pendingQuery)
+      ]);
 
-    await db.collection('payout_requests').add({
-      vendorId: decoded.uid,
-      vendorName: req.body.vendorName || 'Vendeur',
-      amount, method, account,
-      status: 'pending',
-      requestedAt: FieldValue.serverTimestamp()
+      if (!vendorSnap.exists || vendorSnap.data()?.role !== 'vendor') {
+        throw new Error('Profil vendeur introuvable.');
+      }
+
+      const vendorData = vendorSnap.data();
+      if (vendorData.vendorInfo?.status !== 'approved' ||
+          vendorData.vendorInfo?.contractStatus !== 'accepted') {
+        throw new Error('Votre compte vendeur doit être approuvé et votre contrat accepté.');
+      }
+
+      if (!walletSnap.exists) throw new Error('Wallet introuvable.');
+      if (!pendingSnap.empty) throw new Error('Une demande de retrait est déjà en cours.');
+
+      const walletData = walletSnap.data();
+      if ((Number(walletData.negativeBalance) || 0) < -0.0001) {
+        throw new Error('Retrait impossible : votre portefeuille présente un solde débiteur à régulariser.');
+      }
+      const balance = Number(walletData.availableBalance);
+      if (!Number.isFinite(balance) || amount > balance) {
+        throw new Error('Solde insuffisant.');
+      }
+
+      // Cette écriture sur le wallet force les transactions concurrentes
+      // à se rejouer et à constater la demande déjà créée.
+      tx.update(walletRef, {
+        payoutRequestVersion: FieldValue.increment(1),
+        updatedAt: FieldValue.serverTimestamp()
+      });
+
+      tx.create(payoutRef, {
+        vendorId: decoded.uid,
+        vendorName: String(vendorData.vendorInfo?.shopName || vendorData.name || 'Vendeur').slice(0, 120),
+        amount,
+        method,
+        account,
+        status: 'pending',
+        requestedAt: FieldValue.serverTimestamp()
+      });
     });
 
     return res.status(200).json({ success: true });
   } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
+    const message = error.message || 'Erreur serveur.';
+    const clientError = /introuvable|invalide|minimum|coordonnées|méthode|solde insuffisant|solde débiteur|retrait impossible|déjà en cours|doit être approuvé/i.test(message);
+    return res.status(clientError ? 400 : 500).json({ success: false, message });
   }
 });
 
@@ -858,7 +1127,13 @@ exports.onOrderStatusChanged = onDocumentUpdated('orders/{orderId}', async (even
   const before = event.data.before.data();
   const after = event.data.after.data();
 
-  if (before.status === after.status) return;
+  const beforeReturnsCount = Array.isArray(before.returns) ? before.returns.length : 0;
+  const afterReturns = Array.isArray(after.returns) ? after.returns : [];
+  const statusChanged = before.status !== after.status;
+
+  // Un retour peut être ajouté à une commande déjà marquée "returned".
+  // Le trigger doit traiter les nouvelles entrées même si le statut ne change plus.
+  if (!statusChanged && afterReturns.length <= beforeReturnsCount) return;
 
   const orderId = event.params.orderId;
 
@@ -896,30 +1171,43 @@ exports.onOrderStatusChanged = onDocumentUpdated('orders/{orderId}', async (even
           const freshOrder = freshOrderSnap.data();
           if (freshOrder.vendorCredits && freshOrder.vendorCredits[vendorId]) return;
 
+          // Lecture du profil dans la transaction : le verrou deletion_pending
+          // invalide/rejoue un crédit qui serait concurrent à une suppression.
+          const freshVendorSnap = await tx.get(db.collection('users').doc(vendorId));
+          if (!freshVendorSnap.exists || freshVendorSnap.data()?.role !== 'vendor') return;
+
           const freshWalletSnap = await tx.get(walletRef);
-          if (!freshWalletSnap.exists) {
-            tx.set(walletRef, {
-              vendorId,
-              pendingBalance: net,
-              availableBalance: 0,
-              totalEarnings: net,
-              totalWithdrawn: 0,
-              createdAt: FieldValue.serverTimestamp(),
-              lastUpdated: FieldValue.serverTimestamp()
-            });
-          } else {
-            tx.update(walletRef, {
-              pendingBalance: FieldValue.increment(net),
-              totalEarnings: FieldValue.increment(net),
-              lastUpdated: FieldValue.serverTimestamp()
-            });
-          }
+          const wallet = freshWalletSnap.exists ? freshWalletSnap.data() : {
+            pendingBalance: 0,
+            availableBalance: 0,
+            negativeBalance: 0,
+            totalEarnings: 0,
+            totalWithdrawn: 0
+          };
+          const currentDebt = Math.max(0, -(Number(wallet.negativeBalance) || 0));
+          const debtOffset = Math.min(net, currentDebt);
+          const pendingCredit = Math.max(0, net - debtOffset);
+          const nextDebt = Math.min(0, (Number(wallet.negativeBalance) || 0) + debtOffset);
+          const walletUpdate = {
+            vendorId,
+            pendingBalance: Math.max(0, Number(wallet.pendingBalance) || 0) + pendingCredit,
+            availableBalance: Number(wallet.availableBalance) || 0,
+            negativeBalance: nextDebt,
+            totalEarnings: (Number(wallet.totalEarnings) || 0) + net,
+            totalWithdrawn: Number(wallet.totalWithdrawn) || 0,
+            lastUpdated: FieldValue.serverTimestamp()
+          };
+          if (freshWalletSnap.exists) tx.update(walletRef, walletUpdate);
+          else tx.set(walletRef, { ...walletUpdate, createdAt: FieldValue.serverTimestamp() });
 
           const txRef = db.collection('wallet_transactions').doc();
           tx.set(txRef, {
             vendorId,
             type: 'sale',
             amount: net,
+            reversedAmount: debtOffset,
+            releasedAmount: 0,
+            debtOffsetAmount: debtOffset,
             commission,
             commissionRate: rate,
             subtotal,
@@ -944,90 +1232,126 @@ exports.onOrderStatusChanged = onDocumentUpdated('orders/{orderId}', async (even
     }
   }
 
-  // Débit retour vendeur
-  if (after.status === 'returned' && before.status !== 'returned') {
-    const returns = Array.isArray(after.returns) ? after.returns : [];
-    const lastReturn = returns[returns.length - 1];
-    if (!lastReturn || !Array.isArray(lastReturn.items)) return;
+  // Débit des retours vendeur : traiter chaque nouvelle entrée, pas seulement
+  // la dernière. Cela couvre plusieurs retours successifs sur une même commande.
+  if (after.status === 'returned' && afterReturns.length > beforeReturnsCount) {
+    for (let returnIndex = beforeReturnsCount; returnIndex < afterReturns.length; returnIndex++) {
+      const returnEntry = afterReturns[returnIndex];
+      if (!returnEntry || !Array.isArray(returnEntry.items)) continue;
 
-    const returnIndex = returns.length - 1;
-    const qtyByVendor = {};
-    lastReturn.items.forEach(retItem => {
-      const item = (after.items || []).find(i => String(i.productId) === String(retItem.productId));
-      if (!item) return;
-      const vid = item.vendorId;
-      if (!vid || vid === 'smartswi9a') return;
-      qtyByVendor[vid] = (qtyByVendor[vid] || 0) + (Number(retItem.delta) || 0);
-    });
+      const qtyByVendor = {};
+      returnEntry.items.forEach(retItem => {
+        const item = (after.items || []).find(i => String(i.productId) === String(retItem.productId));
+        if (!item) return;
+        const vid = item.vendorId;
+        const delta = Number(retItem.delta) || 0;
+        if (!vid || vid === 'smartswi9a' || delta <= 0) return;
+        qtyByVendor[vid] = (qtyByVendor[vid] || 0) + delta;
+      });
 
-    for (const [vendorId, qty] of Object.entries(qtyByVendor)) {
-      if (qty <= 0) continue;
-      const fee = RETURN_FEE_LIVO * qty;
-      const debitKey = `${vendorId}_ret${returnIndex}`;
-
-      try {
-        const alreadyDebited = after.vendorDebits && after.vendorDebits[debitKey];
-        if (alreadyDebited) continue;
-
+      for (const [vendorId, qty] of Object.entries(qtyByVendor)) {
+        if (qty <= 0) continue;
+        const fee = RETURN_FEE_LIVO * qty;
+        const debitKey = `${vendorId}_ret${returnIndex}`;
         const walletRef = db.collection('wallets').doc(vendorId);
-        const walletSnap = await walletRef.get();
-        if (!walletSnap.exists) continue;
 
-        await db.runTransaction(async (tx) => {
-          const orderRef = db.collection('orders').doc(orderId);
-          const freshOrderSnap = await tx.get(orderRef);
-          if (!freshOrderSnap.exists) return;
-          const freshOrder = freshOrderSnap.data();
-          if (freshOrder.vendorDebits && freshOrder.vendorDebits[debitKey]) return;
+        try {
+          await db.runTransaction(async (tx) => {
+            const orderRef = db.collection('orders').doc(orderId);
+            const freshOrderSnap = await tx.get(orderRef);
+            if (!freshOrderSnap.exists) return;
+            const freshOrder = freshOrderSnap.data();
+            const freshReturns = Array.isArray(freshOrder.returns) ? freshOrder.returns : [];
+            if (freshOrder.status !== 'returned' || !freshReturns[returnIndex]) return;
+            if (freshOrder.vendorDebits && freshOrder.vendorDebits[debitKey]) return;
 
-          const freshWalletSnap = await tx.get(walletRef);
-          if (!freshWalletSnap.exists) return;
-          const w = freshWalletSnap.data();
+            // Sérialiser le débit avec le verrou de suppression du vendeur.
+            // Le débit reste autorisé : la suppression sera bloquée tant que
+            // le retour et son écriture financière ne seront pas rapprochés.
+            await tx.get(db.collection('users').doc(vendorId));
 
-          let pending = Number(w.pendingBalance) || 0;
-          let available = Number(w.availableBalance) || 0;
-          let negative = Number(w.negativeBalance) || 0;
-          let remaining = fee;
+            const freshWalletSnap = await tx.get(walletRef);
+            const w = freshWalletSnap.exists ? freshWalletSnap.data() : {
+              vendorId,
+              pendingBalance: 0,
+              availableBalance: 0,
+              negativeBalance: 0,
+              totalEarnings: 0,
+              totalWithdrawn: 0,
+              createdAt: FieldValue.serverTimestamp()
+            };
 
-          const fromPending = Math.min(pending, remaining);
-          pending -= fromPending;
-          remaining -= fromPending;
+            // N'imputer le retour sur les fonds en attente que dans la limite
+            // du crédit de vente de cette commande. Les autres ventes en attente
+            // ne doivent pas être consommées par le retour d'une autre commande.
+            const saleTxId = freshOrder.vendorCredits?.[vendorId]?.txId;
+            const saleTxRef = saleTxId
+              ? db.collection('wallet_transactions').doc(String(saleTxId))
+              : null;
+            const saleTxSnap = saleTxRef ? await tx.get(saleTxRef) : null;
+            const saleTx = saleTxSnap?.exists ? saleTxSnap.data() : null;
+            const salePendingRemaining = saleTx && saleTx.status === 'pending'
+              ? Math.max(0, (Number(saleTx.amount) || 0) -
+                  (Number(saleTx.reversedAmount) || 0) -
+                  (Number(saleTx.releasedAmount) || 0))
+              : 0;
 
-          const fromAvailable = Math.min(available, remaining);
-          available -= fromAvailable;
-          remaining -= fromAvailable;
+            let pending = Number(w.pendingBalance) || 0;
+            let available = Number(w.availableBalance) || 0;
+            let negative = Number(w.negativeBalance) || 0;
+            let remaining = fee;
 
-          if (remaining > 0) negative -= remaining;
+            const fromPending = Math.min(Math.max(0, pending), remaining, salePendingRemaining);
+            pending -= fromPending;
+            remaining -= fromPending;
 
-          tx.update(walletRef, {
-            pendingBalance: pending,
-            availableBalance: available,
-            negativeBalance: negative,
-            lastUpdated: FieldValue.serverTimestamp()
-          });
+            const fromAvailable = Math.min(Math.max(0, available), remaining);
+            available -= fromAvailable;
+            remaining -= fromAvailable;
 
-          const txRef = db.collection('wallet_transactions').doc();
-          tx.set(txRef, {
-            vendorId,
-            type: 'return_fee',
-            amount: -fee,
-            orderId,
-            returnIndex,
-            status: 'released',
-            description: `Frais retour commande #${orderId.slice(0, 8).toUpperCase()} (${qty} colis)`,
-            createdAt: FieldValue.serverTimestamp()
-          });
+            if (remaining > 0) negative -= remaining;
 
-          tx.update(orderRef, {
-            [`vendorDebits.${debitKey}`]: {
-              debitedAt: FieldValue.serverTimestamp(),
-              amount: fee,
-              returnedQty: qty
+            const txRef = db.collection('wallet_transactions').doc();
+            const walletUpdate = {
+              vendorId,
+              pendingBalance: pending,
+              availableBalance: available,
+              negativeBalance: negative,
+              totalEarnings: Number(w.totalEarnings) || 0,
+              totalWithdrawn: Number(w.totalWithdrawn) || 0,
+              lastUpdated: FieldValue.serverTimestamp()
+            };
+            if (freshWalletSnap.exists) tx.update(walletRef, walletUpdate);
+            else tx.set(walletRef, { ...w, ...walletUpdate });
+            if (fromPending > 0 && saleTxRef && saleTxSnap?.exists) {
+              tx.update(saleTxRef, {
+                reversedAmount: FieldValue.increment(fromPending),
+                returnOffsetAmount: FieldValue.increment(fromPending),
+                lastReturnOffsetAt: FieldValue.serverTimestamp()
+              });
             }
+            tx.set(txRef, {
+              vendorId,
+              type: 'return_fee',
+              amount: -fee,
+              orderId,
+              returnIndex,
+              status: 'released',
+              description: `Frais retour commande #${orderId.slice(0, 8).toUpperCase()} (${qty} colis)`,
+              createdAt: FieldValue.serverTimestamp()
+            });
+            tx.update(orderRef, {
+              [`vendorDebits.${debitKey}`]: {
+                debitedAt: FieldValue.serverTimestamp(),
+                amount: fee,
+                returnedQty: qty,
+                txId: txRef.id
+              }
+            });
           });
-        });
-      } catch (err) {
-        console.error(`[onOrderStatusChanged] Erreur débit retour ${vendorId}:`, err);
+        } catch (err) {
+          console.error(`[onOrderStatusChanged] Erreur débit retour vendeur ${vendorId}, retour ${returnIndex}:`, err);
+        }
       }
     }
   }
@@ -1320,12 +1644,30 @@ exports.cancelCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
       const refs = productIds.map(id => db.collection('products').doc(id));
       const snaps = await Promise.all(refs.map(ref => tx.get(ref)));
 
+      // Toutes les lectures doivent précéder les premières écritures
+      // de la transaction Firestore.
+      const couponRef = order.couponId
+        ? db.collection('coupons').doc(String(order.couponId))
+        : null;
+      const couponSnap = couponRef && !order.couponRestored
+        ? await tx.get(couponRef)
+        : null;
+
       if (order.stockDeducted === true) {
         for (let i = 0; i < productIds.length; i++) {
-          if (!snaps[i].exists) continue;
+          if (!snaps[i].exists) {
+            throw new Error(`Produit ${productIds[i]} introuvable : annulation interrompue pour préserver le stock.`);
+          }
           const p = snaps[i].data();
           const productItems = items.filter(item => String(item.productId) === productIds[i]);
-          const totalQty = productItems.reduce((sum, item) => sum + Math.max(1, Math.floor(Number(item.quantity) || 1)), 0);
+          const quantities = productItems.map(item => {
+            const qty = Number(item.quantity);
+            if (!Number.isInteger(qty) || qty <= 0) {
+              throw new Error(`Quantité invalide pour le produit ${productIds[i]}.`);
+            }
+            return { item, qty };
+          });
+          const totalQty = quantities.reduce((sum, entry) => sum + entry.qty, 0);
           const upd = {
             salesCount: Math.max(0, (Number(p.salesCount) || 0) - totalQty),
             lastOrderId: orderId,
@@ -1333,19 +1675,34 @@ exports.cancelCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
           };
           const variants = Array.isArray(p.variants) ? p.variants.map(v => ({ ...v })) : [];
           let simpleStock = Number(p.stock) || 0;
-          for (const item of productItems) {
-            const qty = Math.max(1, Math.floor(Number(item.quantity) || 1));
+          let hasVariantItems = false;
+          let hasSimpleItems = false;
+
+          for (const { item, qty } of quantities) {
             if (item.variant) {
+              hasVariantItems = true;
               const idx = variants.findIndex(v =>
                 String(v.size || '') === String(item.variant.size || '') &&
                 String(v.color || '') === String(item.variant.color || '')
               );
-              if (idx >= 0) variants[idx].stock = (Number(variants[idx].stock) || 0) + qty;
+              if (idx < 0) {
+                throw new Error(`Variante introuvable pour le produit ${productIds[i]} : annulation interrompue.`);
+              }
+              const currentVariantStock = Number(variants[idx].stock);
+              if (!Number.isFinite(currentVariantStock) || currentVariantStock < 0) {
+                throw new Error(`Stock de variante invalide pour le produit ${productIds[i]}.`);
+              }
+              variants[idx].stock = currentVariantStock + qty;
             } else {
+              hasSimpleItems = true;
               simpleStock += qty;
             }
           }
-          if (productItems.some(item => item.variant)) {
+
+          if (hasVariantItems && hasSimpleItems) {
+            throw new Error(`Structure de stock incohérente pour le produit ${productIds[i]} : variantes et stock simple mélangés.`);
+          }
+          if (hasVariantItems) {
             upd.variants = variants;
             upd.stock = variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
           } else {
@@ -1355,18 +1712,13 @@ exports.cancelCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
         }
       }
 
-      // M2 : restauration coupon (protégée contre usedCount négatif)
-      if (order.couponId && !order.couponRestored) {
-        try {
-          const couponRef = db.collection('coupons').doc(String(order.couponId));
-          const couponSnap = await tx.get(couponRef);
-          if (couponSnap.exists && Number(couponSnap.data().usedCount) > 0) {
-            tx.update(couponRef, { usedCount: FieldValue.increment(-1) });
-          }
-          tx.delete(db.collection('coupon_uses').doc(`${order.couponId}_${decoded.uid}`));
-        } catch (e) {
-          console.warn('[cancelCustomerOrder] Coupon restore failed:', e.message);
+      // Restaurer le coupon sans lecture après les premières écritures
+      // et sans jamais rendre usedCount négatif.
+      if (couponRef && !order.couponRestored) {
+        if (couponSnap?.exists && Number(couponSnap.data().usedCount) > 0) {
+          tx.update(couponRef, { usedCount: FieldValue.increment(-1) });
         }
+        tx.delete(db.collection('coupon_uses').doc(`${order.couponId}_${decoded.uid}`));
       }
 
       tx.update(orderRef, {
@@ -1417,6 +1769,18 @@ exports.adminPayoutAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
       const vendorId = String(payoutData.vendorId || '');
       if (!vendorId) throw new Error('Demande sans vendorId — impossible de traiter.');
 
+      // Sérialiser le traitement d'un retrait avec le verrou de suppression
+      // du vendeur. Si la suppression est déjà engagée, aucune opération
+      // financière ne doit être créée après le contrôle des demandes ouvertes.
+      const vendorRef = db.collection('users').doc(vendorId);
+      const vendorSnap = await t.get(vendorRef);
+      if (!vendorSnap.exists || vendorSnap.data()?.role !== 'vendor') {
+        throw new Error('Profil vendeur introuvable.');
+      }
+      if (vendorSnap.data()?.vendorInfo?.status === 'deletion_pending') {
+        throw new Error('Suppression du compte vendeur en cours : retrait temporairement bloqué.');
+      }
+
       if (action === 'paid') {
         const amount = Number(payoutData.amount) || 0;
         if (amount <= 0) throw new Error('Montant invalide.');
@@ -1426,6 +1790,9 @@ exports.adminPayoutAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
         if (!walletSnap.exists) throw new Error('Wallet introuvable.');
 
         const wallet = walletSnap.data();
+        if ((Number(wallet.negativeBalance) || 0) < -0.0001) {
+          throw new Error('Paiement bloqué : le portefeuille vendeur présente un solde débiteur à régulariser.');
+        }
         const available = Number(wallet.availableBalance) || 0;
         if (available < amount) {
           throw new Error(`Solde insuffisant : disponible ${available} MAD, demandé ${amount} MAD.`);
@@ -1538,8 +1905,37 @@ exports.releaseDueFunds = onRequest({ region: 'europe-west1', cors: [...ALLOWED_
         const walletRef = db.collection('wallets').doc(vendorId);
 
         const result = await db.runTransaction(async (t) => {
-          const walletSnap = await t.get(walletRef);
+          // Le profil vendeur sert de verrou commun avec adminVendorAction :
+          // une libération ne peut pas passer silencieusement après le début
+          // d'une suppression.
+          const vendorRef = db.collection('users').doc(vendorId);
+          const [vendorSnap, walletSnap] = await Promise.all([
+            t.get(vendorRef),
+            t.get(walletRef)
+          ]);
+          if (!vendorSnap.exists || vendorSnap.data()?.role !== 'vendor') {
+            throw new Error('Profil vendeur introuvable');
+          }
+          if (vendorSnap.data()?.vendorInfo?.status === 'deletion_pending') {
+            throw new Error('Suppression du compte vendeur en cours');
+          }
           if (!walletSnap.exists) throw new Error('Wallet introuvable');
+
+          // Relire chaque transaction dans la transaction Firestore : deux
+          // exécutions concurrentes ne doivent jamais libérer deux fois la
+          // même écriture à partir du même résultat de requête initial.
+          const freshTxs = [];
+          for (const candidate of txs) {
+            const freshSnap = await t.get(candidate.ref);
+            if (!freshSnap.exists) continue;
+            const freshData = freshSnap.data();
+            if (freshData.status !== 'pending' || !freshData.unlockAt) continue;
+            const unlockDate = typeof freshData.unlockAt.toDate === 'function'
+              ? freshData.unlockAt.toDate()
+              : new Date(freshData.unlockAt);
+            if (!Number.isFinite(unlockDate.getTime()) || unlockDate > now) continue;
+            freshTxs.push({ ref: candidate.ref, data: freshData });
+          }
 
           const wallet = walletSnap.data();
           let pendingBalance = Number(wallet.pendingBalance) || 0;
@@ -1547,23 +1943,37 @@ exports.releaseDueFunds = onRequest({ region: 'europe-west1', cors: [...ALLOWED_
           let vendorReleased = 0;
           let txsCount = 0;
 
-          for (const tx of txs) {
-            const amount = Number(tx.data.amount) || 0;
-            const reversed = Number(tx.data.reversedAmount) || 0;
-            const eligible = Math.max(0, amount - reversed);
-            const releaseForThis = Math.min(eligible, pendingBalance);
+          for (const tx of freshTxs) {
+            const amount = Math.max(0, Number(tx.data.amount) || 0);
+            const reversed = Math.max(0, Number(tx.data.reversedAmount) || 0);
+            const alreadyReleased = Math.max(0, Number(tx.data.releasedAmount) || 0);
+            const eligible = Math.max(0, amount - reversed - alreadyReleased);
 
-            if (releaseForThis > 0) {
-              pendingBalance -= releaseForThis;
-              availableBalance += releaseForThis;
-              vendorReleased += releaseForThis;
-              txsCount++;
+            if (eligible <= 0.0001) {
+              t.update(tx.ref, {
+                status: 'released',
+                releasedAt: tx.data.releasedAt || FieldValue.serverTimestamp(),
+                releasedAmount: alreadyReleased
+              });
+              continue;
             }
 
+            const releaseForThis = Math.min(eligible, Math.max(0, pendingBalance));
+            if (releaseForThis <= 0) continue;
+
+            pendingBalance -= releaseForThis;
+            availableBalance += releaseForThis;
+            vendorReleased += releaseForThis;
+            txsCount++;
+
+            const cumulativeReleased = alreadyReleased + releaseForThis;
+            const fullyReleased = (reversed + cumulativeReleased) >= amount - 0.0001;
             t.update(tx.ref, {
-              status: 'released',
-              releasedAt: FieldValue.serverTimestamp(),
-              releasedAmount: releaseForThis
+              status: fullyReleased ? 'released' : 'pending',
+              releasedAmount: cumulativeReleased,
+              ...(fullyReleased
+                ? { releasedAt: FieldValue.serverTimestamp() }
+                : { partialReleasedAt: FieldValue.serverTimestamp() })
             });
           }
 
