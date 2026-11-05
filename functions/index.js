@@ -804,63 +804,87 @@ exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
 exports.requestWithdrawal = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
   if (cors(req, res)) return;
   try {
-    const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
+    const match = String(req.get('authorization') || '').match(/^Bearer\\s+(.+)$/i);
     if (!match) return res.status(401).json({ success: false, message: 'Connexion requise.' });
     const decoded = await getAuth().verifyIdToken(match[1], true);
 
-    // B-C2 : vérifier que le vendeur est approuvé + contrat signé
-    const vendorSnap = await db.collection('users').doc(decoded.uid).get();
-    if (!vendorSnap.exists) {
-      return res.status(403).json({ success: false, message: 'Profil introuvable.' });
-    }
-    const vendorData = vendorSnap.data();
-    if (vendorData.role !== 'vendor') {
-      return res.status(403).json({ success: false, message: 'Compte non vendeur.' });
-    }
-    if (vendorData.vendorInfo?.status !== 'approved') {
-      return res.status(403).json({ success: false, message: 'Votre compte vendeur n’est pas approuvé.' });
-    }
-    if (vendorData.vendorInfo?.contractStatus !== 'accepted') {
-      return res.status(403).json({ success: false, message: 'Votre contrat vendeur doit être signé.' });
-    }
-
     const amount = Number(req.body?.amount);
-    const method = String(req.body?.method || '');
-    const account = String(req.body?.account || '');
+    const method = String(req.body?.method || '').trim();
+    const account = String(req.body?.account || '').trim();
 
-    if (amount < 200) {
-      return res.status(400).json({ success: false, message: 'Minimum 200 MAD.' });
+    if (!Number.isFinite(amount) || amount < 200) {
+      return res.status(400).json({ success: false, message: 'Montant invalide. Minimum 200 MAD.' });
     }
 
-    const walletSnap = await db.collection('wallets').doc(decoded.uid).get();
-    if (!walletSnap.exists) {
-      return res.status(404).json({ success: false, message: 'Wallet introuvable.' });
+    const allowedMethods = new Set(['Wafacash', 'Cash Plus', 'Virement bancaire']);
+    if (!allowedMethods.has(method)) {
+      return res.status(400).json({ success: false, message: 'Méthode de retrait invalide.' });
     }
 
-    const pendingReq = await db.collection('payout_requests')
+    const validPhone = /^(?:\\+212|0)[67]\\d{8}$/.test(account);
+    const validRib = /^\\d{24}$/.test(account);
+    if ((method === 'Virement bancaire' && !validRib) ||
+        (method !== 'Virement bancaire' && !validPhone)) {
+      return res.status(400).json({ success: false, message: 'Coordonnées de réception invalides.' });
+    }
+
+    const vendorRef = db.collection('users').doc(decoded.uid);
+    const walletRef = db.collection('wallets').doc(decoded.uid);
+    const payoutRef = db.collection('payout_requests').doc();
+    const pendingQuery = db.collection('payout_requests')
       .where('vendorId', '==', decoded.uid)
-      .where('status', '==', 'pending')
-      .get();
-    if (!pendingReq.empty) {
-      return res.status(400).json({ success: false, message: 'Demande déjà en cours.' });
-    }
+      .where('status', '==', 'pending');
 
-    const balance = Number(walletSnap.data().availableBalance) || 0;
-    if (amount > balance) {
-      return res.status(400).json({ success: false, message: 'Solde insuffisant.' });
-    }
+    // Transaction atomique : empêche deux demandes simultanées de passer
+    // le contrôle du solde et de l'unicité d'une demande en attente.
+    await db.runTransaction(async tx => {
+      const [vendorSnap, walletSnap, pendingSnap] = await Promise.all([
+        tx.get(vendorRef),
+        tx.get(walletRef),
+        tx.get(pendingQuery)
+      ]);
 
-    await db.collection('payout_requests').add({
-      vendorId: decoded.uid,
-      vendorName: req.body.vendorName || 'Vendeur',
-      amount, method, account,
-      status: 'pending',
-      requestedAt: FieldValue.serverTimestamp()
+      if (!vendorSnap.exists || vendorSnap.data()?.role !== 'vendor') {
+        throw new Error('Profil vendeur introuvable.');
+      }
+
+      const vendorData = vendorSnap.data();
+      if (vendorData.vendorInfo?.status !== 'approved' ||
+          vendorData.vendorInfo?.contractStatus !== 'accepted') {
+        throw new Error('Votre compte vendeur doit être approuvé et votre contrat accepté.');
+      }
+
+      if (!walletSnap.exists) throw new Error('Wallet introuvable.');
+      if (!pendingSnap.empty) throw new Error('Une demande de retrait est déjà en cours.');
+
+      const balance = Number(walletSnap.data().availableBalance);
+      if (!Number.isFinite(balance) || amount > balance) {
+        throw new Error('Solde insuffisant.');
+      }
+
+      // Cette écriture sur le wallet force les transactions concurrentes
+      // à se rejouer et à constater la demande déjà créée.
+      tx.update(walletRef, {
+        payoutRequestVersion: FieldValue.increment(1),
+        updatedAt: FieldValue.serverTimestamp()
+      });
+
+      tx.create(payoutRef, {
+        vendorId: decoded.uid,
+        vendorName: String(vendorData.vendorInfo?.shopName || vendorData.name || 'Vendeur').slice(0, 120),
+        amount,
+        method,
+        account,
+        status: 'pending',
+        requestedAt: FieldValue.serverTimestamp()
+      });
     });
 
     return res.status(200).json({ success: true });
   } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
+    const message = error.message || 'Erreur serveur.';
+    const clientError = /introuvable|invalide|minimum|coordonnées|méthode|solde insuffisant|déjà en cours|doit être approuvé/i.test(message);
+    return res.status(clientError ? 400 : 500).json({ success: false, message });
   }
 });
 
