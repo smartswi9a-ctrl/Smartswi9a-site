@@ -1612,10 +1612,19 @@ exports.cancelCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
 
       if (order.stockDeducted === true) {
         for (let i = 0; i < productIds.length; i++) {
-          if (!snaps[i].exists) continue;
+          if (!snaps[i].exists) {
+            throw new Error(`Produit ${productIds[i]} introuvable : annulation interrompue pour préserver le stock.`);
+          }
           const p = snaps[i].data();
           const productItems = items.filter(item => String(item.productId) === productIds[i]);
-          const totalQty = productItems.reduce((sum, item) => sum + Math.max(1, Math.floor(Number(item.quantity) || 1)), 0);
+          const quantities = productItems.map(item => {
+            const qty = Number(item.quantity);
+            if (!Number.isInteger(qty) || qty <= 0) {
+              throw new Error(`Quantité invalide pour le produit ${productIds[i]}.`);
+            }
+            return { item, qty };
+          });
+          const totalQty = quantities.reduce((sum, entry) => sum + entry.qty, 0);
           const upd = {
             salesCount: Math.max(0, (Number(p.salesCount) || 0) - totalQty),
             lastOrderId: orderId,
@@ -1623,19 +1632,34 @@ exports.cancelCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
           };
           const variants = Array.isArray(p.variants) ? p.variants.map(v => ({ ...v })) : [];
           let simpleStock = Number(p.stock) || 0;
-          for (const item of productItems) {
-            const qty = Math.max(1, Math.floor(Number(item.quantity) || 1));
+          let hasVariantItems = false;
+          let hasSimpleItems = false;
+
+          for (const { item, qty } of quantities) {
             if (item.variant) {
+              hasVariantItems = true;
               const idx = variants.findIndex(v =>
                 String(v.size || '') === String(item.variant.size || '') &&
                 String(v.color || '') === String(item.variant.color || '')
               );
-              if (idx >= 0) variants[idx].stock = (Number(variants[idx].stock) || 0) + qty;
+              if (idx < 0) {
+                throw new Error(`Variante introuvable pour le produit ${productIds[i]} : annulation interrompue.`);
+              }
+              const currentVariantStock = Number(variants[idx].stock);
+              if (!Number.isFinite(currentVariantStock) || currentVariantStock < 0) {
+                throw new Error(`Stock de variante invalide pour le produit ${productIds[i]}.`);
+              }
+              variants[idx].stock = currentVariantStock + qty;
             } else {
+              hasSimpleItems = true;
               simpleStock += qty;
             }
           }
-          if (productItems.some(item => item.variant)) {
+
+          if (hasVariantItems && hasSimpleItems) {
+            throw new Error(`Structure de stock incohérente pour le produit ${productIds[i]} : variantes et stock simple mélangés.`);
+          }
+          if (hasVariantItems) {
             upd.variants = variants;
             upd.stock = variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
           } else {
