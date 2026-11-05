@@ -25,8 +25,8 @@ const ALLOWED_ORIGINS = new Set([
    CONSTANTES GLOBALES
    ============================================================
    - LIVO_API_BASE : endpoint public Livo
-   - RETURN_FEE_LIVO : frais retour (doit être synchronisé avec
-     CONFIG.VENDOR.RETURN_FEE_LIVO dans js/config.js)
+   - RETURN_FEE_LIVO : valeur historique conservée uniquement pour reconstruire
+     les contrats 1.1.0 à 1.3.0 ; aucun débit de retour ne l'utilise.
    - FALLBACK_DELIVERY_FEE : frais par défaut si Firestore vide
    - LIVO_DEPOT_KEYS : entrepôts Livo à exclure des villes clients
    - LOGIN_* : throttle login vendeur
