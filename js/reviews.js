@@ -179,56 +179,145 @@ export async function canUserReviewProduct(productId) {
 
   /* 1. Vérifier si l'avis existe déjà. */
   const reviewId = `review_${user.uid}_${pid}`;
-
-  const token = await user.getIdToken();
-  const response = await fetch("/api/createVerifiedReview", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${token}`
-    },
-    body: JSON.stringify({
-      productId: String(pid),
-      rating: Number(rating),
-      title: (title || "").substring(0, 80),
-      comment: (comment || "").substring(0, 500),
-      photos: photoUrls
-    })
-  });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok || result.success !== true) {
-    throw new Error(result.message || "Impossible de publier cet avis.");
+  try {
+    const reviewSnap = await getDoc(doc(db, "reviews", reviewId));
+    if (reviewSnap.exists()) {
+      return { canReview: false, reason: "already_reviewed" };
+    }
+  } catch (e) {
+    /* Si même la lecture simple échoue, on refuse par sécurité. */
+    console.warn(
+      "canUserReviewProduct : lecture review existante impossible",
+      e?.code || e
+    );
+    return { canReview: false, reason: "check_failed", error: e };
   }
-  console.log("Avis créé :", result.reviewId || reviewId);
 
-  /* Dette : nettoyer la notification review_request liée à la commande. Non bloquant. */
-  if (check.orderId) {
-    try {
-      const { deleteReviewRequestForOrder } = await import(
-        "./notifications.js"
-      );
-      await deleteReviewRequestForOrder(result.orderId);
-    } catch (e) {
+  /* 2. Vérifier qu'une commande livrée contient ce produit. */
+  try {
+    const ordersQ = query(
+      collection(db, "orders"),
+      where("userId", "==", user.uid),
+      where("status", "in", ["delivered", "received"]),
+      limit(20)
+    );
+    const ordersSnap = await getDocs(ordersQ);
+    const targetStr = String(pid);
+    let matchingOrderId = null;
+    const hasReceived = ordersSnap.docs.some((d) => {
+      const order = d.data();
+      if (order.items?.some((it) => String(it.productId) === targetStr)) {
+        matchingOrderId = d.id;
+        return true;
+      }
+      return false;
+    });
+
+    if (!hasReceived) {
+      return { canReview: false, reason: "not_purchased" };
+    }
+
+    /* Succès : l'utilisateur a bien acheté ce produit dans une commande livrée. */
+    return {
+      canReview: true,
+      reason: "ok",
+      verifiedPurchase: true,
+      orderId: matchingOrderId,
+    };
+  } catch (e) {
+    /* B2 (CRITIQUE) : en cas d'échec de la query (index manquant, réseau, permission), on REFUSE par sécurité au lieu d'autoriser. Avant v9.0.0, ce cas retournait canReview: true et permettait les faux avis "Achat vérifié". */
+    if (e?.code === "failed-precondition" || e?.code === "unimplemented") {
+      _warnMissingOrdersIndex("canUserReviewProduct", e);
+    } else {
       console.warn(
-        "Nettoyage notification review_request échoué :",
-        e?.message || e
+        "canUserReviewProduct : vérification achat impossible",
+        e?.code || e
       );
     }
+    return { canReview: false, reason: "check_failed", error: e };
   }
-
-  try {
-    document.dispatchEvent(
-      new CustomEvent("review-submitted", {
-        detail: { productId: pid, reviewId: result.reviewId || reviewId, orderId: result.orderId || null },
-      })
-    );
-  } catch (e) {
-    /* ignore */
-  }
-
-  return reviewId;
 }
 
+/* ============================================================ CRÉER UN AVIS (Anti-doublons avec setDoc) ============================================================ */
+
+/** * Crée un avis pour le produit donné. * * B3 : `verifiedPurchase` est dérivé de `check.verifiedPurchase`, * plus forcé à `true`. * Dette : appelle `deleteReviewRequestForOrder(check.orderId)` après * création, pour nettoyer la notification review_request. * * @param {number|string} productId * @param {{ rating: number, title?: string, comment: string, photoFiles?: File[] }} params * @returns {Promise<string>} ID du review créé. * @throws {Error} si les validations échouent. */
+export async function createReview(productId, { rating, title, comment, photoFiles = [] }) {
+  const user = getCurrentUser();
+  if (!user) throw new Error(t("loginRequired"));
+
+  const pid = normalizeProductId(productId);
+  if (pid == null) throw new Error(t("productNotFound"));
+  const product = getProductById(pid);
+  if (!product) throw new Error(t("productNotFound"));
+
+  const numericRating = Number(rating);
+  const cleanComment = String(comment || "").trim();
+  if (!Number.isInteger(numericRating) || numericRating < 1 || numericRating > 5) {
+    throw new Error("Veuillez sélectionner une note.");
+  }
+  if (!cleanComment) throw new Error("Veuillez écrire un commentaire.");
+
+  const check = await canUserReviewProduct(pid);
+  if (!check.canReview) {
+    if (check.reason === "already_reviewed") throw new Error(t("reviewAlreadyExists"));
+    if (check.reason === "not_purchased") throw new Error(t("reviewOnlyAfterOrder"));
+    if (check.reason === "check_failed") throw new Error(t("error") || "Vérification impossible. Réessayez.");
+    throw new Error(t("loginRequired"));
+  }
+
+  const files = (Array.isArray(photoFiles) ? photoFiles : []).slice(0, CONFIG.REVIEWS.MAX_PHOTOS);
+  const uploadedRefs = [];
+  const photoUrls = [];
+  try {
+    for (let index = 0; index < files.length; index++) {
+      const file = files[index];
+      if (!(file instanceof Blob)) throw new Error("Fichier photo invalide.");
+      const safeName = String(file.name || "photo").replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 100);
+      const path = "reviews/" + user.uid + "/" + String(pid) + "_" + Date.now() + "_" + index + "_" + safeName;
+      const storageRef = ref(storage, path);
+      await uploadBytes(storageRef, file);
+      uploadedRefs.push(storageRef);
+      photoUrls.push(await getDownloadURL(storageRef));
+    }
+
+    const token = await user.getIdToken();
+    const response = await fetch("/api/createVerifiedReview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+      body: JSON.stringify({
+        productId: String(pid),
+        rating: numericRating,
+        title: String(title || "").trim().slice(0, 80),
+        comment: cleanComment.slice(0, 500),
+        photos: photoUrls
+      })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || result.success !== true) {
+      throw new Error(result.message || "Impossible de publier cet avis.");
+    }
+
+    if (check.orderId) {
+      try {
+        const { deleteReviewRequestForOrder } = await import("./notifications.js");
+        await deleteReviewRequestForOrder(result.orderId || check.orderId);
+      } catch (error) {
+        console.warn("Nettoyage notification review_request échoué :", error?.message || error);
+      }
+    }
+
+    const reviewId = result.reviewId || ("review_" + user.uid + "_" + pid);
+    try {
+      document.dispatchEvent(new CustomEvent("review-submitted", {
+        detail: { productId: pid, reviewId, orderId: result.orderId || check.orderId || null }
+      }));
+    } catch (_) { /* ignore */ }
+    return reviewId;
+  } catch (error) {
+    await Promise.allSettled(uploadedRefs.map(storageRef => deleteObject(storageRef)));
+    throw error;
+  }
+}
 /* ============================================================ AJOUTER / RETIRER UN AVIS DES TÉMOIGNAGES (ADMIN) ============================================================ Race (P2) : si 2 admins cliquent simultanément sur "feature", ils peuvent tous deux voir featuredSnap.size < 3 et dépasser MAX_FEATURED_REVIEWS. Corriger nécessiterait un lock distribué (non implémenté). Rare en pratique (peu d'admins, action peu fréquente). ============================================================ */
 
 /** * Ajoute ou retire un avis des témoignages d'accueil. * @param {string} reviewId * @returns {Promise<{ success: boolean, featured?: boolean, error?: string, maxReached?: boolean }>} */
