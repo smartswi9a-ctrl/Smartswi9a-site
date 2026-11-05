@@ -759,6 +759,48 @@ exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
     }
 
     if (action === 'deleted') {
+      // Protection financière : ne jamais effacer l'identité d'un vendeur
+      // tant qu'un solde reste dû ou qu'un retrait n'a pas été clôturé.
+      const walletRef = db.collection('wallets').doc(vendorId);
+      const payoutQuery = db.collection('payout_requests')
+        .where('vendorId', '==', vendorId);
+      const [walletSnap, payoutSnap] = await Promise.all([
+        walletRef.get(),
+        payoutQuery.get()
+      ]);
+
+      const wallet = walletSnap.exists ? walletSnap.data() : {};
+      const availableBalance = Number(wallet.availableBalance) || 0;
+      const pendingBalance = Number(wallet.pendingBalance) || 0;
+      const openPayouts = payoutSnap.docs.filter(docSnap => {
+        const status = String(docSnap.data().status || 'pending').toLowerCase();
+        return !['paid', 'rejected', 'cancelled', 'canceled'].includes(status);
+      });
+
+      const financialReasons = [];
+      if (availableBalance > 0.0001) {
+        financialReasons.push(`solde disponible de ${availableBalance.toFixed(2)} MAD`);
+      }
+      if (pendingBalance > 0.0001) {
+        financialReasons.push(`solde en attente de ${pendingBalance.toFixed(2)} MAD`);
+      }
+      if (openPayouts.length > 0) {
+        financialReasons.push(`${openPayouts.length} demande(s) de retrait non traitée(s)`);
+      }
+
+      if (financialReasons.length > 0) {
+        return res.status(409).json({
+          success: false,
+          code: 'VENDOR_FINANCIAL_SETTLEMENT_REQUIRED',
+          message: `Suppression bloquée : ${financialReasons.join(' ; ')}. Réglez les soldes et clôturez les demandes de retrait avant de supprimer ce compte.`,
+          financial: {
+            availableBalance,
+            pendingBalance,
+            openPayoutCount: openPayouts.length
+          }
+        });
+      }
+
       let deletedProducts = 0;
 
       // Nettoyage borné par requête pour éviter un dépassement du délai Cloud Functions.
