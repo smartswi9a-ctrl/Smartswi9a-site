@@ -192,6 +192,7 @@ service cloud.firestore {
       allow update: if isAdmin() || (
         isApprovedVendor(request.auth.uid) &&
         resource.data.get('vendorIds', []) is list &&
+        resource.data.vendorIds.size() == 1 &&
         request.auth.uid in resource.data.vendorIds &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'status', 'updatedAt'
