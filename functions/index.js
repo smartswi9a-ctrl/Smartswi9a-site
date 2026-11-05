@@ -1941,22 +1941,36 @@ exports.releaseDueFunds = onRequest({ region: 'europe-west1', cors: [...ALLOWED_
           let txsCount = 0;
 
           for (const tx of freshTxs) {
-            const amount = Number(tx.data.amount) || 0;
-            const reversed = Number(tx.data.reversedAmount) || 0;
-            const eligible = Math.max(0, amount - reversed);
-            const releaseForThis = Math.min(eligible, Math.max(0, pendingBalance));
+            const amount = Math.max(0, Number(tx.data.amount) || 0);
+            const reversed = Math.max(0, Number(tx.data.reversedAmount) || 0);
+            const alreadyReleased = Math.max(0, Number(tx.data.releasedAmount) || 0);
+            const eligible = Math.max(0, amount - reversed - alreadyReleased);
 
-            if (releaseForThis > 0) {
-              pendingBalance -= releaseForThis;
-              availableBalance += releaseForThis;
-              vendorReleased += releaseForThis;
-              txsCount++;
+            if (eligible <= 0.0001) {
+              t.update(tx.ref, {
+                status: 'released',
+                releasedAt: tx.data.releasedAt || FieldValue.serverTimestamp(),
+                releasedAmount: alreadyReleased
+              });
+              continue;
             }
 
+            const releaseForThis = Math.min(eligible, Math.max(0, pendingBalance));
+            if (releaseForThis <= 0) continue;
+
+            pendingBalance -= releaseForThis;
+            availableBalance += releaseForThis;
+            vendorReleased += releaseForThis;
+            txsCount++;
+
+            const cumulativeReleased = alreadyReleased + releaseForThis;
+            const fullyReleased = (reversed + cumulativeReleased) >= amount - 0.0001;
             t.update(tx.ref, {
-              status: 'released',
-              releasedAt: FieldValue.serverTimestamp(),
-              releasedAmount: releaseForThis
+              status: fullyReleased ? 'released' : 'pending',
+              releasedAmount: cumulativeReleased,
+              ...(fullyReleased
+                ? { releasedAt: FieldValue.serverTimestamp() }
+                : { partialReleasedAt: FieldValue.serverTimestamp() })
             });
           }
 
