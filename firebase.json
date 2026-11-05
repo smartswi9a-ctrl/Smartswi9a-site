@@ -109,13 +109,6 @@
         }
       },
       {
-        "source": "/api/acceptVendorContract",
-        "function": {
-          "functionId": "acceptVendorContract",
-          "region": "europe-west1"
-        }
-      },
-      {
         "source": "/api/adminVendorAction",
         "function": {
           "functionId": "adminVendorAction",
@@ -154,6 +147,20 @@
         "source": "/api/cancelCustomerOrder",
         "function": {
           "functionId": "cancelCustomerOrder",
+          "region": "europe-west1"
+        }
+      },
+      {
+        "source": "/api/getLivoFees",
+        "function": {
+          "functionId": "getLivoFees",
+          "region": "europe-west1"
+        }
+      },
+      {
+        "source": "/api/syncLivoCities",
+        "function": {
+          "functionId": "syncLivoCities",
           "region": "europe-west1"
         }
       },
