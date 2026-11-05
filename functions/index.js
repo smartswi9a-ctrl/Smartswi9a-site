@@ -762,21 +762,36 @@ async function inspectVendorSettlement(vendorId) {
         if (returns.length === 0) {
           blockers.push({ orderId: orderDoc.id, reason: 'commande retournée sans détail de retour' });
         }
-        const cumulativeReturnedByProduct = {};
+        // Vérifier chaque variante exacte (produit + taille + couleur), et non
+        // seulement le total par produit : deux variantes ne sont pas interchangeables.
+        const orderedByVariant = {};
+        for (const item of (order.items || [])) {
+          if (String(item.vendorId || '') !== vendorId) continue;
+          const variant = item.variant || {};
+          const key = JSON.stringify([
+            String(item.productId || ''),
+            String(variant.size || ''),
+            String(variant.color || '')
+          ]);
+          orderedByVariant[key] = (orderedByVariant[key] || 0) + (Number(item.quantity) || 0);
+        }
+        const cumulativeReturnedByVariant = {};
         for (let returnIndex = 0; returnIndex < returns.length; returnIndex++) {
           for (const retItem of (returns[returnIndex]?.items || [])) {
             const productId = String(retItem?.productId || '');
+            const variant = retItem?.variant || {};
+            const key = JSON.stringify([
+              productId,
+              String(variant.size || ''),
+              String(variant.color || '')
+            ]);
             const delta = Number(retItem?.delta);
-            const matchingItems = (order.items || []).filter(item =>
-              String(item.productId) === productId && item.vendorId === vendorId
-            );
-            const orderedQty = matchingItems.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
-            if (!productId || !Number.isInteger(delta) || delta <= 0 || orderedQty <= 0) {
-              blockers.push({ orderId: orderDoc.id, reason: `quantité ou produit invalide dans le retour ${returnIndex + 1}` });
+            if (!productId || !Number.isInteger(delta) || delta <= 0 || !orderedByVariant[key]) {
+              blockers.push({ orderId: orderDoc.id, reason: `produit ou variante invalide dans le retour ${returnIndex + 1}` });
               continue;
             }
-            cumulativeReturnedByProduct[productId] = (cumulativeReturnedByProduct[productId] || 0) + delta;
-            if (cumulativeReturnedByProduct[productId] > orderedQty) {
+            cumulativeReturnedByVariant[key] = (cumulativeReturnedByVariant[key] || 0) + delta;
+            if (cumulativeReturnedByVariant[key] > orderedByVariant[key]) {
               blockers.push({ orderId: orderDoc.id, reason: `quantité retournée supérieure à la quantité commandée pour ${productId}` });
             }
           }
