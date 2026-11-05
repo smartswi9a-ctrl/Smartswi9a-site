@@ -77,6 +77,8 @@ service cloud.firestore {
             request.resource.data.get('vendorInfo', {}).get('status', null) == resource.data.get('vendorInfo', {}).get('status', null) &&
             request.resource.data.get('vendorInfo', {}).get('contractStatus', null) == resource.data.get('vendorInfo', {}).get('contractStatus', null) &&
             request.resource.data.get('vendorInfo', {}).get('commissionRate', null) == resource.data.get('vendorInfo', {}).get('commissionRate', null) &&
+            request.resource.data.get('vendorInfo', {}).get('commissionRateMin', null) == resource.data.get('vendorInfo', {}).get('commissionRateMin', null) &&
+            request.resource.data.get('vendorInfo', {}).get('commissionRateMax', null) == resource.data.get('vendorInfo', {}).get('commissionRateMax', null) &&
             request.resource.data.get('vendorInfo', {}).get('currentContractId', null) == resource.data.get('vendorInfo', {}).get('currentContractId', null) &&
             request.resource.data.get('vendorInfo', {}).get('contractVersion', null) == resource.data.get('vendorInfo', {}).get('contractVersion', null) &&
             request.resource.data.get('vendorInfo', {}).get('contractSignedAt', null) == resource.data.get('vendorInfo', {}).get('contractSignedAt', null)
