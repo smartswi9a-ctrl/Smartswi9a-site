@@ -1,11 +1,11 @@
 /* ============================================================
    js/boutique.js
    PAGE BOUTIQUE PUBLIQUE VENDEUR - SMART SWI9A
-   Version 10.0.0 - Pagination des produits
+   Version 11.0.0 - Pagination Firestore corrigée (orderBy)
    ============================================================ */
 
 import {
-    doc, getDoc, collection, query, where, getDocs, limit, startAfter
+    doc, getDoc, collection, query, where, getDocs, limit, startAfter, orderBy
 } from "firebase/firestore";
 import { db } from "./firebase.js";
 import { CONFIG, VENDOR_STATUS, PRODUCT_STATUS, getCategoryById } from "./config.js";
@@ -15,6 +15,9 @@ import {
 } from "./utils.js";
 import { getCurrentUser } from "./auth.js";
 
+/* ============================================================
+   HELPERS
+   ============================================================ */
 function normalizeProductId(id) {
     if (id == null || id === '') return null;
     const n = Number(id);
@@ -30,6 +33,9 @@ function safeImageUrl(url) {
     return '';
 }
 
+/* ============================================================
+   ÉTAT LOCAL
+   ============================================================ */
 let currentVendor = null;
 let vendorProducts = [];
 let filteredProducts = [];
@@ -37,13 +43,17 @@ let activeCategory = 'all';
 let currentPage = 1;
 const PRODUCTS_PER_PAGE = 12;
 
-/* Variables pour la pagination Firestore */
+/* Pagination Firestore */
+const PRODUCTS_BATCH_SIZE = 50;
 let lastVisibleProduct = null;
 let hasMoreProducts = true;
 let isLoadingMore = false;
 
 let _initInProgress = false;
 
+/* ============================================================
+   INIT
+   ============================================================ */
 async function initBoutique() {
     if (_initInProgress) return;
 
@@ -84,14 +94,7 @@ async function initBoutique() {
             createdAt: toDate(vendorPublic.createdAt)
         };
 
-        // Charger la première page de produits
         await loadVendorProducts(true);
-
-        if (!currentVendor) {
-            console.error('[boutique] currentVendor null');
-            showError('error');
-            return;
-        }
 
         renderBoutique();
         setupEventListeners();
@@ -107,6 +110,15 @@ async function initBoutique() {
     }
 }
 
+/* ============================================================
+   CHARGEMENT PRODUITS (M3 : orderBy + startAfter)
+   ============================================================
+   Sans orderBy, Firestore ne garantit ni l'ordre des docs ni
+   le comportement de startAfter → risque de doublons / docs
+   sautés. L'index composite
+   products (vendorId ==, status ==, createdAt DESC) est requis
+   (déjà présent dans firestore.indexes.json).
+   ============================================================ */
 async function loadVendorProducts(reset = false) {
     if (reset) {
         vendorProducts = [];
@@ -114,13 +126,14 @@ async function loadVendorProducts(reset = false) {
         hasMoreProducts = true;
     }
     if (!hasMoreProducts || isLoadingMore) return;
-    
+
     isLoadingMore = true;
     try {
         const constraints = [
             where("vendorId", "==", currentVendor.uid),
             where("status", "==", PRODUCT_STATUS.APPROVED),
-            limit(50) // Charger par lots de 50
+            orderBy("createdAt", "desc"),
+            limit(PRODUCTS_BATCH_SIZE)
         ];
         if (lastVisibleProduct) {
             constraints.push(startAfter(lastVisibleProduct));
@@ -144,7 +157,7 @@ async function loadVendorProducts(reset = false) {
 
         vendorProducts = [...vendorProducts, ...newProducts];
         lastVisibleProduct = snap.docs[snap.docs.length - 1] || null;
-        hasMoreProducts = snap.docs.length === 50;
+        hasMoreProducts = snap.docs.length === PRODUCTS_BATCH_SIZE;
 
     } catch (e) {
         console.error('[boutique] Erreur chargement produits :', e);
@@ -154,6 +167,9 @@ async function loadVendorProducts(reset = false) {
     }
 }
 
+/* ============================================================
+   ÉTATS UI
+   ============================================================ */
 function toggleLoading(show) {
     const loadingEl = document.getElementById('boutiqueLoading');
     const contentEl = document.getElementById('boutiqueContent');
@@ -187,6 +203,9 @@ function showError(type) {
     if (errorEl) errorEl.style.display = 'block';
 }
 
+/* ============================================================
+   SEO DYNAMIQUE
+   ============================================================ */
 function updateBoutiqueMeta() {
     if (!currentVendor) return;
     const name = currentVendor.shopName;
@@ -222,6 +241,9 @@ function setMeta(attrName, attrValue, content) {
     el.setAttribute('content', content || '');
 }
 
+/* ============================================================
+   RENDER BOUTIQUE
+   ============================================================ */
 function renderBoutique() {
     if (!currentVendor) return;
     const nameEl = document.getElementById('boutiqueName');
@@ -263,6 +285,9 @@ function renderBoutique() {
     renderFilters();
 }
 
+/* ============================================================
+   FILTRES CATÉGORIES
+   ============================================================ */
 function renderFilters() {
     const container = document.getElementById('boutiqueFilters');
     if (!container) return;
@@ -321,6 +346,9 @@ function applyCategoryFilter(categoryId) {
     });
 }
 
+/* ============================================================
+   RENDER GRILLE
+   ============================================================ */
 function renderGrid() {
     const grid = document.getElementById('boutiqueGrid');
     if (!grid) return;
@@ -375,23 +403,31 @@ function renderGrid() {
             </div>
         `;
     });
-    // Ajouter bouton charger plus si nécessaire
+
+    // Bouton "Charger plus" : uniquement si filtre "Tout" et produits restants
     if (hasMoreProducts && activeCategory === 'all') {
         html += `<div style="grid-column: 1 / -1; text-align: center; margin-top: 1rem;">
             <button id="loadMoreProductsBtn" class="btn-primary" style="padding: 0.5rem 2rem;">Charger plus de produits</button>
         </div>`;
     }
+
     grid.innerHTML = html;
     attachGridEvents(grid);
-    // Attacher l'événement "Charger plus"
+
     const loadMoreBtn = document.getElementById('loadMoreProductsBtn');
     if (loadMoreBtn) {
         loadMoreBtn.addEventListener('click', async () => {
             loadMoreBtn.disabled = true;
             loadMoreBtn.textContent = 'Chargement...';
-            await loadVendorProducts(false);
-            renderBoutique();
-            applyCategoryFilter('all');
+            try {
+                await loadVendorProducts(false);
+                renderBoutique();
+                applyCategoryFilter('all');
+            } catch (err) {
+                console.warn('[boutique] loadMore error:', err);
+                loadMoreBtn.disabled = false;
+                loadMoreBtn.textContent = 'Charger plus de produits';
+            }
         });
     }
 }
@@ -439,6 +475,9 @@ function attachGridEvents(grid) {
     });
 }
 
+/* ============================================================
+   PAGINATION UI
+   ============================================================ */
 function renderPagination() {
     const container = document.getElementById('boutiquePagination');
     if (!container) return;
@@ -465,6 +504,9 @@ function renderPagination() {
     });
 }
 
+/* ============================================================
+   LISTENERS GLOBAUX
+   ============================================================ */
 function setupEventListeners() {
     document.querySelectorAll('.boutique-filter-btn').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -476,10 +518,13 @@ function setupEventListeners() {
     });
 }
 
+/* ============================================================
+   DÉMARRAGE
+   ============================================================ */
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initBoutique);
 } else {
     initBoutique();
 }
 
-console.log('✅ boutique.js chargé - v10.0.0 (Pagination)');
+console.log('✅ boutique.js chargé - v11.0.0 (Pagination orderBy)');
