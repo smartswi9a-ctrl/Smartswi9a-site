@@ -1115,7 +1115,7 @@ exports.requestWithdrawal = onRequest({ region: 'europe-west1', cors: [...ALLOWE
     return res.status(200).json({ success: true });
   } catch (error) {
     const message = error.message || 'Erreur serveur.';
-    const clientError = /introuvable|invalide|minimum|coordonnées|méthode|solde insuffisant|déjà en cours|doit être approuvé/i.test(message);
+    const clientError = /introuvable|invalide|minimum|coordonnées|méthode|solde insuffisant|solde débiteur|retrait impossible|déjà en cours|doit être approuvé/i.test(message);
     return res.status(clientError ? 400 : 500).json({ success: false, message });
   }
 });
@@ -1790,6 +1790,9 @@ exports.adminPayoutAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
         if (!walletSnap.exists) throw new Error('Wallet introuvable.');
 
         const wallet = walletSnap.data();
+        if ((Number(wallet.negativeBalance) || 0) < -0.0001) {
+          throw new Error('Paiement bloqué : le portefeuille vendeur présente un solde débiteur à régulariser.');
+        }
         const available = Number(wallet.availableBalance) || 0;
         if (available < amount) {
           throw new Error(`Solde insuffisant : disponible ${available} MAD, demandé ${amount} MAD.`);
