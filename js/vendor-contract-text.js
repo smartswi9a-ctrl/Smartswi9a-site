@@ -126,7 +126,7 @@ export function getContractText( lang = "fr", version = CONFIG.VENDOR.CONTRACT_V
   return builder(snapshot);
 }
 
-/** * Retourne les versions de contrat disponibles, triées en semver * croissant. Ex. actuellement : ['1.1.0', '1.2.0']. * @returns {string[]} */
+/** * Retourne les versions de contrat disponibles, triées en semver * croissant. Ex. actuellement : ['1.1.0', '1.2.0', '1.3.0']. * @returns {string[]} */
 export function getSupportedContractVersions() {
   const keys = Object.keys(CONTRACT_TEMPLATES);
   return keys.sort(function (a, b) {
@@ -141,5 +141,5 @@ export function getSupportedContractVersions() {
 
 /* ============================================================ LOG ============================================================ */
 console.log(
-  "[vendor-contract-text] v9.0.0 chargé (Lot 26 : gabarit 1.2.0 + returnFeeLivo)"
+  "[vendor-contract-text] v10.0.0 chargé (gabarit 1.3.0 : domaine .ma)"
 );
