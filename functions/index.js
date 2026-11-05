@@ -1610,6 +1610,15 @@ exports.cancelCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
       const refs = productIds.map(id => db.collection('products').doc(id));
       const snaps = await Promise.all(refs.map(ref => tx.get(ref)));
 
+      // Toutes les lectures doivent précéder les premières écritures
+      // de la transaction Firestore.
+      const couponRef = order.couponId
+        ? db.collection('coupons').doc(String(order.couponId))
+        : null;
+      const couponSnap = couponRef && !order.couponRestored
+        ? await tx.get(couponRef)
+        : null;
+
       if (order.stockDeducted === true) {
         for (let i = 0; i < productIds.length; i++) {
           if (!snaps[i].exists) {
@@ -1669,18 +1678,13 @@ exports.cancelCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
         }
       }
 
-      // M2 : restauration coupon (protégée contre usedCount négatif)
-      if (order.couponId && !order.couponRestored) {
-        try {
-          const couponRef = db.collection('coupons').doc(String(order.couponId));
-          const couponSnap = await tx.get(couponRef);
-          if (couponSnap.exists && Number(couponSnap.data().usedCount) > 0) {
-            tx.update(couponRef, { usedCount: FieldValue.increment(-1) });
-          }
-          tx.delete(db.collection('coupon_uses').doc(`${order.couponId}_${decoded.uid}`));
-        } catch (e) {
-          console.warn('[cancelCustomerOrder] Coupon restore failed:', e.message);
+      // Restaurer le coupon sans lecture après les premières écritures
+      // et sans jamais rendre usedCount négatif.
+      if (couponRef && !order.couponRestored) {
+        if (couponSnap?.exists && Number(couponSnap.data().usedCount) > 0) {
+          tx.update(couponRef, { usedCount: FieldValue.increment(-1) });
         }
+        tx.delete(db.collection('coupon_uses').doc(`${order.couponId}_${decoded.uid}`));
       }
 
       tx.update(orderRef, {
