@@ -1115,6 +1115,28 @@ exports.adminSetReturnFee = onRequest({ region: 'europe-west1', cors: [...ALLOWE
         throw new Error('Retour introuvable ou commande non retournée.');
       }
 
+      const orderedByVariant = {};
+      for (const item of (order.items || [])) {
+        const variant = item.variant || {};
+        const key = JSON.stringify([String(item.productId || ''), String(variant.size || ''), String(variant.color || '')]);
+        orderedByVariant[key] = (orderedByVariant[key] || 0) + (Number(item.quantity) || 0);
+      }
+      const cumulativeByVariant = {};
+      for (let idx = 0; idx < returns.length; idx++) {
+        for (const retItem of (returns[idx]?.items || [])) {
+          const variant = retItem.variant || {};
+          const key = JSON.stringify([String(retItem.productId || ''), String(variant.size || ''), String(variant.color || '')]);
+          const delta = Number(retItem.delta);
+          if (!retItem.productId || !Number.isInteger(delta) || delta <= 0) {
+            throw new Error('Quantité de retour invalide.');
+          }
+          cumulativeByVariant[key] = (cumulativeByVariant[key] || 0) + delta;
+          if (!orderedByVariant[key] || cumulativeByVariant[key] > orderedByVariant[key]) {
+            throw new Error('La quantité retournée dépasse la quantité commandée.');
+          }
+        }
+      }
+
       const returnedByVendor = {};
       for (const retItem of entry.items) {
         const variant = retItem.variant || {};
@@ -1127,7 +1149,7 @@ exports.adminSetReturnFee = onRequest({ region: 'europe-west1', cors: [...ALLOWE
         if (!matchItem) throw new Error('Une ligne retournée ne correspond pas à la commande.');
         const id = String(matchItem.vendorId || '');
         if (id && id !== 'smartswi9a') {
-          returnedByVendor[id] = (returnedByVendor[id] || 0) + Number(retItem.delta || 0);
+          returnedByVendor[id] = (returnedByVendor[id] || 0) + Number(retItem.delta);
         }
       }
       if (!returnedByVendor[vendorId]) throw new Error('Ce vendeur ne possède aucun article dans ce retour.');
@@ -1168,7 +1190,10 @@ exports.adminSetReturnFee = onRequest({ region: 'europe-west1', cors: [...ALLOWE
     return res.status(200).json({ success: true, message: 'Montant enregistré. Le débit sécurisé sera rapproché automatiquement.' });
   } catch (error) {
     const message = error.message || 'Erreur serveur.';
-    const clientError = /introuvable|invalide|retournée|correspond pas|aucun article|déjà été enregistré|déjà été débité/i.test(message);
+    if (/nouveau contrat 1\.4\.0/i.test(message)) {
+      return res.status(409).json({ success: false, code: 'VENDOR_CONTRACT_UPDATE_REQUIRED', message });
+    }
+    const clientError = /introuvable|invalide|retournée|correspond pas|aucun article|déjà été enregistré|déjà été débité|dépasse la quantité/i.test(message);
     return res.status(clientError ? 400 : 500).json({ success: false, message });
   }
 });
@@ -1275,7 +1300,6 @@ exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}',
   const after = event.data.after.data();
 
   const afterReturns = Array.isArray(after.returns) ? after.returns : [];
-  const statusChanged = before.status !== after.status;
   const orderId = event.params.orderId;
 
   // Le trigger est aussi relancé lorsqu'un administrateur valide les frais
