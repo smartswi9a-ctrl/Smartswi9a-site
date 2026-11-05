@@ -1,18 +1,7 @@
 /* ============================================================
    js/admin.js
    PANNEAU ADMINISTRATION - SMART SWI9A
-   Version 12.1.0 - Lot 50 : createLivoPickup (client_id Worker)
-   PARTIE 1/3 : header, imports, constantes, state, helpers,
-                mode test, login, initAdmin, produits CRUD, users
-
-   CHANGEMENTS v12.1.0 :
-     - Ajout `createLivoPickup` dans l'import de ./orders.js.
-     - handleConfirmPickup (P2/3) appelle createLivoPickup en
-       premier, fallback Firestore sinon.
-     - Log final v12.1.0 (P3/3).
-
-   ALERTE 1 : plus aucun commentaire de ligne (//) en début de
-   ligne utile. Tout est en bloc.
+   Version 12.2.1 - Nettoyage des imports (audit)
    ============================================================ */
 
 import { auth, db, storage } from "./firebase.js";
@@ -22,8 +11,7 @@ import {
 import {
     collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
     query, where, writeBatch, Timestamp, getCountFromServer,
-    orderBy, limit, startAfter, increment, addDoc, deleteField,
-    runTransaction, serverTimestamp
+    orderBy, limit, startAfter, increment, addDoc, deleteField
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import {
@@ -36,8 +24,8 @@ import {
     getSignupMethodLabel, getSignupMethodEmoji, toDate, t, getCityName
 } from "./utils.js";
 import {
-    renderAdminOrders, resetAdminOrdersCache, openReturnModal,
-    syncLivoStatus, releaseDueVendorFunds, createLivoPickup
+    renderAdminOrders, resetAdminOrdersCache,
+    syncLivoStatus, createLivoPickup
 } from "./orders.js";
 import { renderAdminReviews } from "./reviews.js";
 import { showToast, confirmAction } from "./ui-core.js";
@@ -1509,29 +1497,10 @@ function filterUsersList() {
     }
     renderUsersList(filtered);
 }
-
-/* ============================================================
-   FIN PARTIE 1/3
-   ------------------------------------------------------------
-   Prochaines parties :
-     - PARTIE 2/3 : Blog + Coupons + Livo + Alertes + Chart + Finances
-     - PARTIE 3/3 : Rapports + Exports + Simulateur + Vendeurs
-                     + Payouts + Tools + Events + initAdmin() + log final
-   ============================================================ */
-   /* ============================================================
-   PARTIE 2/3 — Blog + Coupons + Livo + Alertes + Chart + Finances
-   Version 12.1.0 - Lot 50 (handleConfirmPickup + createLivoPickup)
-   ============================================================ */
-
 /* ============================================================
    BLOG
    ============================================================ */
 
-/**
- * Charge les articles de blog dans le cache.
- * B-ADM-9 : limit(100) pour éviter le crash sur grosse base.
- * @returns {Promise<void>}
- */
 async function loadBlogPosts() {
     const container = document.getElementById('adminBlogList');
     if (!container) return;
@@ -2316,26 +2285,6 @@ async function handleSyncAllLivo() {
     isSyncingAllLivo = false;
 }
 
-/**
- * Enregistre une demande de ramassage Livo.
- *
- * v12.1.0 : appelle d'abord createLivoPickup() de orders.js pour créer
- * le ramassage chez Livo (via Worker livo-proxy qui injecte client_id
- * = env.LIVO_CLIENT_ID = clttgsz40483).
- *
- * La modale actuelle (pickupModal) ne contient PAS de sélection
- * items/products Livo (it-xxxxxxxx / pr-xxxxxxxx). Donc createLivoPickup
- * n'est PAS appelé pour l'instant — on enregistre directement en
- * Firestore avec status `pending_manual`.
- *
- * ⚠️ Évolution future : enrichir la modale avec une liste des
- *    it-xxxxxxxx disponibles dans le stock Livo. Alors
- *    createLivoPickup({ items: [...] }) sera appelé et le flux sera
- *    complet.
- *
- * B-ADM-13 : validation de date passée interdite.
- * @returns {Promise<void>}
- */
 async function handleConfirmPickup() {
     const dateVal = _getId('pickupDate')?.value;
     const packages = parseInt(_getId('pickupPackages')?.value) || 1;
@@ -2995,30 +2944,9 @@ async function renderTransactionsList() {
     html += `</tbody></table>`;
     container.innerHTML = html;
 }
-
 /* ============================================================
-   FIN PARTIE 2/3
-   ------------------------------------------------------------
-   Prochaine partie :
-     - PARTIE 3/3 : Rapports + Exports + Simulateur + Vendeurs
-                     + Payouts + Tools + Events + initAdmin() + log final
+   RAPPORTS
    ============================================================ */
-   /* ============================================================
-   PARTIE 3/3 — Rapports, exports, simulateur, vendeurs,
-                 payouts, tools, events, init finale, log final
-   Version 12.1.0 - Lot 50 (identique v12.0.0 sauf log final)
-   ============================================================ */
-
-/* ============================================================
-   RAPPORTS (B8 : limit 5000)
-   ============================================================ */
-
-/**
- * Génère un rapport financier sur une période.
- * B8 : limit(5000) sur les 3 queries (orders, expenses, purchases)
- * pour éviter la surcharge Firestore sur grosse base.
- * @returns {Promise<void>}
- */
 async function generateReport() {
     const startVal = document.getElementById('reportStart').value;
     const endVal = document.getElementById('reportEnd').value;
@@ -3037,24 +2965,9 @@ async function generateReport() {
 
         const REPORT_LIMIT = 5000;
         const [ordersSnap, expensesSnap, purchasesSnap] = await Promise.all([
-            getDocs(query(
-                collection(db, "orders"),
-                where("createdAt", ">=", Timestamp.fromDate(start)),
-                where("createdAt", "<=", Timestamp.fromDate(end)),
-                limit(REPORT_LIMIT)
-            )),
-            getDocs(query(
-                collection(db, "expenses"),
-                where("date", ">=", Timestamp.fromDate(start)),
-                where("date", "<=", Timestamp.fromDate(end)),
-                limit(REPORT_LIMIT)
-            )),
-            getDocs(query(
-                collection(db, "purchases"),
-                where("date", ">=", Timestamp.fromDate(start)),
-                where("date", "<=", Timestamp.fromDate(end)),
-                limit(REPORT_LIMIT)
-            ))
+            getDocs(query(collection(db, "orders"), where("createdAt", ">=", Timestamp.fromDate(start)), where("createdAt", "<=", Timestamp.fromDate(end)), limit(REPORT_LIMIT))),
+            getDocs(query(collection(db, "expenses"), where("date", ">=", Timestamp.fromDate(start)), where("date", "<=", Timestamp.fromDate(end)), limit(REPORT_LIMIT))),
+            getDocs(query(collection(db, "purchases"), where("date", ">=", Timestamp.fromDate(start)), where("date", "<=", Timestamp.fromDate(end)), limit(REPORT_LIMIT)))
         ]);
 
         let revenue = 0, ordersCount = 0;
@@ -3246,9 +3159,7 @@ function calculateFinances() {
 
     const netProfit = totalGrossProfit - adSpend;
     const globalRoi = totalInvestment > 0 ? (totalGrossProfit / totalInvestment) * 100 : 0;
-    const breakEven = adSpend > 0 && totalGrossProfit > 0 && totalUnits > 0
-        ? Math.ceil(adSpend / (totalGrossProfit / totalUnits))
-        : 0;
+    const breakEven = adSpend > 0 && totalGrossProfit > 0 && totalUnits > 0 ? Math.ceil(adSpend / (totalGrossProfit / totalUnits)) : 0;
 
     document.getElementById('financesResults').style.display = 'block';
     document.getElementById('finTotalRevenue').textContent = formatMAD(totalRevenue);
@@ -3548,10 +3459,18 @@ async function handleReleaseDueFunds() {
     if (btn) { btn.disabled = true; btn.textContent = 'Déblocage...'; }
 
     try {
-        if (typeof releaseDueVendorFunds !== 'function') {
-            throw new Error('Fonction releaseDueVendorFunds introuvable.');
-        }
-        const result = await releaseDueVendorFunds({ batchSize: 400, dryRun: false });
+        const adminUser = auth.currentUser;
+        if (!adminUser) throw new Error('Session expirée.');
+        const idToken = await adminUser.getIdToken(true);
+
+        const response = await fetch('/api/releaseDueFunds', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+            body: JSON.stringify({ batchSize: 400 })
+        });
+
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.success) throw new Error(result.message || "Erreur lors du déblocage.");
 
         if (result.errors && result.errors.length > 0) {
             showToast(`${result.transactionsReleased} débloquées, ${result.errors.length} erreur(s). Voir console.`, 6000);
@@ -3565,11 +3484,7 @@ async function handleReleaseDueFunds() {
         console.error('[admin] handleReleaseDueFunds :', e);
         showToast(e.message || 'Erreur');
     } finally {
-        if (btn) {
-            btn.disabled = false;
-            btn.textContent = 'Débloquer les fonds échus';
-            btn._listenerAttached = true;
-        }
+        if (btn) { btn.disabled = false; btn.textContent = 'Débloquer les fonds échus'; }
     }
 }
 
@@ -3582,70 +3497,20 @@ async function handlePayoutPaid(payoutId) {
     });
     if (!confirmed) return;
 
-    let paidVendorId = null;
-    let paidAmount = 0;
-
     try {
-        await runTransaction(db, async (transaction) => {
-            const payoutRef = doc(db, 'payout_requests', payoutId);
-            const payoutSnap = await transaction.get(payoutRef);
-            if (!payoutSnap.exists()) throw new Error('Demande introuvable');
+        const adminUser = auth.currentUser;
+        if (!adminUser) throw new Error("Session expirée.");
+        const idToken = await adminUser.getIdToken(true);
 
-            const payoutData = payoutSnap.data();
-            if (payoutData.status !== 'pending') throw new Error('Statut inattendu : ' + payoutData.status);
-
-            const amount = Number(payoutData.amount) || 0;
-            const vendorId = payoutData.vendorId;
-            if (!vendorId || amount <= 0) throw new Error('Données de retrait invalides');
-
-            paidVendorId = vendorId;
-            paidAmount = amount;
-
-            const walletRef = doc(db, 'wallets', vendorId);
-            const walletSnap = await transaction.get(walletRef);
-            if (!walletSnap.exists()) throw new Error('Wallet introuvable');
-
-            const wallet = walletSnap.data();
-            if (Number(wallet.availableBalance) < amount) {
-                throw new Error('Solde insuffisant : disponible ' + formatMAD(wallet.availableBalance) + ', demandé ' + formatMAD(amount) + '.');
-            }
-
-            transaction.update(walletRef, {
-                availableBalance: increment(-amount),
-                totalWithdrawn: increment(amount),
-                lastUpdated: Timestamp.now()
-            });
-            transaction.update(payoutRef, {
-                status: 'paid',
-                paidAt: Timestamp.now(),
-                paidBy: currentAdmin?.uid || 'admin'
-            });
-
-            const txRef = doc(collection(db, 'wallet_transactions'));
-            transaction.set(txRef, {
-                vendorId: vendorId,
-                type: 'payout',
-                amount: -amount,
-                status: 'released',
-                payoutRequestId: payoutId,
-                description: 'Retrait payé (admin) - ' + (payoutData.method || 'Wafacash'),
-                createdAt: Timestamp.now(),
-                releasedAt: Timestamp.now()
-            });
+        const response = await fetch('/api/adminPayoutAction', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+            body: JSON.stringify({ payoutId, action: 'paid' })
         });
 
-        if (paidVendorId) {
-            try {
-                await addDoc(collection(db, 'notifications'), {
-                    userId: paidVendorId,
-                    type: 'payout_paid',
-                    title: 'Retrait payé',
-                    message: 'Votre retrait de ' + formatMAD(paidAmount) + ' a été payé.',
-                    read: false,
-                    createdAt: Timestamp.now(),
-                    payoutId: payoutId
-                });
-            } catch (e) { /* non bloquant */ }
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.success) {
+            throw new Error(result.message || "Erreur lors du paiement.");
         }
 
         showToast('Retrait marqué comme payé !');
@@ -3666,30 +3531,21 @@ async function handlePayoutReject(payoutId) {
     if (!confirmed) return;
 
     try {
-        const payoutRef = doc(db, 'payout_requests', payoutId);
-        const payoutSnap = await getDoc(payoutRef);
-        if (!payoutSnap.exists()) { showToast('Demande introuvable'); return; }
+        const adminUser = auth.currentUser;
+        if (!adminUser) throw new Error("Session expirée.");
+        const idToken = await adminUser.getIdToken(true);
 
-        const payoutData = payoutSnap.data();
-        await updateDoc(payoutRef, {
-            status: 'rejected',
-            rejectedAt: Timestamp.now(),
-            rejectedBy: currentAdmin?.uid || 'admin'
+        const response = await fetch('/api/adminPayoutAction', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+            body: JSON.stringify({ payoutId, action: 'rejected' })
         });
 
-        if (payoutData.vendorId) {
-            try {
-                await addDoc(collection(db, 'notifications'), {
-                    userId: payoutData.vendorId,
-                    type: 'payout_rejected',
-                    title: 'Retrait rejeté',
-                    message: 'Votre demande de retrait de ' + formatMAD(payoutData.amount) + ' a été rejetée.',
-                    read: false,
-                    createdAt: Timestamp.now(),
-                    payoutId: payoutId
-                });
-            } catch (e) { /* non bloquant */ }
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.success) {
+            throw new Error(result.message || "Erreur lors du rejet.");
         }
+
         showToast('Demande rejetée');
         await loadPayouts();
     } catch (e) {
@@ -3731,10 +3587,7 @@ async function handleMigrateCities() {
 
     const existingSnap = await getDocs(collection(db, "cities"));
     if (!existingSnap.empty) {
-        const confirmed = await confirmAction(
-            `La collection "cities" contient ${existingSnap.size} documents. Ils seront SUPPRIMÉS et remplacés. Continuer ?`,
-            { title: 'Migration villes', confirmText: 'Remplacer', cancelText: 'Annuler', variant: 'danger' }
-        );
+        const confirmed = await confirmAction(`La collection "cities" contient ${existingSnap.size} documents. Ils seront SUPPRIMÉS et remplacés. Continuer ?`, { title: 'Migration villes', confirmText: 'Remplacer', cancelText: 'Annuler', variant: 'danger' });
         if (!confirmed) { if (btn) btn.disabled = false; return; }
         log('Suppression des anciennes villes...');
         const oldDocs = existingSnap.docs;
@@ -3754,14 +3607,10 @@ async function handleMigrateCities() {
             if (!city.id || (!city.name && !city.nameAr)) continue;
             const ref = doc(db, "cities", String(city.id));
             batch.set(ref, {
-                id: Number(city.id),
-                key: String(city.key || '').toLowerCase().trim(),
-                name: String(city.nameAr || city.name || '').trim(),
-                nameAr: String(city.nameAr || city.name || '').trim(),
-                nameFr: String(city.nameFr || city.name || '').trim(),
-                nameEn: String(city.nameEn || city.nameFr || city.name || '').trim(),
-                price: Number(city.price) || 30,
-                delay: String(city.delay || '48h').trim()
+                id: Number(city.id), key: String(city.key || '').toLowerCase().trim(),
+                name: String(city.nameAr || city.name || '').trim(), nameAr: String(city.nameAr || city.name || '').trim(),
+                nameFr: String(city.nameFr || city.name || '').trim(), nameEn: String(city.nameEn || city.nameFr || city.name || '').trim(),
+                price: Number(city.price) || 30, delay: String(city.delay || '48h').trim()
             });
         }
         try {
@@ -3890,19 +3739,6 @@ async function handleMigrateSku() {
     }
 }
 
-/**
- * Migration de statut pour les produits LEGACY Smart Swi9a.
- *
- * P0-4 CRITIQUE :
- *   - AVANT : approuve TOUS les produits sans status, y compris les
- *     produits vendeurs. Conséquence : un produit vendeur legacy
- *     apparaissait dans le catalogue public sans validation admin.
- *   - APRÈS : ne touche QUE les produits Smart Swi9a (vendorId
- *     absent ou === 'smartswi9a'). Les produits vendeurs sont
- *     IGNORÉS.
- *
- * @returns {Promise<void>}
- */
 async function handleMigrateProductStatus() {
     const btn = document.getElementById('migrateProductsStatusBtn');
     const logEl = document.getElementById('productStatusMigrationLog');
@@ -4170,4 +4006,4 @@ initAdmin();
 /* ============================================================
    LOG FINAL
    ============================================================ */
-console.log('[admin] v12.1.0 chargé (Lot 50 : createLivoPickup + P0-4 corrigé + B7/B8/B9 + cohérence emoji)');
+console.log('[admin] v12.2.1 chargé (Sécurisation des actions admin, imports nettoyés)');
