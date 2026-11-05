@@ -948,6 +948,20 @@ export async function deleteOrderCompletely(orderId) {
     if (!orderSnap.exists()) return { success: false };
     const order = { id: orderId, ...orderSnap.data() };
     order.items = consolidateStockItems(order.items);
+    const currentStatus = normalizeOrderStatus(order.status);
+
+    // Ne jamais supprimer une commande ayant un historique de livraison,
+    // de retour ou d'écriture financière. Seules les commandes annulées,
+    // dont le stock a déjà été restitué, peuvent être supprimées.
+    if (
+        currentStatus !== ORDER_STATUS.CANCELLED ||
+        order.stockDeducted === true ||
+        (Array.isArray(order.returns) && order.returns.length > 0) ||
+        Object.keys(order.vendorCredits || {}).length > 0 ||
+        Object.keys(order.vendorDebits || {}).length > 0
+    ) {
+        throw new Error("Suppression refusée : seules les commandes annulées sans retour ni mouvement financier peuvent être supprimées.");
+    }
 
     if (order.stockDeducted === true && ![ORDER_STATUS.CANCELLED, ORDER_STATUS.RETURNED].includes(normalizeOrderStatus(order.status))) {
         await runTransaction(db, async (transaction) => {
