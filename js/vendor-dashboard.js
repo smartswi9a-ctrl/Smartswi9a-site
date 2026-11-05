@@ -1143,8 +1143,6 @@ async function renderOrders(container) {
             actionHtml = `<button class="v-btn v-btn-primary" data-action="advance-order" data-id="${o.id}" data-next="confirmed" style="padding:0.3rem 0.6rem;font-size:0.75rem;">Confirmer</button>`;
         } else if (status === 'confirmed') {
             actionHtml = `<button class="v-btn v-btn-primary" data-action="advance-order" data-id="${o.id}" data-next="shipping" style="padding:0.3rem 0.6rem;font-size:0.75rem;">Expédier</button>`;
-        } else if (status === 'shipping') {
-            actionHtml = `<button class="v-btn v-btn-primary" data-action="advance-order" data-id="${o.id}" data-next="delivered" style="padding:0.3rem 0.6rem;font-size:0.75rem;">Marquer Livré</button>`;
         }
 
         return `
