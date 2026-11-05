@@ -1085,7 +1085,11 @@ exports.requestWithdrawal = onRequest({ region: 'europe-west1', cors: [...ALLOWE
       if (!walletSnap.exists) throw new Error('Wallet introuvable.');
       if (!pendingSnap.empty) throw new Error('Une demande de retrait est déjà en cours.');
 
-      const balance = Number(walletSnap.data().availableBalance);
+      const walletData = walletSnap.data();
+      if ((Number(walletData.negativeBalance) || 0) < -0.0001) {
+        throw new Error('Retrait impossible : votre portefeuille présente un solde débiteur à régulariser.');
+      }
+      const balance = Number(walletData.availableBalance);
       if (!Number.isFinite(balance) || amount > balance) {
         throw new Error('Solde insuffisant.');
       }
@@ -1173,29 +1177,37 @@ exports.onOrderStatusChanged = onDocumentUpdated('orders/{orderId}', async (even
           if (!freshVendorSnap.exists || freshVendorSnap.data()?.role !== 'vendor') return;
 
           const freshWalletSnap = await tx.get(walletRef);
-          if (!freshWalletSnap.exists) {
-            tx.set(walletRef, {
-              vendorId,
-              pendingBalance: net,
-              availableBalance: 0,
-              totalEarnings: net,
-              totalWithdrawn: 0,
-              createdAt: FieldValue.serverTimestamp(),
-              lastUpdated: FieldValue.serverTimestamp()
-            });
-          } else {
-            tx.update(walletRef, {
-              pendingBalance: FieldValue.increment(net),
-              totalEarnings: FieldValue.increment(net),
-              lastUpdated: FieldValue.serverTimestamp()
-            });
-          }
+          const wallet = freshWalletSnap.exists ? freshWalletSnap.data() : {
+            pendingBalance: 0,
+            availableBalance: 0,
+            negativeBalance: 0,
+            totalEarnings: 0,
+            totalWithdrawn: 0
+          };
+          const currentDebt = Math.max(0, -(Number(wallet.negativeBalance) || 0));
+          const debtOffset = Math.min(net, currentDebt);
+          const pendingCredit = Math.max(0, net - debtOffset);
+          const nextDebt = Math.min(0, (Number(wallet.negativeBalance) || 0) + debtOffset);
+          const walletUpdate = {
+            vendorId,
+            pendingBalance: Math.max(0, Number(wallet.pendingBalance) || 0) + pendingCredit,
+            availableBalance: Number(wallet.availableBalance) || 0,
+            negativeBalance: nextDebt,
+            totalEarnings: (Number(wallet.totalEarnings) || 0) + net,
+            totalWithdrawn: Number(wallet.totalWithdrawn) || 0,
+            lastUpdated: FieldValue.serverTimestamp()
+          };
+          if (freshWalletSnap.exists) tx.update(walletRef, walletUpdate);
+          else tx.set(walletRef, { ...walletUpdate, createdAt: FieldValue.serverTimestamp() });
 
           const txRef = db.collection('wallet_transactions').doc();
           tx.set(txRef, {
             vendorId,
             type: 'sale',
             amount: net,
+            reversedAmount: debtOffset,
+            releasedAmount: 0,
+            debtOffsetAmount: debtOffset,
             commission,
             commissionRate: rate,
             subtotal,
