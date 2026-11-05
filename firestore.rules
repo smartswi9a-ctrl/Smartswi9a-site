@@ -248,10 +248,9 @@ service cloud.firestore {
        ============================================================ */
 
     match /vendor_orders/{vendorId}/orders/{orderId} {
-      allow read: if isAdmin() || (
-        isApprovedVendor(vendorId) &&
-        resource.data.vendorId == vendorId
-      );
+      // L'identifiant vendeur est porté par le chemin ; aucune écriture client
+      // n'est permise dans cette collection.
+      allow read: if isAdmin() || isApprovedVendor(vendorId);
       allow create, update, delete: if false;
     }
 
