@@ -1528,6 +1528,11 @@ exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}',
           const freshOrderSnap = await tx.get(orderRef);
           if (!freshOrderSnap.exists) return;
           const freshOrder = freshOrderSnap.data();
+
+          // Une invocation retardée du trigger "delivered" ne doit jamais
+          // créditer une vente si la commande est déjà passée à "returned"
+          // ou à un autre statut depuis l'événement initial.
+          if (freshOrder.status !== 'delivered') return;
           if (freshOrder.vendorCredits && freshOrder.vendorCredits[vendorId]) return;
 
           // Lecture du profil dans la transaction : le verrou deletion_pending
