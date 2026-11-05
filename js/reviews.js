@@ -271,7 +271,7 @@ export async function createReview( productId, { rating, title, comment, photoFi
   const files = (photoFiles || []).slice(0, CONFIG.REVIEWS.MAX_PHOTOS);
 
   const uploadPromises = files.map(async (file) => {
-    const fileName = `reviews/${pid}_${user.uid}_${Date.now()}_${file.name}`;
+    const fileName = `reviews/${user.uid}/${pid}_${Date.now()}_${file.name}`;
     const storageRef = ref(storage, fileName);
     await uploadBytes(storageRef, file);
     return await getDownloadURL(storageRef);
