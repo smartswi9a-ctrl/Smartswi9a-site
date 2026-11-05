@@ -693,7 +693,7 @@ exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
 
     const vendorRef = db.collection('users').doc(vendorId);
     const vendorSnap = await vendorRef.get();
-    if (!vendorSnap.exists() || vendorSnap.data()?.role !== 'vendor') {
+    if (!vendorSnap.exists || vendorSnap.data()?.role !== 'vendor') {
       return res.status(404).json({ success: false, message: 'Profil introuvable.' });
     }
 
