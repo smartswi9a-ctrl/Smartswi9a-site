@@ -3,6 +3,7 @@ const { onDocumentWritten, onDocumentUpdated } = require('firebase-functions/v2/
 const { initializeApp } = require('firebase-admin/app');
 const { getAuth } = require('firebase-admin/auth');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
+const { getStorage } = require('firebase-admin/storage');
 const bcrypt = require('bcryptjs');
 const crypto = require('node:crypto');
 
@@ -740,6 +741,11 @@ exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
           message: 'Suppression partielle : des produits restent à traiter. Relancez la suppression pour continuer.'
         });
       }
+
+      // Supprimer uniquement les images produits de ce vendeur.
+      // Si Storage échoue, conserver le compte et permettre une nouvelle tentative.
+      await getStorage().bucket('smartswi9a-31063.firebasestorage.app')
+        .deleteFiles({ prefix: `vendors/${vendorId}/products/` });
 
       // Supprimer les identifiants vendeurs avant le profil, et ne pas masquer une erreur réelle.
       await db.collection('vendorCredentials').doc(vendorId).delete().catch(error => {
