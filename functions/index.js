@@ -343,22 +343,22 @@ function getContractText(lang, version, snapshot) {
   let text = t[lang] ? t[lang](snapshot) : t["fr"](snapshot);
   if (version === "1.4.0") {
     const clauses = {
-      fr: "Article 6 — Retours\\nLes frais de retour sont facturés séparément à chaque Vendeur selon le montant réel communiqué par le transporteur ou, à défaut, validé par l'administration. Aucun frais n'est débité avant l'enregistrement et la validation de ce montant. Les retours répétés peuvent entraîner une révision du statut du Vendeur.",
-      ar: "المادة 6 — الإرجاع\\nتُفرض رسوم الإرجاع بشكل منفصل على كل بائع وفق المبلغ الفعلي الذي يحدده الناقل، أو الذي تعتمده الإدارة عند عدم توفره. لا يتم خصم أي رسوم قبل تسجيل المبلغ واعتماده. وقد تؤدي الإرجاعات المتكررة إلى مراجعة وضع البائع.",
-      en: "Article 6 — Returns\\nReturn fees are charged separately to each Vendor based on the actual amount provided by the carrier or, if unavailable, validated by the administration. No fee is debited until that amount has been recorded and approved. Repeated returns may lead to a review of the Vendor's status."
+      fr: "Article 6 — Retours\nLes frais de retour sont facturés séparément à chaque Vendeur selon le montant réel communiqué par le transporteur ou, à défaut, validé par l'administration. Aucun frais n'est débité avant l'enregistrement et la validation de ce montant. Les retours répétés peuvent entraîner une révision du statut du Vendeur.",
+      ar: "المادة 6 — الإرجاع\nتُفرض رسوم الإرجاع بشكل منفصل على كل بائع وفق المبلغ الفعلي الذي يحدده الناقل، أو الذي تعتمده الإدارة عند عدم توفره. لا يتم خصم أي رسوم قبل تسجيل المبلغ واعتماده. وقد تؤدي الإرجاعات المتكررة إلى مراجعة وضع البائع.",
+      en: "Article 6 — Returns\nReturn fees are charged separately to each Vendor based on the actual amount provided by the carrier or, if unavailable, validated by the administration. No fee is debited until that amount has been recorded and approved. Repeated returns may lead to a review of the Vendor's status."
     };
     const patterns = {
-      fr: /Article 6 — Retours\\n[\\s\\S]*?(?=\\n\\nArticle 7 — Résiliation)/,
-      ar: /المادة 6 — الإرجاع\\n[\\s\\S]*?(?=\\n\\nالمادة 7 — الإنهاء)/,
-      en: /Article 6 — Returns\\n[\\s\\S]*?(?=\\n\\nArticle 7 — Termination)/
+      fr: /Article 6 — Retours\n[\s\S]*?(?=\n\nArticle 7 — Résiliation)/,
+      ar: /المادة 6 — الإرجاع\n[\s\S]*?(?=\n\nالمادة 7 — الإنهاء)/,
+      en: /Article 6 — Returns\n[\s\S]*?(?=\n\nArticle 7 — Termination)/
     };
     const language = clauses[lang] ? lang : "fr";
     text = text.replace(patterns[language], clauses[language]);
-    text = text.replaceAll("smartswi9a.top", "smartswika.ma").replace(/\\s+/g, " ").trim();
+    text = text.replaceAll("smartswi9a.top", "smartswika.ma").replace(/\s+/g, " ").trim();
     return text;
   }
   return version === "1.3.0"
-    ? text.replaceAll("smartswi9a.top", "smartswika.ma").replace(/\\s+/g, " ").trim()
+    ? text.replaceAll("smartswi9a.top", "smartswika.ma").replace(/\s+/g, " ").trim()
     : text;
 }
 
@@ -1085,7 +1085,7 @@ exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
 exports.adminSetReturnFee = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
   if (cors(req, res)) return;
   try {
-    const match = String(req.get('authorization') || '').match(/^Bearer\\s+(.+)$/i);
+    const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
     if (!match) return res.status(401).json({ success: false, message: 'Connexion requise.' });
     const decoded = await getAuth().verifyIdToken(match[1], true);
     const adminSnap = await db.collection('users').doc(decoded.uid).get();
@@ -1150,7 +1150,7 @@ exports.adminSetReturnFee = onRequest({ region: 'europe-west1', cors: [...ALLOWE
                 currency: 'MAD',
                 source: 'manual',
                 status: 'validated',
-                recordedAt: FieldValue.serverTimestamp(),
+                recordedAt: new Date(),
                 recordedBy: decoded.uid
               }
             }
