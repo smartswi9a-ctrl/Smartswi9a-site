@@ -44,4 +44,4 @@ User-agent: DotBot
 Disallow: /
 
 # Sitemap
-Sitemap: https://smartswi9a.top/sitemap.xml
+Sitemap: https://smartswi9a.ma/sitemap.xml
