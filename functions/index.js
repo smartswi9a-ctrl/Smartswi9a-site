@@ -1806,7 +1806,8 @@ exports.adminPayoutAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
     const decoded = await getAuth().verifyIdToken(match[1], true);
 
     const adminSnap = await db.collection('users').doc(decoded.uid).get();
-    if (!adminSnap.exists || adminSnap.data()?.role !== 'admin') {
+    const isAdmin = decoded.admin === true || (adminSnap.exists && adminSnap.data()?.role === 'admin');
+    if (!isAdmin) {
       return res.status(403).json({ success: false, message: 'Action réservée à un administrateur.' });
     }
 
