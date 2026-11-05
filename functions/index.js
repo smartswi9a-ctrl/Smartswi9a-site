@@ -456,7 +456,14 @@ exports.syncVendorPublic = onDocumentWritten('users/{userId}', async (event) => 
 
   const data = snap.data();
 
-  if (data.role !== 'vendor' || !data.vendorInfo) {
+  // Seuls les vendeurs approuvés avec un contrat accepté sont publiés.
+  // Les demandes pending/rejected/suspended restent privées dans users/.
+  if (
+    data.role !== 'vendor' ||
+    !data.vendorInfo ||
+    data.vendorInfo.status !== 'approved' ||
+    data.vendorInfo.contractStatus !== 'accepted'
+  ) {
     return db.collection('vendorsPublic').doc(event.params.userId).delete().catch(() => {});
   }
 
