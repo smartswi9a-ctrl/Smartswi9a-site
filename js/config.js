@@ -32,7 +32,7 @@ export const CONFIG = {
         NAME: 'Smart Swi9a',
         WHATSAPP_NUMBER: '212656613303',
         EMAIL: 'smartswi9a@gmail.com',
-        URL: 'https://smartswi9a.top',
+        URL: 'https://smartswi9a.ma',
         CURRENCY: 'MAD',
         DISCOUNT_THRESHOLD: 3,
         DISCOUNT_PERCENT: 5,
@@ -113,7 +113,7 @@ export const CONFIG = {
         LABEL_FORMAT: 'PDF',
         PRODUCT_VALIDATION_HOURS: 48,
         VENDOR_VALIDATION_HOURS: 72,
-        CONTRACT_VERSION: '1.2.0',
+        CONTRACT_VERSION: '1.3.0',
         CONTRACT_RESIGN_GRACE_DAYS: 30,
         ALLOWED_CATEGORIES: []
     },
