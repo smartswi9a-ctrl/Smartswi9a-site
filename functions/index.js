@@ -1281,12 +1281,27 @@ exports.onOrderStatusChanged = onDocumentUpdated('orders/{orderId}', async (even
               createdAt: FieldValue.serverTimestamp()
             };
 
+            // N'imputer le retour sur les fonds en attente que dans la limite
+            // du crédit de vente de cette commande. Les autres ventes en attente
+            // ne doivent pas être consommées par le retour d'une autre commande.
+            const saleTxId = freshOrder.vendorCredits?.[vendorId]?.txId;
+            const saleTxRef = saleTxId
+              ? db.collection('wallet_transactions').doc(String(saleTxId))
+              : null;
+            const saleTxSnap = saleTxRef ? await tx.get(saleTxRef) : null;
+            const saleTx = saleTxSnap?.exists ? saleTxSnap.data() : null;
+            const salePendingRemaining = saleTx && saleTx.status === 'pending'
+              ? Math.max(0, (Number(saleTx.amount) || 0) -
+                  (Number(saleTx.reversedAmount) || 0) -
+                  (Number(saleTx.releasedAmount) || 0))
+              : 0;
+
             let pending = Number(w.pendingBalance) || 0;
             let available = Number(w.availableBalance) || 0;
             let negative = Number(w.negativeBalance) || 0;
             let remaining = fee;
 
-            const fromPending = Math.min(Math.max(0, pending), remaining);
+            const fromPending = Math.min(Math.max(0, pending), remaining, salePendingRemaining);
             pending -= fromPending;
             remaining -= fromPending;
 
@@ -1308,6 +1323,13 @@ exports.onOrderStatusChanged = onDocumentUpdated('orders/{orderId}', async (even
             };
             if (freshWalletSnap.exists) tx.update(walletRef, walletUpdate);
             else tx.set(walletRef, { ...w, ...walletUpdate });
+            if (fromPending > 0 && saleTxRef && saleTxSnap?.exists) {
+              tx.update(saleTxRef, {
+                reversedAmount: FieldValue.increment(fromPending),
+                returnOffsetAmount: FieldValue.increment(fromPending),
+                lastReturnOffsetAt: FieldValue.serverTimestamp()
+              });
+            }
             tx.set(txRef, {
               vendorId,
               type: 'return_fee',
