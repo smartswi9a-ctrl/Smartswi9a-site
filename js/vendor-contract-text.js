@@ -88,9 +88,9 @@ export const CONTRACT_TEMPLATES = {
   // Version 1.3.0 : gabarit 1.2.0 inchangé sur le fond, domaine .ma.
   // Les versions publiées précédentes restent immuables pour les hashes.
   "1.3.0": {
-    fr: (t) => CONTRACT_TEMPLATES["1.2.0"].fr(t).replaceAll("smartswi9a.top", "smartswi9a.ma"),
-    ar: (t) => CONTRACT_TEMPLATES["1.2.0"].ar(t).replaceAll("smartswi9a.top", "smartswi9a.ma"),
-    en: (t) => CONTRACT_TEMPLATES["1.2.0"].en(t).replaceAll("smartswi9a.top", "smartswi9a.ma"),
+    fr: (t) => CONTRACT_TEMPLATES["1.2.0"].fr(t).replaceAll("smartswi9a.top", "smartswika.ma"),
+    ar: (t) => CONTRACT_TEMPLATES["1.2.0"].ar(t).replaceAll("smartswi9a.top", "smartswika.ma"),
+    en: (t) => CONTRACT_TEMPLATES["1.2.0"].en(t).replaceAll("smartswi9a.top", "smartswika.ma"),
   },
 };
 
