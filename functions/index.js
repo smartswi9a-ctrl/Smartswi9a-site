@@ -804,7 +804,7 @@ exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
 exports.requestWithdrawal = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
   if (cors(req, res)) return;
   try {
-    const match = String(req.get('authorization') || '').match(/^Bearer\\s+(.+)$/i);
+    const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
     if (!match) return res.status(401).json({ success: false, message: 'Connexion requise.' });
     const decoded = await getAuth().verifyIdToken(match[1], true);
 
@@ -821,8 +821,8 @@ exports.requestWithdrawal = onRequest({ region: 'europe-west1', cors: [...ALLOWE
       return res.status(400).json({ success: false, message: 'Méthode de retrait invalide.' });
     }
 
-    const validPhone = /^(?:\\+212|0)[67]\\d{8}$/.test(account);
-    const validRib = /^\\d{24}$/.test(account);
+    const validPhone = /^(?:\+212|0)[67]\d{8}$/.test(account);
+    const validRib = /^\d{24}$/.test(account);
     if ((method === 'Virement bancaire' && !validRib) ||
         (method !== 'Virement bancaire' && !validPhone)) {
       return res.status(400).json({ success: false, message: 'Coordonnées de réception invalides.' });
