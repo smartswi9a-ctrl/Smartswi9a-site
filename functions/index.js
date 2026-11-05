@@ -504,9 +504,30 @@ exports.signVendorContract = onRequest({ region: 'europe-west1', cors: [...ALLOW
     if (!match) return res.status(401).json({ success: false, message: 'Connexion requise.' });
     const decoded = await getAuth().verifyIdToken(match[1], true);
 
+    // Le contrat vendeur ne peut être signé que par un compte déjà inscrit
+    // comme vendeur. Sans ce contrôle, un acheteur authentifié pourrait créer
+    // un document contracts/ et recevoir vendorInfo.contractStatus=accepted.
+    const vendorRef = db.collection('users').doc(decoded.uid);
+    const vendorSnap = await vendorRef.get();
+    if (!vendorSnap.exists || vendorSnap.data()?.role !== 'vendor') {
+      return res.status(403).json({ success: false, message: 'Cette action est réservée aux comptes vendeurs.' });
+    }
+
+    const vendorProfile = vendorSnap.data();
+    const vendorStatus = vendorProfile.vendorInfo?.status;
+    if (!['pending', 'approved'].includes(vendorStatus)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Votre compte vendeur ne peut pas signer de contrat dans son état actuel.'
+      });
+    }
+
     const { version, language, textHash } = req.body;
     if (!version || !language || !textHash) {
       return res.status(400).json({ success: false, message: 'Données incomplètes.' });
+    }
+    if (!['fr', 'ar', 'en'].includes(String(language))) {
+      return res.status(400).json({ success: false, message: 'Langue du contrat invalide.' });
     }
 
     // B-C1 : on IGNORE le termsSnapshot du client, on reconstruit l'officiel
