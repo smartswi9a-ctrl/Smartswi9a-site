@@ -1934,7 +1934,7 @@ exports.backfillVendorOrderViews = onRequest({ region: 'europe-west1', cors: [..
           data: {
             orderId: orderDoc.id,
             vendorId,
-            vendorCount: vendorIds.length,
+            vendorCount: vendorIds.length + (items.some(item => String(item.vendorId || 'smartswi9a') === 'smartswi9a') ? 1 : 0),
             userId: order.userId || '',
             userName: String(order.userName || order.deliveryAddress?.name || 'Client').slice(0, 100),
             deliveryAddress: order.deliveryAddress || {},
@@ -2193,12 +2193,15 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
       const cancellableUntil = new Date(now + 4 * 3600 * 1000);
 
       const vendorList = [...new Set(validatedItems.map(i => i.vendorId).filter(v => v && v !== 'smartswi9a'))];
+      const containsPlatformItems = validatedItems.some(i => i.vendorId === 'smartswi9a');
+      const vendorCountForPrivacy = vendorList.length + (containsPlatformItems ? 1 : 0);
       const orderData = {
         userId: decoded.uid,
         userName: String(delivery.name).trim().slice(0, 100),
         userEmail: String(decoded.email || delivery.email || ''),
         items: validatedItems,
         vendorIds: vendorList,
+        containsPlatformItems,
         status: 'pending',
         paymentStatus: 'unpaid',
         subtotal,
@@ -2234,7 +2237,7 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
         tx.set(vendorOrderRef, {
           orderId: orderRef.id,
           vendorId,
-          vendorCount: vendorList.length,
+          vendorCount: vendorCountForPrivacy,
           userId: decoded.uid,
           userName: String(delivery.name).trim().slice(0, 100),
           deliveryAddress: delivery,
