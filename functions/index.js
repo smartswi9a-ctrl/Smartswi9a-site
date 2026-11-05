@@ -482,7 +482,42 @@ exports.signVendorContract = onRequest({ region: 'europe-west1', cors: [...ALLOW
 
     const existing = await contractRef.get();
     if (existing.exists) {
-      return res.status(200).json({ success: true, alreadySigned: true, contractId });
+      const existingData = existing.data();
+
+      // Idempotence : si le contrat existe déjà, réconcilier aussi le profil.
+      // Cela évite qu'un ancien échec réseau laisse contractStatus à "pending"
+      // alors que le document signé est bien présent dans contracts/.
+      if (
+        existingData.vendorId !== decoded.uid ||
+        existingData.status !== 'accepted' ||
+        String(existingData.version) !== String(version)
+      ) {
+        return res.status(409).json({
+          success: false,
+          message: 'Un document de contrat existe déjà mais ses données ne sont pas cohérentes. Contactez l’administration.'
+        });
+      }
+
+      const vendorRef = db.collection('users').doc(decoded.uid);
+      const vendorSnap = await vendorRef.get();
+      if (!vendorSnap.exists || vendorSnap.data()?.role !== 'vendor') {
+        return res.status(403).json({ success: false, message: 'Profil vendeur introuvable.' });
+      }
+
+      await vendorRef.update({
+        'vendorInfo.contractStatus': 'accepted',
+        'vendorInfo.currentContractId': contractId,
+        'vendorInfo.contractVersion': existingData.version,
+        'vendorInfo.contractSignedAt': existingData.acceptedAt || FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp()
+      });
+
+      return res.status(200).json({
+        success: true,
+        alreadySigned: true,
+        contractId,
+        version: existingData.version
+      });
     }
 
     const officialText = getContractText(language, version, officialSnapshot);
