@@ -92,6 +92,22 @@ export const CONTRACT_TEMPLATES = {
     ar: (t) => CONTRACT_TEMPLATES["1.2.0"].ar(t).replaceAll("smartswi9a.top", "smartswika.ma"),
     en: (t) => CONTRACT_TEMPLATES["1.2.0"].en(t).replaceAll("smartswi9a.top", "smartswika.ma"),
   },
+  // Version 1.4.0 : frais de retour réels, distincts par vendeur.
+  // Les gabarits 1.1.0, 1.2.0 et 1.3.0 restent immuables.
+  "1.4.0": {
+    fr: (t) => CONTRACT_TEMPLATES["1.2.0"].fr(t)
+      .replace(/Article 6 — Retours En cas de retour,[\s\S]*?Les retours répétés peuvent entraîner une révision du statut du Vendeur\./,
+        "Article 6 — Retours Les frais de retour sont facturés séparément à chaque Vendeur selon le montant réel communiqué par le transporteur ou, à défaut, validé par l'administration. Aucun frais n'est débité avant l'enregistrement et la validation de ce montant. Les retours répétés peuvent entraîner une révision du statut du Vendeur.")
+      .replaceAll("smartswi9a.top", "smartswika.ma"),
+    ar: (t) => CONTRACT_TEMPLATES["1.2.0"].ar(t)
+      .replace(/المادة 6 — الإرجاع في حالة الإرجاع،[\s\S]*?الإرجاعات المتكررة قد تؤدي إلى مراجعة وضع البائع\./,
+        "المادة 6 — الإرجاع تُفرض رسوم الإرجاع بشكل منفصل على كل بائع وفق المبلغ الفعلي الذي يحدده الناقل، أو الذي تعتمده الإدارة عند عدم توفره. لا يتم خصم أي رسوم قبل تسجيل المبلغ واعتماده. وقد تؤدي الإرجاعات المتكررة إلى مراجعة وضع البائع.")
+      .replaceAll("smartswi9a.top", "smartswika.ma"),
+    en: (t) => CONTRACT_TEMPLATES["1.2.0"].en(t)
+      .replace(/Article 6 — Returns In case of return,[\s\S]*?Repeated returns may lead to a review of the Vendor's status\./,
+        "Article 6 — Returns Return fees are charged separately to each Vendor based on the actual amount provided by the carrier or, if unavailable, validated by the administration. No fee is debited until that amount has been recorded and approved. Repeated returns may lead to a review of the Vendor's status.")
+      .replaceAll("smartswi9a.top", "smartswika.ma"),
+  },
 };
 
 /* ============================================================ API PUBLIQUE ============================================================ */
@@ -126,7 +142,7 @@ export function getContractText( lang = "fr", version = CONFIG.VENDOR.CONTRACT_V
   return builder(snapshot);
 }
 
-/** * Retourne les versions de contrat disponibles, triées en semver * croissant. Ex. actuellement : ['1.1.0', '1.2.0', '1.3.0']. * @returns {string[]} */
+/** * Retourne les versions de contrat disponibles, triées en semver * croissant. Ex. actuellement : ['1.1.0', '1.2.0', '1.3.0', '1.4.0']. * @returns {string[]} */
 export function getSupportedContractVersions() {
   const keys = Object.keys(CONTRACT_TEMPLATES);
   return keys.sort(function (a, b) {
@@ -141,5 +157,5 @@ export function getSupportedContractVersions() {
 
 /* ============================================================ LOG ============================================================ */
 console.log(
-  "[vendor-contract-text] v10.0.0 chargé (gabarit 1.3.0 : domaine .ma)"
+  "[vendor-contract-text] v10.0.0 chargé (gabarit 1.4.0 : frais réels par vendeur)"
 );
