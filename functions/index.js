@@ -973,7 +973,13 @@ exports.onOrderStatusChanged = onDocumentUpdated('orders/{orderId}', async (even
   const before = event.data.before.data();
   const after = event.data.after.data();
 
-  if (before.status === after.status) return;
+  const beforeReturnsCount = Array.isArray(before.returns) ? before.returns.length : 0;
+  const afterReturns = Array.isArray(after.returns) ? after.returns : [];
+  const statusChanged = before.status !== after.status;
+
+  // Un retour peut être ajouté à une commande déjà marquée "returned".
+  // Le trigger doit traiter les nouvelles entrées même si le statut ne change plus.
+  if (!statusChanged && afterReturns.length <= beforeReturnsCount) return;
 
   const orderId = event.params.orderId;
 
@@ -1059,90 +1065,87 @@ exports.onOrderStatusChanged = onDocumentUpdated('orders/{orderId}', async (even
     }
   }
 
-  // Débit retour vendeur
-  if (after.status === 'returned' && before.status !== 'returned') {
-    const returns = Array.isArray(after.returns) ? after.returns : [];
-    const lastReturn = returns[returns.length - 1];
-    if (!lastReturn || !Array.isArray(lastReturn.items)) return;
+  // Débit des retours vendeur : traiter chaque nouvelle entrée, pas seulement
+  // la dernière. Cela couvre plusieurs retours successifs sur une même commande.
+  if (after.status === 'returned' && afterReturns.length > beforeReturnsCount) {
+    for (let returnIndex = beforeReturnsCount; returnIndex < afterReturns.length; returnIndex++) {
+      const returnEntry = afterReturns[returnIndex];
+      if (!returnEntry || !Array.isArray(returnEntry.items)) continue;
 
-    const returnIndex = returns.length - 1;
-    const qtyByVendor = {};
-    lastReturn.items.forEach(retItem => {
-      const item = (after.items || []).find(i => String(i.productId) === String(retItem.productId));
-      if (!item) return;
-      const vid = item.vendorId;
-      if (!vid || vid === 'smartswi9a') return;
-      qtyByVendor[vid] = (qtyByVendor[vid] || 0) + (Number(retItem.delta) || 0);
-    });
+      const qtyByVendor = {};
+      returnEntry.items.forEach(retItem => {
+        const item = (after.items || []).find(i => String(i.productId) === String(retItem.productId));
+        if (!item) return;
+        const vid = item.vendorId;
+        const delta = Number(retItem.delta) || 0;
+        if (!vid || vid === 'smartswi9a' || delta <= 0) return;
+        qtyByVendor[vid] = (qtyByVendor[vid] || 0) + delta;
+      });
 
-    for (const [vendorId, qty] of Object.entries(qtyByVendor)) {
-      if (qty <= 0) continue;
-      const fee = RETURN_FEE_LIVO * qty;
-      const debitKey = `${vendorId}_ret${returnIndex}`;
-
-      try {
-        const alreadyDebited = after.vendorDebits && after.vendorDebits[debitKey];
-        if (alreadyDebited) continue;
-
+      for (const [vendorId, qty] of Object.entries(qtyByVendor)) {
+        if (qty <= 0) continue;
+        const fee = RETURN_FEE_LIVO * qty;
+        const debitKey = `${vendorId}_ret${returnIndex}`;
         const walletRef = db.collection('wallets').doc(vendorId);
-        const walletSnap = await walletRef.get();
-        if (!walletSnap.exists) continue;
 
-        await db.runTransaction(async (tx) => {
-          const orderRef = db.collection('orders').doc(orderId);
-          const freshOrderSnap = await tx.get(orderRef);
-          if (!freshOrderSnap.exists) return;
-          const freshOrder = freshOrderSnap.data();
-          if (freshOrder.vendorDebits && freshOrder.vendorDebits[debitKey]) return;
+        try {
+          await db.runTransaction(async (tx) => {
+            const orderRef = db.collection('orders').doc(orderId);
+            const freshOrderSnap = await tx.get(orderRef);
+            if (!freshOrderSnap.exists) return;
+            const freshOrder = freshOrderSnap.data();
+            const freshReturns = Array.isArray(freshOrder.returns) ? freshOrder.returns : [];
+            if (freshOrder.status !== 'returned' || !freshReturns[returnIndex]) return;
+            if (freshOrder.vendorDebits && freshOrder.vendorDebits[debitKey]) return;
 
-          const freshWalletSnap = await tx.get(walletRef);
-          if (!freshWalletSnap.exists) return;
-          const w = freshWalletSnap.data();
+            const freshWalletSnap = await tx.get(walletRef);
+            if (!freshWalletSnap.exists) throw new Error(`Wallet vendeur introuvable : ${vendorId}`);
+            const w = freshWalletSnap.data();
 
-          let pending = Number(w.pendingBalance) || 0;
-          let available = Number(w.availableBalance) || 0;
-          let negative = Number(w.negativeBalance) || 0;
-          let remaining = fee;
+            let pending = Number(w.pendingBalance) || 0;
+            let available = Number(w.availableBalance) || 0;
+            let negative = Number(w.negativeBalance) || 0;
+            let remaining = fee;
 
-          const fromPending = Math.min(pending, remaining);
-          pending -= fromPending;
-          remaining -= fromPending;
+            const fromPending = Math.min(Math.max(0, pending), remaining);
+            pending -= fromPending;
+            remaining -= fromPending;
 
-          const fromAvailable = Math.min(available, remaining);
-          available -= fromAvailable;
-          remaining -= fromAvailable;
+            const fromAvailable = Math.min(Math.max(0, available), remaining);
+            available -= fromAvailable;
+            remaining -= fromAvailable;
 
-          if (remaining > 0) negative -= remaining;
+            if (remaining > 0) negative -= remaining;
 
-          tx.update(walletRef, {
-            pendingBalance: pending,
-            availableBalance: available,
-            negativeBalance: negative,
-            lastUpdated: FieldValue.serverTimestamp()
+            const txRef = db.collection('wallet_transactions').doc();
+            tx.update(walletRef, {
+              pendingBalance: pending,
+              availableBalance: available,
+              negativeBalance: negative,
+              lastUpdated: FieldValue.serverTimestamp()
+            });
+            tx.set(txRef, {
+              vendorId,
+              type: 'return_fee',
+              amount: -fee,
+              orderId,
+              returnIndex,
+              status: 'released',
+              description: `Frais retour commande #${orderId.slice(0, 8).toUpperCase()} (${qty} colis)`,
+              createdAt: FieldValue.serverTimestamp()
+            });
+            tx.update(orderRef, {
+              [`vendorDebits.${debitKey}`]: {
+                debitedAt: FieldValue.serverTimestamp(),
+                amount: fee,
+                returnedQty: qty,
+                txId: txRef.id
+              }
+            });
           });
-
-          const txRef = db.collection('wallet_transactions').doc();
-          tx.set(txRef, {
-            vendorId,
-            type: 'return_fee',
-            amount: -fee,
-            orderId,
-            returnIndex,
-            status: 'released',
-            description: `Frais retour commande #${orderId.slice(0, 8).toUpperCase()} (${qty} colis)`,
-            createdAt: FieldValue.serverTimestamp()
-          });
-
-          tx.update(orderRef, {
-            [`vendorDebits.${debitKey}`]: {
-              debitedAt: FieldValue.serverTimestamp(),
-              amount: fee,
-              returnedQty: qty
-            }
-          });
-        });
-      } catch (err) {
-        console.error(`[onOrderStatusChanged] Erreur débit retour ${vendorId}:`, err);
+        } catch (err) {
+          console.error(`[onOrderStatusChanged] Erreur débit retour vendeur ${vendorId}, retour ${returnIndex}:`, err);
+        }
       }
     }
   }
