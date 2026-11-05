@@ -683,7 +683,7 @@ async function submitProduct() {
             const productData = {
                 nameFr, nameAr: nameAr || nameFr, nameEn: nameEn || nameFr, slug,
                 sku: `VND-${String(ts).slice(-6)}`, category: 'all', basePrice: price, price,
-                oldPrice: 0, purchasePrice: 0, stock, ratingCount: 0,
+                oldPrice: 0, purchasePrice: 0, stock,
                 isNew: false, hasSizeGuide: false, dimensions: { weight: 0, length: 0, width: 0, height: 0 },
                 variants: [], descFr: descFr || '', descAr: '', descEn: '', featuresFr: [], featuresAr: [], featuresEn: [],
                 img: newImageUrl, gallery: [], vendorId: currentUserUid, vendorName,
