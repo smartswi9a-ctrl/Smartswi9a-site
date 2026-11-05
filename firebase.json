@@ -102,6 +102,13 @@
         }
       },
       {
+        "source": "/api/signVendorContract",
+        "function": {
+          "functionId": "signVendorContract",
+          "region": "europe-west1"
+        }
+      },
+      {
         "source": "/api/acceptVendorContract",
         "function": {
           "functionId": "acceptVendorContract",
@@ -112,6 +119,20 @@
         "source": "/api/adminVendorAction",
         "function": {
           "functionId": "adminVendorAction",
+          "region": "europe-west1"
+        }
+      },
+      {
+        "source": "/api/requestWithdrawal",
+        "function": {
+          "functionId": "requestWithdrawal",
+          "region": "europe-west1"
+        }
+      },
+      {
+        "source": "/api/releaseDueFunds",
+        "function": {
+          "functionId": "releaseDueFunds",
           "region": "europe-west1"
         }
       },
