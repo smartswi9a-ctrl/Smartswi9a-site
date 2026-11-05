@@ -526,7 +526,12 @@ exports.signVendorContract = onRequest({ region: 'europe-west1', cors: [...ALLOW
       });
     }
 
-    const { version, language, textHash } = req.body;
+    const body = req.body || {};
+    const { version, language, textHash } = body;
+    const contractSource = String(body.source || 'dashboard');
+    if (!['signup', 'dashboard', 'resign'].includes(contractSource)) {
+      return res.status(400).json({ success: false, message: 'Origine de signature invalide.' });
+    }
     if (!version || !language || !textHash) {
       return res.status(400).json({ success: false, message: 'Données incomplètes.' });
     }
@@ -576,6 +581,9 @@ exports.signVendorContract = onRequest({ region: 'europe-west1', cors: [...ALLOW
         'vendorInfo.currentContractId': contractId,
         'vendorInfo.contractVersion': existingData.version,
         'vendorInfo.contractSignedAt': existingData.acceptedAt || FieldValue.serverTimestamp(),
+        'vendorInfo.commissionRate': OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE,
+        'vendorInfo.commissionRateMin': OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE_MIN,
+        'vendorInfo.commissionRateMax': OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE_MAX,
         updatedAt: FieldValue.serverTimestamp()
       });
 
@@ -599,7 +607,8 @@ exports.signVendorContract = onRequest({ region: 'europe-west1', cors: [...ALLOW
 
     const contractHash = crypto.createHash('sha256')
       .update([decoded.uid, version, language, textHash].join('|')).digest('hex');
-    const ip = req.ip || req.get('x-forwarded-for') || 'unknown';
+    const ip = String(req.ip || 'unknown').slice(0, 80);
+    const userAgent = String(req.get('user-agent') || 'unknown').slice(0, 300);
 
     await contractRef.set({
       vendorId: decoded.uid,
@@ -610,9 +619,9 @@ exports.signVendorContract = onRequest({ region: 'europe-west1', cors: [...ALLOW
       contractHash: contractHash,
       acceptedAt: FieldValue.serverTimestamp(),
       ipAddress: ip,
-      userAgent: req.get('user-agent') || 'unknown',
+      userAgent,
       status: 'accepted',
-      source: req.body.source || 'dashboard'
+      source: contractSource
     });
 
     await db.collection('users').doc(decoded.uid).update({
@@ -643,7 +652,7 @@ exports.loginVendor = onRequest({ region: 'europe-west1', maxInstances: 5, timeo
   const password = req.body?.password;
   const clientIp = String(req.ip || req.get('x-forwarded-for') || 'unknown').split(',')[0].trim().slice(0, 80);
 
-  if (!validEmail(email) || typeof password !== 'string') {
+  if (!validEmail(email) || typeof password !== 'string' || password.length === 0 || password.length > 128) {
     return res.status(400).json({ success: false, message: 'Identifiants invalides.' });
   }
 
@@ -719,7 +728,7 @@ exports.loginVendor = onRequest({ region: 'europe-west1', maxInstances: 5, timeo
 exports.setVendorPassword = onRequest({ region: 'europe-west1', maxInstances: 5, timeoutSeconds: 15 }, async (req, res) => {
   if (cors(req, res)) return;
   try {
-    const match = req.get('authorization').match(/^Bearer\s+(.+)$/i);
+    const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
     if (!match) return res.status(401).json({ success: false, message: 'Connexion requise.' });
     const decoded = await getAuth().verifyIdToken(match[1], true);
     const vendorPassword = req.body?.vendorPassword;
@@ -729,14 +738,16 @@ exports.setVendorPassword = onRequest({ region: 'europe-west1', maxInstances: 5,
 
     const ref = db.collection('users').doc(decoded.uid);
     const snap = await ref.get();
-    if (!snap.exists || snap.data().role !== 'vendor') {
-      return res.status(403).json({ success: false, message: 'Profil invalide.' });
+    const vendorProfile = snap.exists ? snap.data() : null;
+    if (!vendorProfile || vendorProfile.role !== 'vendor' ||
+        !['pending', 'approved'].includes(String(vendorProfile.vendorInfo?.status || ''))) {
+      return res.status(403).json({ success: false, message: 'Profil vendeur non autorisé.' });
     }
 
     const passwordHash = await bcrypt.hash(vendorPassword, 12);
     await db.collection('vendorCredentials').doc(decoded.uid).set({
       uid: decoded.uid,
-      email: String(snap.data().email || '').trim().toLowerCase(),
+      email: String(vendorProfile.email || '').trim().toLowerCase(),
       passwordHash,
       updatedAt: FieldValue.serverTimestamp()
     }, { merge: true });
