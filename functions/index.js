@@ -1175,6 +1175,9 @@ exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}',
           // invalide/rejoue un crédit qui serait concurrent à une suppression.
           const freshVendorSnap = await tx.get(db.collection('users').doc(vendorId));
           if (!freshVendorSnap.exists || freshVendorSnap.data()?.role !== 'vendor') return;
+          if (freshVendorSnap.data()?.vendorInfo?.status === 'deletion_pending') {
+            throw new Error('Crédit vendeur bloqué : suppression du compte en cours.');
+          }
 
           const freshWalletSnap = await tx.get(walletRef);
           const wallet = freshWalletSnap.exists ? freshWalletSnap.data() : {
@@ -1228,6 +1231,7 @@ exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}',
         });
       } catch (err) {
         console.error(`[onOrderStatusChanged] Erreur crédit vendeur ${vendorId}:`, err);
+        throw err;
       }
     }
   }
