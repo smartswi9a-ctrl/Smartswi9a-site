@@ -180,6 +180,7 @@ function getVirtualAvailableBalance() {
 function canRequestWithdrawal() {
     if (!isVendorApproved()) return false;
     if (!currentWallet) return false;
+    if ((Number(currentWallet.negativeBalance) || 0) < -0.0001) return false;
     return getVirtualAvailableBalance() >= CONFIG.VENDOR.MIN_WITHDRAWAL;
 }
 
@@ -1254,6 +1255,8 @@ async function renderWallet(container) {
     await loadWalletTransactions();
     const available = formatMAD(currentWallet?.availableBalance);
     const pending = formatMAD(currentWallet?.pendingBalance);
+    const negativeBalance = Math.max(0, -(Number(currentWallet?.negativeBalance) || 0));
+    const debt = formatMAD(negativeBalance);
     const minWithdrawal = formatMAD(CONFIG.VENDOR.MIN_WITHDRAWAL);
     const virtualAvailable = formatMAD(getVirtualAvailableBalance());
     const hasPendingRequest = getPendingWithdrawalTotal() > 0;
@@ -1262,6 +1265,7 @@ async function renderWallet(container) {
 
     let reason = '';
     if (!isVendorApproved()) reason = tr('vendor.wallet.withdrawLockedNotApproved', "Compte non approuvé : retrait verrouillé.");
+    else if (negativeBalance > 0.0001) reason = `Retrait bloqué : dette à régulariser de ${debt}.`;
     else if (hasPendingRequest) reason = "Demande de retrait en cours de traitement.";
     else if (getVirtualAvailableBalance() < CONFIG.VENDOR.MIN_WITHDRAWAL) reason = tr('vendor.wallet.withdrawLockedMin', "Solde insuffisant (minimum : {min}).").replace('{min}', minWithdrawal);
 
@@ -1304,7 +1308,9 @@ async function renderWallet(container) {
         <div class="v-wallet-hero">
             <div class="v-wallet-label">${escapeHTML(tr('vendor.wallet.available', 'Solde disponible'))}</div>
             <div class="v-wallet-amount">${available}</div>
-            <div style="margin-top:0.5rem; color:var(--text-muted); font-size:0.9rem;">${escapeHTML(tr('vendor.wallet.pending', 'En attente'))} : ${pending}${hasPendingRequest ? `<br><small>Solde virtuel (après demandes en cours) : ${virtualAvailable}</small>` : ''}</div>
+            <div style="margin-top:0.5rem; color:var(--text-muted); font-size:0.9rem;">${escapeHTML(tr('vendor.wallet.pending', 'En attente'))} : ${pending}</div>
+            ${negativeBalance > 0.0001 ? `<div style="margin-top:0.35rem;color:var(--danger);font-size:0.85rem;font-weight:700;">Dette à régulariser : ${debt}</div>` : ''}
+            ${hasPendingRequest ? `<div style="margin-top:0.35rem;color:var(--text-muted);font-size:0.8rem;">Solde virtuel (après demandes en cours) : ${virtualAvailable}</div>` : ''}
             <button type="button" id="btnRequestWithdrawal" class="v-btn v-btn-primary" style="margin-top:1rem;" ${disabledAttr}>${escapeHTML(tr('vendor.wallet.requestWithdrawal', 'Demander un retrait'))}</button>
             ${reason ? `<div style="margin-top:0.5rem; color:var(--text-muted); font-size:0.85rem;">${escapeHTML(reason)}</div>` : ''}
         </div>
