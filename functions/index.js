@@ -1245,6 +1245,28 @@ exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}',
       const returnEntry = afterReturns[returnIndex];
       if (!returnEntry || !Array.isArray(returnEntry.items)) continue;
 
+      const orderedQtyByProduct = {};
+      (after.items || []).forEach(item => {
+        const key = String(item.productId || '');
+        orderedQtyByProduct[key] = (orderedQtyByProduct[key] || 0) + (Number(item.quantity) || 0);
+      });
+      const cumulativeReturnQty = {};
+      afterReturns.slice(0, returnIndex + 1).forEach(entry => {
+        (entry.items || []).forEach(retItem => {
+          const key = String(retItem.productId || '');
+          const delta = Number(retItem.delta);
+          if (!key || !Number.isInteger(delta) || delta <= 0) {
+            throw new Error('Quantité de retour invalide pour la commande ' + orderId);
+          }
+          cumulativeReturnQty[key] = (cumulativeReturnQty[key] || 0) + delta;
+        });
+      });
+      Object.keys(cumulativeReturnQty).forEach(key => {
+        if (!orderedQtyByProduct[key] || cumulativeReturnQty[key] > orderedQtyByProduct[key]) {
+          throw new Error('Quantité retournée supérieure à la quantité commandée pour ' + key);
+        }
+      });
+
       const qtyByVendor = {};
       returnEntry.items.forEach(retItem => {
         const item = (after.items || []).find(i => String(i.productId) === String(retItem.productId));
