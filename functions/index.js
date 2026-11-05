@@ -738,6 +738,9 @@ async function inspectVendorSettlement(vendorId) {
 
       if (status === 'returned') {
         const returns = Array.isArray(order.returns) ? order.returns : [];
+        if (returns.length === 0) {
+          blockers.push({ orderId: orderDoc.id, reason: 'commande retournée sans détail de retour' });
+        }
         for (let returnIndex = 0; returnIndex < returns.length; returnIndex++) {
           const entry = returns[returnIndex];
           const returnedQty = (entry?.items || []).reduce((sum, retItem) => {
