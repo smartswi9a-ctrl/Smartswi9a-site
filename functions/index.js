@@ -753,7 +753,8 @@ async function inspectVendorSettlement(vendorId) {
           if (returnedQty <= 0) continue;
           const debit = order.vendorDebits?.[`${vendorId}_ret${returnIndex}`];
           const expectedFee = RETURN_FEE_LIVO * returnedQty;
-          if (!debit?.txId || Number(debit.amount) + 0.0001 < expectedFee) {
+          if (!debit?.txId || !Number.isFinite(Number(debit.amount)) ||
+              Math.abs(Number(debit.amount) - expectedFee) > 0.01 || Number(debit.returnedQty) !== returnedQty) {
             blockers.push({ orderId: orderDoc.id, reason: `débit du retour ${returnIndex + 1} absent ou incomplet` });
           } else {
             const debitSnap = await db.collection('wallet_transactions').doc(String(debit.txId)).get();
