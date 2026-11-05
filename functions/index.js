@@ -1272,7 +1272,9 @@ exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}',
             // Sérialiser le débit avec le verrou de suppression du vendeur.
             // Le débit reste autorisé : la suppression sera bloquée tant que
             // le retour et son écriture financière ne seront pas rapprochés.
-            await tx.get(db.collection('users').doc(vendorId));
+            const vendorSnap = await tx.get(db.collection('users').doc(vendorId));
+            if (!vendorSnap.exists || vendorSnap.data()?.role !== 'vendor') throw new Error('Profil vendeur introuvable pendant le retour.');
+            if (vendorSnap.data()?.vendorInfo?.status === 'deletion_pending') throw new Error('Débit retour bloqué : suppression du compte en cours.');
 
             const freshWalletSnap = await tx.get(walletRef);
             const w = freshWalletSnap.exists ? freshWalletSnap.data() : {
