@@ -1467,7 +1467,17 @@ export async function openReturnModal(orderId) {
 }
 
 async function processReturnTransaction(order, returnsToProcess) {
+    if (!Array.isArray(returnsToProcess) || returnsToProcess.length === 0) {
+        throw new Error("Aucun article valide à retourner.");
+    }
+    for (const item of returnsToProcess) {
+        if (!item || item.productId == null || !Number.isInteger(Number(item.quantity)) || Number(item.quantity) <= 0) {
+            throw new Error("Article ou quantité de retour invalide.");
+        }
+    }
     returnsToProcess = consolidateStockItems(returnsToProcess);
+    if (returnsToProcess.length === 0) throw new Error("Aucun article valide à retourner.");
+
     await runTransaction(db, async (transaction) => {
         const orderRef = doc(db, "orders", order.id);
         const orderSnap = await transaction.get(orderRef);
@@ -1513,19 +1523,29 @@ async function processReturnTransaction(order, returnsToProcess) {
             };
             const variants = Array.isArray(pData.variants) ? pData.variants.map(v => ({ ...v })) : [];
             let variantStockChanged = false;
+            let simpleStockChanged = false;
             for (const r of productReturns) {
                 if (r.variant) {
-                    const vIdx = variants.findIndex(v => (v.size || '') === (r.variant.size || '') && (v.color || '') === (r.variant.color || ''));
-                    if (vIdx < 0) throw new Error(`Variante introuvable pour le produit ${productId}`);
-                    variants[vIdx].stock = (Number(variants[vIdx].stock) || 0) + r.quantity;
                     variantStockChanged = true;
+                    const vIdx = variants.findIndex(v => String(v.size || '') === String(r.variant.size || '') && String(v.color || '') === String(r.variant.color || ''));
+                    if (vIdx < 0) throw new Error(`Variante introuvable pour le produit ${productId}`);
+                    const currentVariantStock = Number(variants[vIdx].stock);
+                    if (!Number.isFinite(currentVariantStock) || currentVariantStock < 0) throw new Error(`Stock de variante invalide pour le produit ${productId}`);
+                    variants[vIdx].stock = currentVariantStock + r.quantity;
                 } else {
-                    updateData.stock = (Number(pData.stock) || 0) + r.quantity;
+                    simpleStockChanged = true;
                 }
+            }
+            if (variantStockChanged && simpleStockChanged) {
+                throw new Error(`Structure de stock incohérente pour le produit ${productId} : variantes et stock simple mélangés.`);
             }
             if (variantStockChanged) {
                 updateData.variants = variants;
                 updateData.stock = variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
+            } else {
+                const currentSimpleStock = Number(pData.stock);
+                if (!Number.isFinite(currentSimpleStock) || currentSimpleStock < 0) throw new Error(`Stock simple invalide pour le produit ${productId}`);
+                updateData.stock = currentSimpleStock + productReturns.reduce((sum, r) => sum + r.quantity, 0);
             }
             transaction.update(productRefs[i], updateData);
         });
