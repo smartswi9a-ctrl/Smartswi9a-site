@@ -12,30 +12,73 @@ const PROJECT_ID = 'smartswi9a-31063';
 const FIREBASE_WEB_API_KEY = 'AIzaSyBhULwDxPBRqjywsSD_0ny41Bmt968ofSA';
 
 const ALLOWED_ORIGINS = new Set([
-    'https://smartswi9a.top',
-    'https://www.smartswi9a.top',
-    'https://smartswi9a-31063.web.app',
-    'https://smartswi9a-31063.firebaseapp.com'
+  'https://smartswi9a.top',
+  'https://www.smartswi9a.top',
+  'https://smartswi9a-31063.web.app',
+  'https://smartswi9a-31063.firebaseapp.com'
 ]);
 
 /* ============================================================
-   CONFIG PRIX LIVO (API PUBLIQUE)
+   CONSTANTES GLOBALES
    ============================================================
-   Source de vérité : https://rest.livo.ma/fees/public
-   Endpoint public (pas d'auth).
-   Réponse : { success: true, data: { data: { request_date, order_fees: [...] } } }
-   Chaque élément : { city: "casablanca", fee: 20 }
+   - LIVO_API_BASE : endpoint public Livo
+   - RETURN_FEE_LIVO : frais retour (doit être synchronisé avec
+     CONFIG.VENDOR.RETURN_FEE_LIVO dans js/config.js)
+   - FALLBACK_DELIVERY_FEE : frais par défaut si Firestore vide
+   - LIVO_DEPOT_KEYS : entrepôts Livo à exclure des villes clients
+   - LOGIN_* : throttle login vendeur
    ============================================================ */
 const LIVO_API_BASE = 'https://rest.livo.ma';
 const LIVO_FEES_ENDPOINT = '/fees/public';
 const LIVO_FEES_CACHE_HOURS = 24;
 const LIVO_FEES_FETCH_TIMEOUT_MS = 10000;
+const LIVO_FEES_CACHE_DOC = 'livo_fees_cache';
+const LIVO_FEES_META_COLLECTION = 'meta';
 
-// Prix par défaut si Firestore vide ET Livo down (fallback ultime)
 const FALLBACK_DELIVERY_FEE = 30;
+const RETURN_FEE_LIVO = 20;
 
-// Villes "dépôts" à exclure (ce ne sont pas des villes clients)
 const LIVO_DEPOT_KEYS = new Set(['livo depot', 'livo depot casablanca']);
+
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_MAX_FAILURES = 8;
+
+/* ============================================================
+   SNAPSHOT CONTRAT OFFICIEL (B-C1)
+   ============================================================
+   DOIT être synchronisé avec CONFIG.VENDOR dans js/config.js.
+   Si tu modifies CONFIG.VENDOR côté client, tu DOIS modifier
+   ces valeurs ici, sinon tous les nouveaux contrats échoueront
+   avec "Falsification détectée".
+   ============================================================ */
+const OFFICIAL_VENDOR_CONFIG = {
+  CONTRACT_VERSION: '1.2.0',
+  COMMISSION_RATE: 0.07,
+  COMMISSION_RATE_MIN: 0.05,
+  COMMISSION_RATE_MAX: 0.15,
+  DROPOFF_DEADLINE_HOURS_NEW: 72,
+  DROPOFF_DEADLINE_HOURS_ESTABLISHED: 48,
+  UNLOCK_DAYS_VENDOR: 7,
+  UNLOCK_DAYS_SMART: 15,
+  MIN_WITHDRAWAL: 200,
+  RETURN_FEE_LIVO: 20
+};
+
+function buildOfficialSnapshot() {
+  return {
+    version: OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION,
+    commissionRate: OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE,
+    commissionRateMin: OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE_MIN,
+    commissionRateMax: OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE_MAX,
+    dropoffDeadlineHoursNew: OFFICIAL_VENDOR_CONFIG.DROPOFF_DEADLINE_HOURS_NEW,
+    dropoffDeadlineHoursEstablished: OFFICIAL_VENDOR_CONFIG.DROPOFF_DEADLINE_HOURS_ESTABLISHED,
+    unlockDaysVendor: OFFICIAL_VENDOR_CONFIG.UNLOCK_DAYS_VENDOR,
+    unlockDaysSmart: OFFICIAL_VENDOR_CONFIG.UNLOCK_DAYS_SMART,
+    minWithdrawal: OFFICIAL_VENDOR_CONFIG.MIN_WITHDRAWAL,
+    returnFeeLivo: OFFICIAL_VENDOR_CONFIG.RETURN_FEE_LIVO,
+    returnFeeSpeedaf: OFFICIAL_VENDOR_CONFIG.RETURN_FEE_LIVO
+  };
+}
 
 /* ============================================================
    HELPERS GÉNÉRAUX
@@ -90,19 +133,8 @@ function statusMessage(profile) {
 }
 
 /* ============================================================
-   HELPERS CACHES LIVO (Firestore)
-   ============================================================
-   Collection meta/livo_fees_cache :
-   {
-     updatedAt: Timestamp,
-     citiesCount: number,
-     source: 'livo' | 'manual',
-     requestDate: string
-   }
+   HELPERS CACHE LIVO
    ============================================================ */
-const LIVO_FEES_CACHE_DOC = 'livo_fees_cache';
-const LIVO_FEES_META_COLLECTION = 'meta';
-
 async function getLivoFeesCacheMeta() {
   const snap = await db.collection(LIVO_FEES_META_COLLECTION).doc(LIVO_FEES_CACHE_DOC).get();
   return snap.exists ? snap.data() : null;
@@ -116,10 +148,6 @@ async function isLivoFeesCacheFresh() {
   return ageHours < LIVO_FEES_CACHE_HOURS;
 }
 
-/**
- * Normalise une clé ville (slug safe).
- * "Casablanca" → "casablanca", "M'Diq" → "mdiq"
- */
 function normalizeCityKey(raw) {
   return String(raw || '')
     .toLowerCase()
@@ -129,10 +157,6 @@ function normalizeCityKey(raw) {
     .trim();
 }
 
-/**
- * Fetch l'API publique Livo /fees/public.
- * Retourne { requestDate, cities: [{city, fee}] } ou throw.
- */
 async function fetchLivoFeesFromApi() {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), LIVO_FEES_FETCH_TIMEOUT_MS);
@@ -142,9 +166,7 @@ async function fetchLivoFeesFromApi() {
       headers: { 'Accept': 'application/json' },
       signal: controller.signal
     });
-    if (!res.ok) {
-      throw new Error(`Livo API HTTP ${res.status}`);
-    }
+    if (!res.ok) throw new Error(`Livo API HTTP ${res.status}`);
     const json = await res.json();
     const data = json?.data?.data || json?.data || null;
     if (!data || !Array.isArray(data.order_fees)) {
@@ -162,65 +184,53 @@ async function fetchLivoFeesFromApi() {
   }
 }
 
-/**
- * Sync Livo → Firestore `cities` (upsert).
- * Retourne { synced: number, deleted: number, requestDate }.
- * - Si une ville existe déjà dans `cities`, on met à jour `price` uniquement
- *   (les champs nameFr/nameEn/nameAr custom côté admin restent intacts).
- * - Si elle n'existe pas, on la crée avec un nom par défaut dérivé du slug.
- * - Les villes présentes dans Firestore mais absentes de Livo sont supprimées
- *   SAUF si `preserveCustom` = true (flag manuel admin pour garder une ville
- *   ajoutée à la main).
- */
 async function syncLivoCitiesFromApi(options = {}) {
   const { preserveCustom = false } = options;
   const { requestDate, cities } = await fetchLivoFeesFromApi();
 
-  if (!cities.length) {
-    throw new Error('Livo a retourné 0 ville.');
-  }
+  if (!cities.length) throw new Error('Livo a retourné 0 ville.');
 
-  // Snapshot actuel Firestore
   const existingSnap = await db.collection('cities').get();
   const existingByKey = new Map();
-  const existingBySlug = new Map();
+  let maxExistingId = 0;
+
   existingSnap.docs.forEach(d => {
     const data = d.data();
     const key = normalizeCityKey(data.key || data.nameFr || '');
     if (key) existingByKey.set(key, { id: d.id, data });
-    if (data.key) existingBySlug.set(String(data.key), { id: d.id, data });
+    const existingId = Number(data.id) || 0;
+    if (existingId > maxExistingId) maxExistingId = existingId;
   });
 
-  // Batch upsert
-  const BATCH_SIZE = 400;
-  let synced = 0;
-  let created = 0;
-  let updated = 0;
+  // Anti-collision ID
+  let nextId = maxExistingId + 1;
 
-  const allCities = cities.map((c, idx) => ({
+  const BATCH_SIZE = 400;
+  let synced = 0, created = 0, updated = 0;
+
+  const allCities = cities.map(c => ({
     ...c,
-    id: existingByKey.get(c.city)?.data?.id || (idx + 1),
     displayName: c.city.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
   }));
 
   for (let i = 0; i < allCities.length; i += BATCH_SIZE) {
     const batch = db.batch();
     const chunk = allCities.slice(i, i + BATCH_SIZE);
+
     chunk.forEach(c => {
       const existing = existingByKey.get(c.city);
       const docId = existing?.id || `city_${c.city.replace(/\s+/g, '_')}`;
       const ref = db.collection('cities').doc(docId);
+
       if (existing) {
-        // Update price seulement (préserve les noms custom)
         batch.update(ref, {
           price: c.fee,
           lastSyncedFromLivo: FieldValue.serverTimestamp()
         });
         updated++;
       } else {
-        // Création
         batch.set(ref, {
-          id: c.id,
+          id: nextId++,
           key: c.city,
           nameFr: c.displayName,
           nameEn: c.displayName,
@@ -237,18 +247,16 @@ async function syncLivoCitiesFromApi(options = {}) {
     await batch.commit();
   }
 
-  // Supprimer les villes obsolètes (présentes Firestore mais plus dans Livo)
+  // Suppression des villes obsolètes
   let deleted = 0;
   if (!preserveCustom) {
     const livoKeys = new Set(cities.map(c => c.city));
     const toDelete = [];
     existingSnap.docs.forEach(d => {
       const data = d.data();
-      if (data.source === 'manual') return; // Ne pas toucher aux villes ajoutées manuellement
+      if (data.source === 'manual') return;
       const key = normalizeCityKey(data.key || data.nameFr || '');
-      if (key && !livoKeys.has(key)) {
-        toDelete.push(d.ref);
-      }
+      if (key && !livoKeys.has(key)) toDelete.push(d.ref);
     });
     for (let i = 0; i < toDelete.length; i += BATCH_SIZE) {
       const batch = db.batch();
@@ -258,123 +266,56 @@ async function syncLivoCitiesFromApi(options = {}) {
     }
   }
 
-  // Mettre à jour le méta cache
   await db.collection(LIVO_FEES_META_COLLECTION).doc(LIVO_FEES_CACHE_DOC).set({
     updatedAt: FieldValue.serverTimestamp(),
     citiesCount: cities.length,
-    requestDate: requestDate,
+    requestDate,
     source: 'livo',
-    created,
-    updated,
-    deleted
+    created, updated, deleted
   }, { merge: true });
 
   return { synced, created, updated, deleted, requestDate, citiesCount: cities.length };
 }
 
 /* ============================================================
-   CLOUD FUNCTION : getLivoFees (PUBLIC)
-   ============================================================
-   Retourne les villes + prix Livo.
-   - Lit Firestore `cities` (source de vérité, potentiellement éditée par admin)
-   - Si vide OU cache > 24h, déclenche sync Livo en arrière-plan
-   - Réponse cacheable 1h côté CDN
+   HELPERS THROTTLE LOGIN VENDEUR
    ============================================================ */
-exports.getLivoFees = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
-  if (cors(req, res)) return;
-  try {
-    // 1. Vérifier si cache frais
-    let cacheFresh = false;
-    try {
-      cacheFresh = await isLivoFeesCacheFresh();
-    } catch (e) {
-      console.warn('[getLivoFees] Cache check failed:', e.message);
-    }
+function throttleId(email, ip) {
+  return crypto.createHash('sha256').update(`${email}|${ip || 'unknown'}`).digest('hex');
+}
 
-    // 2. Lire Firestore cities
-    let cities = [];
-    try {
-      const snap = await db.collection('cities').orderBy('id', 'asc').limit(500).get();
-      cities = snap.docs.map(d => {
-        const data = d.data();
-        return {
-          id: data.id,
-          key: data.key,
-          nameFr: data.nameFr || data.key,
-          nameEn: data.nameEn || data.nameFr || data.key,
-          nameAr: data.nameAr || data.nameFr || data.key,
-          price: Number(data.price) || FALLBACK_DELIVERY_FEE,
-          delay: data.delay || '48h'
-        };
-      });
-    } catch (e) {
-      console.warn('[getLivoFees] Firestore read failed:', e.message);
-    }
-
-    // 3. Si vide OU cache périmé, sync en arrière-plan (fire-and-forget)
-    if (cities.length === 0 || !cacheFresh) {
-      syncLivoCitiesFromApi({ preserveCustom: true })
-        .then(r => console.log('[getLivoFees] Background sync OK:', r))
-        .catch(e => console.warn('[getLivoFees] Background sync failed:', e.message));
-    }
-
-    // 4. Si toujours vide (Livo down + Firestore vide), retourner fallback minimal
-    if (cities.length === 0) {
-      return res.status(503).json({
-        success: false,
-        message: 'Grille tarifaire temporairement indisponible. Réessayez dans quelques instants.',
-        source: 'none'
-      });
-    }
-
-    // 5. Cache CDN 1h
-    res.set('Cache-Control', 'public, max-age=3600');
-    return res.status(200).json({
-      success: true,
-      count: cities.length,
-      source: 'firestore',
-      cacheFresh: cacheFresh,
-      cities: cities
-    });
-  } catch (error) {
-    console.error('[getLivoFees]', error);
-    return res.status(500).json({ success: false, message: 'Erreur serveur.' });
+async function isLoginThrottled(email, ip) {
+  const ref = db.collection('vendorLoginThrottle').doc(throttleId(email, ip));
+  const snap = await ref.get();
+  if (!snap.exists) return false;
+  const data = snap.data();
+  const now = Date.now();
+  if (data.windowStartedAt && now - data.windowStartedAt > LOGIN_WINDOW_MS) {
+    await ref.delete().catch(() => {});
+    return false;
   }
-});
+  return Number(data.failures || 0) >= LOGIN_MAX_FAILURES;
+}
 
-/* ============================================================
-   CLOUD FUNCTION : syncLivoCities (ADMIN)
-   ============================================================
-   Force la synchro Livo → Firestore. Réservé admin.
-   Body : { preserveCustom?: boolean }
-   ============================================================ */
-exports.syncLivoCities = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS], timeoutSeconds: 60 }, async (req, res) => {
-  if (cors(req, res)) return;
-  try {
-    const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
-    if (!match) return res.status(401).json({ success: false, message: 'Connexion requise.' });
-    const decoded = await getAuth().verifyIdToken(match[1], true);
-    const adminSnap = await db.collection('users').doc(decoded.uid).get();
-    if (!adminSnap.exists || adminSnap.data()?.role !== 'admin') {
-      return res.status(403).json({ success: false, message: 'Action réservée à un administrateur.' });
-    }
+async function recordLoginFailure(email, ip) {
+  const ref = db.collection('vendorLoginThrottle').doc(throttleId(email, ip));
+  await db.runTransaction(async tx => {
+    const snap = await tx.get(ref);
+    const now = Date.now();
+    const data = snap.exists ? snap.data() : {};
+    const inWindow = data.windowStartedAt && now - data.windowStartedAt <= LOGIN_WINDOW_MS;
+    tx.set(ref, {
+      email, ip: String(ip || 'unknown').slice(0, 80),
+      failures: inWindow ? Number(data.failures || 0) + 1 : 1,
+      windowStartedAt: inWindow ? data.windowStartedAt : now,
+      updatedAt: FieldValue.serverTimestamp()
+    });
+  });
+}
 
-    const result = await syncLivoCitiesFromApi({
-      preserveCustom: req.body?.preserveCustom === true
-    });
-
-    return res.status(200).json({
-      success: true,
-      ...result
-    });
-  } catch (error) {
-    console.error('[syncLivoCities]', error);
-    return res.status(500).json({
-      success: false,
-      message: error.message || 'Erreur lors de la synchronisation.'
-    });
-  }
-});
+async function clearLoginFailures(email, ip) {
+  await db.collection('vendorLoginThrottle').doc(throttleId(email, ip)).delete().catch(() => {});
+}
 
 /* ============================================================
    TEMPLATES CONTRAT (Reproduction stricte côté serveur)
@@ -397,7 +338,101 @@ function getContractText(lang, version, snapshot) {
 }
 
 /* ============================================================
-   CLOUD FUNCTION : syncVendorPublic (Trigger)
+   CF : getLivoFees (PUBLIC)
+   ============================================================ */
+exports.getLivoFees = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
+  if (cors(req, res)) return;
+  try {
+    let cacheFresh = false;
+    try { cacheFresh = await isLivoFeesCacheFresh(); }
+    catch (e) { console.warn('[getLivoFees] Cache check failed:', e.message); }
+
+    // Lecture Firestore avec fallback sans orderBy (B-I1)
+    let cities = [];
+    const mapFn = d => {
+      const data = d.data();
+      return {
+        id: Number(data.id) || 0,
+        key: data.key || '',
+        nameFr: data.nameFr || data.key || '',
+        nameEn: data.nameEn || data.nameFr || data.key || '',
+        nameAr: data.nameAr || data.nameFr || data.key || '',
+        price: Number(data.price) || FALLBACK_DELIVERY_FEE,
+        delay: data.delay || '48h'
+      };
+    };
+    try {
+      const snap = await db.collection('cities').orderBy('id', 'asc').limit(500).get();
+      cities = snap.docs.map(mapFn).filter(c => c.key);
+    } catch (e) {
+      console.warn('[getLivoFees] orderBy id failed, fallback unsorted:', e.message);
+      try {
+        const snap = await db.collection('cities').limit(500).get();
+        cities = snap.docs.map(mapFn).filter(c => c.key).sort((a, b) => a.id - b.id);
+      } catch (e2) {
+        console.warn('[getLivoFees] Fallback unsorted failed:', e2.message);
+      }
+    }
+
+    // Sync arrière-plan si vide ou périmé
+    if (cities.length === 0 || !cacheFresh) {
+      syncLivoCitiesFromApi({ preserveCustom: true })
+        .then(r => console.log('[getLivoFees] Background sync OK:', r))
+        .catch(e => console.warn('[getLivoFees] Background sync failed:', e.message));
+    }
+
+    if (cities.length === 0) {
+      return res.status(503).json({
+        success: false,
+        message: 'Grille tarifaire temporairement indisponible. Réessayez dans quelques instants.',
+        source: 'none'
+      });
+    }
+
+    res.set('Cache-Control', 'public, max-age=3600');
+    return res.status(200).json({
+      success: true,
+      count: cities.length,
+      source: cacheFresh ? 'firestore' : 'livo-cache-miss',
+      cacheFresh,
+      cities
+    });
+  } catch (error) {
+    console.error('[getLivoFees]', error);
+    return res.status(500).json({ success: false, message: 'Erreur serveur.' });
+  }
+});
+
+/* ============================================================
+   CF : syncLivoCities (ADMIN)
+   ============================================================ */
+exports.syncLivoCities = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS], timeoutSeconds: 60 }, async (req, res) => {
+  if (cors(req, res)) return;
+  try {
+    const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
+    if (!match) return res.status(401).json({ success: false, message: 'Connexion requise.' });
+    const decoded = await getAuth().verifyIdToken(match[1], true);
+    const adminSnap = await db.collection('users').doc(decoded.uid).get();
+    if (!adminSnap.exists || adminSnap.data()?.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Action réservée à un administrateur.' });
+    }
+
+    const result = await syncLivoCitiesFromApi({
+      preserveCustom: req.body?.preserveCustom === true
+    });
+
+    return res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    console.error('[syncLivoCities]', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Erreur lors de la synchronisation.'
+    });
+  }
+});
+
+/* ============================================================
+   CF : syncVendorPublic (Trigger)
    ============================================================ */
 exports.syncVendorPublic = onDocumentWritten('users/{userId}', async (event) => {
   const snap = event.data.after;
@@ -405,7 +440,7 @@ exports.syncVendorPublic = onDocumentWritten('users/{userId}', async (event) => 
   const data = snap.data();
 
   if (data.role !== 'vendor' || !data.vendorInfo) {
-    return db.collection('vendorsPublic').doc(event.params.userId).delete().catch(() => { });
+    return db.collection('vendorsPublic').doc(event.params.userId).delete().catch(() => {});
   }
 
   return db.collection('vendorsPublic').doc(event.params.userId).set({
@@ -418,7 +453,7 @@ exports.syncVendorPublic = onDocumentWritten('users/{userId}', async (event) => 
 });
 
 /* ============================================================
-   CLOUD FUNCTION : signVendorContract (Sécurisé)
+   CF : signVendorContract (Sécurisé + B-C1 snapshot officiel)
    ============================================================ */
 exports.signVendorContract = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
   if (cors(req, res)) return;
@@ -427,9 +462,19 @@ exports.signVendorContract = onRequest({ region: 'europe-west1', cors: [...ALLOW
     if (!match) return res.status(401).json({ success: false, message: 'Connexion requise.' });
     const decoded = await getAuth().verifyIdToken(match[1], true);
 
-    const { version, language, termsSnapshot, textHash } = req.body;
-    if (!version || !language || !termsSnapshot || !textHash) {
+    const { version, language, textHash } = req.body;
+    if (!version || !language || !textHash) {
       return res.status(400).json({ success: false, message: 'Données incomplètes.' });
+    }
+
+    // B-C1 : on IGNORE le termsSnapshot du client, on reconstruit l'officiel
+    const officialSnapshot = buildOfficialSnapshot();
+
+    if (String(officialSnapshot.version) !== String(version)) {
+      return res.status(400).json({
+        success: false,
+        message: `Version contrat obsolète. Version attendue : ${officialSnapshot.version}, reçue : ${version}. Rechargez la page.`
+      });
     }
 
     const contractId = `contract_${decoded.uid}_v${version}`;
@@ -440,21 +485,25 @@ exports.signVendorContract = onRequest({ region: 'europe-west1', cors: [...ALLOW
       return res.status(200).json({ success: true, alreadySigned: true, contractId });
     }
 
-    const officialText = getContractText(language, version, termsSnapshot);
+    const officialText = getContractText(language, version, officialSnapshot);
     const officialHash = crypto.createHash('sha256').update(officialText).digest('hex');
 
     if (officialHash !== textHash) {
-      return res.status(400).json({ success: false, message: 'Falsification détectée : le hash ne correspond pas.' });
+      return res.status(400).json({
+        success: false,
+        message: 'Falsification détectée : le hash ne correspond pas au contrat officiel. Rechargez la page.'
+      });
     }
 
-    const contractHash = crypto.createHash('sha256').update([decoded.uid, version, language, textHash].join('|')).digest('hex');
+    const contractHash = crypto.createHash('sha256')
+      .update([decoded.uid, version, language, textHash].join('|')).digest('hex');
     const ip = req.ip || req.get('x-forwarded-for') || 'unknown';
 
     await contractRef.set({
       vendorId: decoded.uid,
       version: version,
       language: language,
-      termsSnapshot: termsSnapshot,
+      termsSnapshot: officialSnapshot,  // ← officiel
       textHash: textHash,
       contractHash: contractHash,
       acceptedAt: FieldValue.serverTimestamp(),
@@ -480,20 +529,32 @@ exports.signVendorContract = onRequest({ region: 'europe-west1', cors: [...ALLOW
 });
 
 /* ============================================================
-   CLOUD FUNCTION : loginVendor (Autorise pending pour signature)
+   CF : loginVendor (B-C3 : rate limiting)
    ============================================================ */
 exports.loginVendor = onRequest({ region: 'europe-west1', maxInstances: 5, timeoutSeconds: 20 }, async (req, res) => {
   if (cors(req, res)) return;
   const email = String(req.body?.email || '').trim().toLowerCase();
   const password = req.body?.password;
+  const clientIp = String(req.ip || req.get('x-forwarded-for') || 'unknown').split(',')[0].trim().slice(0, 80);
 
   if (!validEmail(email) || typeof password !== 'string') {
     return res.status(400).json({ success: false, message: 'Identifiants invalides.' });
   }
 
   try {
+    // B-C3 : throttle AVANT tout traitement
+    if (await isLoginThrottled(email, clientIp)) {
+      return res.status(429).json({
+        success: false,
+        message: 'Trop de tentatives échouées. Réessayez dans 15 minutes.'
+      });
+    }
+
     const userRecord = await findUserByEmail(email);
-    if (!userRecord) return res.status(401).json({ success: false, message: 'Identifiants incorrects.' });
+    if (!userRecord) {
+      await recordLoginFailure(email, clientIp);
+      return res.status(401).json({ success: false, message: 'Identifiants incorrects.' });
+    }
 
     const { uid, data: profile } = userRecord;
     const credentialSnap = await db.collection('vendorCredentials').doc(uid).get();
@@ -507,21 +568,31 @@ exports.loginVendor = onRequest({ region: 'europe-west1', maxInstances: 5, timeo
     }
 
     if (!validCredential) {
-      const authResponse = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FIREBASE_WEB_API_KEY}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, returnSecureToken: true })
-      });
+      const authResponse = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FIREBASE_WEB_API_KEY}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password, returnSecureToken: true })
+        }
+      );
       if (authResponse.ok) {
         const authData = await authResponse.json();
         validCredential = authData.localId === uid;
       }
     }
 
-    if (!validCredential) return res.status(401).json({ success: false, message: 'Identifiants incorrects.' });
+    if (!validCredential) {
+      await recordLoginFailure(email, clientIp);
+      return res.status(401).json({ success: false, message: 'Identifiants incorrects.' });
+    }
 
     const canLogin = approved(profile) || profile.vendorInfo?.status === 'pending';
-    if (!canLogin) return res.status(403).json({ success: false, message: statusMessage(profile) });
+    if (!canLogin) {
+      return res.status(403).json({ success: false, message: statusMessage(profile) });
+    }
+
+    await clearLoginFailures(email, clientIp);
 
     const customToken = await getAuth().createCustomToken(uid, { vendorLogin: true });
     return res.status(200).json({ success: true, customToken, needsContract: !approved(profile) });
@@ -532,7 +603,7 @@ exports.loginVendor = onRequest({ region: 'europe-west1', maxInstances: 5, timeo
 });
 
 /* ============================================================
-   CLOUD FUNCTION : setVendorPassword
+   CF : setVendorPassword
    ============================================================ */
 exports.setVendorPassword = onRequest({ region: 'europe-west1', maxInstances: 5, timeoutSeconds: 15 }, async (req, res) => {
   if (cors(req, res)) return;
@@ -541,7 +612,9 @@ exports.setVendorPassword = onRequest({ region: 'europe-west1', maxInstances: 5,
     if (!match) return res.status(401).json({ success: false, message: 'Connexion requise.' });
     const decoded = await getAuth().verifyIdToken(match[1], true);
     const vendorPassword = req.body?.vendorPassword;
-    if (!validPassword(vendorPassword)) return res.status(400).json({ success: false, message: 'Mot de passe invalide.' });
+    if (!validPassword(vendorPassword)) {
+      return res.status(400).json({ success: false, message: 'Mot de passe invalide.' });
+    }
 
     const ref = db.collection('users').doc(decoded.uid);
     const snap = await ref.get();
@@ -564,7 +637,7 @@ exports.setVendorPassword = onRequest({ region: 'europe-west1', maxInstances: 5,
 });
 
 /* ============================================================
-   CLOUD FUNCTION : adminVendorAction (Sécurisé)
+   CF : adminVendorAction
    ============================================================ */
 exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
   if (cors(req, res)) return;
@@ -608,7 +681,7 @@ exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
       }
 
       await vendorRef.delete();
-      await db.collection('vendorCredentials').doc(vendorId).delete().catch(() => { });
+      await db.collection('vendorCredentials').doc(vendorId).delete().catch(() => {});
       try { await getAuth().deleteUser(vendorId); } catch (e) { /* ignore */ }
 
       return res.status(200).json({ success: true, action, deletedProducts });
@@ -627,7 +700,7 @@ exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
 });
 
 /* ============================================================
-   CLOUD FUNCTION : requestWithdrawal (Sécurisé)
+   CF : requestWithdrawal (B-C2 : check vendeur approuvé)
    ============================================================ */
 exports.requestWithdrawal = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
   if (cors(req, res)) return;
@@ -636,14 +709,34 @@ exports.requestWithdrawal = onRequest({ region: 'europe-west1', cors: [...ALLOWE
     if (!match) return res.status(401).json({ success: false, message: 'Connexion requise.' });
     const decoded = await getAuth().verifyIdToken(match[1], true);
 
+    // B-C2 : vérifier que le vendeur est approuvé + contrat signé
+    const vendorSnap = await db.collection('users').doc(decoded.uid).get();
+    if (!vendorSnap.exists) {
+      return res.status(403).json({ success: false, message: 'Profil introuvable.' });
+    }
+    const vendorData = vendorSnap.data();
+    if (vendorData.role !== 'vendor') {
+      return res.status(403).json({ success: false, message: 'Compte non vendeur.' });
+    }
+    if (vendorData.vendorInfo?.status !== 'approved') {
+      return res.status(403).json({ success: false, message: 'Votre compte vendeur n’est pas approuvé.' });
+    }
+    if (vendorData.vendorInfo?.contractStatus !== 'accepted') {
+      return res.status(403).json({ success: false, message: 'Votre contrat vendeur doit être signé.' });
+    }
+
     const amount = Number(req.body?.amount);
     const method = String(req.body?.method || '');
     const account = String(req.body?.account || '');
 
-    if (amount < 200) return res.status(400).json({ success: false, message: 'Minimum 200 MAD.' });
+    if (amount < 200) {
+      return res.status(400).json({ success: false, message: 'Minimum 200 MAD.' });
+    }
 
     const walletSnap = await db.collection('wallets').doc(decoded.uid).get();
-    if (!walletSnap.exists) return res.status(404).json({ success: false, message: 'Wallet introuvable.' });
+    if (!walletSnap.exists) {
+      return res.status(404).json({ success: false, message: 'Wallet introuvable.' });
+    }
 
     const pendingReq = await db.collection('payout_requests')
       .where('vendorId', '==', decoded.uid)
@@ -671,11 +764,9 @@ exports.requestWithdrawal = onRequest({ region: 'europe-west1', cors: [...ALLOWE
     return res.status(500).json({ success: false, message: error.message });
   }
 });
+
 /* ============================================================
-   CLOUD FUNCTION : onOrderStatusChanged (Trigger)
-   ============================================================
-   - C5 : Protection contre le double-crédit (marqueur order.vendorCredits)
-   - M7 : Débit vendeur pour les retours (frais RETURN_FEE_LIVO × qty)
+   CF : onOrderStatusChanged (Trigger)
    ============================================================ */
 exports.onOrderStatusChanged = onDocumentUpdated('orders/{orderId}', async (event) => {
   const before = event.data.before.data();
@@ -685,9 +776,7 @@ exports.onOrderStatusChanged = onDocumentUpdated('orders/{orderId}', async (even
 
   const orderId = event.params.orderId;
 
-  // ============================================================
-  // C5 : CRÉDIT VENDEUR À LA LIVRAISON (idempotent)
-  // ============================================================
+  // Crédit vendeur
   if (after.status === 'delivered' && before.status !== 'delivered') {
     const vendorItems = {};
     (after.items || []).forEach(item => {
@@ -699,12 +788,8 @@ exports.onOrderStatusChanged = onDocumentUpdated('orders/{orderId}', async (even
 
     for (const [vendorId, subtotal] of Object.entries(vendorItems)) {
       try {
-        // C5 : marqueur idempotent
         const alreadyCredited = after.vendorCredits && after.vendorCredits[vendorId];
-        if (alreadyCredited) {
-          console.log(`[onOrderStatusChanged] Vendeur ${vendorId} déjà crédité pour cmd ${orderId}, skip`);
-          continue;
-        }
+        if (alreadyCredited) continue;
 
         const vendorSnap = await db.collection('users').doc(vendorId).get();
         if (!vendorSnap.exists) continue;
@@ -712,24 +797,18 @@ exports.onOrderStatusChanged = onDocumentUpdated('orders/{orderId}', async (even
         const rate = Number(vendorSnap.data().vendorInfo?.commissionRate) || 0.07;
         const commission = Math.round(subtotal * rate * 100) / 100;
         const net = Math.round((subtotal - commission) * 100) / 100;
-
         if (net <= 0) continue;
 
         const walletRef = db.collection('wallets').doc(vendorId);
-        const walletSnap = await walletRef.get();
-        const unlockDays = 7;
         const unlockAt = new Date();
-        unlockAt.setDate(unlockAt.getDate() + unlockDays);
+        unlockAt.setDate(unlockAt.getDate() + 7);
 
-        // Écriture wallet + transaction + marqueur (atomique via transaction)
         await db.runTransaction(async (tx) => {
           const orderRef = db.collection('orders').doc(orderId);
           const freshOrderSnap = await tx.get(orderRef);
           if (!freshOrderSnap.exists) return;
           const freshOrder = freshOrderSnap.data();
-          if (freshOrder.vendorCredits && freshOrder.vendorCredits[vendorId]) {
-            return; // double check atomique
-          }
+          if (freshOrder.vendorCredits && freshOrder.vendorCredits[vendorId]) return;
 
           const freshWalletSnap = await tx.get(walletRef);
           if (!freshWalletSnap.exists) {
@@ -773,21 +852,14 @@ exports.onOrderStatusChanged = onDocumentUpdated('orders/{orderId}', async (even
             }
           });
         });
-
-        console.log(`[onOrderStatusChanged] Vendeur ${vendorId} crédité de ${net} MAD (cmd ${orderId})`);
       } catch (err) {
         console.error(`[onOrderStatusChanged] Erreur crédit vendeur ${vendorId}:`, err);
       }
     }
   }
 
-  // ============================================================
-  // M7 : DÉBIT VENDEUR POUR RETOUR
-  // ============================================================
+  // Débit retour vendeur
   if (after.status === 'returned' && before.status !== 'returned') {
-    const RETURN_FEE = 20; // CONFIG.VENDOR.RETURN_FEE_LIVO
-
-    // Récupérer le dernier retour (le plus récent)
     const returns = Array.isArray(after.returns) ? after.returns : [];
     const lastReturn = returns[returns.length - 1];
     if (!lastReturn || !Array.isArray(lastReturn.items)) return;
@@ -804,16 +876,12 @@ exports.onOrderStatusChanged = onDocumentUpdated('orders/{orderId}', async (even
 
     for (const [vendorId, qty] of Object.entries(qtyByVendor)) {
       if (qty <= 0) continue;
-      const fee = RETURN_FEE * qty;
+      const fee = RETURN_FEE_LIVO * qty;
       const debitKey = `${vendorId}_ret${returnIndex}`;
 
       try {
-        // Idempotence : marqueur order.vendorDebits
         const alreadyDebited = after.vendorDebits && after.vendorDebits[debitKey];
-        if (alreadyDebited) {
-          console.log(`[onOrderStatusChanged] Retour ${debitKey} déjà débité, skip`);
-          continue;
-        }
+        if (alreadyDebited) continue;
 
         const walletRef = db.collection('wallets').doc(vendorId);
         const walletSnap = await walletRef.get();
@@ -835,7 +903,6 @@ exports.onOrderStatusChanged = onDocumentUpdated('orders/{orderId}', async (even
           let negative = Number(w.negativeBalance) || 0;
           let remaining = fee;
 
-          // Cascade : pending → available → negative
           const fromPending = Math.min(pending, remaining);
           pending -= fromPending;
           remaining -= fromPending;
@@ -844,9 +911,7 @@ exports.onOrderStatusChanged = onDocumentUpdated('orders/{orderId}', async (even
           available -= fromAvailable;
           remaining -= fromAvailable;
 
-          if (remaining > 0) {
-            negative -= remaining;
-          }
+          if (remaining > 0) negative -= remaining;
 
           tx.update(walletRef, {
             pendingBalance: pending,
@@ -875,8 +940,6 @@ exports.onOrderStatusChanged = onDocumentUpdated('orders/{orderId}', async (even
             }
           });
         });
-
-        console.log(`[onOrderStatusChanged] Vendeur ${vendorId} débité de ${fee} MAD (retour cmd ${orderId})`);
       } catch (err) {
         console.error(`[onOrderStatusChanged] Erreur débit retour ${vendorId}:`, err);
       }
@@ -885,13 +948,7 @@ exports.onOrderStatusChanged = onDocumentUpdated('orders/{orderId}', async (even
 });
 
 /* ============================================================
-   CLOUD FUNCTION : createCustomerOrder (Sécurisé)
-   ============================================================
-   - C2 : deliveryFee depuis Firestore cities/{cityId}.price
-   - C3 : coupons (validation + incrément usedCount)
-   - C4 : cancellableUntil = now + 4h
-   - C6 : vérif que le vendeur est approuvé (vendorsPublic.status)
-   - M1 : réduction volume >= 3 articles -> 5%
+   CF : createCustomerOrder
    ============================================================ */
 exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 10, timeoutSeconds: 30, cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
   if (cors(req, res)) return;
@@ -913,7 +970,6 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
       }
     }
 
-    // Fusion doublons
     const merged = new Map();
     for (const it of rawItems) {
       const productId = String(it?.productId ?? '').trim();
@@ -933,7 +989,6 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
     const orderRef = db.collection('orders').doc();
 
     const outcome = await db.runTransaction(async tx => {
-      // ============ LECTURE PRODUITS ============
       const productRefs = items.map(i => db.collection('products').doc(i.productId));
       const productSnaps = await Promise.all(productRefs.map(ref => tx.get(ref)));
       const vendorIdsSet = new Set();
@@ -947,14 +1002,12 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
       }
       const vendorIds = [...vendorIdsSet];
 
-      // ============ C6 : VÉRIF VENDEURS APPROUVÉS ============
+      // C6 : vérif vendeurs approuvés
       if (vendorIds.length > 0) {
         const vendorRefs = vendorIds.map(id => db.collection('vendorsPublic').doc(id));
         const vendorSnaps = await Promise.all(vendorRefs.map(ref => tx.get(ref)));
         vendorSnaps.forEach((snap, i) => {
-          if (!snap.exists) {
-            throw new Error(`Le vendeur ${vendorIds[i]} n'est pas actif.`);
-          }
+          if (!snap.exists) throw new Error(`Le vendeur ${vendorIds[i]} n'est pas actif.`);
           const vData = snap.data();
           if (vData.status !== 'approved') {
             throw new Error(`Le vendeur ${vendorIds[i]} n'est pas approuvé (statut: ${vData.status || 'pending'}).`);
@@ -962,7 +1015,6 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
         });
       }
 
-      // ============ TRAITEMENT DES ARTICLES ============
       let subtotal = 0;
       let totalQty = 0;
       const validatedItems = [];
@@ -1022,7 +1074,7 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
         });
       }
 
-      // ============ C2 : FRAIS LIVRAISON DEPUIS FIRESTORE ============
+      // C2 : deliveryFee depuis Firestore
       let deliveryFee = FALLBACK_DELIVERY_FEE;
       if (delivery.cityId) {
         try {
@@ -1035,10 +1087,10 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
         }
       }
 
-      // ============ M1 : RÉDUCTION VOLUME (>=3 articles -> 5%) ============
+      // M1 : réduction volume
       const volumeDiscount = totalQty >= 3 ? Math.round(subtotal * 0.05) : 0;
 
-      // ============ C3 : COUPONS ============
+      // C3 : coupon
       let couponData = null;
       let couponDiscount = 0;
       const couponId = input.appliedCoupon?.id ? String(input.appliedCoupon.id) : null;
@@ -1064,18 +1116,12 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
           if (useSnap.exists) throw new Error('Vous avez déjà utilisé ce code promo.');
         }
         const value = Math.max(0, Number(c.value) || 0);
-        if (c.type === 'percentage') {
-          couponDiscount = Math.round(subtotal * Math.min(100, value) / 100);
-        } else if (c.type === 'fixed') {
-          couponDiscount = Math.min(value, subtotal);
-        } else if (c.type === 'free_shipping') {
-          couponDiscount = deliveryFee;
-        }
+        if (c.type === 'percentage') couponDiscount = Math.round(subtotal * Math.min(100, value) / 100);
+        else if (c.type === 'fixed') couponDiscount = Math.min(value, subtotal);
+        else if (c.type === 'free_shipping') couponDiscount = deliveryFee;
         if (couponDiscount <= 0) throw new Error('Ce code ne produit aucune réduction.');
 
         couponData = c;
-
-        // Incrément usedCount
         tx.update(couponRef, { usedCount: FieldValue.increment(1) });
         tx.set(db.collection('coupon_uses').doc(`${couponId}_${decoded.uid}`), {
           couponId,
@@ -1087,16 +1133,13 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
         });
       }
 
-      // Total
       const productDiscount = Math.min(subtotal, volumeDiscount + Math.max(0, couponDiscount - (couponData?.type === 'free_shipping' ? deliveryFee : 0)));
       const shippingDiscount = couponData?.type === 'free_shipping' ? Math.min(deliveryFee, couponDiscount) : 0;
       const total = Math.max(0, subtotal - productDiscount + deliveryFee - shippingDiscount);
 
-      // ============ C4 : cancellableUntil ============
       const now = Date.now();
-      const cancellableUntil = new Date(now + 4 * 3600 * 1000); // 4h
+      const cancellableUntil = new Date(now + 4 * 3600 * 1000);
 
-      // ============ CONSTRUCTION ORDER ============
       const vendorList = [...new Set(validatedItems.map(i => i.vendorId).filter(v => v && v !== 'smartswi9a'))];
       const orderData = {
         userId: decoded.uid,
@@ -1126,7 +1169,6 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
       productUpdates.forEach(u => tx.update(u.ref, u.data));
       tx.set(orderRef, orderData);
 
-      // Notification
       const notifRef = db.collection('notifications').doc();
       tx.set(notifRef, {
         userId: decoded.uid,
@@ -1161,10 +1203,7 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
 });
 
 /* ============================================================
-   CLOUD FUNCTION : cancelCustomerOrder (Sécurisé)
-   ============================================================
-   - Restaure le stock
-   - M2 : restaure le coupon (incrément -1 + suppression coupon_uses)
+   CF : cancelCustomerOrder
    ============================================================ */
 exports.cancelCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 10, timeoutSeconds: 30, cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
   if (cors(req, res)) return;
@@ -1183,17 +1222,13 @@ exports.cancelCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
       if (order.userId !== decoded.uid) throw new Error('Non autorisé.');
       if (!['pending', 'confirmed'].includes(order.status)) throw new Error('Délai dépassé.');
 
-      // Vérifier cancellableUntil
       if (order.cancellableUntil) {
         const until = order.cancellableUntil.toDate
           ? order.cancellableUntil.toDate()
           : new Date(order.cancellableUntil);
-        if (Date.now() > until.getTime()) {
-          throw new Error('Le délai d’annulation est dépassé.');
-        }
+        if (Date.now() > until.getTime()) throw new Error('Le délai d’annulation est dépassé.');
       }
 
-      // Restauration stock
       const items = Array.isArray(order.items) ? order.items : [];
       const productIds = [...new Set(items.map(i => String(i.productId)))];
       const refs = productIds.map(id => db.collection('products').doc(id));
@@ -1234,12 +1269,14 @@ exports.cancelCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
         }
       }
 
-      // M2 : restauration coupon
+      // M2 : restauration coupon (protégée contre usedCount négatif)
       if (order.couponId && !order.couponRestored) {
         try {
-          tx.update(db.collection('coupons').doc(String(order.couponId)), {
-            usedCount: FieldValue.increment(-1)
-          });
+          const couponRef = db.collection('coupons').doc(String(order.couponId));
+          const couponSnap = await tx.get(couponRef);
+          if (couponSnap.exists && Number(couponSnap.data().usedCount) > 0) {
+            tx.update(couponRef, { usedCount: FieldValue.increment(-1) });
+          }
           tx.delete(db.collection('coupon_uses').doc(`${order.couponId}_${decoded.uid}`));
         } catch (e) {
           console.warn('[cancelCustomerOrder] Coupon restore failed:', e.message);
@@ -1263,11 +1300,7 @@ exports.cancelCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
 });
 
 /* ============================================================
-   CLOUD FUNCTION : adminPayoutAction (C1 - MANQUANTE)
-   ============================================================
-   Action admin : "paid" ou "rejected" sur une payout_request.
-   - "paid" : débite availableBalance + totalWithdrawn + transaction
-   - "rejected" : marque rejetée (pas de débit, le solde est déjà réservé côté client)
+   CF : adminPayoutAction (M3 : validation vendorId)
    ============================================================ */
 exports.adminPayoutAction = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS], timeoutSeconds: 30 }, async (req, res) => {
   if (cors(req, res)) return;
@@ -1294,9 +1327,14 @@ exports.adminPayoutAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
       const payoutData = payoutSnap.data();
       if (payoutData.status !== 'pending') throw new Error('Cette demande a déjà été traitée.');
 
+      // M3 : vendorId obligatoire
+      const vendorId = String(payoutData.vendorId || '');
+      if (!vendorId) throw new Error('Demande sans vendorId — impossible de traiter.');
+
       if (action === 'paid') {
         const amount = Number(payoutData.amount) || 0;
-        const vendorId = payoutData.vendorId;
+        if (amount <= 0) throw new Error('Montant invalide.');
+
         const walletRef = db.collection('wallets').doc(vendorId);
         const walletSnap = await t.get(walletRef);
         if (!walletSnap.exists) throw new Error('Wallet introuvable.');
@@ -1331,7 +1369,6 @@ exports.adminPayoutAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
           releasedAt: FieldValue.serverTimestamp()
         });
 
-        // Notification
         const notifRef = db.collection('notifications').doc();
         t.set(notifRef, {
           userId: vendorId,
@@ -1343,7 +1380,6 @@ exports.adminPayoutAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
           payoutId
         });
       } else {
-        // rejected
         t.update(payoutRef, {
           status: 'rejected',
           rejectedAt: FieldValue.serverTimestamp(),
@@ -1352,7 +1388,7 @@ exports.adminPayoutAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
 
         const notifRef = db.collection('notifications').doc();
         t.set(notifRef, {
-          userId: payoutData.vendorId,
+          userId: vendorId,
           type: 'payout_rejected',
           title: 'Retrait rejeté',
           message: `Votre demande de retrait de ${payoutData.amount} MAD a été rejetée.`,
@@ -1371,7 +1407,7 @@ exports.adminPayoutAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
 });
 
 /* ============================================================
-   CLOUD FUNCTION : releaseDueFunds (inchangé)
+   CF : releaseDueFunds
    ============================================================ */
 exports.releaseDueFunds = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS], timeoutSeconds: 60 }, async (req, res) => {
   if (cors(req, res)) return;
