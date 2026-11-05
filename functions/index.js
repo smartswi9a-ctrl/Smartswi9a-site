@@ -447,7 +447,13 @@ exports.syncLivoCities = onRequest({ region: 'europe-west1', cors: [...ALLOWED_O
    ============================================================ */
 exports.syncVendorPublic = onDocumentWritten('users/{userId}', async (event) => {
   const snap = event.data.after;
-  if (!snap || !snap.exists) return;
+
+  // La suppression du profil doit aussi supprimer la fiche publique.
+  // Sans ce cas, une ancienne boutique peut rester visible après suppression du vendeur.
+  if (!snap || !snap.exists) {
+    return db.collection('vendorsPublic').doc(event.params.userId).delete();
+  }
+
   const data = snap.data();
 
   if (data.role !== 'vendor' || !data.vendorInfo) {
