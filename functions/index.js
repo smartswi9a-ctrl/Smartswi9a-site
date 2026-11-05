@@ -10,6 +10,7 @@ initializeApp();
 const db = getFirestore();
 const PROJECT_ID = 'smartswi9a-31063';
 const FIREBASE_WEB_API_KEY = 'AIzaSyBhULwDxPBRqjywsSD_0ny41Bmt968ofSA';
+
 const ALLOWED_ORIGINS = new Set([
     'https://smartswi9a.top', 
     'https://www.smartswi9a.top',
@@ -56,10 +57,15 @@ function statusMessage(profile) {
 }
 
 /* ============================================================
-   TEMPLATES CONTRAT (Reproduction côté serveur pour sécurité)
+   TEMPLATES CONTRAT (Reproduction stricte côté serveur)
    ============================================================ */
 function getContractText(lang, version, snapshot) {
     const templates = {
+        "1.1.0": {
+            fr: (t) => `CONTRAT DE PARTENARIAT VENDEUR — SMART SWI9A\nVersion ${t.version}\n\nArticle 1 — Objet\nLe présent contrat encadre la mise en vente de produits par le Vendeur sur la plateforme Smart Swi9a (smartswi9a.top), marketplace marocaine d'appareils connectés et de produits pour la maison.\n\nArticle 2 — Inscription et vérification\nLe Vendeur s'engage à fournir des informations exactes (nom de boutique, téléphone, ville, ICE ou CIN). Toute fausse déclaration entraîne la suspension immédiate du compte.\n\nArticle 3 — Commission\nSmart Swi9a prélève une commission de ${(t.commissionRate*100).toFixed(0)} % sur le montant hors livraison de chaque vente. Cette commission peut être ajustée entre ${(t.commissionRateMin*100).toFixed(0)} % et ${(t.commissionRateMax*100).toFixed(0)} % avec l'accord écrit du Vendeur.\n\nArticle 4 — Expédition\nLe Vendeur choisit le dépôt en agence (drop-off) ou la logistique Smart Swi9a (fulfillment). Les délais de dépôt sont de ${t.dropoffDeadlineHoursNew} heures (nouveaux comptes) ou ${t.dropoffDeadlineHoursEstablished} heures (comptes matures). Tout retard peut entraîner une suspension.\n\nArticle 5 — Paiement\nLes gains sont crédités sur le portefeuille vendeur et deviennent disponibles ${t.unlockDaysVendor} jours après livraison confirmée (${t.unlockDaysSmart} jours pour les produits Smart Swi9a). Le retrait minimum est de ${t.minWithdrawal} MAD.\n\nArticle 6 — Retours\nEn cas de retour, des frais de ${t.returnFeeSpeedaf} MAD sont prélevés par colis retourné. Les retours répétés peuvent entraîner une révision du statut du Vendeur.\n\nArticle 7 — Résiliation\nChaque partie peut résilier ce contrat à tout moment. Les commandes en cours restent soumises aux présentes conditions.\n\nArticle 8 — Loi applicable\nLe présent contrat est régi par le droit marocain. Tout litige relève des tribunaux de Casablanca.\n\nArticle 9 — Signature électronique\nLa signature électronique vaut acceptation pleine et entière. L'IP, le user-agent, la date serveur et un hash SHA-256 du présent document sont enregistrés à titre de preuve.\n\nEn signant, le Vendeur reconnaît avoir lu et compris l'intégralité du présent contrat.`,
+            ar: (t) => `عقد شراكة البائع — سمارت سويقة\nالإصدار ${t.version}\n\nالمادة 1 — الموضوع\nينظم هذا العقد عرض البائع لمنتجاته للبيع على منصة سمارت سويقة (smartswi9a.top)، وهي سوق مغربية للأجهزة المتصلة ومنتجات المنزل.\n\nالمادة 2 — التسجيل والتحقق\nيلتزم البائع بتقديم معلومات صحيحة (اسم المتجر، الهاتف، المدينة، ICE أو CIN). أي تصريح كاذب يؤدي إلى تعليق الحساب فوراً.\n\nالمادة 3 — العمولة\nتقتطع سمارت سويقة عمولة قدرها ${(t.commissionRate*100).toFixed(0)}% على مبلغ كل عملية بيع دون احتساب التوصيل. يمكن تعديل هذه العمولة بين ${(t.commissionRateMin*100).toFixed(0)}% و${(t.commissionRateMax*100).toFixed(0)}% بموافقة كتابية من البائع.\n\nالمادة 4 — الشحن\nيختار البائع الإيداع في الوكالة (drop-off) أو لوجستيك سمارت سويقة (fulfillment). مهل الإيداع هي ${t.dropoffDeadlineHoursNew} ساعة (الحسابات الجديدة) أو ${t.dropoffDeadlineHoursEstablished} ساعة (الحسابات الناضجة). أي تأخير قد يؤدي إلى تعليق الحساب.\n\nالمادة 5 — الدفع\nتُضاف الأرباح إلى محفظة البائع وتصبح متاحة بعد ${t.unlockDaysVendor} أيام من تأكيد التسليم (${t.unlockDaysSmart} يوماً لمنتجات سمارت سويقة). الحد الأدنى للسحب هو ${t.minWithdrawal} درهم.\n\nالمادة 6 — الإرجاع\nفي حالة الإرجاع، تُخصم رسوم قدرها ${t.returnFeeSpeedaf} درهماً لكل طرد مُرجع. الإرجاعات المتكررة قد تؤدي إلى مراجعة وضع البائع.\n\nالمادة 7 — الإنهاء\nيمكن لأي طرف إنهاء هذا العقد في أي وقت. تبقى الطلبات الجارية خاضعة لهذه الشروط.\n\nالمادة 8 — القانون المطبق\nيخضع هذا العقد للقانون المغربي. يختص القضاء في الدار البيضاء بأي نزاع.\n\nالمادة 9 — التوقيع الإلكتروني\nالتوقيع الإلكتروني يعتبر قبولاً تاماً وصريحاً. يتم تسجيل عنوان IP، ووكيل المستخدم، وتاريخ الخادم، وبصمة SHA-256 لهذا المستند كدليل.\n\nبالتوقيع، يقر البائع بأنه قرأ وفهم كامل هذا العقد.`,
+            en: (t) => `VENDOR PARTNERSHIP AGREEMENT — SMART SWI9A\nVersion ${t.version}\n\nArticle 1 — Purpose\nThis agreement governs the listing and sale of products by the Vendor on Smart Swi9a (smartswi9a.top), a Moroccan marketplace for connected devices and home products.\n\nArticle 2 — Registration and verification\nThe Vendor agrees to provide accurate information (shop name, phone, city, ICE or CIN). Any false statement results in immediate account suspension.\n\nArticle 3 — Commission\nSmart Swi9a charges a ${(t.commissionRate*100).toFixed(0)}% commission on the delivery-excluded amount of each sale. This commission may be adjusted between ${(t.commissionRateMin*100).toFixed(0)}% and ${(t.commissionRateMax*100).toFixed(0)}% with the Vendor's written consent.\n\nArticle 4 — Shipping\nThe Vendor chooses agency drop-off or Smart Swi9a fulfillment. Drop-off deadlines are ${t.dropoffDeadlineHoursNew} hours (new accounts) or ${t.dropoffDeadlineHoursEstablished} hours (mature accounts). Any delay may result in suspension.\n\nArticle 5 — Payment\nEarnings are credited to the vendor wallet and become available ${t.unlockDaysVendor} days after confirmed delivery (${t.unlockDaysSmart} days for Smart Swi9a products). Minimum withdrawal is ${t.minWithdrawal} MAD.\n\nArticle 6 — Returns\nIn case of return, a ${t.returnFeeSpeedaf} MAD fee is charged per returned parcel. Repeated returns may lead to a review of the Vendor's status.\n\nArticle 7 — Termination\nEither party may terminate this agreement at any time. Pending orders remain subject to these terms.\n\nArticle 8 — Governing law\nThis agreement is governed by Moroccan law. Any dispute falls under the jurisdiction of the courts of Casablanca.\n\nArticle 9 — Electronic signature\nThe electronic signature constitutes full acceptance. The IP, user-agent, server date, and a SHA-256 hash of this document are recorded as evidence.\n\nBy signing, the Vendor acknowledges having read and understood this entire agreement.`
+        },
         "1.2.0": {
             fr: (t) => `CONTRAT DE PARTENARIAT VENDEUR — SMART SWI9A\nVersion ${t.version}\n\nArticle 1 — Objet\nLe présent contrat encadre la mise en vente de produits par le Vendeur sur la plateforme Smart Swi9a (smartswi9a.top), marketplace marocaine d'appareils connectés et de produits pour la maison.\n\nArticle 2 — Inscription et vérification\nLe Vendeur s'engage à fournir des informations exactes (nom de boutique, téléphone, ville, ICE ou CIN). Toute fausse déclaration entraîne la suspension immédiate du compte.\n\nArticle 3 — Commission\nSmart Swi9a prélève une commission de ${(t.commissionRate*100).toFixed(0)} % sur le montant hors livraison de chaque vente. Cette commission peut être ajustée entre ${(t.commissionRateMin*100).toFixed(0)} % et ${(t.commissionRateMax*100).toFixed(0)} % avec l'accord écrit du Vendeur.\n\nArticle 4 — Expédition\nLe Vendeur choisit le dépôt en agence (drop-off) ou la logistique Smart Swi9a (fulfillment). Les délais de dépôt sont de ${t.dropoffDeadlineHoursNew} heures (nouveaux comptes) ou ${t.dropoffDeadlineHoursEstablished} heures (comptes matures). Tout retard peut entraîner une suspension.\n\nArticle 5 — Paiement\nLes gains sont crédités sur le portefeuille vendeur et deviennent disponibles ${t.unlockDaysVendor} jours après livraison confirmée (${t.unlockDaysSmart} jours pour les produits Smart Swi9a). Le retrait minimum est de ${t.minWithdrawal} MAD.\n\nArticle 6 — Retours\nEn cas de retour, des frais de ${t.returnFeeLivo} MAD sont prélevés par colis retourné (frais facturés par notre partenaire logistique Livo). Les retours répétés peuvent entraîner une révision du statut du Vendeur.\n\nArticle 7 — Résiliation\nChaque partie peut résilier ce contrat à tout moment. Les commandes en cours restent soumises aux présentes conditions.\n\nArticle 8 — Loi applicable\nLe présent contrat est régi par le droit marocain. Tout litige relève des tribunaux de Casablanca.\n\nArticle 9 — Signature électronique\nLa signature électronique vaut acceptation pleine et entière. L'IP, le user-agent, la date serveur et un hash SHA-256 du présent document sont enregistrés à titre de preuve.\n\nEn signant, le Vendeur reconnaît avoir lu et compris l'intégralité du présent contrat.`,
             ar: (t) => `عقد شراكة البائع — سمارت سويقة\nالإصدار ${t.version}\n\nالمادة 1 — الموضوع\nينظم هذا العقد عرض البائع لمنتجاته للبيع على منصة سمارت سويقة (smartswi9a.top)، وهي سوق مغربية للأجهزة المتصلة ومنتجات المنزل.\n\nالمادة 2 — التسجيل والتحقق\nيلتزم البائع بتقديم معلومات صحيحة (اسم المتجر، الهاتف، المدينة، ICE أو CIN). أي تصريح كاذب يؤدي إلى تعليق الحساب فوراً.\n\nالمادة 3 — العمولة\nتقتطع سمارت سويقة عمولة قدرها ${(t.commissionRate*100).toFixed(0)}% على مبلغ كل عملية بيع دون احتساب التوصيل. يمكن تعديل هذه العمولة بين ${(t.commissionRateMin*100).toFixed(0)}% و${(t.commissionRateMax*100).toFixed(0)}% بموافقة كتابية من البائع.\n\nالمادة 4 — الشحن\nيختار البائع الإيداع في الوكالة (drop-off) أو لوجستيك سمارت سويقة (fulfillment). مهل الإيداع هي ${t.dropoffDeadlineHoursNew} ساعة (الحسابات الجديدة) أو ${t.dropoffDeadlineHoursEstablished} ساعة (الحسابات الناضجة). أي تأخير قد يؤدي إلى تعليق الحساب.\n\nالمادة 5 — الدفع\nتُضاف الأرباح إلى محفظة البائع وتصبح متاحة بعد ${t.unlockDaysVendor} أيام من تأكيد التسليم (${t.unlockDaysSmart} يوماً لمنتجات سمارت سويقة). الحد الأدنى للسحب هو ${t.minWithdrawal} درهم.\n\nالمادة 6 — الإرجاع\nفي حالة الإرجاع، تُخصم رسوم قدرها ${t.returnFeeLivo} درهماً لكل طرد مُرجع (رسوم يفرضها شريكنا اللوجستي Livo). الإرجاعات المتكررة قد تؤدي إلى مراجعة وضع البائع.\n\nالمادة 7 — الإنهاء\nيمكن لأي طرف إنهاء هذا العقد في أي وقت. تبقى الطلبات الجارية خاضعة لهذه الشروط.\n\nالمادة 8 — القانون المطبق\nيخضع هذا العقد للقانون المغربي. يختص القضاء في الدار البيضاء بأي نزاع.\n\nالمادة 9 — التوقيع الإلكتروني\nالتوقيع الإلكتروني يعتبر قبولاً تاماً وصريحاً. يتم تسجيل عنوان IP، ووكيل المستخدم، وتاريخ الخادم، وبصمة SHA-256 لهذا المستند كدليل.\n\nبالتوقيع، يقر البائع بأنه قرأ وفهم كامل هذا العقد.`,
@@ -74,7 +80,7 @@ function getContractText(lang, version, snapshot) {
    CLOUD FUNCTIONS
    ============================================================ */
 
-// 1. Synchronisation de vendorsPublic (Corrige les boutiques vides)
+// 1. Synchronisation de vendorsPublic (Trigger)
 exports.syncVendorPublic = onDocumentWritten('users/{userId}', async (event) => {
   const snap = event.data.after;
   if (!snap || !snap.exists) return;
@@ -93,7 +99,7 @@ exports.syncVendorPublic = onDocumentWritten('users/{userId}', async (event) => 
   }, { merge: true });
 });
 
-// 2. Signature sécurisée du contrat (Corrige la boucle et la falsification)
+// 2. Signature sécurisée du contrat
 exports.signVendorContract = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
   if (cors(req, res)) return;
   try {
@@ -112,7 +118,6 @@ exports.signVendorContract = onRequest({ region: 'europe-west1', cors: [...ALLOW
       return res.status(200).json({success:true, alreadySigned: true, contractId});
     }
 
-    // Le serveur reconstruit le texte et vérifie le hash
     const officialText = getContractText(language, version, termsSnapshot);
     const officialHash = crypto.createHash('sha256').update(officialText).digest('hex');
 
@@ -152,7 +157,7 @@ exports.signVendorContract = onRequest({ region: 'europe-west1', cors: [...ALLOW
   }
 });
 
-// 3. Connexion Vendeur (Corrige l'impasse)
+// 3. Connexion Vendeur (autorise pending pour signature)
 exports.loginVendor = onRequest({ region: 'europe-west1', maxInstances: 5, timeoutSeconds: 20 }, async (req, res) => {
   if (cors(req, res)) return;
   const email = String(req.body?.email || '').trim().toLowerCase();
@@ -190,7 +195,6 @@ exports.loginVendor = onRequest({ region: 'europe-west1', maxInstances: 5, timeo
     
     if (!validCredential) return res.status(401).json({success:false,message:'Identifiants incorrects.'});
     
-    // Autorise la connexion si approuvé OU si en attente de contrat
     const canLogin = approved(profile) || profile.vendorInfo?.status === 'pending';
     if (!canLogin) return res.status(403).json({success:false,message:statusMessage(profile)});
     
@@ -230,7 +234,7 @@ exports.setVendorPassword = onRequest({ region: 'europe-west1', maxInstances: 5,
   }
 });
 
-// 5. Actions Admin (Corrige la suppression incomplète)
+// 5. Actions Admin
 exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
   if (cors(req, res)) return;
   try {
@@ -272,7 +276,6 @@ exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
         if (!productsRemaining) break;
       }
       
-      // Supprime le profil, les credentials, et le compte Auth
       await vendorRef.delete();
       await db.collection('vendorCredentials').doc(vendorId).delete().catch(() => {});
       try { await getAuth().deleteUser(vendorId); } catch (e) {}
@@ -292,7 +295,7 @@ exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
   }
 });
 
-// 6. Retraits sécurisés (Corrige les demandes hors solde)
+// 6. Retraits sécurisés
 exports.requestWithdrawal = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
   if (cors(req, res)) return;
   try {
@@ -329,7 +332,7 @@ exports.requestWithdrawal = onRequest({ region: 'europe-west1', cors: [...ALLOWE
   }
 });
 
-// 7. Trigger Wallet (Remplace les calculs côté client de orders.js)
+// 7. Trigger Wallet sur changement de statut commande
 exports.onOrderStatusChanged = onDocumentUpdated('orders/{orderId}', async (event) => {
   const before = event.data.before.data();
   const after = event.data.after.data();
@@ -357,7 +360,7 @@ exports.onOrderStatusChanged = onDocumentUpdated('orders/{orderId}', async (even
       if (net > 0) {
         const walletRef = db.collection('wallets').doc(vendorId);
         const walletSnap = await walletRef.get();
-        const unlockDays = 7; // Simplifié
+        const unlockDays = 7; 
         const unlockAt = new Date();
         unlockAt.setDate(unlockAt.getDate() + unlockDays);
 
@@ -379,9 +382,8 @@ exports.onOrderStatusChanged = onDocumentUpdated('orders/{orderId}', async (even
   }
 });
 
-// 8. Checkout Client (Inchangé, conservé pour compatibilité)
+// 8. Checkout Client
 exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 10, timeoutSeconds: 30, cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
-    // [Code inchangé de createCustomerOrder fourni dans le fichier original]
     if (cors(req, res)) return;
     try {
       const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
@@ -434,8 +436,8 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
           subtotal += price*qty;
           validatedItems.push({id:item.id,productId:item.productId,vendorId:String(data.vendorId||'smartswi9a'),variant:item.variant,quantity:qty,price,name:String(data.nameFr||data.nameEn||'Produit')});
         }
-        const deliveryFee = 30; // Simplifié
-        const discount = 0; // Simplifié
+        const deliveryFee = 30; 
+        const discount = 0; 
         const total = Math.max(0, subtotal - discount + deliveryFee);
         const vendorList=[...new Set(validatedItems.map(i=>i.vendorId).filter(v=>v&&v!=='smartswi9a'))];
         const orderData={userId:decoded.uid,userName:String(delivery.name).trim(),items:validatedItems,vendorIds:vendorList,status:'pending',paymentStatus:'unpaid',subtotal,discount,deliveryFee,total,stockDeducted:true,deliveryAddress:delivery,createdAt:FieldValue.serverTimestamp()};
@@ -446,9 +448,8 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
     } catch(error) { return res.status(400).json({success:false,message:error.message}); }
 });
 
-// 9. Annulation Client (Inchangé, conservé pour compatibilité)
+// 9. Annulation Client
 exports.cancelCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 10, timeoutSeconds: 30, cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
-    // [Code inchangé de cancelCustomerOrder fourni dans le fichier original]
     if (cors(req, res)) return;
     try {
       const match=String(req.get('authorization')||'').match(/^Bearer\s+(.+)$/i);
@@ -485,4 +486,114 @@ exports.cancelCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
       });
       return res.status(200).json({success:true});
     } catch(error){return res.status(400).json({success:false,message:error.message});}
+});
+
+// 10. Déblocage des fonds échus (Appelé par l'admin)
+exports.releaseDueFunds = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS], timeoutSeconds: 60 }, async (req, res) => {
+  if (cors(req, res)) return;
+  try {
+    const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
+    if (!match) return res.status(401).json({ success: false, message: 'Connexion requise.' });
+    const decoded = await getAuth().verifyIdToken(match[1], true);
+    
+    const adminSnap = await db.collection('users').doc(decoded.uid).get();
+    if (!adminSnap.exists || adminSnap.data()?.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Action réservée à un administrateur.' });
+    }
+
+    const batchSize = Math.min(Number(req.body?.batchSize) || 400, 1000);
+    const now = new Date();
+    
+    let totalReleased = 0;
+    let vendorsProcessed = 0;
+    let transactionsReleased = 0;
+    const errors = [];
+    
+    const txQuery = db.collection('wallet_transactions')
+      .where('status', '==', 'pending')
+      .where('unlockAt', '<=', now)
+      .limit(batchSize);
+      
+    const txSnap = await txQuery.get();
+    if (txSnap.empty) {
+      return res.status(200).json({ success: true, totalReleased: 0, vendorsProcessed: 0, transactionsReleased: 0, errors: [] });
+    }
+
+    const byVendor = {};
+    txSnap.forEach(doc => {
+      const data = doc.data();
+      if (!data.vendorId) return;
+      if (!byVendor[data.vendorId]) byVendor[data.vendorId] = [];
+      byVendor[data.vendorId].push({ id: doc.id, ref: doc.ref, data });
+    });
+
+    for (const [vendorId, txs] of Object.entries(byVendor)) {
+      try {
+        const walletRef = db.collection('wallets').doc(vendorId);
+        
+        const result = await db.runTransaction(async (t) => {
+          const walletSnap = await t.get(walletRef);
+          if (!walletSnap.exists) throw new Error('Wallet introuvable');
+          
+          let wallet = walletSnap.data();
+          let pendingBalance = Number(wallet.pendingBalance) || 0;
+          let availableBalance = Number(wallet.availableBalance) || 0;
+          
+          let vendorReleased = 0;
+          let txsCount = 0;
+          
+          for (const tx of txs) {
+            const amount = Number(tx.data.amount) || 0;
+            const reversed = Number(tx.data.reversedAmount) || 0;
+            const eligible = Math.max(0, amount - reversed);
+            
+            const releaseForThis = Math.min(eligible, pendingBalance);
+            
+            if (releaseForThis > 0) {
+              pendingBalance -= releaseForThis;
+              availableBalance += releaseForThis;
+              vendorReleased += releaseForThis;
+              txsCount++;
+            }
+            
+            t.update(tx.ref, {
+              status: 'released',
+              releasedAt: FieldValue.serverTimestamp(),
+              releasedAmount: releaseForThis
+            });
+          }
+          
+          if (vendorReleased > 0) {
+            t.update(walletRef, {
+              pendingBalance: Math.max(0, pendingBalance),
+              availableBalance: availableBalance,
+              lastUpdated: FieldValue.serverTimestamp()
+            });
+          }
+          
+          return { released: vendorReleased, count: txsCount };
+        });
+        
+        totalReleased += result.released;
+        transactionsReleased += result.count;
+        vendorsProcessed++;
+        
+      } catch (err) {
+        console.error(`Erreur release funds pour le vendeur ${vendorId}:`, err);
+        errors.push({ vendorId, error: err.message });
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      totalReleased,
+      vendorsProcessed,
+      transactionsReleased,
+      errors
+    });
+
+  } catch (error) {
+    console.error('[releaseDueFunds]', error);
+    return res.status(500).json({ success: false, message: 'Erreur serveur.' });
+  }
 });
