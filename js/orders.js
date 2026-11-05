@@ -1436,6 +1436,15 @@ async function processReturnTransaction(order, returnsToProcess) {
         const orderSnap = await transaction.get(orderRef);
         if (!orderSnap.exists()) throw new Error("Commande introuvable");
         const currentOrder = orderSnap.data();
+        const currentStatus = normalizeOrderStatus(currentOrder.status);
+
+        // Une commande annulée a déjà restitué son stock : accepter un retour
+        // dessus créditerait artificiellement le stock une seconde fois.
+        // Le retour n'est possible que si le stock de cette commande est encore
+        // considéré comme déduit.
+        if (['cancelled', 'canceled'].includes(currentStatus) || currentOrder.stockDeducted !== true) {
+            throw new Error("Impossible d'enregistrer un retour : cette commande est annulée ou son stock a déjà été restitué.");
+        }
 
         const alreadyReturnedMap = getReturnedQuantitiesByVariant(currentOrder);
         returnsToProcess.forEach(r => {
