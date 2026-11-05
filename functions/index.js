@@ -1849,6 +1849,85 @@ exports.createVerifiedReview = onRequest({ region: 'europe-west1', cors: [...ALL
 });
 
 /* ============================================================
+   CF : backfillVendorOrderViews
+   Migration idempotente des anciennes commandes vers les vues privées.
+   ============================================================ */
+exports.backfillVendorOrderViews = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS], timeoutSeconds: 60 }, async (req, res) => {
+  if (cors(req, res)) return;
+  try {
+    const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
+    if (!match) return res.status(401).json({ success: false, message: 'Connexion requise.' });
+    const decoded = await getAuth().verifyIdToken(match[1], true);
+    const adminSnap = await db.collection('users').doc(decoded.uid).get();
+    const isAdmin = decoded.admin === true || (adminSnap.exists && adminSnap.data()?.role === 'admin');
+    if (!isAdmin) return res.status(403).json({ success: false, message: 'Action réservée à un administrateur.' });
+
+    const pageSize = Math.max(1, Math.min(Number(req.body?.pageSize) || 100, 100));
+    let query = db.collection('orders').orderBy('createdAt').limit(pageSize);
+    const cursor = String(req.body?.cursor || '').trim();
+    if (cursor) {
+      const cursorSnap = await db.collection('orders').doc(cursor).get();
+      if (!cursorSnap.exists) return res.status(400).json({ success: false, message: 'Curseur de migration introuvable.' });
+      query = query.startAfter(cursorSnap);
+    }
+
+    const ordersSnap = await query.get();
+    const writes = [];
+    for (const orderDoc of ordersSnap.docs) {
+      const order = orderDoc.data();
+      const items = Array.isArray(order.items) ? order.items : [];
+      const vendorIds = [...new Set(items
+        .map(item => String(item.vendorId || ''))
+        .filter(vendorId => vendorId && vendorId !== 'smartswi9a'))];
+
+      for (const vendorId of vendorIds) {
+        const vendorItems = items.filter(item => String(item.vendorId || '') === vendorId);
+        const vendorSubtotal = vendorItems.reduce(
+          (sum, item) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 0),
+          0
+        );
+        const viewRef = db.collection('vendor_orders').doc(vendorId)
+          .collection('orders').doc(orderDoc.id);
+        writes.push({
+          ref: viewRef,
+          data: {
+            orderId: orderDoc.id,
+            vendorId,
+            vendorCount: vendorIds.length,
+            userId: order.userId || '',
+            userName: String(order.userName || order.deliveryAddress?.name || 'Client').slice(0, 100),
+            deliveryAddress: order.deliveryAddress || {},
+            items: vendorItems,
+            vendorSubtotal,
+            status: order.status || 'pending',
+            createdAt: order.createdAt || FieldValue.serverTimestamp(),
+            updatedAt: order.updatedAt || FieldValue.serverTimestamp()
+          }
+        });
+      }
+    }
+
+    for (let i = 0; i < writes.length; i += 400) {
+      const batch = db.batch();
+      writes.slice(i, i + 400).forEach(write => batch.set(write.ref, write.data, { merge: true }));
+      await batch.commit();
+    }
+
+    const lastDoc = ordersSnap.docs[ordersSnap.docs.length - 1];
+    return res.status(200).json({
+      success: true,
+      processedOrders: ordersSnap.size,
+      vendorViewsWritten: writes.length,
+      nextCursor: ordersSnap.size === pageSize && lastDoc ? lastDoc.id : null,
+      complete: ordersSnap.size < pageSize
+    });
+  } catch (error) {
+    console.error('[backfillVendorOrderViews]', error);
+    return res.status(500).json({ success: false, message: 'Migration des commandes vendeurs impossible.' });
+  }
+});
+
+/* ============================================================
    CF : createCustomerOrder
    ============================================================ */
 exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 10, timeoutSeconds: 30, cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
