@@ -13,8 +13,8 @@ const PROJECT_ID = 'smartswi9a-31063';
 const FIREBASE_WEB_API_KEY = 'AIzaSyBhULwDxPBRqjywsSD_0ny41Bmt968ofSA';
 
 const ALLOWED_ORIGINS = new Set([
-  'https://smartswi9a.ma',
-  'https://www.smartswi9a.ma',
+  'https://smartswika.ma',
+  'https://www.smartswika.ma',
   'https://smartswi9a.top',
   'https://www.smartswi9a.top',
   'https://smartswi9a-31063.web.app',
@@ -343,7 +343,7 @@ function getContractText(lang, version, snapshot) {
   const t = templates[sourceVersion] || templates["1.2.0"];
   const text = t[lang] ? t[lang](snapshot) : t["fr"](snapshot);
   return version === "1.3.0"
-    ? text.replaceAll("smartswi9a.top", "smartswi9a.ma").replace(/\s+/g, " ").trim()
+    ? text.replaceAll("smartswi9a.top", "smartswika.ma").replace(/\s+/g, " ").trim()
     : text;
 }
 
