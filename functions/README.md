@@ -1,6 +1,6 @@
 Authentification vendeur Smart Swi9a
 
-Cette fonction ajoute un mot de passe vendeur distinct, stocké uniquement sous forme de hash bcrypt dans vendorCredentials/{uid}. La connexion vendeur accepte le mot de passe vendeur ou le mot de passe Firebase acheteur, mais délivre un jeton seulement si users/{uid}.role == vendor et users/{uid}.vendorInfo.status == approved.
+Cette fonction ajoute un mot de passe vendeur distinct, stocké uniquement sous forme de hash bcrypt dans vendorCredentials/{uid}. La connexion vendeur accepte le mot de passe vendeur ou le mot de passe Firebase acheteur. Un vendeur en attente peut se connecter pour consulter son statut ; un vendeur approuvé avec un ancien contrat peut se connecter uniquement pour le re-signer. Les droits métier exigent role == vendor, status == approved, contractStatus == accepted et contractVersion == 1.4.0.
 
 
 Déploiement
@@ -26,9 +26,13 @@ Inscription vendeur avec une nouvelle adresse : mot de passe acheteur et vendeur
 
 Inscription vendeur avec une adresse acheteur existante : mot de passe acheteur valide requis, puis définition du mot de passe vendeur.
 
-Compte vendeur pending/rejected/suspended : les deux mots de passe doivent être refusés pour le dashboard.
+Compte vendeur pending : les deux mots de passe ouvrent uniquement l'écran d'attente.
 
-Compte vendeur approved : les deux mots de passe doivent ouvrir le dashboard.
+Compte vendeur rejected/suspended : les deux mots de passe doivent être refusés.
+
+Compte vendeur approved avec contrat 1.3.0 ou ancien : connexion limitée à l'écran de re-signature 1.4.0.
+
+Compte vendeur approved avec contrat 1.4.0 : les deux mots de passe ouvrent le dashboard.
 
 Compte admin et compte acheteur ordinaire : aucun accès vendeur.
 
