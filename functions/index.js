@@ -1117,15 +1117,24 @@ exports.adminSetReturnFee = onRequest({ region: 'europe-west1', cors: [...ALLOWE
       const existingFee = entry.vendorFees?.[vendorId];
       if (existingFee) throw new Error('Un montant a déjà été enregistré pour ce vendeur et ce retour.');
 
+      const updatedReturns = returns.map((returnItem, index) => index === returnIndex
+        ? {
+            ...returnItem,
+            vendorFees: {
+              ...(returnItem.vendorFees || {}),
+              [vendorId]: {
+                amount: Math.round(amount * 100) / 100,
+                currency: 'MAD',
+                source: 'manual',
+                status: 'validated',
+                recordedAt: FieldValue.serverTimestamp(),
+                recordedBy: decoded.uid
+              }
+            }
+          }
+        : returnItem);
       tx.update(orderRef, {
-        [`returns.${returnIndex}.vendorFees.${vendorId}`]: {
-          amount: Math.round(amount * 100) / 100,
-          currency: 'MAD',
-          source: 'manual',
-          status: 'validated',
-          recordedAt: FieldValue.serverTimestamp(),
-          recordedBy: decoded.uid
-        },
+        returns: updatedReturns,
         updatedAt: FieldValue.serverTimestamp()
       });
     });
