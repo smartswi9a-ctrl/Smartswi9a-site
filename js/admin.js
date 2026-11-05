@@ -3263,6 +3263,8 @@ function renderVendorsList(vendors) {
         const createdAt = toDate(v.createdAt)?.toLocaleDateString('fr-FR') || '—';
         const contractStatus = v.vendorInfo?.contractStatus || 'pending';
         const contractAccepted = contractStatus === 'accepted';
+        const contractVersion = v.vendorInfo?.contractVersion || '—';
+        const contractSignedAt = toDate(v.vendorInfo?.contractSignedAt)?.toLocaleString('fr-FR') || '—';
         const delayCount = Number(v.vendorInfo?.delayCount) || 0;
 
         let statusBadge = '';
@@ -3307,7 +3309,8 @@ function renderVendorsList(vendors) {
                 </div>
                 <div style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.3rem;">
                     ${email} · ${phone} · ${city} · ${iceCin}<br>
-                    Mode : <strong>${shippingMethod}</strong>
+                    Mode : <strong>${shippingMethod}</strong><br>
+                    Contrat : version <strong>${escapeHTML(String(contractVersion))}</strong> · signé le <strong>${escapeHTML(contractSignedAt)}</strong>
                 </div>
                 <div style="display:flex;justify-content:flex-end;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem;">
                     ${actionsHtml}
