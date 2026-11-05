@@ -54,7 +54,7 @@ const LOGIN_MAX_FAILURES = 8;
    avec "Falsification détectée".
    ============================================================ */
 const OFFICIAL_VENDOR_CONFIG = {
-  CONTRACT_VERSION: '1.3.0',
+  CONTRACT_VERSION: '1.4.0',
   COMMISSION_RATE: 0.07,
   COMMISSION_RATE_MIN: 0.05,
   COMMISSION_RATE_MAX: 0.15,
@@ -338,11 +338,27 @@ function getContractText(lang, version, snapshot) {
   // La version 1.3.0 reprend strictement le contrat Livo 1.2.0,
   // avec le nouveau domaine. Les gabarits 1.1.0 et 1.2.0 restent intacts
   // afin de préserver les empreintes des contrats déjà signés.
-  const sourceVersion = version === "1.3.0" ? "1.2.0" : version;
+  const sourceVersion = ["1.3.0", "1.4.0"].includes(version) ? "1.2.0" : version;
   const t = templates[sourceVersion] || templates["1.2.0"];
-  const text = t[lang] ? t[lang](snapshot) : t["fr"](snapshot);
+  let text = t[lang] ? t[lang](snapshot) : t["fr"](snapshot);
+  if (version === "1.4.0") {
+    const clauses = {
+      fr: "Article 6 — Retours\\nLes frais de retour sont facturés séparément à chaque Vendeur selon le montant réel communiqué par le transporteur ou, à défaut, validé par l'administration. Aucun frais n'est débité avant l'enregistrement et la validation de ce montant. Les retours répétés peuvent entraîner une révision du statut du Vendeur.",
+      ar: "المادة 6 — الإرجاع\\nتُفرض رسوم الإرجاع بشكل منفصل على كل بائع وفق المبلغ الفعلي الذي يحدده الناقل، أو الذي تعتمده الإدارة عند عدم توفره. لا يتم خصم أي رسوم قبل تسجيل المبلغ واعتماده. وقد تؤدي الإرجاعات المتكررة إلى مراجعة وضع البائع.",
+      en: "Article 6 — Returns\\nReturn fees are charged separately to each Vendor based on the actual amount provided by the carrier or, if unavailable, validated by the administration. No fee is debited until that amount has been recorded and approved. Repeated returns may lead to a review of the Vendor's status."
+    };
+    const patterns = {
+      fr: /Article 6 — Retours\\n[\\s\\S]*?(?=\\n\\nArticle 7 — Résiliation)/,
+      ar: /المادة 6 — الإرجاع\\n[\\s\\S]*?(?=\\n\\nالمادة 7 — الإنهاء)/,
+      en: /Article 6 — Returns\\n[\\s\\S]*?(?=\\n\\nArticle 7 — Termination)/
+    };
+    const language = clauses[lang] ? lang : "fr";
+    text = text.replace(patterns[language], clauses[language]);
+    text = text.replaceAll("smartswi9a.top", "smartswika.ma").replace(/\\s+/g, " ").trim();
+    return text;
+  }
   return version === "1.3.0"
-    ? text.replaceAll("smartswi9a.top", "smartswika.ma").replace(/\s+/g, " ").trim()
+    ? text.replaceAll("smartswi9a.top", "smartswika.ma").replace(/\\s+/g, " ").trim()
     : text;
 }
 
@@ -1112,6 +1128,13 @@ exports.adminSetReturnFee = onRequest({ region: 'europe-west1', cors: [...ALLOWE
         }
       }
       if (!returnedByVendor[vendorId]) throw new Error('Ce vendeur ne possède aucun article dans ce retour.');
+      const vendorSnap = await tx.get(db.collection('users').doc(vendorId));
+      const vendorData = vendorSnap.exists ? vendorSnap.data() : null;
+      if (!vendorData || vendorData.role !== 'vendor' ||
+          vendorData.vendorInfo?.contractStatus !== 'accepted' ||
+          String(vendorData.vendorInfo?.contractVersion || '') !== OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION) {
+        throw new Error('Le vendeur doit accepter le nouveau contrat 1.4.0 avant l’application de ces frais.');
+      }
       const debitKey = `${vendorId}_ret${returnIndex}`;
       if (order.vendorDebits?.[debitKey]) throw new Error('Ce frais a déjà été débité : il ne peut plus être modifié.');
       const existingFee = entry.vendorFees?.[vendorId];
