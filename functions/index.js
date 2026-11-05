@@ -725,6 +725,17 @@ exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
 
     if (action === 'approved') {
       const vendorInfo = vendorSnap.data().vendorInfo || {};
+
+      // Vérifier l'état réel dans Firebase Authentication, pas uniquement
+      // le champ emailVerified du profil Firestore qui peut être obsolète.
+      const vendorAuthUser = await getAuth().getUser(vendorId);
+      if (vendorAuthUser.emailVerified !== true) {
+        return res.status(409).json({
+          success: false,
+          message: 'Impossible d’approuver : le vendeur doit d’abord vérifier son adresse e-mail.'
+        });
+      }
+
       if (vendorInfo.contractStatus !== 'accepted') {
         return res.status(409).json({ success: false, message: 'Impossible d’approuver : contrat non signé.' });
       }
