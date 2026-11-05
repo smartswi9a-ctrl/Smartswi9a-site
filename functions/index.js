@@ -697,6 +697,100 @@ exports.setVendorPassword = onRequest({ region: 'europe-west1', maxInstances: 5,
 });
 
 /* ============================================================
+   CONTRÔLE DE COHÉRENCE AVANT SUPPRESSION VENDEUR
+   ============================================================ */
+async function inspectVendorSettlement(vendorId) {
+  const blockers = [];
+  let cursor = null;
+  let scannedOrders = 0;
+  let orderPages = 0;
+
+  while (true) {
+    let query = db.collection('orders')
+      .where('vendorIds', 'array-contains', vendorId)
+      .limit(300);
+    if (cursor) query = query.startAfter(cursor);
+    const snap = await query.get();
+    if (snap.empty) break;
+    orderPages++;
+    scannedOrders += snap.size;
+
+    for (const orderDoc of snap.docs) {
+      const order = orderDoc.data();
+      const status = String(order.status || '').toLowerCase();
+      if (['cancelled', 'canceled'].includes(status)) continue;
+      if (!['delivered', 'returned'].includes(status)) {
+        blockers.push({ orderId: orderDoc.id, reason: `commande non clôturée (statut ${status || 'absent'})` });
+        continue;
+      }
+
+      const credit = order.vendorCredits?.[vendorId];
+      if (!credit?.txId || !(Number(credit.amount) > 0)) {
+        blockers.push({ orderId: orderDoc.id, reason: 'crédit vendeur absent ou incomplet' });
+      } else {
+        const saleTx = await db.collection('wallet_transactions').doc(String(credit.txId)).get();
+        const sale = saleTx.exists ? saleTx.data() : null;
+        if (!sale || sale.vendorId !== vendorId || sale.orderId !== orderDoc.id ||
+            sale.type !== 'sale' || !(Number(sale.amount) > 0)) {
+          blockers.push({ orderId: orderDoc.id, reason: 'écriture de vente absente ou incohérente' });
+        }
+      }
+
+      if (status === 'returned') {
+        const returns = Array.isArray(order.returns) ? order.returns : [];
+        for (let returnIndex = 0; returnIndex < returns.length; returnIndex++) {
+          const entry = returns[returnIndex];
+          const returnedQty = (entry?.items || []).reduce((sum, retItem) => {
+            const item = (order.items || []).find(i => String(i.productId) === String(retItem.productId));
+            return item?.vendorId === vendorId ? sum + Math.max(0, Number(retItem.delta) || 0) : sum;
+          }, 0);
+          if (returnedQty <= 0) continue;
+          const debit = order.vendorDebits?.[`${vendorId}_ret${returnIndex}`];
+          const expectedFee = RETURN_FEE_LIVO * returnedQty;
+          if (!debit || Number(debit.amount) + 0.0001 < expectedFee) {
+            blockers.push({ orderId: orderDoc.id, reason: `débit du retour ${returnIndex + 1} absent ou incomplet` });
+          }
+        }
+      }
+    }
+
+    cursor = snap.docs[snap.docs.length - 1];
+    if (snap.size < 300) break;
+    if (orderPages >= 100) {
+      blockers.push({ reason: 'contrôle des commandes incomplet : limite de pagination atteinte' });
+      break;
+    }
+  }
+
+  // Vérifier également les écritures pending indépendamment du solde agrégé.
+  cursor = null;
+  let txPages = 0;
+  while (true) {
+    let query = db.collection('wallet_transactions')
+      .where('vendorId', '==', vendorId)
+      .limit(300);
+    if (cursor) query = query.startAfter(cursor);
+    const snap = await query.get();
+    if (snap.empty) break;
+    txPages++;
+    snap.docs.forEach(docSnap => {
+      const tx = docSnap.data();
+      if (tx.status === 'pending') {
+        blockers.push({ reason: `écriture financière en attente (${docSnap.id})` });
+      }
+    });
+    cursor = snap.docs[snap.docs.length - 1];
+    if (snap.size < 300) break;
+    if (txPages >= 100) {
+      blockers.push({ reason: 'contrôle des écritures financières incomplet : limite de pagination atteinte' });
+      break;
+    }
+  }
+
+  return { blockers, scannedOrders };
+}
+
+/* ============================================================
    CF : adminVendorAction
    ============================================================ */
 exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
@@ -759,8 +853,38 @@ exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
     }
 
     if (action === 'deleted') {
-      // Protection financière : ne jamais effacer l'identité d'un vendeur
-      // tant qu'un solde reste dû ou qu'un retrait n'a pas été clôturé.
+      // Verrouiller le vendeur et retirer sa fiche publique AVANT les contrôles :
+      // createCustomerOrder lit vendorsPublic dans sa transaction, qui sera ainsi
+      // invalidée si une commande était en cours de création.
+      const originalVendorInfo = vendorSnap.data().vendorInfo || {};
+      const restoreStatus = originalVendorInfo.statusBeforeDeletion || originalVendorInfo.status || 'pending';
+      await vendorRef.update({
+        'vendorInfo.statusBeforeDeletion': restoreStatus,
+        'vendorInfo.status': 'deletion_pending',
+        'vendorInfo.statusUpdatedAt': FieldValue.serverTimestamp(),
+        'vendorInfo.statusUpdatedBy': decoded.uid,
+        updatedAt: FieldValue.serverTimestamp()
+      });
+      await db.collection('vendorsPublic').doc(vendorId).delete();
+
+      const restoreVendorListing = async () => {
+        await vendorRef.update({
+          'vendorInfo.status': restoreStatus,
+          'vendorInfo.statusBeforeDeletion': FieldValue.delete(),
+          updatedAt: FieldValue.serverTimestamp()
+        });
+        if (restoreStatus === 'approved' && originalVendorInfo.contractStatus === 'accepted') {
+          await db.collection('vendorsPublic').doc(vendorId).set({
+            shopName: originalVendorInfo.shopName || 'Boutique',
+            status: 'approved',
+            description: originalVendorInfo.description || '',
+            createdAt: vendorSnap.data().createdAt || FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp()
+          }, { merge: true });
+        }
+      };
+
+      // Protection financière et contrôle des commandes/écritures associées.
       const walletRef = db.collection('wallets').doc(vendorId);
       const payoutQuery = db.collection('payout_requests')
         .where('vendorId', '==', vendorId);
@@ -772,6 +896,7 @@ exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
       const wallet = walletSnap.exists ? walletSnap.data() : {};
       const availableBalance = Number(wallet.availableBalance) || 0;
       const pendingBalance = Number(wallet.pendingBalance) || 0;
+      const negativeBalance = Number(wallet.negativeBalance) || 0;
       const openPayouts = payoutSnap.docs.filter(docSnap => {
         const status = String(docSnap.data().status || 'pending').toLowerCase();
         return !['paid', 'rejected', 'cancelled', 'canceled'].includes(status);
@@ -784,11 +909,20 @@ exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
       if (pendingBalance > 0.0001) {
         financialReasons.push(`solde en attente de ${pendingBalance.toFixed(2)} MAD`);
       }
+      if (negativeBalance < -0.0001) {
+        financialReasons.push(`dette vendeur de ${Math.abs(negativeBalance).toFixed(2)} MAD`);
+      }
       if (openPayouts.length > 0) {
         financialReasons.push(`${openPayouts.length} demande(s) de retrait non traitée(s)`);
       }
 
+      const settlement = await inspectVendorSettlement(vendorId);
+      if (settlement.blockers.length > 0) {
+        financialReasons.push(`${settlement.blockers.length} anomalie(s) de commande ou d'écriture financière`);
+      }
+
       if (financialReasons.length > 0) {
+        await restoreVendorListing();
         return res.status(409).json({
           success: false,
           code: 'VENDOR_FINANCIAL_SETTLEMENT_REQUIRED',
@@ -796,7 +930,10 @@ exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
           financial: {
             availableBalance,
             pendingBalance,
-            openPayoutCount: openPayouts.length
+            negativeBalance,
+            openPayoutCount: openPayouts.length,
+            scannedOrders: settlement.scannedOrders,
+            blockers: settlement.blockers.slice(0, 20)
           }
         });
       }
