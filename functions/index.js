@@ -706,21 +706,54 @@ exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
 
     if (action === 'deleted') {
       let deletedProducts = 0;
-      let productsRemaining = false;
+
+      // Nettoyage borné par requête pour éviter un dépassement du délai Cloud Functions.
+      // Le profil et l'identité Firebase restent intacts tant qu'il reste des produits.
       for (let page = 0; page < 20; page++) {
-        const productsSnap = await db.collection('products').where('vendorId', '==', vendorId).limit(400).get();
-        if (productsSnap.empty) { productsRemaining = false; break; }
+        const productsSnap = await db.collection('products')
+          .where('vendorId', '==', vendorId)
+          .limit(400)
+          .get();
+
+        if (productsSnap.empty) break;
+
         const batch = db.batch();
         productsSnap.docs.forEach(docSnap => batch.delete(docSnap.ref));
         await batch.commit();
         deletedProducts += productsSnap.size;
-        productsRemaining = productsSnap.size === 400;
-        if (!productsRemaining) break;
+
+        if (productsSnap.size < 400) break;
+      }
+
+      // Vérification explicite : ne jamais supprimer le compte si le nettoyage est incomplet.
+      const remainingProducts = await db.collection('products')
+        .where('vendorId', '==', vendorId)
+        .limit(1)
+        .get();
+
+      if (!remainingProducts.empty) {
+        return res.status(409).json({
+          success: false,
+          action,
+          deletedProducts,
+          productsRemaining: true,
+          message: 'Suppression partielle : des produits restent à traiter. Relancez la suppression pour continuer.'
+        });
+      }
+
+      // Supprimer les identifiants vendeurs avant le profil, et ne pas masquer une erreur réelle.
+      await db.collection('vendorCredentials').doc(vendorId).delete().catch(error => {
+        if (error.code !== 5) throw error; // NOT_FOUND
+      });
+
+      // Un utilisateur déjà absent est considéré comme nettoyé ; toute autre erreur bloque la suite.
+      try {
+        await getAuth().deleteUser(vendorId);
+      } catch (error) {
+        if (error.code !== 'auth/user-not-found') throw error;
       }
 
       await vendorRef.delete();
-      await db.collection('vendorCredentials').doc(vendorId).delete().catch(() => {});
-      try { await getAuth().deleteUser(vendorId); } catch (e) { /* ignore */ }
 
       return res.status(200).json({ success: true, action, deletedProducts });
     }
