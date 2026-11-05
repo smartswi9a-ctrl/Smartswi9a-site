@@ -253,16 +253,25 @@ service cloud.firestore {
       allow create: if isSignedIn() &&
         request.resource.data.userId == request.auth.uid &&
         request.resource.data.keys().hasOnly([
-          'userId', 'userName', 'productId', 'productName',
-          'rating', 'comment', 'status', 'createdAt', 'orderId',
-          'photos', 'verifiedPurchase'
+          'userId', 'userName', 'productId', 'productName', 'productSlug',
+          'rating', 'title', 'comment', 'status', 'createdAt', 'orderId',
+          'photos', 'verifiedPurchase', 'likes', 'likesCount', 'featured'
         ]) &&
         request.resource.data.rating is number &&
         request.resource.data.rating >= 1 &&
         request.resource.data.rating <= 5 &&
+        request.resource.data.title is string &&
+        request.resource.data.title.size() <= 80 &&
         request.resource.data.comment is string &&
-        request.resource.data.comment.size() <= 3000 &&
-        request.resource.data.status == 'pending';
+        request.resource.data.comment.size() <= 500 &&
+        request.resource.data.status == 'pending' &&
+        request.resource.data.verifiedPurchase is bool &&
+        request.resource.data.likes is list &&
+        request.resource.data.likes.size() == 0 &&
+        request.resource.data.likesCount == 0 &&
+        request.resource.data.featured == false &&
+        request.resource.data.photos is list &&
+        request.resource.data.photos.size() <= 5;
 
       allow update, delete: if isAdmin();
     }
@@ -318,7 +327,28 @@ service cloud.firestore {
             resource.data.get('vendorId', '') == request.auth.uid
           )
         );
-      allow create, update, delete: if isAdmin();
+      allow create: if isAdmin();
+
+      // Un utilisateur peut uniquement marquer ses propres notifications comme lues.
+      allow update: if isAdmin() || (
+        isSignedIn() &&
+        (
+          resource.data.get('userId', '') == request.auth.uid ||
+          resource.data.get('vendorId', '') == request.auth.uid
+        ) &&
+        resource.data.get('read', false) == false &&
+        request.resource.data.get('read', false) == true &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
+      );
+
+      // La suppression reste limitée au propriétaire ou à un administrateur.
+      allow delete: if isAdmin() || (
+        isSignedIn() &&
+        (
+          resource.data.get('userId', '') == request.auth.uid ||
+          resource.data.get('vendorId', '') == request.auth.uid
+        )
+      );
     }
 
     /* REFUS PAR DÉFAUT */
