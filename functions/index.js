@@ -1130,6 +1130,7 @@ exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}',
   const beforeReturnsCount = Array.isArray(before.returns) ? before.returns.length : 0;
   const afterReturns = Array.isArray(after.returns) ? after.returns : [];
   const statusChanged = before.status !== after.status;
+  const firstReturnIndex = before.status !== 'returned' && after.status === 'returned' ? 0 : beforeReturnsCount;
 
   // Un retour peut être ajouté à une commande déjà marquée "returned".
   // Le trigger doit traiter les nouvelles entrées même si le statut ne change plus.
@@ -1239,7 +1240,7 @@ exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}',
   // Débit des retours vendeur : traiter chaque nouvelle entrée, pas seulement
   // la dernière. Cela couvre plusieurs retours successifs sur une même commande.
   if (after.status === 'returned' && afterReturns.length > beforeReturnsCount) {
-    for (let returnIndex = beforeReturnsCount; returnIndex < afterReturns.length; returnIndex++) {
+    for (let returnIndex = firstReturnIndex; returnIndex < afterReturns.length; returnIndex++) {
       const returnEntry = afterReturns[returnIndex];
       if (!returnEntry || !Array.isArray(returnEntry.items)) continue;
 
@@ -1357,6 +1358,7 @@ exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}',
           });
         } catch (err) {
           console.error(`[onOrderStatusChanged] Erreur débit retour vendeur ${vendorId}, retour ${returnIndex}:`, err);
+          throw err;
         }
       }
     }
