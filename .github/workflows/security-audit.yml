@@ -41,8 +41,10 @@ jobs:
           node -e "JSON.parse(require('fs').readFileSync('firestore.indexes.json','utf8'))"
           node -e "JSON.parse(require('fs').readFileSync('functions/package.json','utf8'))"
 
-      - name: Install Firebase CLI
-        run: npm install --global firebase-tools
+      - name: Install Firebase CLI and rules test dependencies
+        run: |
+          npm install --global firebase-tools
+          npm install --no-save firebase @firebase/rules-unit-testing
 
-      - name: Compile Firestore and Storage rules in emulators
-        run: firebase emulators:exec --only firestore,storage --project demo-smart-swi9a "echo 'Firebase rules compilation passed'"
+      - name: Test Firestore and Storage rules in emulators
+        run: firebase emulators:exec --only firestore,storage --project demo-smart-swi9a "node tests/rules.test.cjs"
