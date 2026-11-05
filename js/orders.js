@@ -167,7 +167,7 @@ function buildOrderEmailText(order, status, recipient, lang = 'fr') {
         const variantText = item.variant ? ` (${[item.variant.size, item.variant.color].filter(Boolean).join(' - ')})` : '';
         text += `- ${item.name}${variantText} x ${item.quantity} : ${(item.price * item.quantity)} MAD\n`;
     });
-    text += `\nTotal: ${order.total || 0} MAD\nCity: ${city}\n\n${team[lang]}\nhttps://smartswi9a.ma`;
+    text += `\nTotal: ${order.total || 0} MAD\nCity: ${city}\n\n${team[lang]}\nhttps://smartswika.ma`;
     return text;
 }
 
