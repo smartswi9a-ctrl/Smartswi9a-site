@@ -9,6 +9,7 @@ const ALLOWED_FUNCTIONS = new Set([
   "requestWithdrawal",
   "createCustomerOrder",
   "createVerifiedReview",
+  "backfillVendorOrderViews",
   "cancelCustomerOrder",
   "adminPayoutAction",
   "releaseDueFunds"

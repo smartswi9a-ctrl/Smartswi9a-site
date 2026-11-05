@@ -158,6 +158,13 @@
         }
       },
       {
+        "source": "/api/backfillVendorOrderViews",
+        "function": {
+          "functionId": "backfillVendorOrderViews",
+          "region": "europe-west1"
+        }
+      },
+      {
         "source": "/api/cancelCustomerOrder",
         "function": {
           "functionId": "cancelCustomerOrder",
