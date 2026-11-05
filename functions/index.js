@@ -491,6 +491,7 @@ exports.syncVendorPublic = onDocumentWritten('users/{userId}', async (event) => 
   return db.collection('vendorsPublic').doc(event.params.userId).set({
     shopName: data.vendorInfo.shopName || 'Boutique',
     status: data.vendorInfo.status || 'pending',
+    contractVersion: data.vendorInfo.contractVersion,
     description: data.vendorInfo.description || '',
     createdAt: data.createdAt || FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp()
@@ -1018,6 +1019,7 @@ exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
           await db.collection('vendorsPublic').doc(vendorId).set({
             shopName: originalVendorInfo.shopName || 'Boutique',
             status: 'approved',
+            contractVersion: originalVendorInfo.contractVersion,
             description: originalVendorInfo.description || '',
             createdAt: vendorSnap.data().createdAt || FieldValue.serverTimestamp(),
             updatedAt: FieldValue.serverTimestamp()
@@ -1910,8 +1912,9 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
         vendorSnaps.forEach((snap, i) => {
           if (!snap.exists) throw new Error(`Le vendeur ${vendorIds[i]} n'est pas actif.`);
           const vData = snap.data();
-          if (vData.status !== 'approved') {
-            throw new Error(`Le vendeur ${vendorIds[i]} n'est pas approuvé (statut: ${vData.status || 'pending'}).`);
+          if (vData.status !== 'approved' ||
+              String(vData.contractVersion || '') !== OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION) {
+            throw new Error(`Le vendeur ${vendorIds[i]} n'est pas approuvé avec le contrat courant.`);
           }
         });
       }
