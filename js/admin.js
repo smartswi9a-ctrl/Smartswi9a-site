@@ -3212,11 +3212,34 @@ async function loadVendors() {
             if (oa !== ob) return oa - ob;
             return (toDate(b.createdAt)?.getTime() || 0) - (toDate(a.createdAt)?.getTime() || 0);
         });
-        renderVendorsList(cachedVendors);
+        applyVendorFilters();
     } catch (e) {
         console.error('[admin] loadVendors :', e);
         container.innerHTML = `<div class="admin-empty" style="color:var(--danger);">Erreur de chargement.</div>`;
     }
+}
+
+function applyVendorFilters() {
+    const search = (document.getElementById('vendorSearchAdmin')?.value || '').trim().toLocaleLowerCase('fr');
+    const activeFilter = document.querySelector('[data-vendor-filter].active')?.dataset.vendorFilter || 'pending';
+
+    const filtered = cachedVendors.filter(v => {
+        const info = v.vendorInfo || {};
+        const status = info.status || 'pending';
+        const contractVersion = String(info.contractVersion || '');
+        const isOutdatedContract = info.contractStatus === 'accepted' &&
+            contractVersion !== String(CONFIG.CONTRACT_VERSION || '');
+
+        const matchesFilter = activeFilter === 'all' ||
+            (activeFilter === 'outdated' ? isOutdatedContract : status === activeFilter);
+
+        const searchable = [
+            info.shopName, v.name, v.email, v.phone, info.city, info.iceCin
+        ].filter(Boolean).join(' ').toLocaleLowerCase('fr');
+        return matchesFilter && (!search || searchable.includes(search));
+    });
+
+    renderVendorsList(filtered);
 }
 
 function renderVendorsList(vendors) {
@@ -3877,19 +3900,12 @@ function attachAllRemainingEvents() {
     });
 
     /* Vendeurs. */
-    document.getElementById('vendorSearchAdmin')?.addEventListener('input', () => {
-        const s = (document.getElementById('vendorSearchAdmin')?.value || '').toLowerCase();
-        renderVendorsList(cachedVendors.filter(v =>
-            (v.vendorInfo?.shopName || v.name || '').toLowerCase().includes(s) ||
-            (v.email || '').toLowerCase().includes(s)
-        ));
-    });
+    document.getElementById('vendorSearchAdmin')?.addEventListener('input', applyVendorFilters);
     document.querySelectorAll('[data-vendor-filter]').forEach(btn => {
         btn.addEventListener('click', () => {
             document.querySelectorAll('[data-vendor-filter]').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
-            const f = btn.dataset.vendorFilter;
-            renderVendorsList(f === 'all' ? cachedVendors : cachedVendors.filter(v => (v.vendorInfo?.status || 'pending') === f));
+            applyVendorFilters();
         });
     });
 
