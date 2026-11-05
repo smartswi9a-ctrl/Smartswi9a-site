@@ -7,8 +7,12 @@ const {
 } = require("@firebase/rules-unit-testing");
 const {
   doc,
+  collection,
+  query,
+  orderBy,
   setDoc,
   getDoc,
+  getDocs,
   updateDoc,
   arrayUnion,
   increment,
@@ -64,6 +68,7 @@ async function main() {
         vendorId: "vendorA",
         vendorCount: 2,
         status: "pending",
+        createdAt: Timestamp.now(),
         items: [{ productId: "a", vendorId: "vendorA" }]
       });
       await setDoc(doc(db, "carts", "buyerA"), {
@@ -109,6 +114,10 @@ async function main() {
       updatedAt: Timestamp.now()
     }));
     await assertSucceeds(getDoc(doc(vendorDb, "vendor_orders", "vendorA", "orders", "multiOrder")));
+    await assertSucceeds(getDocs(query(
+      collection(vendorDb, "vendor_orders", "vendorA", "orders"),
+      orderBy("createdAt", "desc")
+    )));
     await assertFails(getDoc(doc(vendorBDb, "vendor_orders", "vendorA", "orders", "multiOrder")));
 
     await assertSucceeds(setDoc(doc(vendorDb, "products", "newProduct"), {
