@@ -339,7 +339,6 @@ exports.onOrderStatusChanged = onDocumentUpdated('orders/{orderId}', async (even
   
   if (before.status === after.status) return;
 
-  // Crédit vendeur si la commande est livrée
   if (after.status === 'delivered' && before.status !== 'delivered') {
     const vendorItems = {};
     after.items.forEach(item => {
