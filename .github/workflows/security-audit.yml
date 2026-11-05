@@ -18,11 +18,11 @@ jobs:
         with:
           node-version: 20
 
-      - name: Setup Java for Firebase Emulator
+      - name: Setup Java 21 for Firebase Emulator
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: 21
 
       - name: Check Cloud Functions syntax
         run: node --check functions/index.js
