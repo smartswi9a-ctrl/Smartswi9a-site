@@ -149,7 +149,7 @@ function renderTestimonialCard(review, product, city) {
     : "";
 
   /* Badge "Achat vérifié" (title échappé pour éviter les guillemets). */
-  const verifiedHtml = review.verifiedPurchase
+  const verifiedHtml = review.serverVerified === true && review.verifiedPurchase === true
     ? `<span class="testimonial-verified" title="${escapeHTML( t("avisVerifiedPurchase") || "Achat vérifié" )}">${t("reviewVerifiedPurchase") || "Achat vérifié"}</span>`
     : "";
 

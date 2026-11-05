@@ -1878,6 +1878,7 @@ exports.createVerifiedReview = onRequest({ region: 'europe-west1', cors: [...ALL
         orderId: matchingOrder.id,
         photos,
         verifiedPurchase: true,
+        serverVerified: true,
         likes: [],
         likesCount: 0,
         featured: false
