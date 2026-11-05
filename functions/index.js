@@ -1830,8 +1830,37 @@ exports.releaseDueFunds = onRequest({ region: 'europe-west1', cors: [...ALLOWED_
         const walletRef = db.collection('wallets').doc(vendorId);
 
         const result = await db.runTransaction(async (t) => {
-          const walletSnap = await t.get(walletRef);
+          // Le profil vendeur sert de verrou commun avec adminVendorAction :
+          // une libération ne peut pas passer silencieusement après le début
+          // d'une suppression.
+          const vendorRef = db.collection('users').doc(vendorId);
+          const [vendorSnap, walletSnap] = await Promise.all([
+            t.get(vendorRef),
+            t.get(walletRef)
+          ]);
+          if (!vendorSnap.exists || vendorSnap.data()?.role !== 'vendor') {
+            throw new Error('Profil vendeur introuvable');
+          }
+          if (vendorSnap.data()?.vendorInfo?.status === 'deletion_pending') {
+            throw new Error('Suppression du compte vendeur en cours');
+          }
           if (!walletSnap.exists) throw new Error('Wallet introuvable');
+
+          // Relire chaque transaction dans la transaction Firestore : deux
+          // exécutions concurrentes ne doivent jamais libérer deux fois la
+          // même écriture à partir du même résultat de requête initial.
+          const freshTxs = [];
+          for (const candidate of txs) {
+            const freshSnap = await t.get(candidate.ref);
+            if (!freshSnap.exists) continue;
+            const freshData = freshSnap.data();
+            if (freshData.status !== 'pending' || !freshData.unlockAt) continue;
+            const unlockDate = typeof freshData.unlockAt.toDate === 'function'
+              ? freshData.unlockAt.toDate()
+              : new Date(freshData.unlockAt);
+            if (!Number.isFinite(unlockDate.getTime()) || unlockDate > now) continue;
+            freshTxs.push({ ref: candidate.ref, data: freshData });
+          }
 
           const wallet = walletSnap.data();
           let pendingBalance = Number(wallet.pendingBalance) || 0;
@@ -1839,11 +1868,11 @@ exports.releaseDueFunds = onRequest({ region: 'europe-west1', cors: [...ALLOWED_
           let vendorReleased = 0;
           let txsCount = 0;
 
-          for (const tx of txs) {
+          for (const tx of freshTxs) {
             const amount = Number(tx.data.amount) || 0;
             const reversed = Number(tx.data.reversedAmount) || 0;
             const eligible = Math.max(0, amount - reversed);
-            const releaseForThis = Math.min(eligible, pendingBalance);
+            const releaseForThis = Math.min(eligible, Math.max(0, pendingBalance));
 
             if (releaseForThis > 0) {
               pendingBalance -= releaseForThis;
