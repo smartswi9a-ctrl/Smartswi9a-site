@@ -724,6 +724,12 @@ export async function updateOrderStatus(orderId, newStatus) {
                 productSnaps = await Promise.all(productRefs.map(r => transaction.get(r)));
             }
 
+            // Lire le coupon avant toute écriture de stock dans la transaction.
+            let couponSnap = null;
+            if (normalizedStatus === ORDER_STATUS.CANCELLED && order.couponId && !order.couponRestored) {
+                couponSnap = await transaction.get(doc(db, "coupons", order.couponId));
+            }
+
             if (normalizedStatus === ORDER_STATUS.CONFIRMED && previousStatus === ORDER_STATUS.PENDING && order.stockDeducted !== true) {
                 await deductStockInTransaction(transaction, order, productSnaps, productRefs);
                 order.stockDeducted = true;
@@ -737,7 +743,9 @@ export async function updateOrderStatus(orderId, newStatus) {
             if (normalizedStatus === ORDER_STATUS.CANCELLED && order.couponId && !order.couponRestored) {
                 const couponRef = doc(db, "coupons", order.couponId);
                 const couponUseRef = doc(db, "coupon_uses", `${order.couponId}_${order.userId}`);
-                transaction.update(couponRef, { usedCount: increment(-1) });
+                if (couponSnap?.exists() && Number(couponSnap.data().usedCount) > 0) {
+                    transaction.update(couponRef, { usedCount: increment(-1) });
+                }
                 transaction.delete(couponUseRef);
                 order.couponRestored = true;
             }
