@@ -4,11 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Villes de livraison au Maroc | Smart Swi9a</title>
-    <meta name="description" content="Découvrez toutes les villes du Maroc où Smart Swi9a livre vos gadgets et Smart Home. Frais de livraison 30 DH partout, délais 24h-72h.">
+    <meta name="description" content="Découvrez toutes les villes du Maroc où Smart Swi9a livre vos gadgets et Smart Home. Frais de livraison à partir de 20 DH, délais 24h-72h.">
     <link rel="canonical" href="https://smartswi9a.top/villesmaroc.html">
     <meta name="robots" content="index, follow">
     <meta name="theme-color" content="#f8f6f2">
-    <!-- ✅ FIX DARK MODE — force le mode clair uniquement -->
     <meta name="color-scheme" content="only light">
     <meta name="supported-color-schemes" content="light">
 
@@ -18,7 +17,7 @@
     <link rel="manifest" href="/site.webmanifest">
 
     <meta property="og:title" content="Villes de livraison | Smart Swi9a">
-    <meta property="og:description" content="Livraison dans tout le Maroc. 30 DH partout, 24h à 72h. Paiement à la livraison.">
+    <meta property="og:description" content="Livraison dans tout le Maroc. Dès 20 DH, 24h à 72h. Paiement à la livraison.">
     <meta property="og:image" content="https://smartswi9a.top/assets/og-image.jpg">
     <meta property="og:image:secure_url" content="https://smartswi9a.top/assets/og-image.jpg">
     <meta property="og:image:width" content="1200">
@@ -32,7 +31,7 @@
 
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="Villes de livraison | Smart Swi9a">
-    <meta name="twitter:description" content="Livraison dans tout le Maroc. 30 DH partout, 24h à 72h.">
+    <meta name="twitter:description" content="Livraison dans tout le Maroc. Dès 20 DH, 24h à 72h.">
     <meta name="twitter:image" content="https://smartswi9a.top/assets/og-image.jpg">
 
     <link rel="alternate" hreflang="ar" href="https://smartswi9a.top/villesmaroc.html?lang=ar">
@@ -179,6 +178,28 @@
         }
         .ltr-value { direction: ltr; unicode-bidi: isolate; display: inline-block; }
 
+        .villes-error {
+            background: rgba(176, 58, 46, 0.08);
+            border: 1px solid var(--danger);
+            color: var(--danger);
+            padding: 1rem 1.5rem;
+            border-radius: var(--radius-md);
+            margin: 2rem auto;
+            max-width: 500px;
+            text-align: center;
+        }
+        .villes-error button {
+            margin-top: 0.75rem;
+            padding: 0.4rem 1rem;
+            border-radius: 30px;
+            border: 1px solid var(--danger);
+            background: transparent;
+            color: var(--danger);
+            font-weight: 700;
+            cursor: pointer;
+        }
+        .villes-error button:hover { background: var(--danger); color: #fff; }
+
         @media (max-width: 480px) {
             .villes-table th, .villes-table td { padding: 0.5rem 0.6rem; font-size: 0.8rem; }
             .ville-stat-card strong { font-size: 1.2rem; }
@@ -243,7 +264,7 @@
         <div class="villes-hero">
             <span class="section-tag" data-key="villesTag">🗺️ Livraison Maroc</span>
             <h1 class="section-title" data-key="villesTitle">Toutes nos villes de livraison</h1>
-            <p class="section-sub" data-key="villesSub">Nous livrons partout au Maroc, à partir de 30 DH, en 24h à 72h selon votre région.</p>
+            <p class="section-sub" data-key="villesSub">Nous livrons partout au Maroc. Frais et délais selon votre ville.</p>
         </div>
 
         <div class="villes-stats">
@@ -252,11 +273,11 @@
                 <span data-key="villesCountLabel">🏙️ Villes desservies</span>
             </div>
             <div class="ville-stat-card">
-                <strong class="ltr-value" dir="ltr">30 DH</strong>
+                <strong id="villesFeesRange" class="ltr-value" dir="ltr">—</strong>
                 <span data-key="villesFeesLabel">💰 Frais de livraison</span>
             </div>
             <div class="ville-stat-card">
-                <strong class="ltr-value" dir="ltr">24-72h</strong>
+                <strong id="villesDelayRange" class="ltr-value" dir="ltr">—</strong>
                 <span data-key="villesDelayLabel">🚚 Délai de livraison</span>
             </div>
             <div class="ville-stat-card">
@@ -270,6 +291,11 @@
         </div>
 
         <div class="villes-count" id="villesCountText">Chargement...</div>
+
+        <div id="villesError" class="villes-error" style="display:none;">
+            <p id="villesErrorText">Impossible de charger la liste des villes.</p>
+            <button type="button" id="villesRetryBtn">Réessayer</button>
+        </div>
 
         <div class="villes-table-wrapper">
             <table class="villes-table">
@@ -318,12 +344,37 @@
     </footer>
 
     <script type="module">
-        import { loadCities, t, setLang, getLang, getCityName, getCityNameAll } from '/js/utils.js';
-        import { getState } from '/js/store.js';
+        import { t, setLang, getLang } from '/js/utils.js';
+
+        const CACHE_KEY = 'swi9a_livo_fees_v1';
+        const CACHE_TTL_MS = 5 * 60 * 1000; // 5 min
 
         let allCities = [];
         let currentSearchQuery = '';
+        let fetchInProgress = false;
 
+        /* ============================================================
+           HELPERS
+           ============================================================ */
+        function getCityDisplayName(city) {
+            const lang = getLang();
+            if (lang === 'ar') return city.nameAr || city.nameFr || city.key;
+            if (lang === 'en') return city.nameEn || city.nameFr || city.key;
+            return city.nameFr || city.key;
+        }
+
+        function normalizeSearch(s) {
+            return String(s || '')
+                .toLowerCase()
+                .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+                .replace(/['']/g, '')
+                .replace(/[^a-z0-9]+/g, ' ')
+                .trim();
+        }
+
+        /* ============================================================
+           TRANSLATIONS (data-key)
+           ============================================================ */
         function applyPageTranslations() {
             document.querySelectorAll('[data-key]').forEach(el => {
                 const key = el.getAttribute('data-key');
@@ -362,24 +413,98 @@
             const select = document.getElementById('langSelect');
             if (select && select.value !== getLang()) select.value = getLang();
 
-            // Traduction du logo
             const logoVal = t('logoText');
             if (logoVal && logoVal !== 'logoText') {
-                document.querySelectorAll('.logo-text').forEach(el => {
-                    el.textContent = logoVal;
-                });
-                document.querySelectorAll('.footer-logo').forEach(el => {
-                    el.textContent = logoVal;
-                });
+                document.querySelectorAll('.logo-text').forEach(el => { el.textContent = logoVal; });
+                document.querySelectorAll('.footer-logo').forEach(el => { el.textContent = logoVal; });
             }
         }
 
+        /* ============================================================
+           FETCH LIVO FEES (via Cloud Function)
+           ============================================================ */
+        async function fetchLivoFees(forceRefresh = false) {
+            if (fetchInProgress) return;
+            fetchInProgress = true;
+
+            // 1. Cache sessionStorage
+            if (!forceRefresh) {
+                try {
+                    const cached = sessionStorage.getItem(CACHE_KEY);
+                    if (cached) {
+                        const parsed = JSON.parse(cached);
+                        if (parsed.ts && Date.now() - parsed.ts < CACHE_TTL_MS && Array.isArray(parsed.cities) && parsed.cities.length > 0) {
+                            allCities = parsed.cities;
+                            refreshAll();
+                            fetchInProgress = false;
+                            return;
+                        }
+                    }
+                } catch (e) { /* ignore */ }
+            }
+
+            // 2. Afficher loader
+            const tbody = document.getElementById('villesTbody');
+            if (tbody) tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;padding:2rem;color:var(--text-muted);">⏳ ${t('loading') || 'Chargement...'}</td></tr>`;
+            const errorEl = document.getElementById('villesError');
+            if (errorEl) errorEl.style.display = 'none';
+
+            // 3. Fetch
+            try {
+                const res = await fetch('/api/getLivoFees', {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' },
+                    cache: 'no-store'
+                });
+                const data = await res.json().catch(() => ({}));
+
+                if (!res.ok || !data.success || !Array.isArray(data.cities)) {
+                    throw new Error(data.message || `HTTP ${res.status}`);
+                }
+
+                if (data.cities.length === 0) {
+                    throw new Error('Aucune ville retournée.');
+                }
+
+                allCities = data.cities;
+
+                // Cache
+                try {
+                    sessionStorage.setItem(CACHE_KEY, JSON.stringify({
+                        ts: Date.now(),
+                        cities: allCities
+                    }));
+                } catch (e) { /* ignore */ }
+
+                refreshAll();
+            } catch (err) {
+                console.error('[villesmaroc] fetchLivoFees error:', err);
+                const errorEl = document.getElementById('villesError');
+                const errorText = document.getElementById('villesErrorText');
+                if (errorEl && errorText) {
+                    errorText.textContent = (t('villesLoadError') || 'Impossible de charger la liste des villes.') + ' (' + (err.message || 'network') + ')';
+                    errorEl.style.display = 'block';
+                }
+                if (tbody) tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;padding:2rem;color:var(--danger);">${t('error') || 'Erreur'}</td></tr>`;
+            } finally {
+                fetchInProgress = false;
+            }
+        }
+
+        /* ============================================================
+           FILTER & RENDER
+           ============================================================ */
         function filterCities(query) {
             if (!query) return allCities;
-            const q = query.toLowerCase().trim();
+            const q = normalizeSearch(query);
             if (!q) return allCities;
             return allCities.filter(c => {
-                const names = getCityNameAll(c);
+                const names = [
+                    normalizeSearch(c.nameFr),
+                    normalizeSearch(c.nameAr),
+                    normalizeSearch(c.nameEn),
+                    normalizeSearch(c.key)
+                ];
                 return names.some(n => n.includes(q));
             });
         }
@@ -397,13 +522,14 @@
             cities.forEach((c, idx) => {
                 const delayClass = c.delay === '24h' ? 'delay-24h'
                     : (c.delay === '72h' ? 'delay-72h' : 'delay-48h');
-                const cityName = getCityName(c);
+                const cityName = getCityDisplayName(c);
+                const price = Number(c.price) || 0;
 
                 html += `
                     <tr>
                         <td class="ltr-value" dir="ltr">${idx + 1}</td>
                         <td><strong>${cityName}</strong></td>
-                        <td><span style="color:var(--gold);font-weight:700;" class="ltr-value" dir="ltr">${c.price} DH</span></td>
+                        <td><span style="color:var(--gold);font-weight:700;" class="ltr-value" dir="ltr">${price} DH</span></td>
                         <td><span class="delay-badge ${delayClass}">🚚 ${c.delay || '48h'}</span></td>
                     </tr>
                 `;
@@ -411,42 +537,54 @@
             tbody.innerHTML = html;
         }
 
-        function updateCountLabel(displayedCities) {
-            const countTextEl = document.getElementById('villesCountText');
+        function updateStats() {
             const countEl = document.getElementById('villesCount');
+            const feesEl = document.getElementById('villesFeesRange');
+            const delayEl = document.getElementById('villesDelayRange');
 
             if (countEl) countEl.textContent = allCities.length;
 
-            if (countTextEl) {
-                if (currentSearchQuery) {
-                    countTextEl.innerHTML = `🔍 <span class="ltr-value" dir="ltr">${displayedCities.length}</span> ${t('villesResults') || 'résultat(s)'}`;
-                } else {
-                    countTextEl.innerHTML = `📍 <span class="ltr-value" dir="ltr">${allCities.length}</span> ${t('villesAvailable')}`;
+            if (allCities.length > 0) {
+                const prices = allCities.map(c => Number(c.price) || 0).filter(p => p > 0);
+                if (prices.length > 0 && feesEl) {
+                    const minP = Math.min(...prices);
+                    const maxP = Math.max(...prices);
+                    feesEl.textContent = minP === maxP ? `${minP} DH` : `${minP}–${maxP} DH`;
                 }
+
+                const delays = allCities.map(c => c.delay || '48h').filter(Boolean);
+                if (delays.length > 0 && delayEl) {
+                    const uniq = [...new Set(delays)].sort();
+                    delayEl.textContent = uniq.join(' · ');
+                }
+            } else {
+                if (feesEl) feesEl.textContent = '—';
+                if (delayEl) delayEl.textContent = '—';
+            }
+        }
+
+        function updateCountLabel(displayedCities) {
+            const countTextEl = document.getElementById('villesCountText');
+            if (!countTextEl) return;
+
+            if (currentSearchQuery) {
+                countTextEl.innerHTML = `🔍 <span class="ltr-value" dir="ltr">${displayedCities.length}</span> ${t('villesResults') || 'résultat(s)'}`;
+            } else {
+                countTextEl.innerHTML = `📍 <span class="ltr-value" dir="ltr">${allCities.length}</span> ${t('villesAvailable') || 'villes disponibles'}`;
             }
         }
 
         function refreshAll() {
             applyPageTranslations();
+            updateStats();
             const filtered = filterCities(currentSearchQuery);
             renderVilles(filtered);
             updateCountLabel(filtered);
         }
 
-        async function loadVilles() {
-            try {
-                const cities = await loadCities();
-                allCities = cities || getState().deliveryData || [];
-                refreshAll();
-            } catch (e) {
-                console.error('Erreur loadVilles:', e);
-                const tbody = document.getElementById('villesTbody');
-                if (tbody) {
-                    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--danger);padding:2rem;">❌ ${t('error')}</td></tr>`;
-                }
-            }
-        }
-
+        /* ============================================================
+           INIT
+           ============================================================ */
         document.addEventListener('DOMContentLoaded', () => {
             applyPageTranslations();
 
@@ -470,7 +608,15 @@
                 });
             }
 
-            loadVilles();
+            const retryBtn = document.getElementById('villesRetryBtn');
+            if (retryBtn) {
+                retryBtn.addEventListener('click', () => {
+                    try { sessionStorage.removeItem(CACHE_KEY); } catch (e) { /* ignore */ }
+                    fetchLivoFees(true);
+                });
+            }
+
+            fetchLivoFees(false);
         });
     </script>
 
