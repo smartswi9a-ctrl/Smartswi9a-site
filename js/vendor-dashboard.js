@@ -49,6 +49,7 @@ let currentWallet = null;
 let currentUserUid = null;
 let authBound = false;
 let cachedWithdrawals = [];
+let cachedWalletTransactions = [];
 let cachedProducts = [];
 let cachedOrders = [];
 let currentProductIdEditing = null;
@@ -554,6 +555,42 @@ async function loadWithdrawals() {
         console.warn('[vendor-dashboard] Lecture retraits échouée :', e);
         cachedWithdrawals = [];
     }
+}
+
+async function loadWalletTransactions() {
+    if (!currentUserUid) {
+        cachedWalletTransactions = [];
+        return;
+    }
+    try {
+        // Requête volontairement simple : tri local pour éviter de dépendre
+        // d'un index composite vendorId + createdAt.
+        const q = query(
+            collection(db, "wallet_transactions"),
+            where("vendorId", "==", currentUserUid),
+            limit(100)
+        );
+        const snap = await getDocs(q);
+        cachedWalletTransactions = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => {
+            const ta = a.createdAt?.toDate?.()?.getTime?.() || 0;
+            const tb = b.createdAt?.toDate?.()?.getTime?.() || 0;
+            return tb - ta;
+        });
+    } catch (e) {
+        console.warn('[vendor-dashboard] Lecture historique portefeuille échouée :', e);
+        cachedWalletTransactions = [];
+    }
+}
+
+function getWalletTransactionLabel(tx) {
+    const labels = {
+        sale: 'Crédit de vente',
+        return_fee: 'Frais de retour',
+        payout: 'Retrait payé',
+        adjustment: 'Ajustement',
+        refund: 'Remboursement'
+    };
+    return labels[tx.type] || tx.description || 'Mouvement portefeuille';
 }
 
 /* ============================================================
@@ -1214,6 +1251,7 @@ async function renderStock(container) {
 
 async function renderWallet(container) {
     if (!cachedWithdrawals.length) await loadWithdrawals();
+    await loadWalletTransactions();
     const available = formatMAD(currentWallet?.availableBalance);
     const pending = formatMAD(currentWallet?.pendingBalance);
     const minWithdrawal = formatMAD(CONFIG.VENDOR.MIN_WITHDRAWAL);
@@ -1237,6 +1275,31 @@ async function renderWallet(container) {
         return `<div style="display:flex;justify-content:space-between;align-items:center;padding:0.7rem 0;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:0.5rem;"><div><strong>${formatMAD(w.amount)}</strong> · ${escapeHTML(w.method || '—')} · ${date}</div><div>${statusBadge}</div></div>`;
     }).join('') : `<p style="color:var(--text-muted);font-size:0.85rem;text-align:center;">${tr('vendor.wallet.noWithdrawals', 'Aucune demande de retrait pour le moment.')}</p>`;
 
+    const transactionRows = cachedWalletTransactions.length ? cachedWalletTransactions.map(tx => {
+        const amount = Number(tx.amount) || 0;
+        const positive = amount >= 0;
+        const status = tx.status === 'pending' ? 'En attente de déblocage'
+            : tx.status === 'released' ? 'Confirmé'
+            : (tx.status || '—');
+        const date = tx.createdAt?.toDate?.()?.toLocaleString?.('fr-FR') || '—';
+        const details = [];
+        if (tx.type === 'return_fee' && Number(tx.returnedQty) > 0) details.push(`${Number(tx.returnedQty)} article(s) retourné(s)`);
+        if (Number(tx.pendingOffset) > 0) details.push(`prélevé sur attente : ${formatMAD(tx.pendingOffset)}`);
+        if (Number(tx.availableOffset) > 0) details.push(`prélevé sur disponible : ${formatMAD(tx.availableOffset)}`);
+        if (Number(tx.debtAmount) > 0) details.push(`dette créée : ${formatMAD(tx.debtAmount)}`);
+        if (Number(tx.reversedAmount) > 0) details.push(`compensation : ${formatMAD(tx.reversedAmount)}`);
+        if (Number(tx.releasedAmount) > 0 && tx.status === 'pending') details.push(`déjà débloqué : ${formatMAD(tx.releasedAmount)}`);
+        return `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:0.75rem;padding:0.75rem 0;border-bottom:1px solid var(--border);flex-wrap:wrap;">
+            <div style="min-width:0;flex:1;">
+                <strong>${escapeHTML(getWalletTransactionLabel(tx))}</strong>
+                <div style="font-size:0.72rem;color:var(--text-muted);">${escapeHTML(date)} · ${escapeHTML(status)}</div>
+                ${tx.description ? `<div style="font-size:0.75rem;color:var(--text-muted);">${escapeHTML(tx.description)}</div>` : ''}
+                ${details.length ? `<div style="font-size:0.7rem;color:var(--text-muted);">${details.map(escapeHTML).join(' · ')}</div>` : ''}
+            </div>
+            <strong style="white-space:nowrap;color:${positive ? 'var(--success)' : 'var(--danger)'};">${positive ? '+' : '−'} ${formatMAD(Math.abs(amount))}</strong>
+        </div>`;
+    }).join('') : `<p style="color:var(--text-muted);font-size:0.85rem;text-align:center;">Aucun mouvement de portefeuille pour le moment.</p>`;
+
     container.innerHTML = `
         <div class="v-wallet-hero">
             <div class="v-wallet-label">${escapeHTML(tr('vendor.wallet.available', 'Solde disponible'))}</div>
@@ -1245,7 +1308,8 @@ async function renderWallet(container) {
             <button type="button" id="btnRequestWithdrawal" class="v-btn v-btn-primary" style="margin-top:1rem;" ${disabledAttr}>${escapeHTML(tr('vendor.wallet.requestWithdrawal', 'Demander un retrait'))}</button>
             ${reason ? `<div style="margin-top:0.5rem; color:var(--text-muted); font-size:0.85rem;">${escapeHTML(reason)}</div>` : ''}
         </div>
-        <div class="v-card" style="margin-top:1.5rem;"><h3 class="v-card-title">${escapeHTML(tr('vendor.wallet.historyTitle', 'Historique des retraits'))}</h3>${withdrawalRows}</div>`;
+        <div class="v-card" style="margin-top:1.5rem;"><h3 class="v-card-title">${escapeHTML(tr('vendor.wallet.historyTitle', 'Historique des retraits'))}</h3>${withdrawalRows}</div>
+        <div class="v-card" style="margin-top:1.5rem;"><h3 class="v-card-title">Historique des mouvements du portefeuille</h3>${transactionRows}</div>`;
 
     const btn = document.getElementById('btnRequestWithdrawal');
     if (btn && canWithdraw) btn.addEventListener('click', openWithdrawModal);
