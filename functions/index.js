@@ -1918,8 +1918,13 @@ exports.backfillVendorOrderViews = onRequest({ region: 'europe-west1', cors: [..
       const order = orderDoc.data();
       const items = Array.isArray(order.items) ? order.items : [];
       const vendorIds = [...new Set(items
-        .map(item => String(item.vendorId || ''))
+        .map(item => String(item.vendorId || 'smartswi9a'))
         .filter(vendorId => vendorId && vendorId !== 'smartswi9a'))];
+      const containsPlatformItems = items.some(item => String(item.vendorId || 'smartswi9a') === 'smartswi9a');
+      await orderDoc.ref.update({
+        vendorIds,
+        containsPlatformItems
+      });
 
       for (const vendorId of vendorIds) {
         const vendorItems = items.filter(item => String(item.vendorId || '') === vendorId);
