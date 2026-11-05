@@ -1241,7 +1241,7 @@ exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}',
 
   // Débit des retours vendeur : traiter chaque nouvelle entrée, pas seulement
   // la dernière. Cela couvre plusieurs retours successifs sur une même commande.
-  if (after.status === 'returned' && afterReturns.length > beforeReturnsCount) {
+  if (after.status === 'returned' && afterReturns.length > firstReturnIndex) {
     for (let returnIndex = firstReturnIndex; returnIndex < afterReturns.length; returnIndex++) {
       const returnEntry = afterReturns[returnIndex];
       if (!returnEntry || !Array.isArray(returnEntry.items)) continue;
