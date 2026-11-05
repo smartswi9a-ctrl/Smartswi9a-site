@@ -116,6 +116,13 @@
         }
       },
       {
+        "source": "/api/adminSetReturnFee",
+        "function": {
+          "functionId": "adminSetReturnFee",
+          "region": "europe-west1"
+        }
+      },
+      {
         "source": "/api/adminPayoutAction",
         "function": {
           "functionId": "adminPayoutAction",
