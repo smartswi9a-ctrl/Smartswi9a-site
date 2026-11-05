@@ -85,6 +85,13 @@ export const CONTRACT_TEMPLATES = {
 
     en: (t) => `VENDOR PARTNERSHIP AGREEMENT — SMART SWI9A Version ${t.version} Article 1 — Purpose This agreement governs the listing and sale of products by the Vendor on Smart Swi9a (smartswi9a.top), a Moroccan marketplace for connected devices and home products. Article 2 — Registration and verification The Vendor agrees to provide accurate information (shop name, phone, city, ICE or CIN). Any false statement results in immediate account suspension. Article 3 — Commission Smart Swi9a charges a ${pct( t.commissionRate )}% commission on the delivery-excluded amount of each sale. This commission may be adjusted between ${pct( t.commissionRateMin )}% and ${pct(t.commissionRateMax)}% with the Vendor's written consent. Article 4 — Shipping The Vendor chooses agency drop-off or Smart Swi9a fulfillment. Drop-off deadlines are ${ t.dropoffDeadlineHoursNew } hours (new accounts) or ${ t.dropoffDeadlineHoursEstablished } hours (mature accounts). Any delay may result in suspension. Article 5 — Payment Earnings are credited to the vendor wallet and become available ${ t.unlockDaysVendor } days after confirmed delivery (${ t.unlockDaysSmart } days for Smart Swi9a products). Minimum withdrawal is ${mad( t.minWithdrawal )} MAD. Article 6 — Returns In case of return, a ${mad( t.returnFeeLivo )} MAD fee is charged per returned parcel (fee charged by our logistics partner Livo). Repeated returns may lead to a review of the Vendor's status. Article 7 — Termination Either party may terminate this agreement at any time. Pending orders remain subject to these terms. Article 8 — Governing law This agreement is governed by Moroccan law. Any dispute falls under the jurisdiction of the courts of Casablanca. Article 9 — Electronic signature The electronic signature constitutes full acceptance. The IP, user-agent, server date, and a SHA-256 hash of this document are recorded as evidence. By signing, the Vendor acknowledges having read and understood this entire agreement.`,
   },
+  // Version 1.3.0 : gabarit 1.2.0 inchangé sur le fond, domaine .ma.
+  // Les versions publiées précédentes restent immuables pour les hashes.
+  "1.3.0": {
+    fr: (t) => CONTRACT_TEMPLATES["1.2.0"].fr(t).replaceAll("smartswi9a.top", "smartswi9a.ma"),
+    ar: (t) => CONTRACT_TEMPLATES["1.2.0"].ar(t).replaceAll("smartswi9a.top", "smartswi9a.ma"),
+    en: (t) => CONTRACT_TEMPLATES["1.2.0"].en(t).replaceAll("smartswi9a.top", "smartswi9a.ma"),
+  },
 };
 
 /* ============================================================ API PUBLIQUE ============================================================ */
