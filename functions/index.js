@@ -1167,6 +1167,11 @@ exports.onOrderStatusChanged = onDocumentUpdated('orders/{orderId}', async (even
           const freshOrder = freshOrderSnap.data();
           if (freshOrder.vendorCredits && freshOrder.vendorCredits[vendorId]) return;
 
+          // Lecture du profil dans la transaction : le verrou deletion_pending
+          // invalide/rejoue un crédit qui serait concurrent à une suppression.
+          const freshVendorSnap = await tx.get(db.collection('users').doc(vendorId));
+          if (!freshVendorSnap.exists || freshVendorSnap.data()?.role !== 'vendor') return;
+
           const freshWalletSnap = await tx.get(walletRef);
           if (!freshWalletSnap.exists) {
             tx.set(walletRef, {
@@ -1247,6 +1252,11 @@ exports.onOrderStatusChanged = onDocumentUpdated('orders/{orderId}', async (even
             const freshReturns = Array.isArray(freshOrder.returns) ? freshOrder.returns : [];
             if (freshOrder.status !== 'returned' || !freshReturns[returnIndex]) return;
             if (freshOrder.vendorDebits && freshOrder.vendorDebits[debitKey]) return;
+
+            // Sérialiser le débit avec le verrou de suppression du vendeur.
+            // Le débit reste autorisé : la suppression sera bloquée tant que
+            // le retour et son écriture financière ne seront pas rapprochés.
+            await tx.get(db.collection('users').doc(vendorId));
 
             const freshWalletSnap = await tx.get(walletRef);
             const w = freshWalletSnap.exists ? freshWalletSnap.data() : {
