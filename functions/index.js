@@ -620,6 +620,10 @@ exports.signVendorContract = onRequest({ region: 'europe-west1', cors: [...ALLOW
       'vendorInfo.currentContractId': contractId,
       'vendorInfo.contractVersion': version,
       'vendorInfo.contractSignedAt': FieldValue.serverTimestamp(),
+      // La commission contractuelle est fixée par le serveur lors de la signature.
+      'vendorInfo.commissionRate': OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE,
+      'vendorInfo.commissionRateMin': OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE_MIN,
+      'vendorInfo.commissionRateMax': OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE_MAX,
       updatedAt: FieldValue.serverTimestamp()
     });
 
