@@ -286,12 +286,8 @@ service cloud.firestore {
         )
       );
 
-      /* LEGACY CREATE VALIDATION REMOVED: server verifies delivered orders. */
-      allow create_legacy_disabled: if false;
-
-      /* Original validation retained below for migration review only. */
-      allow create_original_disabled: if false;
-
+      /* Legacy client-side creation validation removed:
+         createVerifiedReview verifies a delivered order server-side. */
       /*
           'userId', 'userName', 'productId', 'productName', 'productSlug',
           'rating', 'title', 'comment', 'status', 'createdAt', 'orderId',
