@@ -744,6 +744,26 @@ async function inspectVendorSettlement(vendorId) {
         if (returns.length === 0) {
           blockers.push({ orderId: orderDoc.id, reason: 'commande retournée sans détail de retour' });
         }
+        const cumulativeReturnedByProduct = {};
+        for (let returnIndex = 0; returnIndex < returns.length; returnIndex++) {
+          for (const retItem of (returns[returnIndex]?.items || [])) {
+            const productId = String(retItem?.productId || '');
+            const delta = Number(retItem?.delta);
+            const matchingItems = (order.items || []).filter(item =>
+              String(item.productId) === productId && item.vendorId === vendorId
+            );
+            const orderedQty = matchingItems.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
+            if (!productId || !Number.isInteger(delta) || delta <= 0 || orderedQty <= 0) {
+              blockers.push({ orderId: orderDoc.id, reason: `quantité ou produit invalide dans le retour ${returnIndex + 1}` });
+              continue;
+            }
+            cumulativeReturnedByProduct[productId] = (cumulativeReturnedByProduct[productId] || 0) + delta;
+            if (cumulativeReturnedByProduct[productId] > orderedQty) {
+              blockers.push({ orderId: orderDoc.id, reason: `quantité retournée supérieure à la quantité commandée pour ${productId}` });
+            }
+          }
+        }
+
         for (let returnIndex = 0; returnIndex < returns.length; returnIndex++) {
           const entry = returns[returnIndex];
           const returnedQty = (entry?.items || []).reduce((sum, retItem) => {
