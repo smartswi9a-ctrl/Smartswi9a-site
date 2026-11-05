@@ -52,6 +52,15 @@ service firebase.storage {
       allow delete: if admin() || approvedVendor(uid);
     }
 
+    // Photos d'avis : chaque utilisateur écrit uniquement dans son propre dossier.
+    match /reviews/{uid}/{fileName} {
+      allow read: if true;
+      allow create, update: if request.auth != null &&
+        request.auth.uid == uid &&
+        validImageUpload(5 * 1024 * 1024);
+      allow delete: if admin() || (request.auth != null && request.auth.uid == uid);
+    }
+
     // Images générales des produits
     match /products/{fileName} {
       allow read: if true;
