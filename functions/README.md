@@ -6,13 +6,15 @@ Cette fonction ajoute un mot de passe vendeur distinct, stocké uniquement sous 
 Déploiement
 
 
-Depuis le dossier du site, vérifier le projet Firebase : firebase use smartswi9a-31063.
+Depuis la racine du dépôt, installer les dépendances des fonctions : npm --prefix functions install.
 
-Installer les dépendances : cd functions && npm install.
+Déployer les ressources Firebase sur le projet explicitement identifié (sans déployer Firebase Hosting, car le site public est hébergé sur Cloudflare Pages) :
 
-Déployer les fonctions et l'hébergement : cd .. && firebase deploy --only functions,hosting.
+```bash
+firebase deploy --project smartswi9a-31063 --only functions,firestore:rules,firestore:indexes,storage
+```
 
-Déployer toutes les ressources Firebase avec firebase deploy --only functions,hosting,firestore:rules,firestore:indexes,storage.
+Cloudflare Pages publie le site web depuis la branche de production `main`. Le déploiement Firebase ci-dessus est séparé et indispensable pour activer les fonctions, règles et index associés.
 
 Dans Firebase Console > Authentication > Settings, vérifier que l'authentification par e-mail/mot de passe est activée.
 
