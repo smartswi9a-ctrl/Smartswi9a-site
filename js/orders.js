@@ -1064,6 +1064,28 @@ export async function renderAdminOrders(containerId = 'ordersList') {
         return;
     }
 
+    // Charger séparément les justificatifs de frais : chaque vendeur ne peut lire
+    // que ses propres documents, tandis que l'admin peut consulter toute la commande.
+    const returnedOrders = adminOrdersCache.filter(order =>
+        normalizeOrderStatus(order.status) === 'returned' &&
+        Array.isArray(order.returns) && order.returns.length > 0
+    );
+    await Promise.all(returnedOrders.map(async order => {
+        order.returnFeesByKey = {};
+        try {
+            const feeSnap = await getDocs(query(
+                collection(db, 'order_return_fees'),
+                where('orderId', '==', order.id)
+            ));
+            feeSnap.forEach(feeDoc => {
+                const fee = feeDoc.data();
+                order.returnFeesByKey[`${fee.vendorId}_ret${fee.returnIndex}`] = fee;
+            });
+        } catch (error) {
+            console.warn('Chargement justificatifs retour impossible :', order.id, error);
+        }
+    }));
+
     let html = `<div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
         <button id="refreshAdminOrdersBtn" class="admin-btn-secondary" style="font-size:0.8rem;">Rafraîchir</button>
     </div>`;
@@ -1089,7 +1111,7 @@ export async function renderAdminOrders(containerId = 'ordersList') {
             const vendors = Object.entries(byVendor);
             if (!vendors.length) return '';
             const rows = vendors.map(([vendorId, info]) => {
-                const fee = entry.vendorFees?.[vendorId];
+                const fee = order.returnFeesByKey?.[`${vendorId}_ret${returnIndex}`];
                 const debit = order.vendorDebits?.[`${vendorId}_ret${returnIndex}`];
                 const label = escapeHTML(String(info.name));
                 if (debit) {
