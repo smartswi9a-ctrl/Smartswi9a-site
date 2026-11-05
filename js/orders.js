@@ -808,31 +808,6 @@ export async function updateOrderStatus(orderId, newStatus) {
             }
         }
 
-        if (normalizedStatus === ORDER_STATUS.DELIVERED && orderForEmail.userId) {
-            try {
-                const { createNotification } = await import("./notifications.js");
-                const shortId = orderId.slice(0, 8).toUpperCase();
-
-                await createNotification(
-                    orderForEmail.userId,
-                    NOTIFICATION_TYPES.ORDER_DELIVERED || 'order_delivered',
-                    (t('notificationOrderDelivered') || 'Commande livrée'),
-                    (t('notificationOrderDeliveredMsg') || 'Votre commande #{id} est livrée !').replace('{id}', shortId),
-                    { orderId }
-                );
-
-                await createNotification(
-                    orderForEmail.userId,
-                    'review_request',
-                    'Laissez un avis',
-                    `Votre commande #${shortId} est livrée ! Partagez votre expérience.`,
-                    { orderId, persistent: true }
-                );
-            } catch (e) {
-                console.warn('Notification delivered échouée :', e);
-            }
-        }
-
         return { success: true };
     } catch (e) {
         console.error('Erreur update statut :', e);

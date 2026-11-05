@@ -1635,6 +1635,43 @@ exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}',
   // Le trigger est aussi relancé lorsqu'un administrateur valide les frais
   // d'un retour déjà enregistré. Les débits sont idempotents via vendorDebits.
 
+  // Notifications client générées côté serveur (idempotentes).
+  // Les vendeurs ne peuvent pas créer librement des notifications dans Firestore.
+  if (after.status === 'delivered' && before.status !== 'delivered' && after.userId) {
+    const deliveryNotificationRef = db.collection('notifications').doc('order_delivered_' + orderId);
+    const reviewNotificationRef = db.collection('notifications').doc('review_request_' + orderId);
+    await db.runTransaction(async tx => {
+      const [deliverySnap, reviewSnap] = await Promise.all([
+        tx.get(deliveryNotificationRef),
+        tx.get(reviewNotificationRef)
+      ]);
+      const shortId = orderId.slice(0, 8).toUpperCase();
+      if (!deliverySnap.exists) {
+        tx.create(deliveryNotificationRef, {
+          userId: after.userId,
+          type: 'order_delivered',
+          title: 'Commande livrée',
+          message: 'Votre commande #' + shortId + ' est livrée !',
+          orderId,
+          read: false,
+          createdAt: FieldValue.serverTimestamp()
+        });
+      }
+      if (!reviewSnap.exists) {
+        tx.create(reviewNotificationRef, {
+          userId: after.userId,
+          type: 'review_request',
+          title: 'Laissez un avis',
+          message: 'Votre commande #' + shortId + ' est livrée ! Partagez votre expérience.',
+          orderId,
+          persistent: true,
+          read: false,
+          createdAt: FieldValue.serverTimestamp()
+        });
+      }
+    });
+  }
+
   // Crédit vendeur
   if (after.status === 'delivered' && before.status !== 'delivered') {
     const vendorItems = {};
