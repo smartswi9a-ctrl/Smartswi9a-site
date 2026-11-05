@@ -270,45 +270,21 @@ service cloud.firestore {
         request.resource.data.likes is list &&
         (
           (
-            request.resource.data.likes.size() == resource.data.likes.size() + 1 &&
-            request.resource.data.likes.hasAll(resource.data.likes) &&
+            request.resource.data.likes.size() == resource.data.get('likes', []).size() + 1 &&
+            request.resource.data.likes.hasAll(resource.data.get('likes', [])) &&
             request.auth.uid in request.resource.data.likes &&
-            !(request.auth.uid in resource.data.likes) &&
-            request.resource.data.likesCount == resource.data.likesCount + 1
+            !(request.auth.uid in resource.data.get('likes', [])) &&
+            request.resource.data.likesCount == resource.data.get('likesCount', 0) + 1
           ) ||
           (
-            request.resource.data.likes.size() == resource.data.likes.size() - 1 &&
-            resource.data.likes.hasAll(request.resource.data.likes) &&
-            request.auth.uid in resource.data.likes &&
+            request.resource.data.likes.size() == resource.data.get('likes', []).size() - 1 &&
+            resource.data.get('likes', []).hasAll(request.resource.data.likes) &&
+            request.auth.uid in resource.data.get('likes', []) &&
             !(request.auth.uid in request.resource.data.likes) &&
-            request.resource.data.likesCount == resource.data.likesCount - 1
+            request.resource.data.likesCount == resource.data.get('likesCount', 0) - 1
           )
         )
       );
-
-      /* Legacy client-side creation validation removed:
-         createVerifiedReview verifies a delivered order server-side. */
-      /*
-          'userId', 'userName', 'productId', 'productName', 'productSlug',
-          'rating', 'title', 'comment', 'status', 'createdAt', 'orderId',
-          'photos', 'verifiedPurchase', 'likes', 'likesCount', 'featured'
-        ]) &&
-        request.resource.data.rating is number &&
-        request.resource.data.rating >= 1 &&
-        request.resource.data.rating <= 5 &&
-        request.resource.data.title is string &&
-        request.resource.data.title.size() <= 80 &&
-        request.resource.data.comment is string &&
-        request.resource.data.comment.size() <= 500 &&
-        request.resource.data.status == 'pending' &&
-        request.resource.data.verifiedPurchase is bool &&
-        request.resource.data.likes is list &&
-        request.resource.data.likes.size() == 0 &&
-        request.resource.data.likesCount == 0 &&
-        request.resource.data.featured == false &&
-        request.resource.data.photos is list &&
-        request.resource.data.photos.size() <= 5;
-      */
 
       allow delete: if isAdmin();
     }

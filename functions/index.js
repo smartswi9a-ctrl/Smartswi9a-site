@@ -1745,7 +1745,7 @@ exports.createVerifiedReview = onRequest({ region: 'europe-west1', cors: [...ALL
     const comment = String(req.body?.comment || '').trim().slice(0, 500);
     const photos = Array.isArray(req.body?.photos) ? req.body.photos.slice(0, 5) : [];
 
-    if (!productId || productId.length > 150 || !Number.isInteger(rating) || rating < 1 || rating > 5 || !comment) {
+    if (!productId || productId.includes('/') || productId.length > 150 || !Number.isInteger(rating) || rating < 1 || rating > 5 || !comment) {
       return res.status(400).json({ success: false, message: 'Avis invalide.' });
     }
     for (const photo of photos) {

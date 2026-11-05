@@ -333,7 +333,7 @@ export async function createReview( productId, { rating, title, comment, photoFi
       const { deleteReviewRequestForOrder } = await import(
         "./notifications.js"
       );
-      await deleteReviewRequestForOrder(check.orderId);
+      await deleteReviewRequestForOrder(result.orderId);
     } catch (e) {
       console.warn(
         "Nettoyage notification review_request échoué :",
@@ -345,7 +345,7 @@ export async function createReview( productId, { rating, title, comment, photoFi
   try {
     document.dispatchEvent(
       new CustomEvent("review-submitted", {
-        detail: { productId: pid, reviewId, orderId: check.orderId || null },
+        detail: { productId: pid, reviewId: result.reviewId || reviewId, orderId: result.orderId || null },
       })
     );
   } catch (e) {
