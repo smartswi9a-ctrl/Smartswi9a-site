@@ -723,8 +723,28 @@ exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
       return res.status(404).json({ success: false, message: 'Profil introuvable.' });
     }
 
-    if (action === 'approved' && vendorSnap.data().vendorInfo?.contractStatus !== 'accepted') {
-      return res.status(409).json({ success: false, message: 'Impossible d’approuver : contrat non signé.' });
+    if (action === 'approved') {
+      const vendorInfo = vendorSnap.data().vendorInfo || {};
+      if (vendorInfo.contractStatus !== 'accepted') {
+        return res.status(409).json({ success: false, message: 'Impossible d’approuver : contrat non signé.' });
+      }
+
+      const contractId = vendorInfo.currentContractId ||
+        (vendorInfo.contractVersion ? `contract_${vendorId}_v${vendorInfo.contractVersion}` : '');
+      if (!contractId) {
+        return res.status(409).json({ success: false, message: 'Impossible d’approuver : référence du contrat signée introuvable.' });
+      }
+
+      const contractSnap = await db.collection('contracts').doc(contractId).get();
+      const contract = contractSnap.exists ? contractSnap.data() : null;
+      if (
+        !contract ||
+        contract.vendorId !== vendorId ||
+        contract.status !== 'accepted' ||
+        String(contract.version) !== String(vendorInfo.contractVersion || contract.version)
+      ) {
+        return res.status(409).json({ success: false, message: 'Impossible d’approuver : le document du contrat signé est absent ou incohérent.' });
+      }
     }
 
     if (action === 'deleted') {
