@@ -75,7 +75,7 @@ Tentatives erronées répétées : blocage temporaire.
 
 Signature et re-signature du contrat depuis l'inscription et depuis le dashboard.
 
-Vérifier le site sous https://smartswi9a.top et https://www.smartswi9a.top si les deux domaines sont utilisés.
+Vérifier le site sous https://smartswi9a.ma et https://www.smartswi9a.ma si les deux domaines sont utilisés.
 
 
 Limite importante : commandes
