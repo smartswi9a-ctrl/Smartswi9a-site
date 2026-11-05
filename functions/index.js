@@ -13,6 +13,8 @@ const PROJECT_ID = 'smartswi9a-31063';
 const FIREBASE_WEB_API_KEY = 'AIzaSyBhULwDxPBRqjywsSD_0ny41Bmt968ofSA';
 
 const ALLOWED_ORIGINS = new Set([
+  'https://smartswi9a.ma',
+  'https://www.smartswi9a.ma',
   'https://smartswi9a.top',
   'https://www.smartswi9a.top',
   'https://smartswi9a-31063.web.app',
@@ -53,7 +55,7 @@ const LOGIN_MAX_FAILURES = 8;
    avec "Falsification détectée".
    ============================================================ */
 const OFFICIAL_VENDOR_CONFIG = {
-  CONTRACT_VERSION: '1.2.0',
+  CONTRACT_VERSION: '1.3.0',
   COMMISSION_RATE: 0.07,
   COMMISSION_RATE_MIN: 0.05,
   COMMISSION_RATE_MAX: 0.15,
@@ -334,8 +336,15 @@ function getContractText(lang, version, snapshot) {
       en: (t) => `VENDOR PARTNERSHIP AGREEMENT — SMART SWI9A\nVersion ${t.version}\n\nArticle 1 — Purpose\nThis agreement governs the listing and sale of products by the Vendor on Smart Swi9a (smartswi9a.top), a Moroccan marketplace for connected devices and home products.\n\nArticle 2 — Registration and verification\nThe Vendor agrees to provide accurate information (shop name, phone, city, ICE or CIN). Any false statement results in immediate account suspension.\n\nArticle 3 — Commission\nSmart Swi9a charges a ${(t.commissionRate * 100).toFixed(0)}% commission on the delivery-excluded amount of each sale. This commission may be adjusted between ${(t.commissionRateMin * 100).toFixed(0)}% and ${(t.commissionRateMax * 100).toFixed(0)}% with the Vendor's written consent.\n\nArticle 4 — Shipping\nThe Vendor chooses agency drop-off or Smart Swi9a fulfillment. Drop-off deadlines are ${t.dropoffDeadlineHoursNew} hours (new accounts) or ${t.dropoffDeadlineHoursEstablished} hours (mature accounts). Any delay may result in suspension.\n\nArticle 5 — Payment\nEarnings are credited to the vendor wallet and become available ${t.unlockDaysVendor} days after confirmed delivery (${t.unlockDaysSmart} days for Smart Swi9a products). Minimum withdrawal is ${t.minWithdrawal} MAD.\n\nArticle 6 — Returns\nIn case of return, a ${t.returnFeeLivo} MAD fee is charged per returned parcel (fee charged by our logistics partner Livo). Repeated returns may lead to a review of the Vendor's status.\n\nArticle 7 — Termination\nEither party may terminate this agreement at any time. Pending orders remain subject to these terms.\n\nArticle 8 — Governing law\nThis agreement is governed by Moroccan law. Any dispute falls under the jurisdiction of the courts of Casablanca.\n\nArticle 9 — Electronic signature\nThe electronic signature constitutes full acceptance. The IP, user-agent, server date, and a SHA-256 hash of this document are recorded as evidence.\n\nBy signing, the Vendor acknowledges having read and understood this entire agreement.`
     }
   };
-  const t = templates[version] || templates["1.2.0"];
-  return t[lang] ? t[lang](snapshot) : t["fr"](snapshot);
+  // La version 1.3.0 reprend strictement le contrat Livo 1.2.0,
+  // avec le nouveau domaine. Les gabarits 1.1.0 et 1.2.0 restent intacts
+  // afin de préserver les empreintes des contrats déjà signés.
+  const sourceVersion = version === "1.3.0" ? "1.2.0" : version;
+  const t = templates[sourceVersion] || templates["1.2.0"];
+  const text = t[lang] ? t[lang](snapshot) : t["fr"](snapshot);
+  return version === "1.3.0"
+    ? text.replaceAll("smartswi9a.top", "smartswi9a.ma")
+    : text;
 }
 
 /* ============================================================
