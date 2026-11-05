@@ -5,6 +5,7 @@ const ALLOWED_FUNCTIONS = new Set([
   "loginVendor",
   "setVendorPassword",
   "adminVendorAction",
+  "adminSetReturnFee",
   "requestWithdrawal",
   "createCustomerOrder",
   "cancelCustomerOrder",
