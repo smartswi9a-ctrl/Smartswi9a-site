@@ -1962,14 +1962,34 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
       // au nom français sélectionné. Le client ne peut pas choisir un cityId
       // moins cher tout en saisissant une autre ville.
       if (!delivery.cityId) throw new Error('Veuillez sélectionner une ville de livraison valide.');
-      const citySnap = await tx.get(db.collection('cities').doc(String(delivery.cityId)));
-      if (!citySnap.exists) throw new Error('Ville de livraison introuvable. Actualisez la liste des villes.');
-      const cityData = citySnap.data();
+      const cityIdNumber = Number(delivery.cityId);
+      let cityData = null;
+      if (Number.isFinite(cityIdNumber)) {
+        const cityQuery = db.collection('cities').where('id', '==', cityIdNumber).limit(1);
+        const cityQuerySnap = await tx.get(cityQuery);
+        if (!cityQuerySnap.empty) cityData = cityQuerySnap.docs[0].data();
+      }
+      // Compatibilité avec les anciennes villes dont l'identifiant Firestore
+      // est directement utilisé comme identifiant côté interface.
+      if (!cityData) {
+        const cityDocSnap = await tx.get(db.collection('cities').doc(String(delivery.cityId)));
+        if (cityDocSnap.exists) cityData = cityDocSnap.data();
+      }
+      if (!cityData) throw new Error('Ville de livraison introuvable. Actualisez la liste des villes.');
       const submittedCity = normalizeCityKey(delivery.cityFr || delivery.city || '');
       const acceptedCityNames = [cityData.key, cityData.nameFr, cityData.nameEn, cityData.name]
         .map(normalizeCityKey)
         .filter(Boolean);
-      if (!submittedCity || !acceptedCityNames.includes(submittedCity)) {
+      const exactSubmittedNames = [delivery.cityAr, delivery.city]
+        .map(value => String(value || '').trim().toLocaleLowerCase())
+        .filter(Boolean);
+      const exactAcceptedNames = [cityData.nameAr, cityData.nameFr, cityData.nameEn, cityData.name]
+        .map(value => String(value || '').trim().toLocaleLowerCase())
+        .filter(Boolean);
+      const cityNameMatches =
+        (submittedCity && acceptedCityNames.includes(submittedCity)) ||
+        exactSubmittedNames.some(name => exactAcceptedNames.includes(name));
+      if (!cityNameMatches) {
         throw new Error('La ville sélectionnée ne correspond pas à la ville de livraison.');
       }
       const deliveryFee = Math.max(0, Number(cityData.price) || 0);
