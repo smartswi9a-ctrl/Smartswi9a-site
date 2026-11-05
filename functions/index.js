@@ -2,7 +2,7 @@ const { onRequest } = require('firebase-functions/v2/https');
 const { onDocumentWritten, onDocumentUpdated, onDocumentCreated } = require('firebase-functions/v2/firestore');
 const { initializeApp } = require('firebase-admin/app');
 const { getAuth } = require('firebase-admin/auth');
-const { getFirestore, FieldValue } = require('firebase-admin/firestore');
+const { getFirestore, FieldValue, FieldPath } = require('firebase-admin/firestore');
 const { getStorage } = require('firebase-admin/storage');
 const bcrypt = require('bcryptjs');
 const crypto = require('node:crypto');
@@ -1908,7 +1908,7 @@ exports.backfillVendorOrderViews = onRequest({ region: 'europe-west1', cors: [..
     if (!isAdmin) return res.status(403).json({ success: false, message: 'Action réservée à un administrateur.' });
 
     const pageSize = Math.max(1, Math.min(Number(req.body?.pageSize) || 100, 100));
-    let query = db.collection('orders').orderBy('createdAt').limit(pageSize);
+    let query = db.collection('orders').orderBy(FieldPath.documentId()).limit(pageSize);
     const cursor = String(req.body?.cursor || '').trim();
     if (cursor) {
       const cursorSnap = await db.collection('orders').doc(cursor).get();
