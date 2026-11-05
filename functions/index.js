@@ -780,14 +780,28 @@ async function inspectVendorSettlement(vendorId) {
           for (const retItem of (returns[returnIndex]?.items || [])) {
             const productId = String(retItem?.productId || '');
             const variant = retItem?.variant || {};
+            const matchingItems = (order.items || []).filter(item => {
+              const itemVariant = item.variant || {};
+              return String(item.productId || '') === productId &&
+                String(itemVariant.size || '') === String(variant.size || '') &&
+                String(itemVariant.color || '') === String(variant.color || '');
+            });
+            const owners = [...new Set(matchingItems.map(item => String(item.vendorId || '')))];
+            const delta = Number(retItem?.delta);
+            if (!productId || !Number.isInteger(delta) || delta <= 0 || owners.length !== 1) {
+              blockers.push({ orderId: orderDoc.id, reason: `produit ou propriétaire ambigu dans le retour ${returnIndex + 1}` });
+              continue;
+            }
+            // Les lignes des autres vendeurs du même panier ne doivent pas
+            // être comptées dans le rapprochement de ce vendeur.
+            if (owners[0] !== vendorId) continue;
             const key = JSON.stringify([
               productId,
               String(variant.size || ''),
               String(variant.color || '')
             ]);
-            const delta = Number(retItem?.delta);
-            if (!productId || !Number.isInteger(delta) || delta <= 0 || !orderedByVariant[key]) {
-              blockers.push({ orderId: orderDoc.id, reason: `produit ou variante invalide dans le retour ${returnIndex + 1}` });
+            if (!orderedByVariant[key]) {
+              blockers.push({ orderId: orderDoc.id, reason: `variante absente de la commande pour ${productId}` });
               continue;
             }
             cumulativeReturnedByVariant[key] = (cumulativeReturnedByVariant[key] || 0) + delta;
@@ -801,13 +815,15 @@ async function inspectVendorSettlement(vendorId) {
           const entry = returns[returnIndex];
           const returnedQty = (entry?.items || []).reduce((sum, retItem) => {
             const variant = retItem.variant || {};
-            const item = (order.items || []).find(i => {
-              const iv = i.variant || {};
-              return String(i.productId) === String(retItem.productId) &&
-                String(iv.size || '') === String(variant.size || '') &&
-                String(iv.color || '') === String(variant.color || '');
+            const matchingItems = (order.items || []).filter(item => {
+              const itemVariant = item.variant || {};
+              return String(item.productId || '') === String(retItem.productId || '') &&
+                String(itemVariant.size || '') === String(variant.size || '') &&
+                String(itemVariant.color || '') === String(variant.color || '');
             });
-            return item?.vendorId === vendorId ? sum + Math.max(0, Number(retItem.delta) || 0) : sum;
+            const owners = [...new Set(matchingItems.map(item => String(item.vendorId || '')))];
+            if (owners.length !== 1) return sum;
+            return owners[0] === vendorId ? sum + Math.max(0, Number(retItem.delta) || 0) : sum;
           }, 0);
           if (returnedQty <= 0) continue;
           const debit = order.vendorDebits?.[`${vendorId}_ret${returnIndex}`];
@@ -1192,6 +1208,7 @@ exports.adminSetReturnFee = onRequest({ region: 'europe-west1', cors: [...ALLOWE
 
       const orderedByVariant = {};
       for (const item of (order.items || [])) {
+        if (String(item.vendorId || '') !== vendorId) continue;
         const variant = item.variant || {};
         const key = JSON.stringify([String(item.productId || ''), String(variant.size || ''), String(variant.color || '')]);
         orderedByVariant[key] = (orderedByVariant[key] || 0) + (Number(item.quantity) || 0);
@@ -1200,11 +1217,20 @@ exports.adminSetReturnFee = onRequest({ region: 'europe-west1', cors: [...ALLOWE
       for (let idx = 0; idx < returns.length; idx++) {
         for (const retItem of (returns[idx]?.items || [])) {
           const variant = retItem.variant || {};
-          const key = JSON.stringify([String(retItem.productId || ''), String(variant.size || ''), String(variant.color || '')]);
+          const productId = String(retItem.productId || '');
+          const matchingItems = (order.items || []).filter(item => {
+            const itemVariant = item.variant || {};
+            return String(item.productId || '') === productId &&
+              String(itemVariant.size || '') === String(variant.size || '') &&
+              String(itemVariant.color || '') === String(variant.color || '');
+          });
+          const owners = [...new Set(matchingItems.map(item => String(item.vendorId || '')))];
           const delta = Number(retItem.delta);
-          if (!retItem.productId || !Number.isInteger(delta) || delta <= 0) {
-            throw new Error('Quantité de retour invalide.');
+          if (!productId || !Number.isInteger(delta) || delta <= 0 || owners.length !== 1) {
+            throw new Error('Produit, propriétaire ou quantité de retour invalide.');
           }
+          if (owners[0] !== vendorId) continue;
+          const key = JSON.stringify([productId, String(variant.size || ''), String(variant.color || '')]);
           cumulativeByVariant[key] = (cumulativeByVariant[key] || 0) + delta;
           if (!orderedByVariant[key] || cumulativeByVariant[key] > orderedByVariant[key]) {
             throw new Error('La quantité retournée dépasse la quantité commandée.');
@@ -1216,16 +1242,19 @@ exports.adminSetReturnFee = onRequest({ region: 'europe-west1', cors: [...ALLOWE
       let vendorName = '';
       for (const retItem of entry.items) {
         const variant = retItem.variant || {};
-        const matchItem = (order.items || []).find(item => {
-          const iv = item.variant || {};
-          return String(item.productId || '') === String(retItem.productId || '') &&
-            String(iv.size || '') === String(variant.size || '') &&
-            String(iv.color || '') === String(variant.color || '');
+        const productId = String(retItem.productId || '');
+        const matchingItems = (order.items || []).filter(item => {
+          const itemVariant = item.variant || {};
+          return String(item.productId || '') === productId &&
+            String(itemVariant.size || '') === String(variant.size || '') &&
+            String(itemVariant.color || '') === String(variant.color || '');
         });
-        if (!matchItem) throw new Error('Une ligne retournée ne correspond pas à la commande.');
-        if (String(matchItem.vendorId || '') === vendorId) {
+        const owners = [...new Set(matchingItems.map(item => String(item.vendorId || '')))];
+        if (owners.length !== 1) throw new Error('Une ligne retournée est absente ou ambiguë dans la commande.');
+        if (owners[0] === vendorId) {
+          const vendorItems = matchingItems.filter(item => String(item.vendorId || '') === vendorId);
           returnedQty += Number(retItem.delta);
-          vendorName = String(matchItem.vendorName || matchItem.shopName || vendorData.vendorInfo?.shopName || vendorData.name || 'Vendeur').slice(0, 120);
+          vendorName = String(vendorItems[0]?.vendorName || vendorItems[0]?.shopName || vendorData.vendorInfo?.shopName || vendorData.name || 'Vendeur').slice(0, 120);
         }
       }
       if (!Number.isInteger(returnedQty) || returnedQty <= 0) {
@@ -1400,6 +1429,7 @@ async function processReturnFeeDebit(orderId, returnIndex, vendorId) {
 
     const orderedByVariant = {};
     for (const item of (order.items || [])) {
+      if (String(item.vendorId || '') !== vendorId) continue;
       const variant = item.variant || {};
       const key = JSON.stringify([String(item.productId || ''), String(variant.size || ''), String(variant.color || '')]);
       orderedByVariant[key] = (orderedByVariant[key] || 0) + (Number(item.quantity) || 0);
@@ -1408,11 +1438,20 @@ async function processReturnFeeDebit(orderId, returnIndex, vendorId) {
     for (let idx = 0; idx < returns.length; idx++) {
       for (const retItem of (returns[idx]?.items || [])) {
         const variant = retItem.variant || {};
-        const key = JSON.stringify([String(retItem.productId || ''), String(variant.size || ''), String(variant.color || '')]);
+        const productId = String(retItem.productId || '');
+        const matchingItems = (order.items || []).filter(item => {
+          const itemVariant = item.variant || {};
+          return String(item.productId || '') === productId &&
+            String(itemVariant.size || '') === String(variant.size || '') &&
+            String(itemVariant.color || '') === String(variant.color || '');
+        });
+        const owners = [...new Set(matchingItems.map(item => String(item.vendorId || '')))];
         const delta = Number(retItem.delta);
-        if (!retItem.productId || !Number.isInteger(delta) || delta <= 0) {
-          throw new Error('Quantité de retour invalide pour la commande ' + orderId);
+        if (!productId || !Number.isInteger(delta) || delta <= 0 || owners.length !== 1) {
+          throw new Error('Produit, propriétaire ou quantité de retour invalide pour la commande ' + orderId);
         }
+        if (owners[0] !== vendorId) continue;
+        const key = JSON.stringify([productId, String(variant.size || ''), String(variant.color || '')]);
         cumulativeByVariant[key] = (cumulativeByVariant[key] || 0) + delta;
         if (!orderedByVariant[key] || cumulativeByVariant[key] > orderedByVariant[key]) {
           throw new Error('Quantité retournée supérieure à la quantité commandée pour ' + key);
@@ -1423,14 +1462,16 @@ async function processReturnFeeDebit(orderId, returnIndex, vendorId) {
     let returnedQty = 0;
     for (const retItem of entry.items) {
       const variant = retItem.variant || {};
-      const orderedItem = (order.items || []).find(item => {
-        const iv = item.variant || {};
-        return String(item.productId || '') === String(retItem.productId || '') &&
-          String(iv.size || '') === String(variant.size || '') &&
-          String(iv.color || '') === String(variant.color || '');
+      const productId = String(retItem.productId || '');
+      const matchingItems = (order.items || []).filter(item => {
+        const itemVariant = item.variant || {};
+        return String(item.productId || '') === productId &&
+          String(itemVariant.size || '') === String(variant.size || '') &&
+          String(itemVariant.color || '') === String(variant.color || '');
       });
-      if (!orderedItem) throw new Error('Ligne retournée introuvable pour la commande ' + orderId);
-      if (String(orderedItem.vendorId || '') === vendorId) returnedQty += Number(retItem.delta);
+      const owners = [...new Set(matchingItems.map(item => String(item.vendorId || '')))];
+      if (owners.length !== 1) throw new Error('Ligne retournée absente ou ambiguë pour la commande ' + orderId);
+      if (owners[0] === vendorId) returnedQty += Number(retItem.delta);
     }
     if (!Number.isInteger(returnedQty) || returnedQty <= 0 ||
         Number(feeRecord.returnedQty) !== returnedQty) {
