@@ -39,7 +39,6 @@ const LIVO_FEES_CACHE_DOC = 'livo_fees_cache';
 const LIVO_FEES_META_COLLECTION = 'meta';
 
 const FALLBACK_DELIVERY_FEE = 30;
-const RETURN_FEE_LIVO = 20;
 
 const LIVO_DEPOT_KEYS = new Set(['livo depot', 'livo depot casablanca']);
 
@@ -767,19 +766,33 @@ async function inspectVendorSettlement(vendorId) {
         for (let returnIndex = 0; returnIndex < returns.length; returnIndex++) {
           const entry = returns[returnIndex];
           const returnedQty = (entry?.items || []).reduce((sum, retItem) => {
-            const item = (order.items || []).find(i => String(i.productId) === String(retItem.productId));
+            const variant = retItem.variant || {};
+            const item = (order.items || []).find(i => {
+              const iv = i.variant || {};
+              return String(i.productId) === String(retItem.productId) &&
+                String(iv.size || '') === String(variant.size || '') &&
+                String(iv.color || '') === String(variant.color || '');
+            });
             return item?.vendorId === vendorId ? sum + Math.max(0, Number(retItem.delta) || 0) : sum;
           }, 0);
           if (returnedQty <= 0) continue;
           const debit = order.vendorDebits?.[`${vendorId}_ret${returnIndex}`];
-          const expectedFee = RETURN_FEE_LIVO * returnedQty;
-          if (!debit?.txId || !Number.isFinite(Number(debit.amount)) ||
-              Math.abs(Number(debit.amount) - expectedFee) > 0.01 || Number(debit.returnedQty) !== returnedQty) {
-            blockers.push({ orderId: orderDoc.id, reason: `débit du retour ${returnIndex + 1} absent ou incomplet` });
+          const feeRecord = entry?.vendorFees?.[vendorId];
+          if (!debit?.txId) {
+            if (!feeRecord || feeRecord.status !== 'validated' ||
+                !Number.isFinite(Number(feeRecord.amount)) || Number(feeRecord.amount) <= 0) {
+              blockers.push({ orderId: orderDoc.id, reason: `frais du retour ${returnIndex + 1} non renseignés pour ce vendeur` });
+            } else {
+              blockers.push({ orderId: orderDoc.id, reason: `débit du retour ${returnIndex + 1} en attente de rapprochement` });
+            }
           } else {
+            const expectedFee = Number(feeRecord?.amount ?? debit.amount);
             const debitSnap = await db.collection('wallet_transactions').doc(String(debit.txId)).get();
             const debitTx = debitSnap.exists ? debitSnap.data() : null;
-            if (!debitTx || debitTx.vendorId !== vendorId || debitTx.orderId !== orderDoc.id ||
+            if (!Number.isFinite(expectedFee) || expectedFee <= 0 ||
+                Math.abs(Number(debit.amount) - expectedFee) > 0.01 ||
+                Number(debit.returnedQty) !== returnedQty ||
+                !debitTx || debitTx.vendorId !== vendorId || debitTx.orderId !== orderDoc.id ||
                 debitTx.type !== 'return_fee' || Number(debitTx.amount) >= 0 ||
                 Math.abs(Math.abs(Number(debitTx.amount)) - expectedFee) > 0.01) {
               blockers.push({ orderId: orderDoc.id, reason: `écriture financière du retour ${returnIndex + 1} absente ou incohérente` });
@@ -1049,6 +1062,83 @@ exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
 });
 
 /* ============================================================
+   CF : adminSetReturnFee
+   Enregistre un montant de retour distinct par vendeur et par retour.
+   Aucune valeur forfaitaire et aucun débit côté client.
+   ============================================================ */
+exports.adminSetReturnFee = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
+  if (cors(req, res)) return;
+  try {
+    const match = String(req.get('authorization') || '').match(/^Bearer\\s+(.+)$/i);
+    if (!match) return res.status(401).json({ success: false, message: 'Connexion requise.' });
+    const decoded = await getAuth().verifyIdToken(match[1], true);
+    const adminSnap = await db.collection('users').doc(decoded.uid).get();
+    const isAdmin = decoded.admin === true || (adminSnap.exists && adminSnap.data()?.role === 'admin');
+    if (!isAdmin) return res.status(403).json({ success: false, message: 'Action réservée à un administrateur.' });
+
+    const orderId = String(req.body?.orderId || '').trim();
+    const returnIndex = Number(req.body?.returnIndex);
+    const vendorId = String(req.body?.vendorId || '').trim();
+    const amount = Number(req.body?.amount);
+    if (!orderId || orderId.length > 128 || !Number.isInteger(returnIndex) || returnIndex < 0 ||
+        !vendorId || vendorId.length > 128 || !Number.isFinite(amount) || amount <= 0 || amount > 100000) {
+      return res.status(400).json({ success: false, message: 'Commande, retour, vendeur ou montant invalide.' });
+    }
+
+    const orderRef = db.collection('orders').doc(orderId);
+    await db.runTransaction(async tx => {
+      const orderSnap = await tx.get(orderRef);
+      if (!orderSnap.exists) throw new Error('Commande introuvable.');
+      const order = orderSnap.data();
+      const returns = Array.isArray(order.returns) ? order.returns : [];
+      const entry = returns[returnIndex];
+      if (order.status !== 'returned' || !entry || !Array.isArray(entry.items)) {
+        throw new Error('Retour introuvable ou commande non retournée.');
+      }
+
+      const returnedByVendor = {};
+      for (const retItem of entry.items) {
+        const variant = retItem.variant || {};
+        const matchItem = (order.items || []).find(item => {
+          const iv = item.variant || {};
+          return String(item.productId || '') === String(retItem.productId || '') &&
+            String(iv.size || '') === String(variant.size || '') &&
+            String(iv.color || '') === String(variant.color || '');
+        });
+        if (!matchItem) throw new Error('Une ligne retournée ne correspond pas à la commande.');
+        const id = String(matchItem.vendorId || '');
+        if (id && id !== 'smartswi9a') {
+          returnedByVendor[id] = (returnedByVendor[id] || 0) + Number(retItem.delta || 0);
+        }
+      }
+      if (!returnedByVendor[vendorId]) throw new Error('Ce vendeur ne possède aucun article dans ce retour.');
+      const debitKey = `${vendorId}_ret${returnIndex}`;
+      if (order.vendorDebits?.[debitKey]) throw new Error('Ce frais a déjà été débité : il ne peut plus être modifié.');
+      const existingFee = entry.vendorFees?.[vendorId];
+      if (existingFee) throw new Error('Un montant a déjà été enregistré pour ce vendeur et ce retour.');
+
+      tx.update(orderRef, {
+        [`returns.${returnIndex}.vendorFees.${vendorId}`]: {
+          amount: Math.round(amount * 100) / 100,
+          currency: 'MAD',
+          source: 'manual',
+          status: 'validated',
+          recordedAt: FieldValue.serverTimestamp(),
+          recordedBy: decoded.uid
+        },
+        updatedAt: FieldValue.serverTimestamp()
+      });
+    });
+
+    return res.status(200).json({ success: true, message: 'Montant enregistré. Le débit sécurisé sera rapproché automatiquement.' });
+  } catch (error) {
+    const message = error.message || 'Erreur serveur.';
+    const clientError = /introuvable|invalide|retournée|correspond pas|aucun article|déjà été enregistré|déjà été débité/i.test(message);
+    return res.status(clientError ? 400 : 500).json({ success: false, message });
+  }
+});
+
+/* ============================================================
    CF : requestWithdrawal (B-C2 : check vendeur approuvé)
    ============================================================ */
 exports.requestWithdrawal = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
@@ -1149,16 +1239,12 @@ exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}',
   const before = event.data.before.data();
   const after = event.data.after.data();
 
-  const beforeReturnsCount = Array.isArray(before.returns) ? before.returns.length : 0;
   const afterReturns = Array.isArray(after.returns) ? after.returns : [];
   const statusChanged = before.status !== after.status;
-  const firstReturnIndex = before.status !== 'returned' && after.status === 'returned' ? 0 : beforeReturnsCount;
-
-  // Un retour peut être ajouté à une commande déjà marquée "returned".
-  // Le trigger doit traiter les nouvelles entrées même si le statut ne change plus.
-  if (!statusChanged && afterReturns.length <= beforeReturnsCount) return;
-
   const orderId = event.params.orderId;
+
+  // Le trigger est aussi relancé lorsqu'un administrateur valide les frais
+  // d'un retour déjà enregistré. Les débits sont idempotents via vendorDebits.
 
   // Crédit vendeur
   if (after.status === 'delivered' && before.status !== 'delivered') {
@@ -1259,82 +1345,112 @@ exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}',
     }
   }
 
-  // Débit des retours vendeur : traiter chaque nouvelle entrée, pas seulement
-  // la dernière. Cela couvre plusieurs retours successifs sur une même commande.
-  if (after.status === 'returned' && afterReturns.length > firstReturnIndex) {
-    for (let returnIndex = firstReturnIndex; returnIndex < afterReturns.length; returnIndex++) {
+  // Débit des retours : aucun montant forfaitaire n'est utilisé.
+  // Un débit ne peut avoir lieu que si l'admin a enregistré un montant positif
+  // pour ce vendeur et ce retour (source manual jusqu'à intégration Livo).
+  if (after.status === 'returned') {
+    for (let returnIndex = 0; returnIndex < afterReturns.length; returnIndex++) {
       const returnEntry = afterReturns[returnIndex];
       if (!returnEntry || !Array.isArray(returnEntry.items)) continue;
 
-      const orderedQtyByProduct = {};
+      // Valider les quantités cumulées par produit + variante.
+      const orderedByVariant = {};
       (after.items || []).forEach(item => {
-        const key = String(item.productId || '');
-        orderedQtyByProduct[key] = (orderedQtyByProduct[key] || 0) + (Number(item.quantity) || 0);
+        const variant = item.variant || {};
+        const key = JSON.stringify([
+          String(item.productId || ''),
+          String(variant.size || ''),
+          String(variant.color || '')
+        ]);
+        orderedByVariant[key] = (orderedByVariant[key] || 0) + (Number(item.quantity) || 0);
       });
-      const cumulativeReturnQty = {};
-      afterReturns.slice(0, returnIndex + 1).forEach(entry => {
-        (entry.items || []).forEach(retItem => {
-          const key = String(retItem.productId || '');
+
+      const returnedByVariant = {};
+      for (let idx = 0; idx <= returnIndex; idx++) {
+        for (const retItem of (afterReturns[idx]?.items || [])) {
+          const variant = retItem.variant || {};
+          const key = JSON.stringify([
+            String(retItem.productId || ''),
+            String(variant.size || ''),
+            String(variant.color || '')
+          ]);
           const delta = Number(retItem.delta);
-          if (!key || !Number.isInteger(delta) || delta <= 0) {
+          if (!retItem.productId || !Number.isInteger(delta) || delta <= 0) {
             throw new Error('Quantité de retour invalide pour la commande ' + orderId);
           }
-          cumulativeReturnQty[key] = (cumulativeReturnQty[key] || 0) + delta;
-        });
-      });
-      Object.keys(cumulativeReturnQty).forEach(key => {
-        if (!orderedQtyByProduct[key] || cumulativeReturnQty[key] > orderedQtyByProduct[key]) {
-          throw new Error('Quantité retournée supérieure à la quantité commandée pour ' + key);
+          returnedByVariant[key] = (returnedByVariant[key] || 0) + delta;
+          if (!orderedByVariant[key] || returnedByVariant[key] > orderedByVariant[key]) {
+            throw new Error('Quantité retournée supérieure à la quantité commandée pour ' + key);
+          }
         }
-      });
+      }
 
+      // Répartir les lignes retournées par vendeur en utilisant la variante exacte.
       const qtyByVendor = {};
-      returnEntry.items.forEach(retItem => {
-        const item = (after.items || []).find(i => String(i.productId) === String(retItem.productId));
-        if (!item) return;
-        const vid = item.vendorId;
-        const delta = Number(retItem.delta) || 0;
-        if (!vid || vid === 'smartswi9a' || delta <= 0) return;
-        qtyByVendor[vid] = (qtyByVendor[vid] || 0) + delta;
-      });
+      for (const retItem of returnEntry.items) {
+        const variant = retItem.variant || {};
+        const key = JSON.stringify([
+          String(retItem.productId || ''),
+          String(variant.size || ''),
+          String(variant.color || '')
+        ]);
+        const orderedItem = (after.items || []).find(item => {
+          const itemVariant = item.variant || {};
+          return JSON.stringify([
+            String(item.productId || ''),
+            String(itemVariant.size || ''),
+            String(itemVariant.color || '')
+          ]) === key;
+        });
+        if (!orderedItem) throw new Error('Ligne retournée introuvable pour la commande ' + orderId);
+        const vendorId = String(orderedItem.vendorId || '');
+        const delta = Number(retItem.delta);
+        if (!vendorId || vendorId === 'smartswi9a' || delta <= 0) continue;
+        qtyByVendor[vendorId] = (qtyByVendor[vendorId] || 0) + delta;
+      }
 
-      for (const [vendorId, qty] of Object.entries(qtyByVendor)) {
-        if (qty <= 0) continue;
-        const fee = RETURN_FEE_LIVO * qty;
+      for (const [vendorId, returnedQty] of Object.entries(qtyByVendor)) {
         const debitKey = `${vendorId}_ret${returnIndex}`;
-        const walletRef = db.collection('wallets').doc(vendorId);
+        const feeRecord = returnEntry.vendorFees?.[vendorId];
+        const fee = Number(feeRecord?.amount);
+        // Tant que le montant n'est pas enregistré et validé, aucun débit.
+        if (!feeRecord || feeRecord.status !== 'validated' ||
+            !Number.isFinite(fee) || fee <= 0 ||
+            !['manual', 'livo'].includes(feeRecord.source)) continue;
 
+        const walletRef = db.collection('wallets').doc(vendorId);
         try {
-          await db.runTransaction(async (tx) => {
+          await db.runTransaction(async tx => {
             const orderRef = db.collection('orders').doc(orderId);
             const freshOrderSnap = await tx.get(orderRef);
             if (!freshOrderSnap.exists) return;
             const freshOrder = freshOrderSnap.data();
             const freshReturns = Array.isArray(freshOrder.returns) ? freshOrder.returns : [];
-            if (freshOrder.status !== 'returned' || !freshReturns[returnIndex]) return;
-            if (freshOrder.vendorDebits && freshOrder.vendorDebits[debitKey]) return;
+            const freshEntry = freshReturns[returnIndex];
+            if (freshOrder.status !== 'returned' || !freshEntry) return;
+            if (freshOrder.vendorDebits?.[debitKey]) return;
 
-            // Sérialiser le débit avec le verrou de suppression du vendeur.
-            // Le débit reste autorisé : la suppression sera bloquée tant que
-            // le retour et son écriture financière ne seront pas rapprochés.
+            const freshFee = freshEntry.vendorFees?.[vendorId];
+            const freshAmount = Number(freshFee?.amount);
+            if (!freshFee || freshFee.status !== 'validated' ||
+                !Number.isFinite(freshAmount) || freshAmount <= 0 ||
+                !['manual', 'livo'].includes(freshFee.source)) return;
+
             const vendorSnap = await tx.get(db.collection('users').doc(vendorId));
-            if (!vendorSnap.exists || vendorSnap.data()?.role !== 'vendor') throw new Error('Profil vendeur introuvable pendant le retour.');
-            if (vendorSnap.data()?.vendorInfo?.status === 'deletion_pending') throw new Error('Débit retour bloqué : suppression du compte en cours.');
+            if (!vendorSnap.exists || vendorSnap.data()?.role !== 'vendor') {
+              throw new Error('Profil vendeur introuvable pendant le retour.');
+            }
+            if (vendorSnap.data()?.vendorInfo?.status === 'deletion_pending') {
+              throw new Error('Débit retour bloqué : suppression du compte en cours.');
+            }
 
             const freshWalletSnap = await tx.get(walletRef);
-            const w = freshWalletSnap.exists ? freshWalletSnap.data() : {
-              vendorId,
-              pendingBalance: 0,
-              availableBalance: 0,
-              negativeBalance: 0,
-              totalEarnings: 0,
-              totalWithdrawn: 0,
+            const wallet = freshWalletSnap.exists ? freshWalletSnap.data() : {
+              vendorId, pendingBalance: 0, availableBalance: 0, negativeBalance: 0,
+              totalEarnings: 0, totalWithdrawn: 0,
               createdAt: FieldValue.serverTimestamp()
             };
 
-            // N'imputer le retour sur les fonds en attente que dans la limite
-            // du crédit de vente de cette commande. Les autres ventes en attente
-            // ne doivent pas être consommées par le retour d'une autre commande.
             const saleTxId = freshOrder.vendorCredits?.[vendorId]?.txId;
             const saleTxRef = saleTxId
               ? db.collection('wallet_transactions').doc(String(saleTxId))
@@ -1347,10 +1463,10 @@ exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}',
                   (Number(saleTx.releasedAmount) || 0))
               : 0;
 
-            let pending = Number(w.pendingBalance) || 0;
-            let available = Number(w.availableBalance) || 0;
-            let negative = Number(w.negativeBalance) || 0;
-            let remaining = fee;
+            let pending = Number(wallet.pendingBalance) || 0;
+            let available = Number(wallet.availableBalance) || 0;
+            let negative = Number(wallet.negativeBalance) || 0;
+            let remaining = freshAmount;
 
             const fromPending = Math.min(Math.max(0, pending), remaining, salePendingRemaining);
             pending -= fromPending;
@@ -1359,21 +1475,19 @@ exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}',
             const fromAvailable = Math.min(Math.max(0, available), remaining);
             available -= fromAvailable;
             remaining -= fromAvailable;
-
             if (remaining > 0) negative -= remaining;
 
             const txRef = db.collection('wallet_transactions').doc();
             const walletUpdate = {
-              vendorId,
-              pendingBalance: pending,
-              availableBalance: available,
+              vendorId, pendingBalance: pending, availableBalance: available,
               negativeBalance: negative,
-              totalEarnings: Number(w.totalEarnings) || 0,
-              totalWithdrawn: Number(w.totalWithdrawn) || 0,
+              totalEarnings: Number(wallet.totalEarnings) || 0,
+              totalWithdrawn: Number(wallet.totalWithdrawn) || 0,
               lastUpdated: FieldValue.serverTimestamp()
             };
             if (freshWalletSnap.exists) tx.update(walletRef, walletUpdate);
-            else tx.set(walletRef, { ...w, ...walletUpdate });
+            else tx.set(walletRef, { ...wallet, ...walletUpdate });
+
             if (fromPending > 0 && saleTxRef && saleTxSnap?.exists) {
               tx.update(saleTxRef, {
                 reversedAmount: FieldValue.increment(fromPending),
@@ -1381,24 +1495,27 @@ exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}',
                 lastReturnOffsetAt: FieldValue.serverTimestamp()
               });
             }
+
             tx.set(txRef, {
-              vendorId,
-              type: 'return_fee',
-              amount: -fee,
+              vendorId, type: 'return_fee', amount: -freshAmount,
+              source: freshFee.source,
+              feeRecordedAt: freshFee.recordedAt || null,
+              feeRecordedBy: freshFee.recordedBy || null,
               pendingOffsetAmount: fromPending,
               availableOffsetAmount: fromAvailable,
               debtAmount: remaining,
-              orderId,
-              returnIndex,
+              orderId, returnIndex, returnedQty,
               status: 'released',
-              description: `Frais retour commande #${orderId.slice(0, 8).toUpperCase()} (${qty} colis)`,
+              description: `Frais retour commande #${orderId.slice(0, 8).toUpperCase()} (${freshFee.source})`,
               createdAt: FieldValue.serverTimestamp()
             });
+
             tx.update(orderRef, {
               [`vendorDebits.${debitKey}`]: {
                 debitedAt: FieldValue.serverTimestamp(),
-                amount: fee,
-                returnedQty: qty,
+                amount: freshAmount,
+                source: freshFee.source,
+                returnedQty,
                 pendingOffsetAmount: fromPending,
                 availableOffsetAmount: fromAvailable,
                 debtAmount: remaining,
