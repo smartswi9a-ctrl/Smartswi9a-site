@@ -95,7 +95,7 @@ export const CONFIG = {
         MIN_WITHDRAWAL: 200,
         MAX_NEGATIVE_BALANCE: -1000,
         SUSPEND_DEBT_DAYS: 30,
-        /* Nom canonique unique (doublon supprimé) */
+        /* Valeur historique des anciens contrats uniquement ; aucun forfait client. */
         RETURN_FEE_LIVO: 20,
         FULFILLMENT_FEE_PER_UNIT_MONTH: 5,
         FULFILLMENT_MAX_UNITS: 10,
