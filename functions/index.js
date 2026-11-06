@@ -768,8 +768,10 @@ async function inspectVendorSettlement(vendorId) {
   let orderPages = 0;
 
   while (true) {
+    // Parcourir toutes les commandes permet aussi de détecter les anciennes
+    // commandes qui n'ont pas encore été migrées et ne possèdent pas vendorIds.
     let query = db.collection('orders')
-      .where('vendorIds', 'array-contains', vendorId)
+      .orderBy(FieldPath.documentId())
       .limit(300);
     if (cursor) query = query.startAfter(cursor);
     const snap = await query.get();
@@ -779,6 +781,11 @@ async function inspectVendorSettlement(vendorId) {
 
     for (const orderDoc of snap.docs) {
       const order = orderDoc.data();
+      const indexedVendorMatch = Array.isArray(order.vendorIds) && order.vendorIds.includes(vendorId);
+      const legacyItemVendorMatch = Array.isArray(order.items) &&
+        order.items.some(item => String(item?.vendorId || '') === vendorId);
+      if (!indexedVendorMatch && !legacyItemVendorMatch) continue;
+
       const status = String(order.status || '').toLowerCase();
       if (['cancelled', 'canceled'].includes(status)) continue;
       if (!['delivered', 'returned'].includes(status)) {
@@ -950,7 +957,7 @@ async function inspectVendorSettlement(vendorId) {
 /* ============================================================
    CF : adminVendorAction
    ============================================================ */
-exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
+exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS], timeoutSeconds: 540, maxInstances: 2 }, async (req, res) => {
   if (cors(req, res)) return;
   try {
     const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
