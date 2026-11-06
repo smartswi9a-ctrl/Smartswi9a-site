@@ -2993,6 +2993,8 @@ function renderVendorsList(vendors) {
         const contractStatus = v.vendorInfo?.contractStatus || 'pending';
         const contractAccepted = contractStatus === 'accepted';
         const contractVersion = v.vendorInfo?.contractVersion || '—';
+        const contractCurrent = contractAccepted &&
+            String(contractVersion) === String(CONFIG.VENDOR.CONTRACT_VERSION);
         const contractSignedAt = toDate(v.vendorInfo?.contractSignedAt)?.toLocaleString('fr-FR') || '—';
         const delayCount = Number(v.vendorInfo?.delayCount) || 0;
 
@@ -3001,19 +3003,24 @@ function renderVendorsList(vendors) {
         else if (status === 'approved') statusBadge = `<span style="background:var(--success-bg);color:var(--success);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">Approuvé</span>`;
         else if (status === 'rejected') statusBadge = `<span style="background:var(--danger-bg);color:var(--danger);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">Rejeté</span>`;
         else if (status === 'suspended') statusBadge = `<span style="background:var(--danger-bg);color:var(--danger);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">Suspendu</span>`;
+        else if (status === 'deletion_pending') statusBadge = `<span style="background:var(--warning-bg);color:var(--warning);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">Suppression à reprendre</span>`;
 
-        const contractBadge = contractAccepted
-            ? `<span style="background:var(--success-bg);color:var(--success);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;">Contrat signé</span>`
-            : `<span style="background:var(--warning-bg);color:var(--warning);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;">Non signé</span>`;
+        const contractBadge = contractCurrent
+            ? `<span style="background:var(--success-bg);color:var(--success);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;">Contrat signé · version actuelle</span>`
+            : contractAccepted
+                ? `<span style="background:var(--warning-bg);color:var(--warning);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;">Contrat à renouveler</span>`
+                : `<span style="background:var(--warning-bg);color:var(--warning);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;">Non signé</span>`;
 
         const delayBadge = delayCount > 0
             ? `<span style="background:var(--danger);color:#fff;padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;">${delayCount} retard${delayCount > 1 ? 's' : ''}</span>`
             : '';
 
         let actionsHtml = '';
-        if (status === 'pending') {
-            const approveDisabled = contractAccepted ? '' : 'disabled title="Contrat non signé"';
-            const approveStyle = contractAccepted ? '' : 'opacity:0.5;cursor:not-allowed;';
+        if (status === 'deletion_pending') {
+            actionsHtml = `<button class="admin-btn-icon admin-btn-danger" data-action="vendor-delete" data-id="${v.id}">Reprendre la suppression</button>`;
+        } else if (status === 'pending') {
+            const approveDisabled = contractCurrent ? '' : 'disabled title="Le contrat doit être signé dans sa version actuelle"';
+            const approveStyle = contractCurrent ? '' : 'opacity:0.5;cursor:not-allowed;';
             actionsHtml = `
                 <button class="admin-btn-approve" data-action="vendor-approve" data-id="${v.id}" ${approveDisabled} style="${approveStyle}">Approuver</button>
                 <button class="admin-btn-icon admin-btn-danger" data-action="vendor-reject" data-id="${v.id}">Rejeter</button>
@@ -3021,11 +3028,13 @@ function renderVendorsList(vendors) {
         } else if (status === 'approved') {
             actionsHtml = `<button class="admin-btn-icon admin-btn-danger" data-action="vendor-suspend" data-id="${v.id}">Suspendre</button>`;
         } else {
-            const approveDisabled = contractAccepted ? '' : 'disabled';
-            const approveStyle = contractAccepted ? '' : 'opacity:0.5;cursor:not-allowed;';
+            const approveDisabled = contractCurrent ? '' : 'disabled title="Le contrat doit être signé dans sa version actuelle"';
+            const approveStyle = contractCurrent ? '' : 'opacity:0.5;cursor:not-allowed;';
             actionsHtml = `<button class="admin-btn-approve" data-action="vendor-approve" data-id="${v.id}" ${approveDisabled} style="${approveStyle}">Réactiver</button>`;
         }
-        actionsHtml += `<button class="admin-btn-icon admin-btn-danger" data-action="vendor-delete" data-id="${v.id}">Supprimer le compte</button>`;
+        if (status !== 'deletion_pending') {
+            actionsHtml += `<button class="admin-btn-icon admin-btn-danger" data-action="vendor-delete" data-id="${v.id}">Supprimer le compte</button>`;
+        }
 
         html += `
             <div class="admin-list-item" style="flex-direction:column;align-items:stretch;padding:1rem;">
