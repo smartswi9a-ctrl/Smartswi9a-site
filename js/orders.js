@@ -12,7 +12,6 @@ import {
 import { db, auth } from "./firebase.js";
 import {
     CONFIG, ORDER_STATUS, normalizeOrderStatus, NOTIFICATION_TYPES,
-    isTestMode, APP_MODE,
     mapLivoStatusToSmart
 } from "./config.js";
 import {
@@ -360,11 +359,6 @@ export async function sendOrderEmail(order, status, recipient) {
    LIVO - CREATE ORDER (via Worker proxy)
    ============================================================ */
 export async function sendToLivoAPI(order) {
-    if (isTestMode()) {
-        console.log('[TEST] sendToLivoAPI MOCK - aucun appel Livo');
-        return { success: true, trackingNumber: 'TEST-' + Date.now(), labelUrl: null };
-    }
-
     try {
         if (!order || !order.deliveryAddress) {
             throw new Error('Données de commande invalides');
@@ -472,11 +466,6 @@ export async function sendToLivoAPI(order) {
    LIVO - CANCEL SHIPMENT (via Worker proxy)
    ============================================================ */
 export async function cancelLivoShipment(livoOrderId) {
-    if (isTestMode()) {
-        console.log('[TEST] cancelLivoShipment MOCK');
-        return true;
-    }
-
     if (!livoOrderId) return false;
     try {
         const response = await fetch(`${LIVO_API_CONFIG.BASE_URL}${LIVO_API_CONFIG.ENDPOINTS.CANCEL}`, {
@@ -505,11 +494,6 @@ export async function cancelLivoShipment(livoOrderId) {
    LIVO - SYNC STATUS (via Worker proxy)
    ============================================================ */
 export async function syncLivoStatus(orderId) {
-    if (isTestMode()) {
-        console.log('[TEST] syncLivoStatus MOCK');
-        return { success: true, updated: false, currentStatus: "test_mode_no_sync" };
-    }
-
     try {
         const orderRef = doc(db, "orders", orderId);
         const snap = await getDoc(orderRef);
@@ -577,11 +561,6 @@ export async function syncLivoStatus(orderId) {
    LIVO - CREATE PICKUP (via Worker proxy)
    ============================================================ */
 export async function createLivoPickup(pickupData) {
-    if (isTestMode()) {
-        console.log('[TEST] createLivoPickup MOCK - aucun appel Livo');
-        return { success: true, pickupId: 'TEST-PI-' + Date.now(), trackingId: 'TEST-PI-' + Date.now() };
-    }
-
     try {
         if (!pickupData) throw new Error('pickupData requis');
         if (!pickupData.desired_date) throw new Error('Date de ramassage requise');
@@ -1678,11 +1657,6 @@ function _isAdminUser() {
 }
 
 export async function autoSyncActiveOrders(orders, onComplete = null) {
-    if (isTestMode()) {
-        console.log('[TEST] autoSyncActiveOrders désactivé en mode test');
-        return;
-    }
-
     if (!_isAdminUser()) {
         console.log('autoSyncActiveOrders : réservé aux admins (skip côté client)');
         return;
