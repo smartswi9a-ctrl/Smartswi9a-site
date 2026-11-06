@@ -368,6 +368,41 @@ Return fees are charged separately to each Vendor based on the actual amount pro
 }
 
 /* ============================================================
+   VÉRIFICATION D'UN CONTRAT VENDEUR OFFICIEL
+   ============================================================ */
+function isOfficialVendorContract(vendorId, contract) {
+  try {
+    if (!vendorId || !contract || typeof contract !== 'object') return false;
+    if (contract.vendorId !== vendorId || contract.status !== 'accepted') return false;
+    if (String(contract.version || '') !== OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION) return false;
+    if (!['fr', 'ar', 'en'].includes(String(contract.language || ''))) return false;
+    if (!/^[a-f0-9]{64}$/i.test(String(contract.textHash || ''))) return false;
+    if (!/^[a-f0-9]{64}$/i.test(String(contract.contractHash || ''))) return false;
+
+    const officialSnapshot = buildOfficialSnapshot();
+    const storedSnapshot = contract.termsSnapshot;
+    if (!storedSnapshot || typeof storedSnapshot !== 'object') return false;
+    const expectedKeys = Object.keys(officialSnapshot).sort();
+    const storedKeys = Object.keys(storedSnapshot).sort();
+    if (expectedKeys.length !== storedKeys.length ||
+        expectedKeys.some((key, index) => key !== storedKeys[index])) return false;
+    if (!expectedKeys.every(key => storedSnapshot[key] === officialSnapshot[key])) return false;
+
+    const officialText = getContractText(contract.language, contract.version, officialSnapshot);
+    const expectedTextHash = crypto.createHash('sha256').update(officialText).digest('hex');
+    if (expectedTextHash !== String(contract.textHash).toLowerCase()) return false;
+
+    const expectedContractHash = crypto.createHash('sha256')
+      .update([vendorId, contract.version, contract.language, contract.textHash].join('|'))
+      .digest('hex');
+    return expectedContractHash === String(contract.contractHash).toLowerCase();
+  } catch (error) {
+    console.error('[isOfficialVendorContract]', error);
+    return false;
+  }
+}
+
+/* ============================================================
    CF : getLivoFees (PUBLIC)
    ============================================================ */
 exports.getLivoFees = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
@@ -559,11 +594,8 @@ exports.signVendorContract = onRequest({ region: 'europe-west1', cors: [...ALLOW
       // Idempotence : si le contrat existe déjà, réconcilier aussi le profil.
       // Cela évite qu'un ancien échec réseau laisse contractStatus à "pending"
       // alors que le document signé est bien présent dans contracts/.
-      if (
-        existingData.vendorId !== decoded.uid ||
-        existingData.status !== 'accepted' ||
-        String(existingData.version) !== String(version)
-      ) {
+      if (!isOfficialVendorContract(decoded.uid, existingData) ||
+          String(existingData.version) !== String(version)) {
         return res.status(409).json({
           success: false,
           message: 'Un document de contrat existe déjà mais ses données ne sont pas cohérentes. Contactez l’administration.'
@@ -1013,9 +1045,7 @@ exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
       const contractSnap = await db.collection('contracts').doc(contractId).get();
       const contract = contractSnap.exists ? contractSnap.data() : null;
       if (
-        !contract ||
-        contract.vendorId !== vendorId ||
-        contract.status !== 'accepted' ||
+        !isOfficialVendorContract(vendorId, contract) ||
         String(contract.version) !== String(vendorInfo.contractVersion || contract.version)
       ) {
         return res.status(409).json({ success: false, message: 'Impossible d’approuver : le document du contrat signé est absent ou incohérent.' });
