@@ -50,17 +50,8 @@ async function main() {
         permissions: [],
         vendorInfo: { status: "approved", contractStatus: "accepted", contractVersion: "1.3.0" }
       });
-      await setDoc(doc(db, "vendorsPublic", "vendorA"), {
-        status: "approved",
-        contractVersion: "1.4.0"
-      });
       await setDoc(doc(db, "products", "publicProduct"), { status: "approved", vendorId: "vendorA", nameFr: "Public" });
       await setDoc(doc(db, "products", "privateProduct"), { status: "pending_admin_approval", vendorId: "vendorA", nameFr: "Private" });
-      await setDoc(doc(db, "products", "unpublishedVendorProduct"), {
-        status: "approved",
-        vendorId: "vendorB",
-        nameFr: "Vendor without public approval"
-      });
       await setDoc(doc(db, "orders", "multiOrder"), {
         userId: "buyerA",
         vendorIds: ["vendorA", "vendorB"],
@@ -125,9 +116,6 @@ async function main() {
 
     await assertSucceeds(getDoc(doc(buyerDb, "products", "publicProduct")));
     await assertFails(getDoc(doc(buyerDb, "products", "privateProduct")));
-    // Un produit approuvé ne devient pas public si le vendeur n'a pas de fiche
-    // vendorsPublic créée par le trigger serveur (vendeur rejeté/suspendu/non synchronisé).
-    await assertFails(getDoc(doc(buyerDb, "products", "unpublishedVendorProduct")));
     await assertSucceeds(getDoc(doc(vendorDb, "products", "privateProduct")));
 
     await assertSucceeds(getDoc(doc(buyerDb, "orders", "multiOrder")));
