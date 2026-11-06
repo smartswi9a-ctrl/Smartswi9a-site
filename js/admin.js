@@ -62,7 +62,8 @@ const VENDOR_STATUS_ORDER = {
     [VENDOR_STATUS.PENDING]: 0,
     [VENDOR_STATUS.APPROVED]: 1,
     [VENDOR_STATUS.SUSPENDED]: 2,
-    [VENDOR_STATUS.REJECTED]: 3
+    [VENDOR_STATUS.REJECTED]: 3,
+    deletion_pending: 4
 };
 
 /* ============================================================
