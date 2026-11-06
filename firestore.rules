@@ -121,18 +121,6 @@ service cloud.firestore {
     }
 
     /* ============================================================
-       SAUVEGARDES DU MODE TEST ADMIN
-       ============================================================ */
-
-    match /_test_snapshots/{batchId} {
-      allow read, write: if isAdmin();
-
-      match /{collectionName}/{docId} {
-        allow read, write: if isAdmin();
-      }
-    }
-
-    /* ============================================================
        FICHES VENDEURS PUBLIQUES
        ============================================================ */
 
