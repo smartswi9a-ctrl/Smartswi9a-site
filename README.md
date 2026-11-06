@@ -44,18 +44,22 @@ Le chemin est uniformisé en vendor/dashboard.html, sensible à la casse sur l'h
 functions/ est exclu de l'hébergement statique.
 
 
-Déploiement
+Déploiement Firebase
+
+Le site statique est hébergé sur Cloudflare Pages. Ne pas déployer Firebase Hosting pour cette mise à jour.
 
 Depuis le dossier racine du dépôt Firebase :
 
-
-firebase use smartswi9a-31063
+```bash
 cd functions
 npm install
 cd ..
-firebase deploy --only functions,firestore:rules,hosting
+firebase deploy --only functions,firestore:rules,storage --project smartswi9a-31063
+```
 
-Vérifier dans la console Firebase que l'authentification e-mail/mot de passe est activée. Le déploiement des fonctions peut demander des autorisations IAM et une API de facturation active.
+Cette commande déploie uniquement les Cloud Functions, les règles Firestore et les règles Storage. Elle ne déploie pas le site statique et ne modifie pas les données Firestore.
+
+Vérifier dans la console Firebase que l'authentification e-mail/mot de passe est activée. Le déploiement des fonctions peut demander des autorisations IAM, les API Google nécessaires et une facturation active (plan Blaze).
 
 
 Tests à effectuer avant production
