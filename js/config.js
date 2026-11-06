@@ -381,7 +381,8 @@ export function getReturnFeeForVendor() {
 export function canVendorSell(vendor) {
     if (!vendor || !vendor.vendorInfo) return false;
     return vendor.vendorInfo.status === VENDOR_STATUS.APPROVED
-        && vendor.vendorInfo.contractStatus === CONTRACT_STATUS.ACCEPTED;
+        && vendor.vendorInfo.contractStatus === CONTRACT_STATUS.ACCEPTED
+        && String(vendor.vendorInfo.contractVersion || '') === String(CONFIG.VENDOR.CONTRACT_VERSION);
 }
 
 export function isProductPubliclyVisible(product, vendor = null) {
