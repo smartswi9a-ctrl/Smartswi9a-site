@@ -165,7 +165,9 @@ async function main() {
       items: [{ productId: "publicProduct", quantity: 1 }],
       updatedAt: Timestamp.now()
     }));
-    await assertSucceeds(getDoc(doc(adminDb, "_test_snapshots", "batchA", "users", "buyerA")));
+    // La collection de snapshots a été supprimée : aucun rôle client ou admin
+    // ne doit conserver un accès à cette ancienne zone de sauvegarde.
+    await assertFails(getDoc(doc(adminDb, "_test_snapshots", "batchA", "users", "buyerA")));
     await assertFails(getDoc(doc(buyerDb, "_test_snapshots", "batchA", "users", "buyerA")));
 
     await assertFails(updateDoc(doc(buyerDb, "users", "buyerA"), { role: "admin" }));
