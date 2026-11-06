@@ -17,8 +17,6 @@ import {
   CONFIG,
   ORDER_STATUS,
   normalizeOrderStatus,
-  isTestMode,
-  APP_MODE,
 } from "./config.js";
 import {
   t,
