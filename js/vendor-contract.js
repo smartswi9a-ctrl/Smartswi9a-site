@@ -100,10 +100,9 @@ export function needsResign(vendorInfo) {
     const v = parseVersion(vendorInfo.contractVersion);
     const c = parseVersion(CONFIG.VENDOR.CONTRACT_VERSION);
     if (!v || !c) return true;
-    if (v.major < c.major) return true;
-    if (v.major > c.major) return false;
-    if (v.minor < c.minor) return true;
-    return false;
+    // Comparer les trois composantes semver : une correction de patch publiée
+    // doit également déclencher une nouvelle signature si elle change le contrat.
+    return compareVersions(vendorInfo.contractVersion, CONFIG.VENDOR.CONTRACT_VERSION) < 0;
 }
 
 /**
