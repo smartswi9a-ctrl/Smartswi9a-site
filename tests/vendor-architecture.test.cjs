@@ -22,15 +22,11 @@ const serverVersion = functions.match(/CONTRACT_VERSION:\s*['"]([^'"]+)['"]/);
 assert.ok(serverVersion, "OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION doit exister.");
 assert.equal(serverVersion[1], contractVersion, "La version contrat client/serveur doit être identique.");
 
-const escapedVersion = contractVersion.replace(/[.*+?^${}()|[\\]\\]/g, "\\\\assert.match(contractText, new RegExp('["'] + contractVersion.replaceAll(".", "\\.") + '["']\\s*:'));
-assert.match(functions, new RegExp('if \\(version === ["']' + contractVersion.replaceAll(".", "\\.") + '["']\\)'));
-assert.match(firestoreRules, new RegExp("contractVersion', ''\\) == '" + contractVersion.replaceAll(".", "\\.") + "'"));
-assert.match(storageRules, new RegExp("contractVersion', ''\\) == '" + contractVersion.replaceAll(".", "\\.") + "'"));
-");
-assert.ok(new RegExp(`["']${escapedVersion}["']\\\\s*:`).test(contractText));
-assert.ok(new RegExp(`if \\\\(version === ["']${escapedVersion}["']\\\\)`).test(functions));
-assert.ok(new RegExp("contractVersion', ''\\\\) == '" + escapedVersion + "'").test(firestoreRules));
-assert.ok(new RegExp("contractVersion', ''\\\\) == '" + escapedVersion + "'").test(storageRules));
+const escapedVersion = contractVersion.replace(/[.*+?^\${}()|[\]\\]/g, "\\$&");
+assert.ok(new RegExp('["' + "'" + ']' + escapedVersion + '["' + "'" + ']\\s*:').test(contractText));
+assert.ok(new RegExp("if \\(version === ['" + '"' + "]" + escapedVersion + "['" + '"' + "]\\)").test(functions));
+assert.ok(new RegExp("contractVersion', ''\\) == '" + escapedVersion + "'").test(firestoreRules));
+assert.ok(new RegExp("contractVersion', ''\\) == '" + escapedVersion + "'").test(storageRules));
 
 assert.match(contractClient, /function compareVersions/);
 assert.match(contractClient, /compareVersions\(vendorInfo\.contractVersion, CONFIG\.VENDOR\.CONTRACT_VERSION\) < 0/);
