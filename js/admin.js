@@ -16,7 +16,7 @@ import {
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import {
     ROLES, ORDER_STATUS, CATEGORY_GROUPS, CONFIG, normalizeOrderStatus,
-    normalizeCategory, getCategoryById, isTestMode,
+    normalizeCategory, getCategoryById,
     VENDOR_STATUS, CONTRACT_STATUS
 } from "./config.js";
 import {
@@ -2042,21 +2042,16 @@ async function handleConfirmPickup() {
 
         let livoResult = { success: false, error: null };
         if (itemsToPickup.length > 0 || productsToPickup.length > 0) {
-            if (isTestMode()) {
-                console.log('[TEST] handleConfirmPickup : création Livo MOCK');
-                livoResult = { success: true, pickupId: 'TEST-PI-' + Date.now(), trackingId: 'TEST-PI-' + Date.now() };
-            } else {
-                try {
-                    livoResult = await createLivoPickup({
-                        items: itemsToPickup,
-                        products: productsToPickup,
-                        desired_date: selectedDate,
-                        comment: note || `Ramassage Smart Swi9a — ${packages} colis, ${weight} kg`
-                    });
-                } catch (e) {
-                    console.warn('[admin] createLivoPickup a échoué :', e?.message || e);
-                    livoResult = { success: false, error: e?.message || 'unknown' };
-                }
+            try {
+                livoResult = await createLivoPickup({
+                    items: itemsToPickup,
+                    products: productsToPickup,
+                    desired_date: selectedDate,
+                    comment: note || `Ramassage Smart Swi9a — ${packages} colis, ${weight} kg`
+                });
+            } catch (e) {
+                console.warn('[admin] createLivoPickup a échoué :', e?.message || e);
+                livoResult = { success: false, error: e?.message || 'unknown' };
             }
         } else {
             livoResult = { success: false, error: 'No items/products selected (manual fallback)' };
@@ -2067,7 +2062,7 @@ async function handleConfirmPickup() {
             packages,
             weight,
             note,
-            status: isTestMode() ? 'test_mode' : (livoResult.success ? 'sent' : 'pending_manual'),
+            status: livoResult.success ? 'sent' : 'pending_manual',
             livoPickupId: livoResult.success ? (livoResult.pickupId || null) : null,
             livoTrackingId: livoResult.success ? (livoResult.trackingId || null) : null,
             livoError: livoResult.success ? null : (livoResult.error || 'unknown'),
@@ -2089,9 +2084,7 @@ async function handleConfirmPickup() {
             }
         }
 
-        if (isTestMode()) {
-            showToast('Ramassage enregistré (mode test)');
-        } else if (livoResult.success) {
+        if (livoResult.success) {
             showToast(`Ramassage créé chez Livo (ID: ${livoResult.pickupId})`);
         } else {
             showToast(`Livo a refusé : ${livoResult.error}. Enregistré localement (à renvoyer).`, 5000);
