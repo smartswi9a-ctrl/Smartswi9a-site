@@ -2957,7 +2957,7 @@ function applyVendorFilters() {
         const status = info.status || 'pending';
         const contractVersion = String(info.contractVersion || '');
         const isOutdatedContract = info.contractStatus === 'accepted' &&
-            contractVersion !== String(CONFIG.CONTRACT_VERSION || '');
+            contractVersion !== String(CONFIG.VENDOR.CONTRACT_VERSION || '');
 
         const matchesFilter = activeFilter === 'all' ||
             (activeFilter === 'outdated' ? isOutdatedContract : status === activeFilter);
