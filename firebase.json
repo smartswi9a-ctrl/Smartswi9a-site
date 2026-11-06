@@ -116,6 +116,13 @@
         }
       },
       {
+        "source": "/api/adminSetReturnFee",
+        "function": {
+          "functionId": "adminSetReturnFee",
+          "region": "europe-west1"
+        }
+      },
+      {
         "source": "/api/adminPayoutAction",
         "function": {
           "functionId": "adminPayoutAction",
@@ -140,6 +147,20 @@
         "source": "/api/createCustomerOrder",
         "function": {
           "functionId": "createCustomerOrder",
+          "region": "europe-west1"
+        }
+      },
+      {
+        "source": "/api/createVerifiedReview",
+        "function": {
+          "functionId": "createVerifiedReview",
+          "region": "europe-west1"
+        }
+      },
+      {
+        "source": "/api/backfillVendorOrderViews",
+        "function": {
+          "functionId": "backfillVendorOrderViews",
           "region": "europe-west1"
         }
       },

@@ -32,7 +32,7 @@ export const CONFIG = {
         NAME: 'Smart Swi9a',
         WHATSAPP_NUMBER: '212656613303',
         EMAIL: 'smartswi9a@gmail.com',
-        URL: 'https://smartswi9a.top',
+        URL: 'https://smartswika.ma',
         CURRENCY: 'MAD',
         DISCOUNT_THRESHOLD: 3,
         DISCOUNT_PERCENT: 5,
@@ -95,7 +95,7 @@ export const CONFIG = {
         MIN_WITHDRAWAL: 200,
         MAX_NEGATIVE_BALANCE: -1000,
         SUSPEND_DEBT_DAYS: 30,
-        /* Nom canonique unique (doublon supprimé) */
+        /* Valeur historique des anciens contrats uniquement ; aucun forfait client. */
         RETURN_FEE_LIVO: 20,
         FULFILLMENT_FEE_PER_UNIT_MONTH: 5,
         FULFILLMENT_MAX_UNITS: 10,
@@ -113,7 +113,7 @@ export const CONFIG = {
         LABEL_FORMAT: 'PDF',
         PRODUCT_VALIDATION_HOURS: 48,
         VENDOR_VALIDATION_HOURS: 72,
-        CONTRACT_VERSION: '1.2.0',
+        CONTRACT_VERSION: '1.4.0',
         CONTRACT_RESIGN_GRACE_DAYS: 30,
         ALLOWED_CATEGORIES: []
     },
@@ -371,8 +371,10 @@ export function calculateDeliveryFee(vendorCount = 1) {
     return base + Math.max(0, count - 1) * extra;
 }
 
+// Aucun forfait de retour n'est appliqué côté client.
+// Le montant réel est enregistré et validé par l'administrateur par vendeur.
 export function getReturnFeeForVendor() {
-    return CONFIG.VENDOR.RETURN_FEE_LIVO;
+    return null;
 }
 
 export function canVendorSell(vendor) {

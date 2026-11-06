@@ -1,8 +1,9 @@
 const { onRequest } = require('firebase-functions/v2/https');
-const { onDocumentWritten, onDocumentUpdated } = require('firebase-functions/v2/firestore');
+const { onDocumentWritten, onDocumentUpdated, onDocumentCreated } = require('firebase-functions/v2/firestore');
 const { initializeApp } = require('firebase-admin/app');
 const { getAuth } = require('firebase-admin/auth');
-const { getFirestore, FieldValue } = require('firebase-admin/firestore');
+const { getFirestore, FieldValue, FieldPath } = require('firebase-admin/firestore');
+const { getStorage } = require('firebase-admin/storage');
 const bcrypt = require('bcryptjs');
 const crypto = require('node:crypto');
 
@@ -12,6 +13,8 @@ const PROJECT_ID = 'smartswi9a-31063';
 const FIREBASE_WEB_API_KEY = 'AIzaSyBhULwDxPBRqjywsSD_0ny41Bmt968ofSA';
 
 const ALLOWED_ORIGINS = new Set([
+  'https://smartswika.ma',
+  'https://www.smartswika.ma',
   'https://smartswi9a.top',
   'https://www.smartswi9a.top',
   'https://smartswi9a-31063.web.app',
@@ -22,8 +25,8 @@ const ALLOWED_ORIGINS = new Set([
    CONSTANTES GLOBALES
    ============================================================
    - LIVO_API_BASE : endpoint public Livo
-   - RETURN_FEE_LIVO : frais retour (doit être synchronisé avec
-     CONFIG.VENDOR.RETURN_FEE_LIVO dans js/config.js)
+   - RETURN_FEE_LIVO : valeur historique conservée uniquement pour reconstruire
+     les contrats 1.1.0 à 1.3.0 ; aucun débit de retour ne l'utilise.
    - FALLBACK_DELIVERY_FEE : frais par défaut si Firestore vide
    - LIVO_DEPOT_KEYS : entrepôts Livo à exclure des villes clients
    - LOGIN_* : throttle login vendeur
@@ -36,7 +39,6 @@ const LIVO_FEES_CACHE_DOC = 'livo_fees_cache';
 const LIVO_FEES_META_COLLECTION = 'meta';
 
 const FALLBACK_DELIVERY_FEE = 30;
-const RETURN_FEE_LIVO = 20;
 
 const LIVO_DEPOT_KEYS = new Set(['livo depot', 'livo depot casablanca']);
 
@@ -52,7 +54,7 @@ const LOGIN_MAX_FAILURES = 8;
    avec "Falsification détectée".
    ============================================================ */
 const OFFICIAL_VENDOR_CONFIG = {
-  CONTRACT_VERSION: '1.2.0',
+  CONTRACT_VERSION: '1.4.0',
   COMMISSION_RATE: 0.07,
   COMMISSION_RATE_MIN: 0.05,
   COMMISSION_RATE_MAX: 0.15,
@@ -120,7 +122,9 @@ async function findUserByEmail(email) {
 
 function approved(profile) {
   return profile && profile.role === 'vendor' && profile.vendorInfo &&
-    profile.vendorInfo.status === 'approved' && profile.vendorInfo.contractStatus === 'accepted';
+    profile.vendorInfo.status === 'approved' &&
+    profile.vendorInfo.contractStatus === 'accepted' &&
+    String(profile.vendorInfo.contractVersion || '') === OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION;
 }
 
 function statusMessage(profile) {
@@ -333,8 +337,34 @@ function getContractText(lang, version, snapshot) {
       en: (t) => `VENDOR PARTNERSHIP AGREEMENT — SMART SWI9A\nVersion ${t.version}\n\nArticle 1 — Purpose\nThis agreement governs the listing and sale of products by the Vendor on Smart Swi9a (smartswi9a.top), a Moroccan marketplace for connected devices and home products.\n\nArticle 2 — Registration and verification\nThe Vendor agrees to provide accurate information (shop name, phone, city, ICE or CIN). Any false statement results in immediate account suspension.\n\nArticle 3 — Commission\nSmart Swi9a charges a ${(t.commissionRate * 100).toFixed(0)}% commission on the delivery-excluded amount of each sale. This commission may be adjusted between ${(t.commissionRateMin * 100).toFixed(0)}% and ${(t.commissionRateMax * 100).toFixed(0)}% with the Vendor's written consent.\n\nArticle 4 — Shipping\nThe Vendor chooses agency drop-off or Smart Swi9a fulfillment. Drop-off deadlines are ${t.dropoffDeadlineHoursNew} hours (new accounts) or ${t.dropoffDeadlineHoursEstablished} hours (mature accounts). Any delay may result in suspension.\n\nArticle 5 — Payment\nEarnings are credited to the vendor wallet and become available ${t.unlockDaysVendor} days after confirmed delivery (${t.unlockDaysSmart} days for Smart Swi9a products). Minimum withdrawal is ${t.minWithdrawal} MAD.\n\nArticle 6 — Returns\nIn case of return, a ${t.returnFeeLivo} MAD fee is charged per returned parcel (fee charged by our logistics partner Livo). Repeated returns may lead to a review of the Vendor's status.\n\nArticle 7 — Termination\nEither party may terminate this agreement at any time. Pending orders remain subject to these terms.\n\nArticle 8 — Governing law\nThis agreement is governed by Moroccan law. Any dispute falls under the jurisdiction of the courts of Casablanca.\n\nArticle 9 — Electronic signature\nThe electronic signature constitutes full acceptance. The IP, user-agent, server date, and a SHA-256 hash of this document are recorded as evidence.\n\nBy signing, the Vendor acknowledges having read and understood this entire agreement.`
     }
   };
-  const t = templates[version] || templates["1.2.0"];
-  return t[lang] ? t[lang](snapshot) : t["fr"](snapshot);
+  // La version 1.3.0 reprend strictement le contrat Livo 1.2.0,
+  // avec le nouveau domaine. Les gabarits 1.1.0 et 1.2.0 restent intacts
+  // afin de préserver les empreintes des contrats déjà signés.
+  const sourceVersion = ["1.3.0", "1.4.0"].includes(version) ? "1.2.0" : version;
+  const t = templates[sourceVersion] || templates["1.2.0"];
+  let text = t[lang] ? t[lang](snapshot) : t["fr"](snapshot);
+  if (version === "1.4.0") {
+    const clauses = {
+      fr: `Article 6 — Retours
+Les frais de retour sont facturés séparément à chaque Vendeur selon le montant réel communiqué par le transporteur ou, à défaut, validé par l'administration. Aucun frais n'est débité avant l'enregistrement et la validation de ce montant. Les retours répétés peuvent entraîner une révision du statut du Vendeur.`,
+      ar: `المادة 6 — الإرجاع
+تُفرض رسوم الإرجاع بشكل منفصل على كل بائع وفق المبلغ الفعلي الذي يحدده الناقل، أو الذي تعتمده الإدارة عند عدم توفره. لا يتم خصم أي رسوم قبل تسجيل المبلغ واعتماده. وقد تؤدي الإرجاعات المتكررة إلى مراجعة وضع البائع.`,
+      en: `Article 6 — Returns
+Return fees are charged separately to each Vendor based on the actual amount provided by the carrier or, if unavailable, validated by the administration. No fee is debited until that amount has been recorded and approved. Repeated returns may lead to a review of the Vendor's status.`
+    };
+    const patterns = {
+      fr: /Article 6 — Retours\n[\s\S]*?(?=\n\nArticle 7 — Résiliation)/,
+      ar: /المادة 6 — الإرجاع\n[\s\S]*?(?=\n\nالمادة 7 — الإنهاء)/,
+      en: /Article 6 — Returns\n[\s\S]*?(?=\n\nArticle 7 — Termination)/
+    };
+    const language = clauses[lang] ? lang : "fr";
+    text = text.replace(patterns[language], clauses[language]);
+    text = text.replaceAll("smartswi9a.top", "smartswika.ma").replace(/\s+/g, " ").trim();
+    return text;
+  }
+  return version === "1.3.0"
+    ? text.replaceAll("smartswi9a.top", "smartswika.ma").replace(/\s+/g, " ").trim()
+    : text;
 }
 
 /* ============================================================
@@ -413,7 +443,8 @@ exports.syncLivoCities = onRequest({ region: 'europe-west1', cors: [...ALLOWED_O
     if (!match) return res.status(401).json({ success: false, message: 'Connexion requise.' });
     const decoded = await getAuth().verifyIdToken(match[1], true);
     const adminSnap = await db.collection('users').doc(decoded.uid).get();
-    if (!adminSnap.exists || adminSnap.data()?.role !== 'admin') {
+    const isAdmin = decoded.admin === true || (adminSnap.exists && adminSnap.data()?.role === 'admin');
+    if (!isAdmin) {
       return res.status(403).json({ success: false, message: 'Action réservée à un administrateur.' });
     }
 
@@ -436,16 +467,31 @@ exports.syncLivoCities = onRequest({ region: 'europe-west1', cors: [...ALLOWED_O
    ============================================================ */
 exports.syncVendorPublic = onDocumentWritten('users/{userId}', async (event) => {
   const snap = event.data.after;
-  if (!snap || !snap.exists) return;
+
+  // La suppression du profil doit aussi supprimer la fiche publique.
+  // Sans ce cas, une ancienne boutique peut rester visible après suppression du vendeur.
+  if (!snap || !snap.exists) {
+    return db.collection('vendorsPublic').doc(event.params.userId).delete();
+  }
+
   const data = snap.data();
 
-  if (data.role !== 'vendor' || !data.vendorInfo) {
+  // Seuls les vendeurs approuvés avec un contrat accepté sont publiés.
+  // Les demandes pending/rejected/suspended restent privées dans users/.
+  if (
+    data.role !== 'vendor' ||
+    !data.vendorInfo ||
+    data.vendorInfo.status !== 'approved' ||
+    data.vendorInfo.contractStatus !== 'accepted' ||
+    String(data.vendorInfo.contractVersion || '') !== OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION
+  ) {
     return db.collection('vendorsPublic').doc(event.params.userId).delete().catch(() => {});
   }
 
   return db.collection('vendorsPublic').doc(event.params.userId).set({
     shopName: data.vendorInfo.shopName || 'Boutique',
     status: data.vendorInfo.status || 'pending',
+    contractVersion: data.vendorInfo.contractVersion,
     description: data.vendorInfo.description || '',
     createdAt: data.createdAt || FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp()
@@ -462,9 +508,35 @@ exports.signVendorContract = onRequest({ region: 'europe-west1', cors: [...ALLOW
     if (!match) return res.status(401).json({ success: false, message: 'Connexion requise.' });
     const decoded = await getAuth().verifyIdToken(match[1], true);
 
-    const { version, language, textHash } = req.body;
+    // Le contrat vendeur ne peut être signé que par un compte déjà inscrit
+    // comme vendeur. Sans ce contrôle, un acheteur authentifié pourrait créer
+    // un document contracts/ et recevoir vendorInfo.contractStatus=accepted.
+    const vendorRef = db.collection('users').doc(decoded.uid);
+    const vendorSnap = await vendorRef.get();
+    if (!vendorSnap.exists || vendorSnap.data()?.role !== 'vendor') {
+      return res.status(403).json({ success: false, message: 'Cette action est réservée aux comptes vendeurs.' });
+    }
+
+    const vendorProfile = vendorSnap.data();
+    const vendorStatus = vendorProfile.vendorInfo?.status;
+    if (!['pending', 'approved'].includes(vendorStatus)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Votre compte vendeur ne peut pas signer de contrat dans son état actuel.'
+      });
+    }
+
+    const body = req.body || {};
+    const { version, language, textHash } = body;
+    const contractSource = String(body.source || 'dashboard');
+    if (!['signup', 'dashboard', 'resign'].includes(contractSource)) {
+      return res.status(400).json({ success: false, message: 'Origine de signature invalide.' });
+    }
     if (!version || !language || !textHash) {
       return res.status(400).json({ success: false, message: 'Données incomplètes.' });
+    }
+    if (!['fr', 'ar', 'en'].includes(String(language))) {
+      return res.status(400).json({ success: false, message: 'Langue du contrat invalide.' });
     }
 
     // B-C1 : on IGNORE le termsSnapshot du client, on reconstruit l'officiel
@@ -482,7 +554,45 @@ exports.signVendorContract = onRequest({ region: 'europe-west1', cors: [...ALLOW
 
     const existing = await contractRef.get();
     if (existing.exists) {
-      return res.status(200).json({ success: true, alreadySigned: true, contractId });
+      const existingData = existing.data();
+
+      // Idempotence : si le contrat existe déjà, réconcilier aussi le profil.
+      // Cela évite qu'un ancien échec réseau laisse contractStatus à "pending"
+      // alors que le document signé est bien présent dans contracts/.
+      if (
+        existingData.vendorId !== decoded.uid ||
+        existingData.status !== 'accepted' ||
+        String(existingData.version) !== String(version)
+      ) {
+        return res.status(409).json({
+          success: false,
+          message: 'Un document de contrat existe déjà mais ses données ne sont pas cohérentes. Contactez l’administration.'
+        });
+      }
+
+      const vendorRef = db.collection('users').doc(decoded.uid);
+      const vendorSnap = await vendorRef.get();
+      if (!vendorSnap.exists || vendorSnap.data()?.role !== 'vendor') {
+        return res.status(403).json({ success: false, message: 'Profil vendeur introuvable.' });
+      }
+
+      await vendorRef.update({
+        'vendorInfo.contractStatus': 'accepted',
+        'vendorInfo.currentContractId': contractId,
+        'vendorInfo.contractVersion': existingData.version,
+        'vendorInfo.contractSignedAt': existingData.acceptedAt || FieldValue.serverTimestamp(),
+        'vendorInfo.commissionRate': OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE,
+        'vendorInfo.commissionRateMin': OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE_MIN,
+        'vendorInfo.commissionRateMax': OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE_MAX,
+        updatedAt: FieldValue.serverTimestamp()
+      });
+
+      return res.status(200).json({
+        success: true,
+        alreadySigned: true,
+        contractId,
+        version: existingData.version
+      });
     }
 
     const officialText = getContractText(language, version, officialSnapshot);
@@ -497,7 +607,8 @@ exports.signVendorContract = onRequest({ region: 'europe-west1', cors: [...ALLOW
 
     const contractHash = crypto.createHash('sha256')
       .update([decoded.uid, version, language, textHash].join('|')).digest('hex');
-    const ip = req.ip || req.get('x-forwarded-for') || 'unknown';
+    const ip = String(req.ip || 'unknown').slice(0, 80);
+    const userAgent = String(req.get('user-agent') || 'unknown').slice(0, 300);
 
     await contractRef.set({
       vendorId: decoded.uid,
@@ -508,9 +619,9 @@ exports.signVendorContract = onRequest({ region: 'europe-west1', cors: [...ALLOW
       contractHash: contractHash,
       acceptedAt: FieldValue.serverTimestamp(),
       ipAddress: ip,
-      userAgent: req.get('user-agent') || 'unknown',
+      userAgent,
       status: 'accepted',
-      source: req.body.source || 'dashboard'
+      source: contractSource
     });
 
     await db.collection('users').doc(decoded.uid).update({
@@ -518,6 +629,10 @@ exports.signVendorContract = onRequest({ region: 'europe-west1', cors: [...ALLOW
       'vendorInfo.currentContractId': contractId,
       'vendorInfo.contractVersion': version,
       'vendorInfo.contractSignedAt': FieldValue.serverTimestamp(),
+      // La commission contractuelle est fixée par le serveur lors de la signature.
+      'vendorInfo.commissionRate': OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE,
+      'vendorInfo.commissionRateMin': OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE_MIN,
+      'vendorInfo.commissionRateMax': OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE_MAX,
       updatedAt: FieldValue.serverTimestamp()
     });
 
@@ -537,7 +652,7 @@ exports.loginVendor = onRequest({ region: 'europe-west1', maxInstances: 5, timeo
   const password = req.body?.password;
   const clientIp = String(req.ip || req.get('x-forwarded-for') || 'unknown').split(',')[0].trim().slice(0, 80);
 
-  if (!validEmail(email) || typeof password !== 'string') {
+  if (!validEmail(email) || typeof password !== 'string' || password.length === 0 || password.length > 128) {
     return res.status(400).json({ success: false, message: 'Identifiants invalides.' });
   }
 
@@ -587,7 +702,12 @@ exports.loginVendor = onRequest({ region: 'europe-west1', maxInstances: 5, timeo
       return res.status(401).json({ success: false, message: 'Identifiants incorrects.' });
     }
 
-    const canLogin = approved(profile) || profile.vendorInfo?.status === 'pending';
+    // Ne jamais émettre de jeton vendeur pour un profil qui n'a pas le rôle vendeur.
+    // Autoriser les vendeurs approuvés avec un ancien contrat à se connecter
+    // uniquement pour accéder à l'écran de re-signature (les droits métier
+    // restent bloqués par les règles tant que la version courante n'est pas acceptée).
+    const canLogin = profile.role === 'vendor' &&
+      ['pending', 'approved'].includes(String(profile.vendorInfo?.status || ''));
     if (!canLogin) {
       return res.status(403).json({ success: false, message: statusMessage(profile) });
     }
@@ -608,7 +728,7 @@ exports.loginVendor = onRequest({ region: 'europe-west1', maxInstances: 5, timeo
 exports.setVendorPassword = onRequest({ region: 'europe-west1', maxInstances: 5, timeoutSeconds: 15 }, async (req, res) => {
   if (cors(req, res)) return;
   try {
-    const match = req.get('authorization').match(/^Bearer\s+(.+)$/i);
+    const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
     if (!match) return res.status(401).json({ success: false, message: 'Connexion requise.' });
     const decoded = await getAuth().verifyIdToken(match[1], true);
     const vendorPassword = req.body?.vendorPassword;
@@ -618,14 +738,16 @@ exports.setVendorPassword = onRequest({ region: 'europe-west1', maxInstances: 5,
 
     const ref = db.collection('users').doc(decoded.uid);
     const snap = await ref.get();
-    if (!snap.exists || snap.data().role !== 'vendor') {
-      return res.status(403).json({ success: false, message: 'Profil invalide.' });
+    const vendorProfile = snap.exists ? snap.data() : null;
+    if (!vendorProfile || vendorProfile.role !== 'vendor' ||
+        !['pending', 'approved'].includes(String(vendorProfile.vendorInfo?.status || ''))) {
+      return res.status(403).json({ success: false, message: 'Profil vendeur non autorisé.' });
     }
 
     const passwordHash = await bcrypt.hash(vendorPassword, 12);
     await db.collection('vendorCredentials').doc(decoded.uid).set({
       uid: decoded.uid,
-      email: String(snap.data().email || '').trim().toLowerCase(),
+      email: String(vendorProfile.email || '').trim().toLowerCase(),
       passwordHash,
       updatedAt: FieldValue.serverTimestamp()
     }, { merge: true });
@@ -637,6 +759,195 @@ exports.setVendorPassword = onRequest({ region: 'europe-west1', maxInstances: 5,
 });
 
 /* ============================================================
+   CONTRÔLE DE COHÉRENCE AVANT SUPPRESSION VENDEUR
+   ============================================================ */
+async function inspectVendorSettlement(vendorId) {
+  const blockers = [];
+  let cursor = null;
+  let scannedOrders = 0;
+  let orderPages = 0;
+
+  while (true) {
+    let query = db.collection('orders')
+      .where('vendorIds', 'array-contains', vendorId)
+      .limit(300);
+    if (cursor) query = query.startAfter(cursor);
+    const snap = await query.get();
+    if (snap.empty) break;
+    orderPages++;
+    scannedOrders += snap.size;
+
+    for (const orderDoc of snap.docs) {
+      const order = orderDoc.data();
+      const status = String(order.status || '').toLowerCase();
+      if (['cancelled', 'canceled'].includes(status)) continue;
+      if (!['delivered', 'returned'].includes(status)) {
+        blockers.push({ orderId: orderDoc.id, reason: `commande non clôturée (statut ${status || 'absent'})` });
+        continue;
+      }
+
+      const credit = order.vendorCredits?.[vendorId];
+      // Une commande retournée avant livraison peut légitimement ne jamais
+      // avoir généré de crédit de vente. Si un crédit existe, il doit toujours
+      // être relié à une transaction cohérente.
+      if (status === 'delivered' && (!credit?.txId || !(Number(credit.amount) > 0))) {
+        blockers.push({ orderId: orderDoc.id, reason: 'crédit vendeur absent ou incomplet' });
+      } else if (credit) {
+        const saleTx = await db.collection('wallet_transactions').doc(String(credit.txId || '')).get();
+        const sale = saleTx.exists ? saleTx.data() : null;
+        if (!credit.txId || !sale || sale.vendorId !== vendorId || sale.orderId !== orderDoc.id ||
+            sale.type !== 'sale' || !(Number(sale.amount) > 0)) {
+          blockers.push({ orderId: orderDoc.id, reason: 'écriture de vente absente ou incohérente' });
+        }
+      }
+
+      if (status === 'returned') {
+        const returns = Array.isArray(order.returns) ? order.returns : [];
+        if (returns.length === 0) {
+          blockers.push({ orderId: orderDoc.id, reason: 'commande retournée sans détail de retour' });
+        }
+        // Vérifier chaque variante exacte (produit + taille + couleur), et non
+        // seulement le total par produit : deux variantes ne sont pas interchangeables.
+        const orderedByVariant = {};
+        for (const item of (order.items || [])) {
+          if (String(item.vendorId || '') !== vendorId) continue;
+          const variant = item.variant || {};
+          const key = JSON.stringify([
+            String(item.productId || ''),
+            String(variant.size || ''),
+            String(variant.color || '')
+          ]);
+          orderedByVariant[key] = (orderedByVariant[key] || 0) + (Number(item.quantity) || 0);
+        }
+        const cumulativeReturnedByVariant = {};
+        for (let returnIndex = 0; returnIndex < returns.length; returnIndex++) {
+          for (const retItem of (returns[returnIndex]?.items || [])) {
+            const productId = String(retItem?.productId || '');
+            const variant = retItem?.variant || {};
+            const matchingItems = (order.items || []).filter(item => {
+              const itemVariant = item.variant || {};
+              return String(item.productId || '') === productId &&
+                String(itemVariant.size || '') === String(variant.size || '') &&
+                String(itemVariant.color || '') === String(variant.color || '');
+            });
+            const owners = [...new Set(matchingItems.map(item => String(item.vendorId || '')))];
+            const delta = Number(retItem?.delta);
+            if (!productId || !Number.isInteger(delta) || delta <= 0 || owners.length !== 1) {
+              blockers.push({ orderId: orderDoc.id, reason: `produit ou propriétaire ambigu dans le retour ${returnIndex + 1}` });
+              continue;
+            }
+            // Les lignes des autres vendeurs du même panier ne doivent pas
+            // être comptées dans le rapprochement de ce vendeur.
+            if (owners[0] !== vendorId) continue;
+            const key = JSON.stringify([
+              productId,
+              String(variant.size || ''),
+              String(variant.color || '')
+            ]);
+            if (!orderedByVariant[key]) {
+              blockers.push({ orderId: orderDoc.id, reason: `variante absente de la commande pour ${productId}` });
+              continue;
+            }
+            cumulativeReturnedByVariant[key] = (cumulativeReturnedByVariant[key] || 0) + delta;
+            if (cumulativeReturnedByVariant[key] > orderedByVariant[key]) {
+              blockers.push({ orderId: orderDoc.id, reason: `quantité retournée supérieure à la quantité commandée pour ${productId}` });
+            }
+          }
+        }
+
+        for (let returnIndex = 0; returnIndex < returns.length; returnIndex++) {
+          const entry = returns[returnIndex];
+          const returnedQty = (entry?.items || []).reduce((sum, retItem) => {
+            const variant = retItem.variant || {};
+            const matchingItems = (order.items || []).filter(item => {
+              const itemVariant = item.variant || {};
+              return String(item.productId || '') === String(retItem.productId || '') &&
+                String(itemVariant.size || '') === String(variant.size || '') &&
+                String(itemVariant.color || '') === String(variant.color || '');
+            });
+            const owners = [...new Set(matchingItems.map(item => String(item.vendorId || '')))];
+            if (owners.length !== 1) return sum;
+            return owners[0] === vendorId ? sum + Math.max(0, Number(retItem.delta) || 0) : sum;
+          }, 0);
+          if (returnedQty <= 0) continue;
+          const debit = order.vendorDebits?.[`${vendorId}_ret${returnIndex}`];
+          const feeRef = db.collection('order_return_fees').doc(returnFeeDocId(orderDoc.id, returnIndex, vendorId));
+          const feeSnap = await feeRef.get();
+          const feeRecord = feeSnap.exists ? feeSnap.data() : null;
+          if (!debit?.txId) {
+            if (!feeRecord || feeRecord.status !== 'validated' ||
+                !Number.isFinite(Number(feeRecord.amount)) || Number(feeRecord.amount) <= 0) {
+              blockers.push({ orderId: orderDoc.id, reason: `frais du retour ${returnIndex + 1} non renseignés pour ce vendeur` });
+            } else {
+              blockers.push({ orderId: orderDoc.id, reason: `débit du retour ${returnIndex + 1} en attente de rapprochement` });
+            }
+          } else {
+            const hasFeeRecord = !!feeRecord;
+            const expectedFee = Number(feeRecord?.amount ?? debit.amount);
+            const feeRecordInvalid = hasFeeRecord && (
+              feeRecord.orderId !== orderDoc.id ||
+              feeRecord.vendorId !== vendorId ||
+              Number(feeRecord.returnIndex) !== returnIndex ||
+              feeRecord.status !== 'validated' ||
+              !['manual', 'livo'].includes(feeRecord.source) ||
+              !Number.isFinite(expectedFee) || expectedFee <= 0 ||
+              !feeRecord.recordedAt ||
+              (feeRecord.source === 'manual' && !feeRecord.recordedBy)
+            );
+            const debitSnap = await db.collection('wallet_transactions').doc(String(debit.txId)).get();
+            const debitTx = debitSnap.exists ? debitSnap.data() : null;
+            if (feeRecordInvalid ||
+                !Number.isFinite(expectedFee) || expectedFee <= 0 ||
+                Math.abs(Number(debit.amount) - expectedFee) > 0.01 ||
+                Number(debit.returnedQty) !== returnedQty ||
+                !debitTx || debitTx.vendorId !== vendorId || debitTx.orderId !== orderDoc.id ||
+                debitTx.type !== 'return_fee' || Number(debitTx.amount) >= 0 ||
+                Math.abs(Math.abs(Number(debitTx.amount)) - expectedFee) > 0.01 ||
+                (hasFeeRecord && debit.source !== feeRecord.source)) {
+              blockers.push({ orderId: orderDoc.id, reason: `écriture financière du retour ${returnIndex + 1} absente ou incohérente` });
+            }
+          }
+        }
+      }
+    }
+
+    cursor = snap.docs[snap.docs.length - 1];
+    if (snap.size < 300) break;
+    if (orderPages >= 100) {
+      blockers.push({ reason: 'contrôle des commandes incomplet : limite de pagination atteinte' });
+      break;
+    }
+  }
+
+  // Vérifier également les écritures pending indépendamment du solde agrégé.
+  cursor = null;
+  let txPages = 0;
+  while (true) {
+    let query = db.collection('wallet_transactions')
+      .where('vendorId', '==', vendorId)
+      .limit(300);
+    if (cursor) query = query.startAfter(cursor);
+    const snap = await query.get();
+    if (snap.empty) break;
+    txPages++;
+    snap.docs.forEach(docSnap => {
+      const tx = docSnap.data();
+      if (tx.status === 'pending') {
+        blockers.push({ reason: `écriture financière en attente (${docSnap.id})` });
+      }
+    });
+    cursor = snap.docs[snap.docs.length - 1];
+    if (snap.size < 300) break;
+    if (txPages >= 100) {
+      blockers.push({ reason: 'contrôle des écritures financières incomplet : limite de pagination atteinte' });
+      break;
+    }
+  }
+
+  return { blockers, scannedOrders };
+}
+
+/* ============================================================
    CF : adminVendorAction
    ============================================================ */
 exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
@@ -646,7 +957,8 @@ exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
     if (!match) return res.status(401).json({ success: false, message: 'Connexion requise.' });
     const decoded = await getAuth().verifyIdToken(match[1], true);
     const adminSnap = await db.collection('users').doc(decoded.uid).get();
-    if (!adminSnap.exists || adminSnap.data()?.role !== 'admin') {
+    const isAdmin = decoded.admin === true || (adminSnap.exists && adminSnap.data()?.role === 'admin');
+    if (!isAdmin) {
       return res.status(403).json({ success: false, message: 'Action réservée à un administrateur.' });
     }
 
@@ -658,44 +970,379 @@ exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
 
     const vendorRef = db.collection('users').doc(vendorId);
     const vendorSnap = await vendorRef.get();
-    if (!vendorSnap.exists() || vendorSnap.data()?.role !== 'vendor') {
+    if (!vendorSnap.exists || vendorSnap.data()?.role !== 'vendor') {
       return res.status(404).json({ success: false, message: 'Profil introuvable.' });
     }
 
-    if (action === 'approved' && vendorSnap.data().vendorInfo?.contractStatus !== 'accepted') {
-      return res.status(409).json({ success: false, message: 'Impossible d’approuver : contrat non signé.' });
+    if (action === 'approved') {
+      const vendorInfo = vendorSnap.data().vendorInfo || {};
+
+      // Vérifier l'état réel dans Firebase Authentication, pas uniquement
+      // le champ emailVerified du profil Firestore qui peut être obsolète.
+      const vendorAuthUser = await getAuth().getUser(vendorId);
+      if (vendorAuthUser.emailVerified !== true) {
+        return res.status(409).json({
+          success: false,
+          message: 'Impossible d’approuver : le vendeur doit d’abord vérifier son adresse e-mail.'
+        });
+      }
+
+      if (vendorInfo.contractStatus !== 'accepted') {
+        return res.status(409).json({ success: false, message: 'Impossible d’approuver : contrat non signé.' });
+      }
+      if (String(vendorInfo.contractVersion || '') !== OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION) {
+        return res.status(409).json({
+          success: false,
+          message: 'Impossible d’approuver : le vendeur doit accepter le contrat ' + OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION + '.'
+        });
+      }
+
+      const contractId = vendorInfo.currentContractId ||
+        (vendorInfo.contractVersion ? `contract_${vendorId}_v${vendorInfo.contractVersion}` : '');
+      if (!contractId) {
+        return res.status(409).json({ success: false, message: 'Impossible d’approuver : référence du contrat signée introuvable.' });
+      }
+
+      const contractSnap = await db.collection('contracts').doc(contractId).get();
+      const contract = contractSnap.exists ? contractSnap.data() : null;
+      if (
+        !contract ||
+        contract.vendorId !== vendorId ||
+        contract.status !== 'accepted' ||
+        String(contract.version) !== String(vendorInfo.contractVersion || contract.version)
+      ) {
+        return res.status(409).json({ success: false, message: 'Impossible d’approuver : le document du contrat signé est absent ou incohérent.' });
+      }
     }
 
     if (action === 'deleted') {
+      // Verrouiller le vendeur et retirer sa fiche publique AVANT les contrôles :
+      // createCustomerOrder lit vendorsPublic dans sa transaction, qui sera ainsi
+      // invalidée si une commande était en cours de création.
+      const originalVendorInfo = vendorSnap.data().vendorInfo || {};
+      const restoreStatus = originalVendorInfo.statusBeforeDeletion || originalVendorInfo.status || 'pending';
+      await vendorRef.update({
+        'vendorInfo.statusBeforeDeletion': restoreStatus,
+        'vendorInfo.status': 'deletion_pending',
+        'vendorInfo.statusUpdatedAt': FieldValue.serverTimestamp(),
+        'vendorInfo.statusUpdatedBy': decoded.uid,
+        updatedAt: FieldValue.serverTimestamp()
+      });
+      const restoreVendorListing = async () => {
+        await vendorRef.update({
+          'vendorInfo.status': restoreStatus,
+          'vendorInfo.statusBeforeDeletion': FieldValue.delete(),
+          updatedAt: FieldValue.serverTimestamp()
+        });
+        if (restoreStatus === 'approved' && originalVendorInfo.contractStatus === 'accepted') {
+          await db.collection('vendorsPublic').doc(vendorId).set({
+            shopName: originalVendorInfo.shopName || 'Boutique',
+            status: 'approved',
+            contractVersion: originalVendorInfo.contractVersion,
+            description: originalVendorInfo.description || '',
+            createdAt: vendorSnap.data().createdAt || FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp()
+          }, { merge: true });
+        }
+      };
+
+      // Si le retrait de la fiche publique échoue, restaurer le compte au lieu
+      // de laisser le vendeur bloqué en deletion_pending.
+      try {
+        await db.collection('vendorsPublic').doc(vendorId).delete();
+      } catch (error) {
+        await restoreVendorListing().catch(restoreError =>
+          console.error('[adminVendorAction] restauration après échec vendorsPublic:', restoreError)
+        );
+        throw error;
+      }
+
+      // Protection financière et contrôle des commandes/écritures associées.
+      const walletRef = db.collection('wallets').doc(vendorId);
+      const payoutQuery = db.collection('payout_requests')
+        .where('vendorId', '==', vendorId);
+      let walletSnap;
+      let payoutSnap;
+      try {
+        [walletSnap, payoutSnap] = await Promise.all([
+          walletRef.get(),
+          payoutQuery.get()
+        ]);
+      } catch (error) {
+        await restoreVendorListing().catch(restoreError =>
+          console.error('[adminVendorAction] restauration après échec lecture financière:', restoreError)
+        );
+        throw error;
+      }
+
+      const wallet = walletSnap.exists ? walletSnap.data() : {};
+      const availableBalance = Number(wallet.availableBalance) || 0;
+      const pendingBalance = Number(wallet.pendingBalance) || 0;
+      const negativeBalance = Number(wallet.negativeBalance) || 0;
+      const openPayouts = payoutSnap.docs.filter(docSnap => {
+        const status = String(docSnap.data().status || 'pending').toLowerCase();
+        return !['paid', 'rejected', 'cancelled', 'canceled'].includes(status);
+      });
+
+      const financialReasons = [];
+      if (availableBalance > 0.0001) {
+        financialReasons.push(`solde disponible de ${availableBalance.toFixed(2)} MAD`);
+      }
+      if (pendingBalance > 0.0001) {
+        financialReasons.push(`solde en attente de ${pendingBalance.toFixed(2)} MAD`);
+      }
+      if (negativeBalance < -0.0001) {
+        financialReasons.push(`dette vendeur de ${Math.abs(negativeBalance).toFixed(2)} MAD`);
+      }
+      if (openPayouts.length > 0) {
+        financialReasons.push(`${openPayouts.length} demande(s) de retrait non traitée(s)`);
+      }
+
+      let settlement;
+      try {
+        settlement = await inspectVendorSettlement(vendorId);
+      } catch (error) {
+        await restoreVendorListing().catch(restoreError =>
+          console.error('[adminVendorAction] restauration après échec audit financier:', restoreError)
+        );
+        throw error;
+      }
+      if (settlement.blockers.length > 0) {
+        financialReasons.push(`${settlement.blockers.length} anomalie(s) de commande ou d'écriture financière`);
+      }
+
+      if (financialReasons.length > 0) {
+        await restoreVendorListing();
+        return res.status(409).json({
+          success: false,
+          code: 'VENDOR_FINANCIAL_SETTLEMENT_REQUIRED',
+          message: `Suppression bloquée : ${financialReasons.join(' ; ')}. Réglez les soldes et clôturez les demandes de retrait avant de supprimer ce compte.`,
+          financial: {
+            availableBalance,
+            pendingBalance,
+            negativeBalance,
+            openPayoutCount: openPayouts.length,
+            scannedOrders: settlement.scannedOrders,
+            blockers: settlement.blockers.slice(0, 20)
+          }
+        });
+      }
+
       let deletedProducts = 0;
-      let productsRemaining = false;
+
+      // Nettoyage borné par requête pour éviter un dépassement du délai Cloud Functions.
+      // Le profil et l'identité Firebase restent intacts tant qu'il reste des produits.
       for (let page = 0; page < 20; page++) {
-        const productsSnap = await db.collection('products').where('vendorId', '==', vendorId).limit(400).get();
-        if (productsSnap.empty) { productsRemaining = false; break; }
+        const productsSnap = await db.collection('products')
+          .where('vendorId', '==', vendorId)
+          .limit(400)
+          .get();
+
+        if (productsSnap.empty) break;
+
         const batch = db.batch();
         productsSnap.docs.forEach(docSnap => batch.delete(docSnap.ref));
         await batch.commit();
         deletedProducts += productsSnap.size;
-        productsRemaining = productsSnap.size === 400;
-        if (!productsRemaining) break;
+
+        if (productsSnap.size < 400) break;
+      }
+
+      // Vérification explicite : ne jamais supprimer le compte si le nettoyage est incomplet.
+      const remainingProducts = await db.collection('products')
+        .where('vendorId', '==', vendorId)
+        .limit(1)
+        .get();
+
+      if (!remainingProducts.empty) {
+        return res.status(409).json({
+          success: false,
+          action,
+          deletedProducts,
+          productsRemaining: true,
+          message: 'Suppression partielle : des produits restent à traiter. Relancez la suppression pour continuer.'
+        });
+      }
+
+      // Supprimer uniquement les images produits de ce vendeur.
+      // Si Storage échoue, conserver le compte et permettre une nouvelle tentative.
+      await getStorage().bucket('smartswi9a-31063.firebasestorage.app')
+        .deleteFiles({ prefix: `vendors/${vendorId}/products/` });
+
+      // Retirer explicitement la fiche publique avant la suppression du profil.
+      // Le trigger syncVendorPublic effectue aussi ce nettoyage, mais cet appel
+      // synchrone garantit qu'une boutique ne reste pas publiée si le trigger tarde.
+      await db.collection('vendorsPublic').doc(vendorId).delete();
+
+      // Supprimer les identifiants vendeurs avant le profil, et ne pas masquer une erreur réelle.
+      await db.collection('vendorCredentials').doc(vendorId).delete().catch(error => {
+        if (error.code !== 5) throw error; // NOT_FOUND
+      });
+
+      // Un utilisateur déjà absent est considéré comme nettoyé ; toute autre erreur bloque la suite.
+      try {
+        await getAuth().deleteUser(vendorId);
+      } catch (error) {
+        if (error.code !== 'auth/user-not-found') throw error;
       }
 
       await vendorRef.delete();
-      await db.collection('vendorCredentials').doc(vendorId).delete().catch(() => {});
-      try { await getAuth().deleteUser(vendorId); } catch (e) { /* ignore */ }
 
       return res.status(200).json({ success: true, action, deletedProducts });
     }
 
-    await vendorRef.update({
+    const vendorUpdate = {
       'vendorInfo.status': action,
       'vendorInfo.statusUpdatedAt': FieldValue.serverTimestamp(),
       'vendorInfo.statusUpdatedBy': decoded.uid,
       updatedAt: FieldValue.serverTimestamp()
-    });
+    };
+    if (action === 'approved') {
+      // Le taux de commission est défini côté serveur, jamais par le vendeur.
+      vendorUpdate['vendorInfo.commissionRate'] = OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE;
+      vendorUpdate['vendorInfo.commissionRateMin'] = OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE_MIN;
+      vendorUpdate['vendorInfo.commissionRateMax'] = OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE_MAX;
+    }
+    await vendorRef.update(vendorUpdate);
     return res.status(200).json({ success: true, action });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+function returnFeeDocId(orderId, returnIndex, vendorId) {
+  return `${orderId}_ret${returnIndex}_${vendorId}`;
+}
+
+/* ============================================================
+   CF : adminSetReturnFee
+   Enregistre un justificatif isolé par commande, retour et vendeur.
+   ============================================================ */
+exports.adminSetReturnFee = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
+  if (cors(req, res)) return;
+  try {
+    const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
+    if (!match) return res.status(401).json({ success: false, message: 'Connexion requise.' });
+    const decoded = await getAuth().verifyIdToken(match[1], true);
+    const adminSnap = await db.collection('users').doc(decoded.uid).get();
+    const isAdmin = decoded.admin === true || (adminSnap.exists && adminSnap.data()?.role === 'admin');
+    if (!isAdmin) return res.status(403).json({ success: false, message: 'Action réservée à un administrateur.' });
+
+    const orderId = String(req.body?.orderId || '').trim();
+    const returnIndex = Number(req.body?.returnIndex);
+    const vendorId = String(req.body?.vendorId || '').trim();
+    const amount = Number(req.body?.amount);
+    if (!orderId || orderId.length > 128 || !Number.isInteger(returnIndex) || returnIndex < 0 ||
+        !vendorId || vendorId.length > 128 || !Number.isFinite(amount) || amount <= 0 || amount > 100000) {
+      return res.status(400).json({ success: false, message: 'Commande, retour, vendeur ou montant invalide.' });
+    }
+
+    const orderRef = db.collection('orders').doc(orderId);
+    const vendorRef = db.collection('users').doc(vendorId);
+    const feeRef = db.collection('order_return_fees').doc(returnFeeDocId(orderId, returnIndex, vendorId));
+
+    await db.runTransaction(async tx => {
+      const [orderSnap, vendorSnap, feeSnap] = await Promise.all([
+        tx.get(orderRef), tx.get(vendorRef), tx.get(feeRef)
+      ]);
+      if (!orderSnap.exists) throw new Error('Commande introuvable.');
+      const order = orderSnap.data();
+      const returns = Array.isArray(order.returns) ? order.returns : [];
+      const entry = returns[returnIndex];
+      if (order.status !== 'returned' || !entry || !Array.isArray(entry.items)) {
+        throw new Error('Retour introuvable ou commande non retournée.');
+      }
+      if (feeSnap.exists) throw new Error('Un montant a déjà été enregistré pour ce vendeur et ce retour.');
+      if (order.vendorDebits?.[`${vendorId}_ret${returnIndex}`]) {
+        throw new Error('Ce frais a déjà été débité : aucun second débit n’est autorisé.');
+      }
+
+      const vendorData = vendorSnap.exists ? vendorSnap.data() : null;
+      if (!vendorData || vendorData.role !== 'vendor' ||
+          vendorData.vendorInfo?.contractStatus !== 'accepted' ||
+          String(vendorData.vendorInfo?.contractVersion || '') !== OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION) {
+        throw new Error('Le vendeur doit accepter le nouveau contrat 1.4.0 avant l’application de ces frais.');
+      }
+
+      const orderedByVariant = {};
+      for (const item of (order.items || [])) {
+        if (String(item.vendorId || '') !== vendorId) continue;
+        const variant = item.variant || {};
+        const key = JSON.stringify([String(item.productId || ''), String(variant.size || ''), String(variant.color || '')]);
+        orderedByVariant[key] = (orderedByVariant[key] || 0) + (Number(item.quantity) || 0);
+      }
+      const cumulativeByVariant = {};
+      for (let idx = 0; idx < returns.length; idx++) {
+        for (const retItem of (returns[idx]?.items || [])) {
+          const variant = retItem.variant || {};
+          const productId = String(retItem.productId || '');
+          const matchingItems = (order.items || []).filter(item => {
+            const itemVariant = item.variant || {};
+            return String(item.productId || '') === productId &&
+              String(itemVariant.size || '') === String(variant.size || '') &&
+              String(itemVariant.color || '') === String(variant.color || '');
+          });
+          const owners = [...new Set(matchingItems.map(item => String(item.vendorId || '')))];
+          const delta = Number(retItem.delta);
+          if (!productId || !Number.isInteger(delta) || delta <= 0 || owners.length !== 1) {
+            throw new Error('Produit, propriétaire ou quantité de retour invalide.');
+          }
+          if (owners[0] !== vendorId) continue;
+          const key = JSON.stringify([productId, String(variant.size || ''), String(variant.color || '')]);
+          cumulativeByVariant[key] = (cumulativeByVariant[key] || 0) + delta;
+          if (!orderedByVariant[key] || cumulativeByVariant[key] > orderedByVariant[key]) {
+            throw new Error('La quantité retournée dépasse la quantité commandée.');
+          }
+        }
+      }
+
+      let returnedQty = 0;
+      let vendorName = '';
+      for (const retItem of entry.items) {
+        const variant = retItem.variant || {};
+        const productId = String(retItem.productId || '');
+        const matchingItems = (order.items || []).filter(item => {
+          const itemVariant = item.variant || {};
+          return String(item.productId || '') === productId &&
+            String(itemVariant.size || '') === String(variant.size || '') &&
+            String(itemVariant.color || '') === String(variant.color || '');
+        });
+        const owners = [...new Set(matchingItems.map(item => String(item.vendorId || '')))];
+        if (owners.length !== 1) throw new Error('Une ligne retournée est absente ou ambiguë dans la commande.');
+        if (owners[0] === vendorId) {
+          const vendorItems = matchingItems.filter(item => String(item.vendorId || '') === vendorId);
+          returnedQty += Number(retItem.delta);
+          vendorName = String(vendorItems[0]?.vendorName || vendorItems[0]?.shopName || vendorData.vendorInfo?.shopName || vendorData.name || 'Vendeur').slice(0, 120);
+        }
+      }
+      if (!Number.isInteger(returnedQty) || returnedQty <= 0) {
+        throw new Error('Ce vendeur ne possède aucun article dans ce retour.');
+      }
+
+      tx.create(feeRef, {
+        orderId,
+        returnIndex,
+        vendorId,
+        vendorName,
+        amount: Math.round(amount * 100) / 100,
+        currency: 'MAD',
+        source: 'manual',
+        status: 'validated',
+        returnedQty,
+        recordedAt: FieldValue.serverTimestamp(),
+        recordedBy: decoded.uid,
+        createdAt: FieldValue.serverTimestamp()
+      });
+    });
+
+    return res.status(200).json({ success: true, message: 'Montant enregistré. Le débit sécurisé sera rapproché automatiquement.' });
+  } catch (error) {
+    const message = error.message || 'Erreur serveur.';
+    if (/nouveau contrat 1\.4\.0/i.test(message)) {
+      return res.status(409).json({ success: false, code: 'VENDOR_CONTRACT_UPDATE_REQUIRED', message });
+    }
+    const clientError = /introuvable|invalide|retournée|correspond pas|aucun article|déjà été enregistré|déjà été débité|dépasse la quantité/i.test(message);
+    return res.status(clientError ? 400 : 500).json({ success: false, message });
   }
 });
 
@@ -709,72 +1356,336 @@ exports.requestWithdrawal = onRequest({ region: 'europe-west1', cors: [...ALLOWE
     if (!match) return res.status(401).json({ success: false, message: 'Connexion requise.' });
     const decoded = await getAuth().verifyIdToken(match[1], true);
 
-    // B-C2 : vérifier que le vendeur est approuvé + contrat signé
-    const vendorSnap = await db.collection('users').doc(decoded.uid).get();
-    if (!vendorSnap.exists) {
-      return res.status(403).json({ success: false, message: 'Profil introuvable.' });
-    }
-    const vendorData = vendorSnap.data();
-    if (vendorData.role !== 'vendor') {
-      return res.status(403).json({ success: false, message: 'Compte non vendeur.' });
-    }
-    if (vendorData.vendorInfo?.status !== 'approved') {
-      return res.status(403).json({ success: false, message: 'Votre compte vendeur n’est pas approuvé.' });
-    }
-    if (vendorData.vendorInfo?.contractStatus !== 'accepted') {
-      return res.status(403).json({ success: false, message: 'Votre contrat vendeur doit être signé.' });
-    }
-
     const amount = Number(req.body?.amount);
-    const method = String(req.body?.method || '');
-    const account = String(req.body?.account || '');
+    const method = String(req.body?.method || '').trim();
+    const account = String(req.body?.account || '').trim();
 
-    if (amount < 200) {
-      return res.status(400).json({ success: false, message: 'Minimum 200 MAD.' });
+    if (!Number.isFinite(amount) || amount < 200) {
+      return res.status(400).json({ success: false, message: 'Montant invalide. Minimum 200 MAD.' });
     }
 
-    const walletSnap = await db.collection('wallets').doc(decoded.uid).get();
-    if (!walletSnap.exists) {
-      return res.status(404).json({ success: false, message: 'Wallet introuvable.' });
+    const allowedMethods = new Set(['Wafacash', 'Cash Plus', 'Virement bancaire']);
+    if (!allowedMethods.has(method)) {
+      return res.status(400).json({ success: false, message: 'Méthode de retrait invalide.' });
     }
 
-    const pendingReq = await db.collection('payout_requests')
+    const validPhone = /^(?:\+212|0)[67]\d{8}$/.test(account);
+    const validRib = /^\d{24}$/.test(account);
+    if ((method === 'Virement bancaire' && !validRib) ||
+        (method !== 'Virement bancaire' && !validPhone)) {
+      return res.status(400).json({ success: false, message: 'Coordonnées de réception invalides.' });
+    }
+
+    const vendorRef = db.collection('users').doc(decoded.uid);
+    const walletRef = db.collection('wallets').doc(decoded.uid);
+    const payoutRef = db.collection('payout_requests').doc();
+    const pendingQuery = db.collection('payout_requests')
       .where('vendorId', '==', decoded.uid)
-      .where('status', '==', 'pending')
-      .get();
-    if (!pendingReq.empty) {
-      return res.status(400).json({ success: false, message: 'Demande déjà en cours.' });
-    }
+      .where('status', '==', 'pending');
 
-    const balance = Number(walletSnap.data().availableBalance) || 0;
-    if (amount > balance) {
-      return res.status(400).json({ success: false, message: 'Solde insuffisant.' });
-    }
+    // Transaction atomique : empêche deux demandes simultanées de passer
+    // le contrôle du solde et de l'unicité d'une demande en attente.
+    await db.runTransaction(async tx => {
+      const [vendorSnap, walletSnap, pendingSnap] = await Promise.all([
+        tx.get(vendorRef),
+        tx.get(walletRef),
+        tx.get(pendingQuery)
+      ]);
 
-    await db.collection('payout_requests').add({
-      vendorId: decoded.uid,
-      vendorName: req.body.vendorName || 'Vendeur',
-      amount, method, account,
-      status: 'pending',
-      requestedAt: FieldValue.serverTimestamp()
+      if (!vendorSnap.exists || vendorSnap.data()?.role !== 'vendor') {
+        throw new Error('Profil vendeur introuvable.');
+      }
+
+      const vendorData = vendorSnap.data();
+      if (vendorData.vendorInfo?.status !== 'approved' ||
+          vendorData.vendorInfo?.contractStatus !== 'accepted' ||
+          String(vendorData.vendorInfo?.contractVersion || '') !== OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION) {
+        throw new Error('Votre compte vendeur doit être approuvé et votre contrat accepté.');
+      }
+
+      if (!walletSnap.exists) throw new Error('Wallet introuvable.');
+      if (!pendingSnap.empty) throw new Error('Une demande de retrait est déjà en cours.');
+
+      const walletData = walletSnap.data();
+      if ((Number(walletData.negativeBalance) || 0) < -0.0001) {
+        throw new Error('Retrait impossible : votre portefeuille présente un solde débiteur à régulariser.');
+      }
+      const balance = Number(walletData.availableBalance);
+      if (!Number.isFinite(balance) || amount > balance) {
+        throw new Error('Solde insuffisant.');
+      }
+
+      // Cette écriture sur le wallet force les transactions concurrentes
+      // à se rejouer et à constater la demande déjà créée.
+      tx.update(walletRef, {
+        payoutRequestVersion: FieldValue.increment(1),
+        updatedAt: FieldValue.serverTimestamp()
+      });
+
+      tx.create(payoutRef, {
+        vendorId: decoded.uid,
+        vendorName: String(vendorData.vendorInfo?.shopName || vendorData.name || 'Vendeur').slice(0, 120),
+        amount,
+        method,
+        account,
+        status: 'pending',
+        requestedAt: FieldValue.serverTimestamp()
+      });
     });
 
     return res.status(200).json({ success: true });
   } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
+    const message = error.message || 'Erreur serveur.';
+    const clientError = /introuvable|invalide|minimum|coordonnées|méthode|solde insuffisant|solde débiteur|retrait impossible|déjà en cours|doit être approuvé/i.test(message);
+    return res.status(clientError ? 400 : 500).json({ success: false, message });
   }
 });
 
 /* ============================================================
+   DÉBIT SÉCURISÉ D'UN FRAIS DE RETOUR
+   Le document justificatif est séparé de la commande et idempotent.
+   ============================================================ */
+async function processReturnFeeDebit(orderId, returnIndex, vendorId) {
+  const orderRef = db.collection('orders').doc(orderId);
+  const feeRef = db.collection('order_return_fees').doc(returnFeeDocId(orderId, returnIndex, vendorId));
+  const vendorRef = db.collection('users').doc(vendorId);
+  const walletRef = db.collection('wallets').doc(vendorId);
+  const debitKey = `${vendorId}_ret${returnIndex}`;
+
+  await db.runTransaction(async tx => {
+    const [orderSnap, feeSnap, vendorSnap] = await Promise.all([
+      tx.get(orderRef), tx.get(feeRef), tx.get(vendorRef)
+    ]);
+    if (!orderSnap.exists || !feeSnap.exists) return;
+    const order = orderSnap.data();
+    const feeRecord = feeSnap.data();
+    if (order.status !== 'returned') return;
+    if (order.vendorDebits?.[debitKey]) return;
+    if (feeRecord.orderId !== orderId || feeRecord.vendorId !== vendorId ||
+        Number(feeRecord.returnIndex) !== returnIndex ||
+        feeRecord.status !== 'validated' ||
+        !['manual', 'livo'].includes(feeRecord.source) ||
+        !Number.isFinite(Number(feeRecord.amount)) || Number(feeRecord.amount) <= 0 ||
+        !feeRecord.recordedAt ||
+        (feeRecord.source === 'manual' && !feeRecord.recordedBy)) {
+      throw new Error('Justificatif de frais de retour invalide.');
+    }
+    const vendorData = vendorSnap.exists ? vendorSnap.data() : null;
+    if (!vendorData || vendorData.role !== 'vendor') {
+      throw new Error('Profil vendeur introuvable pendant le retour.');
+    }
+    if (vendorData.vendorInfo?.contractStatus !== 'accepted' ||
+        String(vendorData.vendorInfo?.contractVersion || '') !== OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION) {
+      throw new Error('Débit retour bloqué : contrat vendeur 1.4.0 non accepté.');
+    }
+    if (vendorData.vendorInfo?.status === 'deletion_pending') {
+      throw new Error('Débit retour bloqué : suppression du compte en cours.');
+    }
+
+    const returns = Array.isArray(order.returns) ? order.returns : [];
+    const entry = returns[returnIndex];
+    if (!entry || !Array.isArray(entry.items)) throw new Error('Détail du retour introuvable.');
+
+    const orderedByVariant = {};
+    for (const item of (order.items || [])) {
+      if (String(item.vendorId || '') !== vendorId) continue;
+      const variant = item.variant || {};
+      const key = JSON.stringify([String(item.productId || ''), String(variant.size || ''), String(variant.color || '')]);
+      orderedByVariant[key] = (orderedByVariant[key] || 0) + (Number(item.quantity) || 0);
+    }
+    const cumulativeByVariant = {};
+    for (let idx = 0; idx < returns.length; idx++) {
+      for (const retItem of (returns[idx]?.items || [])) {
+        const variant = retItem.variant || {};
+        const productId = String(retItem.productId || '');
+        const matchingItems = (order.items || []).filter(item => {
+          const itemVariant = item.variant || {};
+          return String(item.productId || '') === productId &&
+            String(itemVariant.size || '') === String(variant.size || '') &&
+            String(itemVariant.color || '') === String(variant.color || '');
+        });
+        const owners = [...new Set(matchingItems.map(item => String(item.vendorId || '')))];
+        const delta = Number(retItem.delta);
+        if (!productId || !Number.isInteger(delta) || delta <= 0 || owners.length !== 1) {
+          throw new Error('Produit, propriétaire ou quantité de retour invalide pour la commande ' + orderId);
+        }
+        if (owners[0] !== vendorId) continue;
+        const key = JSON.stringify([productId, String(variant.size || ''), String(variant.color || '')]);
+        cumulativeByVariant[key] = (cumulativeByVariant[key] || 0) + delta;
+        if (!orderedByVariant[key] || cumulativeByVariant[key] > orderedByVariant[key]) {
+          throw new Error('Quantité retournée supérieure à la quantité commandée pour ' + key);
+        }
+      }
+    }
+
+    let returnedQty = 0;
+    for (const retItem of entry.items) {
+      const variant = retItem.variant || {};
+      const productId = String(retItem.productId || '');
+      const matchingItems = (order.items || []).filter(item => {
+        const itemVariant = item.variant || {};
+        return String(item.productId || '') === productId &&
+          String(itemVariant.size || '') === String(variant.size || '') &&
+          String(itemVariant.color || '') === String(variant.color || '');
+      });
+      const owners = [...new Set(matchingItems.map(item => String(item.vendorId || '')))];
+      if (owners.length !== 1) throw new Error('Ligne retournée absente ou ambiguë pour la commande ' + orderId);
+      if (owners[0] === vendorId) returnedQty += Number(retItem.delta);
+    }
+    if (!Number.isInteger(returnedQty) || returnedQty <= 0 ||
+        Number(feeRecord.returnedQty) !== returnedQty) {
+      throw new Error('Quantité retournée incohérente avec le justificatif des frais.');
+    }
+
+    const walletSnap = await tx.get(walletRef);
+    const wallet = walletSnap.exists ? walletSnap.data() : {
+      vendorId, pendingBalance: 0, availableBalance: 0, negativeBalance: 0,
+      totalEarnings: 0, totalWithdrawn: 0,
+      createdAt: FieldValue.serverTimestamp()
+    };
+
+    const saleTxId = order.vendorCredits?.[vendorId]?.txId;
+    const saleTxRef = saleTxId ? db.collection('wallet_transactions').doc(String(saleTxId)) : null;
+    const saleTxSnap = saleTxRef ? await tx.get(saleTxRef) : null;
+    const saleTx = saleTxSnap?.exists ? saleTxSnap.data() : null;
+    const salePendingRemaining = saleTx && saleTx.status === 'pending'
+      ? Math.max(0, (Number(saleTx.amount) || 0) -
+          (Number(saleTx.reversedAmount) || 0) -
+          (Number(saleTx.releasedAmount) || 0))
+      : 0;
+
+    const fee = Number(feeRecord.amount);
+    let pending = Number(wallet.pendingBalance) || 0;
+    let available = Number(wallet.availableBalance) || 0;
+    let negative = Number(wallet.negativeBalance) || 0;
+    let remaining = fee;
+
+    const fromPending = Math.min(Math.max(0, pending), remaining, salePendingRemaining);
+    pending -= fromPending;
+    remaining -= fromPending;
+    const fromAvailable = Math.min(Math.max(0, available), remaining);
+    available -= fromAvailable;
+    remaining -= fromAvailable;
+    if (remaining > 0) negative -= remaining;
+
+    const txRef = db.collection('wallet_transactions').doc();
+    const walletUpdate = {
+      vendorId, pendingBalance: pending, availableBalance: available,
+      negativeBalance: negative,
+      totalEarnings: Number(wallet.totalEarnings) || 0,
+      totalWithdrawn: Number(wallet.totalWithdrawn) || 0,
+      lastUpdated: FieldValue.serverTimestamp()
+    };
+    if (walletSnap.exists) tx.update(walletRef, walletUpdate);
+    else tx.set(walletRef, { ...wallet, ...walletUpdate });
+
+    if (fromPending > 0 && saleTxRef && saleTxSnap?.exists) {
+      tx.update(saleTxRef, {
+        reversedAmount: FieldValue.increment(fromPending),
+        returnOffsetAmount: FieldValue.increment(fromPending),
+        lastReturnOffsetAt: FieldValue.serverTimestamp()
+      });
+    }
+
+    tx.create(txRef, {
+      vendorId,
+      type: 'return_fee',
+      amount: -fee,
+      source: feeRecord.source,
+      feeRecordedAt: feeRecord.recordedAt,
+      feeRecordedBy: feeRecord.recordedBy || null,
+      pendingOffsetAmount: fromPending,
+      availableOffsetAmount: fromAvailable,
+      debtAmount: remaining,
+      orderId, returnIndex, returnedQty,
+      status: 'released',
+      description: `Frais retour commande #${orderId.slice(0, 8).toUpperCase()} (${feeRecord.source})`,
+      createdAt: FieldValue.serverTimestamp()
+    });
+    tx.update(orderRef, {
+      [`vendorDebits.${debitKey}`]: {
+        debitedAt: FieldValue.serverTimestamp(),
+        amount: fee,
+        returnedQty,
+        pendingOffsetAmount: fromPending,
+        availableOffsetAmount: fromAvailable,
+        debtAmount: remaining,
+        txId: txRef.id
+      }
+    });
+  });
+}
+
+exports.onOrderReturnFeeCreated = onDocumentCreated(
+  { document: 'order_return_fees/{feeId}', retry: true },
+  async event => {
+    const fee = event.data.data();
+    if (!fee?.orderId || !Number.isInteger(Number(fee.returnIndex)) || !fee?.vendorId) return;
+    await processReturnFeeDebit(String(fee.orderId), Number(fee.returnIndex), String(fee.vendorId));
+  }
+);
+
+/* ============================================================
    CF : onOrderStatusChanged (Trigger)
    ============================================================ */
-exports.onOrderStatusChanged = onDocumentUpdated('orders/{orderId}', async (event) => {
+exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}', retry: true }, async (event) => {
   const before = event.data.before.data();
   const after = event.data.after.data();
 
-  if (before.status === after.status) return;
-
   const orderId = event.params.orderId;
+
+  // Synchroniser uniquement le statut dans les vues privées de chaque vendeur.
+  // Les articles et montants propres à chaque vendeur restent cloisonnés.
+  if (before.status !== after.status && Array.isArray(after.vendorIds)) {
+    await Promise.all(after.vendorIds.map(vendorId =>
+      db.collection('vendor_orders').doc(String(vendorId))
+        .collection('orders').doc(orderId)
+        .set({
+          status: after.status,
+          updatedAt: after.updatedAt || FieldValue.serverTimestamp()
+        }, { merge: true })
+    ));
+  }
+
+  // Le trigger est aussi relancé lorsqu'un administrateur valide les frais
+  // d'un retour déjà enregistré. Les débits sont idempotents via vendorDebits.
+
+  // Notifications client générées côté serveur (idempotentes).
+  // Les vendeurs ne peuvent pas créer librement des notifications dans Firestore.
+  if (after.status === 'delivered' && before.status !== 'delivered' && after.userId) {
+    const deliveryNotificationRef = db.collection('notifications').doc('order_delivered_' + orderId);
+    const reviewNotificationRef = db.collection('notifications').doc('review_request_' + orderId);
+    await db.runTransaction(async tx => {
+      const [deliverySnap, reviewSnap] = await Promise.all([
+        tx.get(deliveryNotificationRef),
+        tx.get(reviewNotificationRef)
+      ]);
+      const shortId = orderId.slice(0, 8).toUpperCase();
+      if (!deliverySnap.exists) {
+        tx.create(deliveryNotificationRef, {
+          userId: after.userId,
+          type: 'order_delivered',
+          title: 'Commande livrée',
+          message: 'Votre commande #' + shortId + ' est livrée !',
+          orderId,
+          read: false,
+          createdAt: FieldValue.serverTimestamp()
+        });
+      }
+      if (!reviewSnap.exists) {
+        tx.create(reviewNotificationRef, {
+          userId: after.userId,
+          type: 'review_request',
+          title: 'Laissez un avis',
+          message: 'Votre commande #' + shortId + ' est livrée ! Partagez votre expérience.',
+          orderId,
+          persistent: true,
+          read: false,
+          createdAt: FieldValue.serverTimestamp()
+        });
+      }
+    });
+  }
 
   // Crédit vendeur
   if (after.status === 'delivered' && before.status !== 'delivered') {
@@ -794,7 +1705,12 @@ exports.onOrderStatusChanged = onDocumentUpdated('orders/{orderId}', async (even
         const vendorSnap = await db.collection('users').doc(vendorId).get();
         if (!vendorSnap.exists) continue;
 
-        const rate = Number(vendorSnap.data().vendorInfo?.commissionRate) || 0.07;
+        const configuredRate = Number(vendorSnap.data().vendorInfo?.commissionRate);
+        const rate = Number.isFinite(configuredRate) &&
+          configuredRate >= OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE_MIN &&
+          configuredRate <= OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE_MAX
+          ? configuredRate
+          : OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE;
         const commission = Math.round(subtotal * rate * 100) / 100;
         const net = Math.round((subtotal - commission) * 100) / 100;
         if (net <= 0) continue;
@@ -808,32 +1724,53 @@ exports.onOrderStatusChanged = onDocumentUpdated('orders/{orderId}', async (even
           const freshOrderSnap = await tx.get(orderRef);
           if (!freshOrderSnap.exists) return;
           const freshOrder = freshOrderSnap.data();
+
+          // Une invocation retardée du trigger "delivered" ne doit jamais
+          // créditer une vente si la commande est déjà passée à "returned"
+          // ou à un autre statut depuis l'événement initial.
+          if (freshOrder.status !== 'delivered') return;
           if (freshOrder.vendorCredits && freshOrder.vendorCredits[vendorId]) return;
 
-          const freshWalletSnap = await tx.get(walletRef);
-          if (!freshWalletSnap.exists) {
-            tx.set(walletRef, {
-              vendorId,
-              pendingBalance: net,
-              availableBalance: 0,
-              totalEarnings: net,
-              totalWithdrawn: 0,
-              createdAt: FieldValue.serverTimestamp(),
-              lastUpdated: FieldValue.serverTimestamp()
-            });
-          } else {
-            tx.update(walletRef, {
-              pendingBalance: FieldValue.increment(net),
-              totalEarnings: FieldValue.increment(net),
-              lastUpdated: FieldValue.serverTimestamp()
-            });
+          // Lecture du profil dans la transaction : le verrou deletion_pending
+          // invalide/rejoue un crédit qui serait concurrent à une suppression.
+          const freshVendorSnap = await tx.get(db.collection('users').doc(vendorId));
+          if (!freshVendorSnap.exists || freshVendorSnap.data()?.role !== 'vendor') return;
+          if (freshVendorSnap.data()?.vendorInfo?.status === 'deletion_pending') {
+            throw new Error('Crédit vendeur bloqué : suppression du compte en cours.');
           }
+
+          const freshWalletSnap = await tx.get(walletRef);
+          const wallet = freshWalletSnap.exists ? freshWalletSnap.data() : {
+            pendingBalance: 0,
+            availableBalance: 0,
+            negativeBalance: 0,
+            totalEarnings: 0,
+            totalWithdrawn: 0
+          };
+          const currentDebt = Math.max(0, -(Number(wallet.negativeBalance) || 0));
+          const debtOffset = Math.min(net, currentDebt);
+          const pendingCredit = Math.max(0, net - debtOffset);
+          const nextDebt = Math.min(0, (Number(wallet.negativeBalance) || 0) + debtOffset);
+          const walletUpdate = {
+            vendorId,
+            pendingBalance: Math.max(0, Number(wallet.pendingBalance) || 0) + pendingCredit,
+            availableBalance: Number(wallet.availableBalance) || 0,
+            negativeBalance: nextDebt,
+            totalEarnings: (Number(wallet.totalEarnings) || 0) + net,
+            totalWithdrawn: Number(wallet.totalWithdrawn) || 0,
+            lastUpdated: FieldValue.serverTimestamp()
+          };
+          if (freshWalletSnap.exists) tx.update(walletRef, walletUpdate);
+          else tx.set(walletRef, { ...walletUpdate, createdAt: FieldValue.serverTimestamp() });
 
           const txRef = db.collection('wallet_transactions').doc();
           tx.set(txRef, {
             vendorId,
             type: 'sale',
             amount: net,
+            reversedAmount: debtOffset,
+            releasedAmount: 0,
+            debtOffsetAmount: debtOffset,
             commission,
             commissionRate: rate,
             subtotal,
@@ -854,96 +1791,201 @@ exports.onOrderStatusChanged = onDocumentUpdated('orders/{orderId}', async (even
         });
       } catch (err) {
         console.error(`[onOrderStatusChanged] Erreur crédit vendeur ${vendorId}:`, err);
+        throw err;
       }
     }
   }
 
-  // Débit retour vendeur
-  if (after.status === 'returned' && before.status !== 'returned') {
-    const returns = Array.isArray(after.returns) ? after.returns : [];
-    const lastReturn = returns[returns.length - 1];
-    if (!lastReturn || !Array.isArray(lastReturn.items)) return;
+  // Rejouer les justificatifs déjà créés si une commande repasse au statut retourné.
+  // Le processeur est idempotent : une écriture wallet ne peut être créée qu'une fois.
+  if (after.status === 'returned') {
+    const feeSnap = await db.collection('order_return_fees')
+      .where('orderId', '==', orderId)
+      .get();
+    for (const feeDoc of feeSnap.docs) {
+      const fee = feeDoc.data();
+      await processReturnFeeDebit(orderId, Number(fee.returnIndex), String(fee.vendorId));
+    }
+  }
+});
 
-    const returnIndex = returns.length - 1;
-    const qtyByVendor = {};
-    lastReturn.items.forEach(retItem => {
-      const item = (after.items || []).find(i => String(i.productId) === String(retItem.productId));
-      if (!item) return;
-      const vid = item.vendorId;
-      if (!vid || vid === 'smartswi9a') return;
-      qtyByVendor[vid] = (qtyByVendor[vid] || 0) + (Number(retItem.delta) || 0);
+/* ============================================================
+   CF : createVerifiedReview
+   Création d'avis avec vérification d'achat côté serveur.
+   ============================================================ */
+exports.createVerifiedReview = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS], timeoutSeconds: 30 }, async (req, res) => {
+  if (cors(req, res)) return;
+  try {
+    const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
+    if (!match) return res.status(401).json({ success: false, message: 'Connexion requise.' });
+    const decoded = await getAuth().verifyIdToken(match[1], true);
+    const productId = String(req.body?.productId ?? '').trim();
+    const rating = Number(req.body?.rating);
+    const title = String(req.body?.title || '').trim().slice(0, 80);
+    const comment = String(req.body?.comment || '').trim().slice(0, 500);
+    const photos = Array.isArray(req.body?.photos) ? req.body.photos.slice(0, 5) : [];
+
+    if (!productId || productId.includes('/') || productId.length > 150 || !Number.isInteger(rating) || rating < 1 || rating > 5 || !comment) {
+      return res.status(400).json({ success: false, message: 'Avis invalide.' });
+    }
+    for (const photo of photos) {
+      if (typeof photo !== 'string' || photo.length > 2048) {
+        return res.status(400).json({ success: false, message: 'Photo invalide.' });
+      }
+      let validPath = false;
+      try {
+        const parsed = new URL(photo);
+        const decodedPath = decodeURIComponent(parsed.pathname);
+        validPath = parsed.hostname === 'firebasestorage.googleapis.com' &&
+          decodedPath.includes('/o/reviews/' + decoded.uid + '/');
+      } catch (_) {}
+      if (!validPath) return res.status(400).json({ success: false, message: 'Photo non autorisée.' });
+    }
+
+    const reviewId = 'review_' + decoded.uid + '_' + productId;
+    const reviewRef = db.collection('reviews').doc(reviewId);
+    const productRef = db.collection('products').doc(productId);
+    const ordersSnap = await db.collection('orders')
+      .where('userId', '==', decoded.uid)
+      .where('status', 'in', ['delivered', 'received'])
+      .limit(50)
+      .get();
+
+    const matchingOrder = ordersSnap.docs.find(docSnap =>
+      (docSnap.data().items || []).some(item => String(item.productId) === productId)
+    );
+    if (!matchingOrder) {
+      return res.status(403).json({ success: false, message: 'Un achat livré de ce produit est nécessaire pour publier un avis.' });
+    }
+
+    const result = await db.runTransaction(async tx => {
+      const [reviewSnap, orderSnap, productSnap, userSnap] = await Promise.all([
+        tx.get(reviewRef),
+        tx.get(matchingOrder.ref),
+        tx.get(productRef),
+        tx.get(db.collection('users').doc(decoded.uid))
+      ]);
+      if (reviewSnap.exists) throw new Error('Vous avez déjà publié un avis pour ce produit.');
+      if (!orderSnap.exists || !['delivered', 'received'].includes(orderSnap.data().status)) {
+        throw new Error('La commande ne permet plus de vérifier cet achat.');
+      }
+      if (!(orderSnap.data().items || []).some(item => String(item.productId) === productId)) {
+        throw new Error('Produit absent de la commande.');
+      }
+      if (!productSnap.exists) throw new Error('Produit introuvable.');
+      const product = productSnap.data();
+      const user = userSnap.exists ? userSnap.data() : {};
+      const reviewData = {
+        userId: decoded.uid,
+        userName: String(user.name || decoded.name || decoded.email || 'Client').slice(0, 100),
+        productId: /^\d+$/.test(productId) ? Number(productId) : productId,
+        productName: String(product.nameFr || product.nameEn || product.nameAr || 'Produit').slice(0, 150),
+        productSlug: String(product.slug || '').slice(0, 180),
+        rating,
+        title,
+        comment,
+        status: 'pending',
+        createdAt: FieldValue.serverTimestamp(),
+        orderId: matchingOrder.id,
+        photos,
+        verifiedPurchase: true,
+        serverVerified: true,
+        likes: [],
+        likesCount: 0,
+        featured: false
+      };
+      tx.create(reviewRef, reviewData);
+      return { reviewId, orderId: matchingOrder.id };
     });
 
-    for (const [vendorId, qty] of Object.entries(qtyByVendor)) {
-      if (qty <= 0) continue;
-      const fee = RETURN_FEE_LIVO * qty;
-      const debitKey = `${vendorId}_ret${returnIndex}`;
+    return res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    console.error('[createVerifiedReview]', error);
+    return res.status(400).json({ success: false, message: error.message || 'Création de l’avis impossible.' });
+  }
+});
 
-      try {
-        const alreadyDebited = after.vendorDebits && after.vendorDebits[debitKey];
-        if (alreadyDebited) continue;
+/* ============================================================
+   CF : backfillVendorOrderViews
+   Migration idempotente des anciennes commandes vers les vues privées.
+   ============================================================ */
+exports.backfillVendorOrderViews = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS], timeoutSeconds: 60 }, async (req, res) => {
+  if (cors(req, res)) return;
+  try {
+    const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
+    if (!match) return res.status(401).json({ success: false, message: 'Connexion requise.' });
+    const decoded = await getAuth().verifyIdToken(match[1], true);
+    const adminSnap = await db.collection('users').doc(decoded.uid).get();
+    const isAdmin = decoded.admin === true || (adminSnap.exists && adminSnap.data()?.role === 'admin');
+    if (!isAdmin) return res.status(403).json({ success: false, message: 'Action réservée à un administrateur.' });
 
-        const walletRef = db.collection('wallets').doc(vendorId);
-        const walletSnap = await walletRef.get();
-        if (!walletSnap.exists) continue;
+    const pageSize = Math.max(1, Math.min(Number(req.body?.pageSize) || 100, 100));
+    let query = db.collection('orders').orderBy(FieldPath.documentId()).limit(pageSize);
+    const cursor = String(req.body?.cursor || '').trim();
+    if (cursor) {
+      const cursorSnap = await db.collection('orders').doc(cursor).get();
+      if (!cursorSnap.exists) return res.status(400).json({ success: false, message: 'Curseur de migration introuvable.' });
+      query = query.startAfter(cursorSnap);
+    }
 
-        await db.runTransaction(async (tx) => {
-          const orderRef = db.collection('orders').doc(orderId);
-          const freshOrderSnap = await tx.get(orderRef);
-          if (!freshOrderSnap.exists) return;
-          const freshOrder = freshOrderSnap.data();
-          if (freshOrder.vendorDebits && freshOrder.vendorDebits[debitKey]) return;
+    const ordersSnap = await query.get();
+    const writes = [];
+    for (const orderDoc of ordersSnap.docs) {
+      const order = orderDoc.data();
+      const items = Array.isArray(order.items) ? order.items : [];
+      const vendorIds = [...new Set(items
+        .map(item => String(item.vendorId || 'smartswi9a'))
+        .filter(vendorId => vendorId && vendorId !== 'smartswi9a'))];
+      const containsPlatformItems = items.some(item => String(item.vendorId || 'smartswi9a') === 'smartswi9a');
+      await orderDoc.ref.update({
+        vendorIds,
+        containsPlatformItems
+      });
 
-          const freshWalletSnap = await tx.get(walletRef);
-          if (!freshWalletSnap.exists) return;
-          const w = freshWalletSnap.data();
-
-          let pending = Number(w.pendingBalance) || 0;
-          let available = Number(w.availableBalance) || 0;
-          let negative = Number(w.negativeBalance) || 0;
-          let remaining = fee;
-
-          const fromPending = Math.min(pending, remaining);
-          pending -= fromPending;
-          remaining -= fromPending;
-
-          const fromAvailable = Math.min(available, remaining);
-          available -= fromAvailable;
-          remaining -= fromAvailable;
-
-          if (remaining > 0) negative -= remaining;
-
-          tx.update(walletRef, {
-            pendingBalance: pending,
-            availableBalance: available,
-            negativeBalance: negative,
-            lastUpdated: FieldValue.serverTimestamp()
-          });
-
-          const txRef = db.collection('wallet_transactions').doc();
-          tx.set(txRef, {
+      for (const vendorId of vendorIds) {
+        const vendorItems = items.filter(item => String(item.vendorId || '') === vendorId);
+        const vendorSubtotal = vendorItems.reduce(
+          (sum, item) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 0),
+          0
+        );
+        const viewRef = db.collection('vendor_orders').doc(vendorId)
+          .collection('orders').doc(orderDoc.id);
+        writes.push({
+          ref: viewRef,
+          data: {
+            orderId: orderDoc.id,
             vendorId,
-            type: 'return_fee',
-            amount: -fee,
-            orderId,
-            returnIndex,
-            status: 'released',
-            description: `Frais retour commande #${orderId.slice(0, 8).toUpperCase()} (${qty} colis)`,
-            createdAt: FieldValue.serverTimestamp()
-          });
-
-          tx.update(orderRef, {
-            [`vendorDebits.${debitKey}`]: {
-              debitedAt: FieldValue.serverTimestamp(),
-              amount: fee,
-              returnedQty: qty
-            }
-          });
+            vendorCount: vendorIds.length + (items.some(item => String(item.vendorId || 'smartswi9a') === 'smartswi9a') ? 1 : 0),
+            userId: order.userId || '',
+            userName: String(order.userName || order.deliveryAddress?.name || 'Client').slice(0, 100),
+            deliveryAddress: order.deliveryAddress || {},
+            items: vendorItems,
+            vendorSubtotal,
+            status: order.status || 'pending',
+            createdAt: order.createdAt || FieldValue.serverTimestamp(),
+            updatedAt: order.updatedAt || FieldValue.serverTimestamp()
+          }
         });
-      } catch (err) {
-        console.error(`[onOrderStatusChanged] Erreur débit retour ${vendorId}:`, err);
       }
     }
+
+    for (let i = 0; i < writes.length; i += 400) {
+      const batch = db.batch();
+      writes.slice(i, i + 400).forEach(write => batch.set(write.ref, write.data, { merge: true }));
+      await batch.commit();
+    }
+
+    const lastDoc = ordersSnap.docs[ordersSnap.docs.length - 1];
+    return res.status(200).json({
+      success: true,
+      processedOrders: ordersSnap.size,
+      vendorViewsWritten: writes.length,
+      nextCursor: ordersSnap.size === pageSize && lastDoc ? lastDoc.id : null,
+      complete: ordersSnap.size < pageSize
+    });
+  } catch (error) {
+    console.error('[backfillVendorOrderViews]', error);
+    return res.status(500).json({ success: false, message: 'Migration des commandes vendeurs impossible.' });
   }
 });
 
@@ -996,8 +2038,15 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
       for (let i = 0; i < productSnaps.length; i++) {
         if (!productSnaps[i].exists) throw new Error(`Produit introuvable.`);
         const pd = productSnaps[i].data();
-        if (pd.status && pd.status !== 'approved') throw new Error(`Produit indisponible.`);
         const vid = String(pd.vendorId || 'smartswi9a');
+        // Les produits vendeurs doivent explicitement être approuvés.
+        // La tolérance au champ status absent est réservée au catalogue historique Smart Swi9a.
+        if (vid !== 'smartswi9a' && pd.status !== 'approved') {
+          throw new Error('Produit vendeur indisponible ou non approuvé.');
+        }
+        if (vid === 'smartswi9a' && pd.status && pd.status !== 'approved') {
+          throw new Error('Produit indisponible.');
+        }
         if (vid !== 'smartswi9a') vendorIdsSet.add(vid);
       }
       const vendorIds = [...vendorIdsSet];
@@ -1009,8 +2058,9 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
         vendorSnaps.forEach((snap, i) => {
           if (!snap.exists) throw new Error(`Le vendeur ${vendorIds[i]} n'est pas actif.`);
           const vData = snap.data();
-          if (vData.status !== 'approved') {
-            throw new Error(`Le vendeur ${vendorIds[i]} n'est pas approuvé (statut: ${vData.status || 'pending'}).`);
+          if (vData.status !== 'approved' ||
+              String(vData.contractVersion || '') !== OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION) {
+            throw new Error(`Le vendeur ${vendorIds[i]} n'est pas approuvé avec le contrat courant.`);
           }
         });
       }
@@ -1074,18 +2124,41 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
         });
       }
 
-      // C2 : deliveryFee depuis Firestore
-      let deliveryFee = FALLBACK_DELIVERY_FEE;
-      if (delivery.cityId) {
-        try {
-          const citySnap = await tx.get(db.collection('cities').doc(String(delivery.cityId)));
-          if (citySnap.exists) {
-            deliveryFee = Math.max(0, Number(citySnap.data().price) || 0);
-          }
-        } catch (e) {
-          console.warn('[createCustomerOrder] cities read failed, fallback:', e.message);
-        }
+      // Le tarif doit provenir d'une ville Firestore identifiée et correspondre
+      // au nom français sélectionné. Le client ne peut pas choisir un cityId
+      // moins cher tout en saisissant une autre ville.
+      if (!delivery.cityId) throw new Error('Veuillez sélectionner une ville de livraison valide.');
+      const cityIdNumber = Number(delivery.cityId);
+      let cityData = null;
+      if (Number.isFinite(cityIdNumber)) {
+        const cityQuery = db.collection('cities').where('id', '==', cityIdNumber).limit(1);
+        const cityQuerySnap = await tx.get(cityQuery);
+        if (!cityQuerySnap.empty) cityData = cityQuerySnap.docs[0].data();
       }
+      // Compatibilité avec les anciennes villes dont l'identifiant Firestore
+      // est directement utilisé comme identifiant côté interface.
+      if (!cityData) {
+        const cityDocSnap = await tx.get(db.collection('cities').doc(String(delivery.cityId)));
+        if (cityDocSnap.exists) cityData = cityDocSnap.data();
+      }
+      if (!cityData) throw new Error('Ville de livraison introuvable. Actualisez la liste des villes.');
+      const submittedCity = normalizeCityKey(delivery.cityFr || delivery.city || '');
+      const acceptedCityNames = [cityData.key, cityData.nameFr, cityData.nameEn, cityData.name]
+        .map(normalizeCityKey)
+        .filter(Boolean);
+      const exactSubmittedNames = [delivery.cityAr, delivery.city]
+        .map(value => String(value || '').trim().toLocaleLowerCase())
+        .filter(Boolean);
+      const exactAcceptedNames = [cityData.nameAr, cityData.nameFr, cityData.nameEn, cityData.name]
+        .map(value => String(value || '').trim().toLocaleLowerCase())
+        .filter(Boolean);
+      const cityNameMatches =
+        (submittedCity && acceptedCityNames.includes(submittedCity)) ||
+        exactSubmittedNames.some(name => exactAcceptedNames.includes(name));
+      if (!cityNameMatches) {
+        throw new Error('La ville sélectionnée ne correspond pas à la ville de livraison.');
+      }
+      const deliveryFee = Math.max(0, Number(cityData.price) || 0);
 
       // M1 : réduction volume
       const volumeDiscount = totalQty >= 3 ? Math.round(subtotal * 0.05) : 0;
@@ -1141,12 +2214,15 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
       const cancellableUntil = new Date(now + 4 * 3600 * 1000);
 
       const vendorList = [...new Set(validatedItems.map(i => i.vendorId).filter(v => v && v !== 'smartswi9a'))];
+      const containsPlatformItems = validatedItems.some(i => i.vendorId === 'smartswi9a');
+      const vendorCountForPrivacy = vendorList.length + (containsPlatformItems ? 1 : 0);
       const orderData = {
         userId: decoded.uid,
         userName: String(delivery.name).trim().slice(0, 100),
         userEmail: String(decoded.email || delivery.email || ''),
         items: validatedItems,
         vendorIds: vendorList,
+        containsPlatformItems,
         status: 'pending',
         paymentStatus: 'unpaid',
         subtotal,
@@ -1168,6 +2244,31 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
 
       productUpdates.forEach(u => tx.update(u.ref, u.data));
       tx.set(orderRef, orderData);
+
+      // Vue cloisonnée par vendeur : aucun vendeur ne reçoit les articles
+      // des autres boutiques ni les totaux globaux de la commande.
+      for (const vendorId of vendorList) {
+        const vendorItems = validatedItems.filter(item => item.vendorId === vendorId);
+        const vendorSubtotal = vendorItems.reduce(
+          (sum, item) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 0),
+          0
+        );
+        const vendorOrderRef = db.collection('vendor_orders').doc(vendorId)
+          .collection('orders').doc(orderRef.id);
+        tx.set(vendorOrderRef, {
+          orderId: orderRef.id,
+          vendorId,
+          vendorCount: vendorCountForPrivacy,
+          userId: decoded.uid,
+          userName: String(delivery.name).trim().slice(0, 100),
+          deliveryAddress: delivery,
+          items: vendorItems,
+          vendorSubtotal,
+          status: 'pending',
+          createdAt: orderData.createdAt,
+          updatedAt: orderData.updatedAt
+        });
+      }
 
       const notifRef = db.collection('notifications').doc();
       tx.set(notifRef, {
@@ -1234,12 +2335,30 @@ exports.cancelCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
       const refs = productIds.map(id => db.collection('products').doc(id));
       const snaps = await Promise.all(refs.map(ref => tx.get(ref)));
 
+      // Toutes les lectures doivent précéder les premières écritures
+      // de la transaction Firestore.
+      const couponRef = order.couponId
+        ? db.collection('coupons').doc(String(order.couponId))
+        : null;
+      const couponSnap = couponRef && !order.couponRestored
+        ? await tx.get(couponRef)
+        : null;
+
       if (order.stockDeducted === true) {
         for (let i = 0; i < productIds.length; i++) {
-          if (!snaps[i].exists) continue;
+          if (!snaps[i].exists) {
+            throw new Error(`Produit ${productIds[i]} introuvable : annulation interrompue pour préserver le stock.`);
+          }
           const p = snaps[i].data();
           const productItems = items.filter(item => String(item.productId) === productIds[i]);
-          const totalQty = productItems.reduce((sum, item) => sum + Math.max(1, Math.floor(Number(item.quantity) || 1)), 0);
+          const quantities = productItems.map(item => {
+            const qty = Number(item.quantity);
+            if (!Number.isInteger(qty) || qty <= 0) {
+              throw new Error(`Quantité invalide pour le produit ${productIds[i]}.`);
+            }
+            return { item, qty };
+          });
+          const totalQty = quantities.reduce((sum, entry) => sum + entry.qty, 0);
           const upd = {
             salesCount: Math.max(0, (Number(p.salesCount) || 0) - totalQty),
             lastOrderId: orderId,
@@ -1247,19 +2366,34 @@ exports.cancelCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
           };
           const variants = Array.isArray(p.variants) ? p.variants.map(v => ({ ...v })) : [];
           let simpleStock = Number(p.stock) || 0;
-          for (const item of productItems) {
-            const qty = Math.max(1, Math.floor(Number(item.quantity) || 1));
+          let hasVariantItems = false;
+          let hasSimpleItems = false;
+
+          for (const { item, qty } of quantities) {
             if (item.variant) {
+              hasVariantItems = true;
               const idx = variants.findIndex(v =>
                 String(v.size || '') === String(item.variant.size || '') &&
                 String(v.color || '') === String(item.variant.color || '')
               );
-              if (idx >= 0) variants[idx].stock = (Number(variants[idx].stock) || 0) + qty;
+              if (idx < 0) {
+                throw new Error(`Variante introuvable pour le produit ${productIds[i]} : annulation interrompue.`);
+              }
+              const currentVariantStock = Number(variants[idx].stock);
+              if (!Number.isFinite(currentVariantStock) || currentVariantStock < 0) {
+                throw new Error(`Stock de variante invalide pour le produit ${productIds[i]}.`);
+              }
+              variants[idx].stock = currentVariantStock + qty;
             } else {
+              hasSimpleItems = true;
               simpleStock += qty;
             }
           }
-          if (productItems.some(item => item.variant)) {
+
+          if (hasVariantItems && hasSimpleItems) {
+            throw new Error(`Structure de stock incohérente pour le produit ${productIds[i]} : variantes et stock simple mélangés.`);
+          }
+          if (hasVariantItems) {
             upd.variants = variants;
             upd.stock = variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
           } else {
@@ -1269,18 +2403,13 @@ exports.cancelCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
         }
       }
 
-      // M2 : restauration coupon (protégée contre usedCount négatif)
-      if (order.couponId && !order.couponRestored) {
-        try {
-          const couponRef = db.collection('coupons').doc(String(order.couponId));
-          const couponSnap = await tx.get(couponRef);
-          if (couponSnap.exists && Number(couponSnap.data().usedCount) > 0) {
-            tx.update(couponRef, { usedCount: FieldValue.increment(-1) });
-          }
-          tx.delete(db.collection('coupon_uses').doc(`${order.couponId}_${decoded.uid}`));
-        } catch (e) {
-          console.warn('[cancelCustomerOrder] Coupon restore failed:', e.message);
+      // Restaurer le coupon sans lecture après les premières écritures
+      // et sans jamais rendre usedCount négatif.
+      if (couponRef && !order.couponRestored) {
+        if (couponSnap?.exists && Number(couponSnap.data().usedCount) > 0) {
+          tx.update(couponRef, { usedCount: FieldValue.increment(-1) });
         }
+        tx.delete(db.collection('coupon_uses').doc(`${order.couponId}_${decoded.uid}`));
       }
 
       tx.update(orderRef, {
@@ -1310,7 +2439,8 @@ exports.adminPayoutAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
     const decoded = await getAuth().verifyIdToken(match[1], true);
 
     const adminSnap = await db.collection('users').doc(decoded.uid).get();
-    if (!adminSnap.exists || adminSnap.data()?.role !== 'admin') {
+    const isAdmin = decoded.admin === true || (adminSnap.exists && adminSnap.data()?.role === 'admin');
+    if (!isAdmin) {
       return res.status(403).json({ success: false, message: 'Action réservée à un administrateur.' });
     }
 
@@ -1331,6 +2461,18 @@ exports.adminPayoutAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
       const vendorId = String(payoutData.vendorId || '');
       if (!vendorId) throw new Error('Demande sans vendorId — impossible de traiter.');
 
+      // Sérialiser le traitement d'un retrait avec le verrou de suppression
+      // du vendeur. Si la suppression est déjà engagée, aucune opération
+      // financière ne doit être créée après le contrôle des demandes ouvertes.
+      const vendorRef = db.collection('users').doc(vendorId);
+      const vendorSnap = await t.get(vendorRef);
+      if (!vendorSnap.exists || vendorSnap.data()?.role !== 'vendor') {
+        throw new Error('Profil vendeur introuvable.');
+      }
+      if (vendorSnap.data()?.vendorInfo?.status === 'deletion_pending') {
+        throw new Error('Suppression du compte vendeur en cours : retrait temporairement bloqué.');
+      }
+
       if (action === 'paid') {
         const amount = Number(payoutData.amount) || 0;
         if (amount <= 0) throw new Error('Montant invalide.');
@@ -1340,6 +2482,9 @@ exports.adminPayoutAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
         if (!walletSnap.exists) throw new Error('Wallet introuvable.');
 
         const wallet = walletSnap.data();
+        if ((Number(wallet.negativeBalance) || 0) < -0.0001) {
+          throw new Error('Paiement bloqué : le portefeuille vendeur présente un solde débiteur à régulariser.');
+        }
         const available = Number(wallet.availableBalance) || 0;
         if (available < amount) {
           throw new Error(`Solde insuffisant : disponible ${available} MAD, demandé ${amount} MAD.`);
@@ -1417,7 +2562,8 @@ exports.releaseDueFunds = onRequest({ region: 'europe-west1', cors: [...ALLOWED_
     const decoded = await getAuth().verifyIdToken(match[1], true);
 
     const adminSnap = await db.collection('users').doc(decoded.uid).get();
-    if (!adminSnap.exists || adminSnap.data()?.role !== 'admin') {
+    const isAdmin = decoded.admin === true || (adminSnap.exists && adminSnap.data()?.role === 'admin');
+    if (!isAdmin) {
       return res.status(403).json({ success: false, message: 'Action réservée à un administrateur.' });
     }
 
@@ -1452,8 +2598,37 @@ exports.releaseDueFunds = onRequest({ region: 'europe-west1', cors: [...ALLOWED_
         const walletRef = db.collection('wallets').doc(vendorId);
 
         const result = await db.runTransaction(async (t) => {
-          const walletSnap = await t.get(walletRef);
+          // Le profil vendeur sert de verrou commun avec adminVendorAction :
+          // une libération ne peut pas passer silencieusement après le début
+          // d'une suppression.
+          const vendorRef = db.collection('users').doc(vendorId);
+          const [vendorSnap, walletSnap] = await Promise.all([
+            t.get(vendorRef),
+            t.get(walletRef)
+          ]);
+          if (!vendorSnap.exists || vendorSnap.data()?.role !== 'vendor') {
+            throw new Error('Profil vendeur introuvable');
+          }
+          if (vendorSnap.data()?.vendorInfo?.status === 'deletion_pending') {
+            throw new Error('Suppression du compte vendeur en cours');
+          }
           if (!walletSnap.exists) throw new Error('Wallet introuvable');
+
+          // Relire chaque transaction dans la transaction Firestore : deux
+          // exécutions concurrentes ne doivent jamais libérer deux fois la
+          // même écriture à partir du même résultat de requête initial.
+          const freshTxs = [];
+          for (const candidate of txs) {
+            const freshSnap = await t.get(candidate.ref);
+            if (!freshSnap.exists) continue;
+            const freshData = freshSnap.data();
+            if (freshData.status !== 'pending' || !freshData.unlockAt) continue;
+            const unlockDate = typeof freshData.unlockAt.toDate === 'function'
+              ? freshData.unlockAt.toDate()
+              : new Date(freshData.unlockAt);
+            if (!Number.isFinite(unlockDate.getTime()) || unlockDate > now) continue;
+            freshTxs.push({ ref: candidate.ref, data: freshData });
+          }
 
           const wallet = walletSnap.data();
           let pendingBalance = Number(wallet.pendingBalance) || 0;
@@ -1461,23 +2636,37 @@ exports.releaseDueFunds = onRequest({ region: 'europe-west1', cors: [...ALLOWED_
           let vendorReleased = 0;
           let txsCount = 0;
 
-          for (const tx of txs) {
-            const amount = Number(tx.data.amount) || 0;
-            const reversed = Number(tx.data.reversedAmount) || 0;
-            const eligible = Math.max(0, amount - reversed);
-            const releaseForThis = Math.min(eligible, pendingBalance);
+          for (const tx of freshTxs) {
+            const amount = Math.max(0, Number(tx.data.amount) || 0);
+            const reversed = Math.max(0, Number(tx.data.reversedAmount) || 0);
+            const alreadyReleased = Math.max(0, Number(tx.data.releasedAmount) || 0);
+            const eligible = Math.max(0, amount - reversed - alreadyReleased);
 
-            if (releaseForThis > 0) {
-              pendingBalance -= releaseForThis;
-              availableBalance += releaseForThis;
-              vendorReleased += releaseForThis;
-              txsCount++;
+            if (eligible <= 0.0001) {
+              t.update(tx.ref, {
+                status: 'released',
+                releasedAt: tx.data.releasedAt || FieldValue.serverTimestamp(),
+                releasedAmount: alreadyReleased
+              });
+              continue;
             }
 
+            const releaseForThis = Math.min(eligible, Math.max(0, pendingBalance));
+            if (releaseForThis <= 0) continue;
+
+            pendingBalance -= releaseForThis;
+            availableBalance += releaseForThis;
+            vendorReleased += releaseForThis;
+            txsCount++;
+
+            const cumulativeReleased = alreadyReleased + releaseForThis;
+            const fullyReleased = (reversed + cumulativeReleased) >= amount - 0.0001;
             t.update(tx.ref, {
-              status: 'released',
-              releasedAt: FieldValue.serverTimestamp(),
-              releasedAmount: releaseForThis
+              status: fullyReleased ? 'released' : 'pending',
+              releasedAmount: cumulativeReleased,
+              ...(fullyReleased
+                ? { releasedAt: FieldValue.serverTimestamp() }
+                : { partialReleasedAt: FieldValue.serverTimestamp() })
             });
           }
 

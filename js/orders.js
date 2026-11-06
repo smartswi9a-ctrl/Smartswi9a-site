@@ -167,7 +167,7 @@ function buildOrderEmailText(order, status, recipient, lang = 'fr') {
         const variantText = item.variant ? ` (${[item.variant.size, item.variant.color].filter(Boolean).join(' - ')})` : '';
         text += `- ${item.name}${variantText} x ${item.quantity} : ${(item.price * item.quantity)} MAD\n`;
     });
-    text += `\nTotal: ${order.total || 0} MAD\nCity: ${city}\n\n${team[lang]}\nhttps://smartswi9a.top`;
+    text += `\nTotal: ${order.total || 0} MAD\nCity: ${city}\n\n${team[lang]}\nhttps://smartswika.ma`;
     return text;
 }
 
@@ -696,17 +696,38 @@ export async function updateOrderStatus(orderId, newStatus) {
 
             if (!Object.values(ORDER_STATUS).includes(normalizedStatus)) throw new Error('Statut invalide');
 
+            // N'autoriser que le cycle métier prévu. Sans cette vérification,
+            // une commande pending pourrait être marquée livrée directement
+            // et déclencher un crédit vendeur sans expédition réelle.
+            const allowedTransitions = {
+                [ORDER_STATUS.PENDING]: [ORDER_STATUS.CONFIRMED, ORDER_STATUS.CANCELLED],
+                [ORDER_STATUS.CONFIRMED]: [ORDER_STATUS.SHIPPING, ORDER_STATUS.CANCELLED],
+                [ORDER_STATUS.SHIPPING]: [ORDER_STATUS.DELIVERED, ORDER_STATUS.CANCELLED],
+                [ORDER_STATUS.DELIVERED]: [],
+                [ORDER_STATUS.RETURNED]: [],
+                [ORDER_STATUS.CANCELLED]: []
+            };
+            if (!(allowedTransitions[previousStatus] || []).includes(normalizedStatus)) {
+                throw new Error(`Transition de commande interdite : ${previousStatus} → ${normalizedStatus}.`);
+            }
+
             let productSnaps = [];
             let productRefs = [];
 
             if (normalizedStatus === ORDER_STATUS.CONFIRMED && previousStatus === ORDER_STATUS.PENDING && order.stockDeducted !== true) {
-                productRefs = order.items.map(i => doc(db, "products", String(i.productId)));
+                productRefs = [...new Set(order.items.map(i => String(i.productId)))].map(productId => doc(db, "products", productId));
                 productSnaps = await Promise.all(productRefs.map(r => transaction.get(r)));
             }
 
             if (normalizedStatus === ORDER_STATUS.CANCELLED && [ORDER_STATUS.PENDING, ORDER_STATUS.CONFIRMED, ORDER_STATUS.SHIPPING].includes(previousStatus) && order.stockDeducted === true) {
-                productRefs = order.items.map(i => doc(db, "products", String(i.productId)));
+                productRefs = [...new Set(order.items.map(i => String(i.productId)))].map(productId => doc(db, "products", productId));
                 productSnaps = await Promise.all(productRefs.map(r => transaction.get(r)));
+            }
+
+            // Lire le coupon avant toute écriture de stock dans la transaction.
+            let couponSnap = null;
+            if (normalizedStatus === ORDER_STATUS.CANCELLED && order.couponId && !order.couponRestored) {
+                couponSnap = await transaction.get(doc(db, "coupons", order.couponId));
             }
 
             if (normalizedStatus === ORDER_STATUS.CONFIRMED && previousStatus === ORDER_STATUS.PENDING && order.stockDeducted !== true) {
@@ -722,7 +743,9 @@ export async function updateOrderStatus(orderId, newStatus) {
             if (normalizedStatus === ORDER_STATUS.CANCELLED && order.couponId && !order.couponRestored) {
                 const couponRef = doc(db, "coupons", order.couponId);
                 const couponUseRef = doc(db, "coupon_uses", `${order.couponId}_${order.userId}`);
-                transaction.update(couponRef, { usedCount: increment(-1) });
+                if (couponSnap?.exists() && Number(couponSnap.data().usedCount) > 0) {
+                    transaction.update(couponRef, { usedCount: increment(-1) });
+                }
                 transaction.delete(couponUseRef);
                 order.couponRestored = true;
             }
@@ -785,31 +808,6 @@ export async function updateOrderStatus(orderId, newStatus) {
             }
         }
 
-        if (normalizedStatus === ORDER_STATUS.DELIVERED && orderForEmail.userId) {
-            try {
-                const { createNotification } = await import("./notifications.js");
-                const shortId = orderId.slice(0, 8).toUpperCase();
-
-                await createNotification(
-                    orderForEmail.userId,
-                    NOTIFICATION_TYPES.ORDER_DELIVERED || 'order_delivered',
-                    (t('notificationOrderDelivered') || 'Commande livrée'),
-                    (t('notificationOrderDeliveredMsg') || 'Votre commande #{id} est livrée !').replace('{id}', shortId),
-                    { orderId }
-                );
-
-                await createNotification(
-                    orderForEmail.userId,
-                    'review_request',
-                    'Laissez un avis',
-                    `Votre commande #${shortId} est livrée ! Partagez votre expérience.`,
-                    { orderId, persistent: true }
-                );
-            } catch (e) {
-                console.warn('Notification delivered échouée :', e);
-            }
-        }
-
         return { success: true };
     } catch (e) {
         console.error('Erreur update statut :', e);
@@ -854,65 +852,73 @@ function consolidateStockItems(items) {
 
 async function deductStockInTransaction(transaction, order, productSnaps, productRefs) {
     productSnaps.forEach((snap, i) => {
-        if (!snap.exists()) throw new Error(`Produit introuvable`);
+        const productId = productRefs[i].id;
+        if (!snap.exists()) throw new Error(`Produit ${productId} introuvable`);
         const pData = snap.data();
-        const qty = Number(order.items[i].quantity) || 0;
-        const itemVariant = order.items[i].variant;
-        let availableStock = 0;
-        if (itemVariant) {
-            const variantsArr = Array.isArray(pData.variants) ? pData.variants : [];
-            const v = variantsArr.find(v => (v.size || '') === (itemVariant.size || '') && (v.color || '') === (itemVariant.color || ''));
-            availableStock = v ? Number(v.stock) : 0;
-        } else {
-            availableStock = Number(pData.stock) || 0;
-        }
-        if (availableStock < qty) throw new Error(`Stock insuffisant pour ${pData.nameFr || 'ce produit'}`);
-
-        let updateData = {
-            salesCount: (Number(pData.salesCount) || 0) + qty,
-            lastOrderId: order.id,
-            updatedAt: Timestamp.now()
-        };
-        if (itemVariant) {
-            const variantsArr = Array.isArray(pData.variants) ? pData.variants : [];
-            const variants = [...variantsArr];
-            const idx = variants.findIndex(v => (v.size || '') === (itemVariant.size || '') && (v.color || '') === (itemVariant.color || ''));
-            if (idx > -1) {
-                variants[idx].stock = Math.max(0, Number(variants[idx].stock) - qty);
-                updateData.variants = variants;
-                updateData.stock = variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
+        const productItems = order.items.filter(item => String(item.productId) === productId);
+        if (!productItems.length) return;
+        const variants = Array.isArray(pData.variants) ? pData.variants.map(v => ({ ...v })) : [];
+        let simpleStock = Number(pData.stock) || 0;
+        let hasVariantItems = false, hasSimpleItems = false, totalQty = 0;
+        for (const item of productItems) {
+            const qty = Number(item.quantity);
+            if (!Number.isInteger(qty) || qty <= 0) throw new Error(`Quantité invalide pour ${pData.nameFr || productId}`);
+            totalQty += qty;
+            if (item.variant) {
+                hasVariantItems = true;
+                const idx = variants.findIndex(v => String(v.size || '') === String(item.variant.size || '') && String(v.color || '') === String(item.variant.color || ''));
+                if (idx < 0) throw new Error(`Variante introuvable pour ${pData.nameFr || productId}`);
+                const available = Number(variants[idx].stock);
+                if (!Number.isFinite(available) || available < qty) throw new Error(`Stock insuffisant pour ${pData.nameFr || 'ce produit'}`);
+                variants[idx].stock = available - qty;
+            } else {
+                hasSimpleItems = true;
+                if (simpleStock < qty) throw new Error(`Stock insuffisant pour ${pData.nameFr || 'ce produit'}`);
+                simpleStock -= qty;
             }
-        } else {
-            updateData.stock = Math.max(0, (Number(pData.stock) || 0) - qty);
         }
+        if (hasVariantItems && hasSimpleItems) throw new Error(`Structure de stock incohérente pour ${productId}`);
+        const updateData = { salesCount: (Number(pData.salesCount) || 0) + totalQty, lastOrderId: order.id, updatedAt: Timestamp.now() };
+        if (hasVariantItems) {
+            updateData.variants = variants;
+            updateData.stock = variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
+        } else updateData.stock = simpleStock;
         transaction.update(productRefs[i], updateData);
     });
 }
 
 async function restoreStockInTransaction(transaction, order, productSnaps, productRefs) {
     productSnaps.forEach((snap, i) => {
-        if (!snap.exists()) return;
+        const productId = productRefs[i].id;
+        if (!snap.exists()) throw new Error(`Produit ${productId} introuvable : restitution du stock impossible.`);
         const pData = snap.data();
-        const qty = Number(order.items[i].quantity) || 0;
-        const itemVariant = order.items[i].variant;
-
-        let updateData = {
-            salesCount: Math.max(0, (Number(pData.salesCount) || 0) - qty),
-            lastOrderId: order.id,
-            updatedAt: Timestamp.now()
-        };
-        if (itemVariant) {
-            const variantsArr = Array.isArray(pData.variants) ? pData.variants : [];
-            const variants = [...variantsArr];
-            const idx = variants.findIndex(v => (v.size || '') === (itemVariant.size || '') && (v.color || '') === (itemVariant.color || ''));
-            if (idx > -1) {
-                variants[idx].stock = (Number(variants[idx].stock) || 0) + qty;
-                updateData.variants = variants;
-                updateData.stock = variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
+        const productItems = order.items.filter(item => String(item.productId) === productId);
+        if (!productItems.length) return;
+        const variants = Array.isArray(pData.variants) ? pData.variants.map(v => ({ ...v })) : [];
+        let simpleStock = Number(pData.stock) || 0;
+        let hasVariantItems = false, hasSimpleItems = false, totalQty = 0;
+        for (const item of productItems) {
+            const qty = Number(item.quantity);
+            if (!Number.isInteger(qty) || qty <= 0) throw new Error(`Quantité invalide pour ${productId}`);
+            totalQty += qty;
+            if (item.variant) {
+                hasVariantItems = true;
+                const idx = variants.findIndex(v => String(v.size || '') === String(item.variant.size || '') && String(v.color || '') === String(item.variant.color || ''));
+                if (idx < 0) throw new Error(`Variante introuvable pour ${productId} : restitution du stock impossible.`);
+                const currentStock = Number(variants[idx].stock);
+                if (!Number.isFinite(currentStock) || currentStock < 0) throw new Error(`Stock de variante invalide pour ${productId}`);
+                variants[idx].stock = currentStock + qty;
+            } else {
+                hasSimpleItems = true;
+                simpleStock += qty;
             }
-        } else {
-            updateData.stock = (Number(pData.stock) || 0) + qty;
         }
+        if (hasVariantItems && hasSimpleItems) throw new Error(`Structure de stock incohérente pour ${productId}`);
+        const updateData = { salesCount: Math.max(0, (Number(pData.salesCount) || 0) - totalQty), lastOrderId: order.id, updatedAt: Timestamp.now() };
+        if (hasVariantItems) {
+            updateData.variants = variants;
+            updateData.stock = variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
+        } else updateData.stock = simpleStock;
         transaction.update(productRefs[i], updateData);
     });
 }
@@ -925,18 +931,28 @@ export async function deleteOrderCompletely(orderId) {
     if (!orderSnap.exists()) return { success: false };
     const order = { id: orderId, ...orderSnap.data() };
     order.items = consolidateStockItems(order.items);
+    const currentStatus = normalizeOrderStatus(order.status);
 
-    if (order.stockDeducted === true && ![ORDER_STATUS.CANCELLED, ORDER_STATUS.RETURNED].includes(normalizeOrderStatus(order.status))) {
-        await runTransaction(db, async (transaction) => {
-            const productRefs = order.items.map(i => doc(db, "products", String(i.productId)));
-            const productSnaps = await Promise.all(productRefs.map(r => transaction.get(r)));
-            await restoreStockInTransaction(transaction, order, productSnaps, productRefs);
-        });
+    // Ne jamais supprimer une commande ayant un historique de livraison,
+    // de retour ou d'écriture financière. Seules les commandes annulées,
+    // dont le stock a déjà été restitué, peuvent être supprimées.
+    if (
+        currentStatus !== ORDER_STATUS.CANCELLED ||
+        order.stockDeducted === true ||
+        (Array.isArray(order.returns) && order.returns.length > 0) ||
+        Object.keys(order.vendorCredits || {}).length > 0 ||
+        Object.keys(order.vendorDebits || {}).length > 0
+    ) {
+        throw new Error("Suppression refusée : seules les commandes annulées sans retour ni mouvement financier peuvent être supprimées.");
     }
 
     const batch = writeBatch(db);
     if (order.couponId && !order.couponRestored) {
-        batch.update(doc(db, "coupons", order.couponId), { usedCount: increment(-1) });
+        const couponRef = doc(db, "coupons", order.couponId);
+        const couponSnap = await getDoc(couponRef);
+        if (couponSnap.exists() && Number(couponSnap.data().usedCount) > 0) {
+            batch.update(couponRef, { usedCount: increment(-1) });
+        }
         batch.delete(doc(db, "coupon_uses", `${order.couponId}_${order.userId}`));
     }
     const notifQ = query(collection(db, "notifications"), where("orderId", "==", orderId));
@@ -1023,9 +1039,95 @@ export async function renderAdminOrders(containerId = 'ordersList') {
         return;
     }
 
+    // Charger séparément les justificatifs de frais : chaque vendeur ne peut lire
+    // que ses propres documents, tandis que l'admin peut consulter toute la commande.
+    const returnedOrders = adminOrdersCache.filter(order =>
+        normalizeOrderStatus(order.status) === 'returned' &&
+        Array.isArray(order.returns) && order.returns.length > 0
+    );
+    await Promise.all(returnedOrders.map(async order => {
+        order.returnFeesByKey = {};
+        try {
+            const feeSnap = await getDocs(query(
+                collection(db, 'order_return_fees'),
+                where('orderId', '==', order.id)
+            ));
+            feeSnap.forEach(feeDoc => {
+                const fee = feeDoc.data();
+                order.returnFeesByKey[`${fee.vendorId}_ret${fee.returnIndex}`] = fee;
+            });
+        } catch (error) {
+            console.warn('Chargement justificatifs retour impossible :', order.id, error);
+        }
+    }));
+
     let html = `<div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
         <button id="refreshAdminOrdersBtn" class="admin-btn-secondary" style="font-size:0.8rem;">Rafraîchir</button>
     </div>`;
+
+    const renderReturnFeePanel = (order) => {
+        const returns = Array.isArray(order.returns) ? order.returns : [];
+        if (!returns.length) return '';
+        return returns.map((entry, returnIndex) => {
+            const byVendor = {};
+            (entry.items || []).forEach(retItem => {
+                const variant = retItem.variant || {};
+                const item = (order.items || []).find(i => {
+                    const iv = i.variant || {};
+                    return String(i.productId) === String(retItem.productId) &&
+                        String(iv.size || '') === String(variant.size || '') &&
+                        String(iv.color || '') === String(variant.color || '');
+                });
+                if (!item || !item.vendorId || item.vendorId === 'smartswi9a') return;
+                const id = String(item.vendorId);
+                if (!byVendor[id]) byVendor[id] = { qty: 0, name: item.vendorName || item.shopName || id };
+                byVendor[id].qty += Number(retItem.delta) || 0;
+            });
+            const vendors = Object.entries(byVendor);
+            if (!vendors.length) return '';
+            const rows = vendors.map(([vendorId, info]) => {
+                const fee = order.returnFeesByKey?.[`${vendorId}_ret${returnIndex}`];
+                const debit = order.vendorDebits?.[`${vendorId}_ret${returnIndex}`];
+                const label = escapeHTML(String(info.name));
+                const feeMeta = fee
+                    ? `Source : ${escapeHTML(fee.source || '—')} · enregistré le ${escapeHTML(formatDateTime(fee.recordedAt))} · admin ${escapeHTML(String(fee.recordedBy || '—'))}`
+                    : 'Ancienne écriture sans justificatif détaillé';
+                if (debit) {
+                    return `<div style="padding:0.45rem 0;border-top:1px solid var(--border);font-size:0.8rem;">
+                        <strong>${label}</strong> · ${info.qty} article(s) · ${Number(debit.amount).toFixed(2)} MAD
+                        <span style="color:var(--success);font-weight:700;">Débité</span>
+                        <div style="font-size:0.68rem;color:var(--text-muted);">${feeMeta}</div>
+                    </div>`;
+                }
+                if (fee) {
+                    return `<div style="padding:0.45rem 0;border-top:1px solid var(--border);font-size:0.8rem;">
+                        <strong>${label}</strong> · ${info.qty} article(s) · ${Number(fee.amount).toFixed(2)} MAD
+                        <span style="color:var(--warning);font-weight:700;">Enregistré — débit en attente</span>
+                        <div style="font-size:0.68rem;color:var(--text-muted);">${feeMeta}</div>
+                    </div>`;
+                }
+                return `<div style="display:flex;gap:0.45rem;align-items:center;flex-wrap:wrap;padding:0.5rem 0;border-top:1px solid var(--border);">
+                    <strong style="font-size:0.8rem;">${label}</strong>
+                    <span style="font-size:0.75rem;color:var(--text-muted);">${info.qty} article(s)</span>
+                    <input type="number" min="0.01" max="100000" step="0.01" inputmode="decimal"
+                        placeholder="Frais MAD" data-return-fee-amount="1"
+                        data-order-id="${escapeHTML(order.id)}" data-return-index="${returnIndex}"
+                        data-vendor-id="${escapeHTML(vendorId)}"
+                        style="width:110px;padding:0.35rem;border:1px solid var(--border);border-radius:8px;background:var(--bg-surface);color:var(--text);">
+                    <button class="admin-btn-primary" data-action="admin:set-return-fee"
+                        data-order-id="${escapeHTML(order.id)}" data-return-index="${returnIndex}"
+                        data-vendor-id="${escapeHTML(vendorId)}" style="font-size:0.75rem;padding:0.35rem 0.65rem;">
+                        Enregistrer les frais
+                    </button>
+                </div>`;
+            }).join('');
+            return `<div style="margin-top:0.6rem;padding:0.65rem;border:1px solid var(--border-gold);border-radius:10px;">
+                <strong style="font-size:0.82rem;color:var(--gold);">Retour ${returnIndex + 1} — frais par vendeur</strong>
+                <div style="font-size:0.72rem;color:var(--text-muted);margin:0.2rem 0 0.35rem;">Aucun montant automatique : saisir le montant facturé à chaque vendeur.</div>
+                ${rows}
+            </div>`;
+        }).join('');
+    };
 
     adminOrdersCache.forEach(order => {
         const status = normalizeOrderStatus(order.status);
@@ -1091,6 +1193,7 @@ export async function renderAdminOrders(containerId = 'ordersList') {
                     </div>
                 </div>
                 ${livoHtml}
+                ${renderReturnFeePanel(order)}
                 <div style="display:flex;gap:0.4rem;flex-wrap:wrap;align-items:center; margin-top:0.5rem;">
                     <select class="status-select" data-order-id="${order.id}" data-field="status" style="padding:0.3rem 0.6rem;border-radius:30px;border:1px solid var(--border);background:var(--bg-surface);color:var(--text);">
                         <option value="pending" ${status === 'pending' ? 'selected' : ''}>${t('orderStatusPending')}</option>
@@ -1118,6 +1221,42 @@ export async function renderAdminOrders(containerId = 'ordersList') {
         e.target.textContent = '...';
         adminOrdersCache = [];
         await renderAdminOrders(containerId);
+    });
+
+    container.querySelectorAll('[data-action="admin:set-return-fee"]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const orderId = btn.dataset.orderId;
+            const returnIndex = Number(btn.dataset.returnIndex);
+            const vendorId = btn.dataset.vendorId;
+            const input = container.querySelector(`[data-return-fee-amount="1"][data-order-id="${orderId}"][data-return-index="${returnIndex}"][data-vendor-id="${vendorId}"]`);
+            const amount = Number(input?.value);
+            if (!Number.isFinite(amount) || amount <= 0 || amount > 100000) {
+                showToast('Saisissez un montant valide supérieur à zéro.');
+                return;
+            }
+            btn.disabled = true;
+            const previousText = btn.textContent;
+            btn.textContent = 'Enregistrement…';
+            try {
+                const user = auth.currentUser;
+                if (!user) throw new Error('Session administrateur expirée.');
+                const token = await user.getIdToken(true);
+                const response = await fetch('/api/adminSetReturnFee', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ orderId, returnIndex, vendorId, amount })
+                });
+                const result = await response.json().catch(() => ({}));
+                if (!response.ok || !result.success) throw new Error(result.message || 'Impossible d’enregistrer les frais.');
+                showToast(result.message || 'Frais enregistrés.');
+                adminOrdersCache = [];
+                await renderAdminOrders(containerId);
+            } catch (error) {
+                showToast(error.message || 'Erreur lors de l’enregistrement.');
+                btn.disabled = false;
+                btn.textContent = previousText;
+            }
+        });
     });
 
     container.querySelectorAll('.status-select').forEach(select => {
@@ -1430,12 +1569,31 @@ export async function openReturnModal(orderId) {
 }
 
 async function processReturnTransaction(order, returnsToProcess) {
+    if (!Array.isArray(returnsToProcess) || returnsToProcess.length === 0) {
+        throw new Error("Aucun article valide à retourner.");
+    }
+    for (const item of returnsToProcess) {
+        if (!item || item.productId == null || !Number.isInteger(Number(item.quantity)) || Number(item.quantity) <= 0) {
+            throw new Error("Article ou quantité de retour invalide.");
+        }
+    }
     returnsToProcess = consolidateStockItems(returnsToProcess);
+    if (returnsToProcess.length === 0) throw new Error("Aucun article valide à retourner.");
+
     await runTransaction(db, async (transaction) => {
         const orderRef = doc(db, "orders", order.id);
         const orderSnap = await transaction.get(orderRef);
         if (!orderSnap.exists()) throw new Error("Commande introuvable");
         const currentOrder = orderSnap.data();
+        const currentStatus = normalizeOrderStatus(currentOrder.status);
+
+        // Une commande annulée a déjà restitué son stock : accepter un retour
+        // dessus créditerait artificiellement le stock une seconde fois.
+        // Le retour n'est possible que si le stock de cette commande est encore
+        // considéré comme déduit.
+        if (!['delivered', 'returned'].includes(currentStatus) || currentOrder.stockDeducted !== true) {
+            throw new Error("Impossible d'enregistrer un retour : la commande doit être livrée et son stock doit toujours être déduit.");
+        }
 
         const alreadyReturnedMap = getReturnedQuantitiesByVariant(currentOrder);
         returnsToProcess.forEach(r => {
@@ -1467,19 +1625,29 @@ async function processReturnTransaction(order, returnsToProcess) {
             };
             const variants = Array.isArray(pData.variants) ? pData.variants.map(v => ({ ...v })) : [];
             let variantStockChanged = false;
+            let simpleStockChanged = false;
             for (const r of productReturns) {
                 if (r.variant) {
-                    const vIdx = variants.findIndex(v => (v.size || '') === (r.variant.size || '') && (v.color || '') === (r.variant.color || ''));
-                    if (vIdx < 0) throw new Error(`Variante introuvable pour le produit ${productId}`);
-                    variants[vIdx].stock = (Number(variants[vIdx].stock) || 0) + r.quantity;
                     variantStockChanged = true;
+                    const vIdx = variants.findIndex(v => String(v.size || '') === String(r.variant.size || '') && String(v.color || '') === String(r.variant.color || ''));
+                    if (vIdx < 0) throw new Error(`Variante introuvable pour le produit ${productId}`);
+                    const currentVariantStock = Number(variants[vIdx].stock);
+                    if (!Number.isFinite(currentVariantStock) || currentVariantStock < 0) throw new Error(`Stock de variante invalide pour le produit ${productId}`);
+                    variants[vIdx].stock = currentVariantStock + r.quantity;
                 } else {
-                    updateData.stock = (Number(pData.stock) || 0) + r.quantity;
+                    simpleStockChanged = true;
                 }
+            }
+            if (variantStockChanged && simpleStockChanged) {
+                throw new Error(`Structure de stock incohérente pour le produit ${productId} : variantes et stock simple mélangés.`);
             }
             if (variantStockChanged) {
                 updateData.variants = variants;
                 updateData.stock = variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
+            } else {
+                const currentSimpleStock = Number(pData.stock);
+                if (!Number.isFinite(currentSimpleStock) || currentSimpleStock < 0) throw new Error(`Stock simple invalide pour le produit ${productId}`);
+                updateData.stock = currentSimpleStock + productReturns.reduce((sum, r) => sum + r.quantity, 0);
             }
             transaction.update(productRefs[i], updateData);
         });

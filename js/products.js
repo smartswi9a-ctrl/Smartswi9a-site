@@ -236,7 +236,6 @@ async function filterVendors(raw) {
 
 /** * Charge les produits depuis Firestore (stratégie filtrée + fallback). * @returns {Promise<Array>} */
 export async function loadProductsFromFirestore() {
-  /* ============================================================ TENTATIVE 1 : requête filtrée (règles Firestore modernes). ============================================================ */
   try {
     const q = query(
       collection(db, "products"),
@@ -254,50 +253,14 @@ export async function loadProductsFromFirestore() {
       return products;
     }
 
-    /* snapshot.size === 0 : soit aucun produit approuvé, soit migration pas faite. On tente le fallback. */
     console.warn(
-      "[products] Requête filtrée vide - passage au fallback complet"
+      "[products] Aucun produit approuvé chargé. Vérifier la migration status='approved' et les règles Firestore."
     );
-  } catch (e) {
-    console.warn("[products] Requête filtrée échouée :", e?.code || e?.message);
-  }
-
-  /* ============================================================ TENTATIVE 2 : fallback complet (anciennes règles, ou migration pas encore lancée). Limité à 1000 produits. ============================================================ */
-  try {
-    /* P0-5 : message structuré pour guider l'admin. */
-    console.warn(
-      "[products] FALLBACK COMPLET (limite 1000).\n" +
-        " Si le catalogue reste vide sur le site :\n" +
-        ' -> Lancer la migration "handleMigrateProductStatus" depuis /admin.html (onglet Outils).\n' +
-        " -> Sans cette migration, les nouvelles règles Firestore bloqueront la requête."
-    );
-
-    const q = query(collection(db, "products"), limit(1000));
-    const snapshot = await getDocs(q);
-
-    if (snapshot.size === 0) {
-      console.warn(
-        "[products] Fallback complet : 0 produit. Migration requise."
-      );
-      setProducts([]);
-      return [];
-    }
-
-    const raw = processSnapshot(snapshot);
-    const products = await filterVendors(raw);
-    console.log(
-      `[products] Chargé ${products.length} produit(s) (fallback complet)`
-    );
-    setProducts(products);
-    return products;
+    return await loadProductsFromJSON();
   } catch (e) {
     console.error(
-      "[products] Fallback complet aussi échoué :",
-      e?.code || e?.message,
-      "\n => CATALOGUE VIDE. Scénario probable :\n" +
-        " 1) Les nouvelles règles Firestore sont publiées.\n" +
-        " 2) La migration produits (status=approved) N'a PAS été lancée.\n" +
-        ' Action : lancer /admin.html -> Outils -> "Migration statut Produits".'
+      "[products] Chargement Firestore impossible :",
+      e?.code || e?.message
     );
     return await loadProductsFromJSON();
   }

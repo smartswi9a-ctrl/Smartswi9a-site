@@ -1,0 +1,50 @@
+name: Smart Swi9a security and syntax checks
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [fix/smartswi9a-global-audit-2026-11-05]
+
+jobs:
+  static-and-rules:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Java 21 for Firebase Emulator
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Check Cloud Functions syntax
+        run: node --check functions/index.js
+
+      - name: Check browser modules and Worker syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in js/*.js cloudflare/workers/*.js; do
+            node --input-type=module --check < "$file"
+          done
+
+      - name: Validate Firebase JSON configuration
+        run: |
+          node -e "JSON.parse(require('fs').readFileSync('firebase.json','utf8'))"
+          node -e "JSON.parse(require('fs').readFileSync('firestore.indexes.json','utf8'))"
+          node -e "JSON.parse(require('fs').readFileSync('functions/package.json','utf8'))"
+
+      - name: Install Firebase CLI and rules test dependencies
+        run: |
+          npm install --global firebase-tools
+          npm install --no-save firebase @firebase/rules-unit-testing
+
+      - name: Test Firestore and Storage rules in emulators
+        run: firebase emulators:exec --only firestore,storage --project demo-smart-swi9a "node tests/rules.test.cjs"

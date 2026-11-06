@@ -241,102 +241,83 @@ export async function canUserReviewProduct(productId) {
 /* ============================================================ CRÉER UN AVIS (Anti-doublons avec setDoc) ============================================================ */
 
 /** * Crée un avis pour le produit donné. * * B3 : `verifiedPurchase` est dérivé de `check.verifiedPurchase`, * plus forcé à `true`. * Dette : appelle `deleteReviewRequestForOrder(check.orderId)` après * création, pour nettoyer la notification review_request. * * @param {number|string} productId * @param {{ rating: number, title?: string, comment: string, photoFiles?: File[] }} params * @returns {Promise<string>} ID du review créé. * @throws {Error} si les validations échouent. */
-export async function createReview( productId, { rating, title, comment, photoFiles = [] } ) {
+export async function createReview(productId, { rating, title, comment, photoFiles = [] }) {
   const user = getCurrentUser();
   if (!user) throw new Error(t("loginRequired"));
 
   const pid = normalizeProductId(productId);
   if (pid == null) throw new Error(t("productNotFound"));
-
   const product = getProductById(pid);
   if (!product) throw new Error(t("productNotFound"));
 
-  if (!rating || rating < 1 || rating > 5)
+  const numericRating = Number(rating);
+  const cleanComment = String(comment || "").trim();
+  if (!Number.isInteger(numericRating) || numericRating < 1 || numericRating > 5) {
     throw new Error("Veuillez sélectionner une note.");
-  if (!comment || !comment.trim())
-    throw new Error("Veuillez écrire un commentaire.");
+  }
+  if (!cleanComment) throw new Error("Veuillez écrire un commentaire.");
 
   const check = await canUserReviewProduct(pid);
   if (!check.canReview) {
-    if (check.reason === "already_reviewed")
-      throw new Error(t("reviewAlreadyExists"));
-    if (check.reason === "not_purchased")
-      throw new Error(t("reviewOnlyAfterOrder"));
-    if (check.reason === "check_failed")
-      throw new Error(t("error") || "Vérification impossible. Réessayez.");
+    if (check.reason === "already_reviewed") throw new Error(t("reviewAlreadyExists"));
+    if (check.reason === "not_purchased") throw new Error(t("reviewOnlyAfterOrder"));
+    if (check.reason === "check_failed") throw new Error(t("error") || "Vérification impossible. Réessayez.");
     throw new Error(t("loginRequired"));
   }
 
+  const files = (Array.isArray(photoFiles) ? photoFiles : []).slice(0, CONFIG.REVIEWS.MAX_PHOTOS);
+  const uploadedRefs = [];
   const photoUrls = [];
-  const files = (photoFiles || []).slice(0, CONFIG.REVIEWS.MAX_PHOTOS);
-
-  const uploadPromises = files.map(async (file) => {
-    const fileName = `reviews/${pid}_${user.uid}_${Date.now()}_${file.name}`;
-    const storageRef = ref(storage, fileName);
-    await uploadBytes(storageRef, file);
-    return await getDownloadURL(storageRef);
-  });
-
   try {
-    const results = await Promise.all(uploadPromises);
-    results.forEach((url) => {
-      if (url) photoUrls.push(url);
-    });
-  } catch (e) {
-    console.warn("Erreur upload photo avis :", e);
-    throw new Error("Erreur lors de l'upload des photos.");
-  }
-
-  const reviewId = `review_${user.uid}_${pid}`;
-  const reviewData = {
-    productId: pid,
-    productSlug: product.slug || "",
-    userId: user.uid,
-    userName: user.name || user.email || "Anonyme",
-    rating: Number(rating),
-    title: (title || "").substring(0, 80),
-    comment: (comment || "").substring(0, 500),
-    photos: photoUrls,
-    status: REVIEW_STATUS.PENDING,
-    /* B3 : dérivé du check, plus forcé à true. */
-    verifiedPurchase: check.verifiedPurchase === true,
-    likes: [],
-    likesCount: 0,
-    featured: false,
-    createdAt: Timestamp.now(),
-  };
-
-  await setDoc(doc(db, "reviews", reviewId), reviewData);
-  console.log("Avis créé :", reviewId);
-
-  /* Dette : nettoyer la notification review_request liée à la commande. Non bloquant. */
-  if (check.orderId) {
-    try {
-      const { deleteReviewRequestForOrder } = await import(
-        "./notifications.js"
-      );
-      await deleteReviewRequestForOrder(check.orderId);
-    } catch (e) {
-      console.warn(
-        "Nettoyage notification review_request échoué :",
-        e?.message || e
-      );
+    for (let index = 0; index < files.length; index++) {
+      const file = files[index];
+      if (!(file instanceof Blob)) throw new Error("Fichier photo invalide.");
+      const safeName = String(file.name || "photo").replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 100);
+      const path = "reviews/" + user.uid + "/" + String(pid) + "_" + Date.now() + "_" + index + "_" + safeName;
+      const storageRef = ref(storage, path);
+      await uploadBytes(storageRef, file);
+      uploadedRefs.push(storageRef);
+      photoUrls.push(await getDownloadURL(storageRef));
     }
-  }
 
-  try {
-    document.dispatchEvent(
-      new CustomEvent("review-submitted", {
-        detail: { productId: pid, reviewId, orderId: check.orderId || null },
+    const token = await user.getIdToken();
+    const response = await fetch("/api/createVerifiedReview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+      body: JSON.stringify({
+        productId: String(pid),
+        rating: numericRating,
+        title: String(title || "").trim().slice(0, 80),
+        comment: cleanComment.slice(0, 500),
+        photos: photoUrls
       })
-    );
-  } catch (e) {
-    /* ignore */
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || result.success !== true) {
+      throw new Error(result.message || "Impossible de publier cet avis.");
+    }
+
+    if (check.orderId) {
+      try {
+        const { deleteReviewRequestForOrder } = await import("./notifications.js");
+        await deleteReviewRequestForOrder(result.orderId || check.orderId);
+      } catch (error) {
+        console.warn("Nettoyage notification review_request échoué :", error?.message || error);
+      }
+    }
+
+    const reviewId = result.reviewId || ("review_" + user.uid + "_" + pid);
+    try {
+      document.dispatchEvent(new CustomEvent("review-submitted", {
+        detail: { productId: pid, reviewId, orderId: result.orderId || check.orderId || null }
+      }));
+    } catch (_) { /* ignore */ }
+    return reviewId;
+  } catch (error) {
+    await Promise.allSettled(uploadedRefs.map(storageRef => deleteObject(storageRef)));
+    throw error;
   }
-
-  return reviewId;
 }
-
 /* ============================================================ AJOUTER / RETIRER UN AVIS DES TÉMOIGNAGES (ADMIN) ============================================================ Race (P2) : si 2 admins cliquent simultanément sur "feature", ils peuvent tous deux voir featuredSnap.size < 3 et dépasser MAX_FEATURED_REVIEWS. Corriger nécessiterait un lock distribué (non implémenté). Rare en pratique (peu d'admins, action peu fréquente). ============================================================ */
 
 /** * Ajoute ou retire un avis des témoignages d'accueil. * @param {string} reviewId * @returns {Promise<{ success: boolean, featured?: boolean, error?: string, maxReached?: boolean }>} */

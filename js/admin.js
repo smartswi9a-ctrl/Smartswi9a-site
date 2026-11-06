@@ -3212,11 +3212,34 @@ async function loadVendors() {
             if (oa !== ob) return oa - ob;
             return (toDate(b.createdAt)?.getTime() || 0) - (toDate(a.createdAt)?.getTime() || 0);
         });
-        renderVendorsList(cachedVendors);
+        applyVendorFilters();
     } catch (e) {
         console.error('[admin] loadVendors :', e);
         container.innerHTML = `<div class="admin-empty" style="color:var(--danger);">Erreur de chargement.</div>`;
     }
+}
+
+function applyVendorFilters() {
+    const search = (document.getElementById('vendorSearchAdmin')?.value || '').trim().toLocaleLowerCase('fr');
+    const activeFilter = document.querySelector('[data-vendor-filter].active')?.dataset.vendorFilter || 'pending';
+
+    const filtered = cachedVendors.filter(v => {
+        const info = v.vendorInfo || {};
+        const status = info.status || 'pending';
+        const contractVersion = String(info.contractVersion || '');
+        const isOutdatedContract = info.contractStatus === 'accepted' &&
+            contractVersion !== String(CONFIG.CONTRACT_VERSION || '');
+
+        const matchesFilter = activeFilter === 'all' ||
+            (activeFilter === 'outdated' ? isOutdatedContract : status === activeFilter);
+
+        const searchable = [
+            info.shopName, v.name, v.email, v.phone, info.city, info.iceCin
+        ].filter(Boolean).join(' ').toLocaleLowerCase('fr');
+        return matchesFilter && (!search || searchable.includes(search));
+    });
+
+    renderVendorsList(filtered);
 }
 
 function renderVendorsList(vendors) {
@@ -3240,6 +3263,8 @@ function renderVendorsList(vendors) {
         const createdAt = toDate(v.createdAt)?.toLocaleDateString('fr-FR') || '—';
         const contractStatus = v.vendorInfo?.contractStatus || 'pending';
         const contractAccepted = contractStatus === 'accepted';
+        const contractVersion = v.vendorInfo?.contractVersion || '—';
+        const contractSignedAt = toDate(v.vendorInfo?.contractSignedAt)?.toLocaleString('fr-FR') || '—';
         const delayCount = Number(v.vendorInfo?.delayCount) || 0;
 
         let statusBadge = '';
@@ -3284,7 +3309,8 @@ function renderVendorsList(vendors) {
                 </div>
                 <div style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.3rem;">
                     ${email} · ${phone} · ${city} · ${iceCin}<br>
-                    Mode : <strong>${shippingMethod}</strong>
+                    Mode : <strong>${shippingMethod}</strong><br>
+                    Contrat : version <strong>${escapeHTML(String(contractVersion))}</strong> · signé le <strong>${escapeHTML(contractSignedAt)}</strong>
                 </div>
                 <div style="display:flex;justify-content:flex-end;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem;">
                     ${actionsHtml}
@@ -3764,16 +3790,16 @@ async function handleMigrateProductStatus() {
 
     try {
         const snap = await getDocs(collection(db, "products"));
-        let updatedCount = 0;
+        const candidates = [];
         let skippedVendorCount = 0;
         let alreadyHadStatusCount = 0;
-        let batch = writeBatch(db);
-        let batchCount = 0;
 
+        // Phase 1 : audit sans écriture. Aucun document n'est modifié avant
+        // affichage du nombre exact de produits concernés et confirmation admin.
         for (const docSnap of snap.docs) {
             const p = docSnap.data();
-
             const isVendor = p.vendorId && p.vendorId !== 'smartswi9a';
+
             if (isVendor) {
                 skippedVendorCount++;
                 continue;
@@ -3784,6 +3810,40 @@ async function handleMigrateProductStatus() {
                 continue;
             }
 
+            candidates.push(docSnap);
+        }
+
+        log(`Produits Smart sans statut : ${candidates.length}`);
+        log(`Produits Smart déjà avec statut (ignorés) : ${alreadyHadStatusCount}`);
+        log(`Produits vendeurs (ignorés) : ${skippedVendorCount}`);
+
+        if (candidates.length === 0) {
+            log('Aucun produit à migrer.');
+            showToast('Aucun produit Smart sans statut.');
+            return;
+        }
+
+        const confirmed = await confirmAction(
+            `La migration va définir status="approved" sur ${candidates.length} produit(s) Smart actuellement sans statut.\\n\\nProduits vendeurs ignorés : ${skippedVendorCount}.\\nProduits ayant déjà un statut et conservés sans changement : ${alreadyHadStatusCount}.\\n\\nCette opération rendra ces produits visibles dans le catalogue public après activation des nouvelles règles. Continuer ?`,
+            {
+                title: 'Confirmer la migration des produits',
+                confirmText: `Approuver ${candidates.length} produit(s)`,
+                cancelText: 'Annuler',
+                variant: 'danger'
+            }
+        );
+        if (!confirmed) {
+            log('Migration annulée : aucune donnée modifiée.');
+            return;
+        }
+
+        let batch = writeBatch(db);
+        let batchCount = 0;
+        let updatedCount = 0;
+
+        // Phase 2 : écrire uniquement les documents examinés pendant la phase 1.
+        for (const docSnap of candidates) {
+            const p = docSnap.data();
             batch.update(docSnap.ref, { status: 'approved' });
             updatedCount++;
             batchCount++;
@@ -3791,7 +3851,7 @@ async function handleMigrateProductStatus() {
 
             if (batchCount === 400) {
                 await batch.commit();
-                log(`Lot de 400 produits sauvegardé...`);
+                log('Lot de 400 produits sauvegardé...');
                 batchCount = 0;
                 batch = writeBatch(db);
             }
@@ -3801,16 +3861,11 @@ async function handleMigrateProductStatus() {
 
         log(`--- Résumé ---`);
         log(`Produits Smart migrés : ${updatedCount}`);
-        log(`Produits déjà avec status (ignorés) : ${alreadyHadStatusCount}`);
-        log(`Produits vendeurs (ignorés - status manuel) : ${skippedVendorCount}`);
-
-        if (updatedCount === 0 && skippedVendorCount === 0 && alreadyHadStatusCount === 0) {
-            log(`Aucun produit à migrer.`);
-        } else {
-            log(`Migration terminée !`);
-            showToast(`${updatedCount} produit(s) Smart approuvés (${skippedVendorCount} vendeurs ignorés)`);
-            await loadProducts(true);
-        }
+        log(`Produits Smart déjà avec statut (ignorés) : ${alreadyHadStatusCount}`);
+        log(`Produits vendeurs (ignorés) : ${skippedVendorCount}`);
+        log('Migration terminée.');
+        showToast(`${updatedCount} produit(s) Smart approuvés (${skippedVendorCount} vendeurs ignorés)`);
+        await loadProducts(true);
     } catch (e) {
         log(`Erreur : ${e.message}`, true);
     } finally {
@@ -3877,19 +3932,12 @@ function attachAllRemainingEvents() {
     });
 
     /* Vendeurs. */
-    document.getElementById('vendorSearchAdmin')?.addEventListener('input', () => {
-        const s = (document.getElementById('vendorSearchAdmin')?.value || '').toLowerCase();
-        renderVendorsList(cachedVendors.filter(v =>
-            (v.vendorInfo?.shopName || v.name || '').toLowerCase().includes(s) ||
-            (v.email || '').toLowerCase().includes(s)
-        ));
-    });
+    document.getElementById('vendorSearchAdmin')?.addEventListener('input', applyVendorFilters);
     document.querySelectorAll('[data-vendor-filter]').forEach(btn => {
         btn.addEventListener('click', () => {
             document.querySelectorAll('[data-vendor-filter]').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
-            const f = btn.dataset.vendorFilter;
-            renderVendorsList(f === 'all' ? cachedVendors : cachedVendors.filter(v => (v.vendorInfo?.status || 'pending') === f));
+            applyVendorFilters();
         });
     });
 

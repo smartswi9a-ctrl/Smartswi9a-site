@@ -49,6 +49,7 @@ let currentWallet = null;
 let currentUserUid = null;
 let authBound = false;
 let cachedWithdrawals = [];
+let cachedWalletTransactions = [];
 let cachedProducts = [];
 let cachedOrders = [];
 let currentProductIdEditing = null;
@@ -165,7 +166,11 @@ function formatDate(ts) {
    ============================================================ */
 function getVendorStatus() { return (currentVendor?.vendorInfo?.status) || VENDOR_STATUS.PENDING; }
 function getContractStatus() { return (currentVendor?.vendorInfo?.contractStatus) || CONTRACT_STATUS.PENDING; }
-function isVendorApproved() { return getVendorStatus() === VENDOR_STATUS.APPROVED && getContractStatus() === CONTRACT_STATUS.ACCEPTED; }
+function isVendorApproved() {
+    return getVendorStatus() === VENDOR_STATUS.APPROVED &&
+        getContractStatus() === CONTRACT_STATUS.ACCEPTED &&
+        String(currentVendor?.vendorInfo?.contractVersion || '') === CONFIG.VENDOR.CONTRACT_VERSION;
+}
 
 function getPendingWithdrawalTotal() {
     return cachedWithdrawals.filter(w => w.status === 'pending').reduce((sum, w) => sum + (Number(w.amount) || 0), 0);
@@ -179,6 +184,7 @@ function getVirtualAvailableBalance() {
 function canRequestWithdrawal() {
     if (!isVendorApproved()) return false;
     if (!currentWallet) return false;
+    if ((Number(currentWallet.negativeBalance) || 0) < -0.0001) return false;
     return getVirtualAvailableBalance() >= CONFIG.VENDOR.MIN_WITHDRAWAL;
 }
 
@@ -325,7 +331,9 @@ async function loadVendorData(uid) {
 
     const vendorStatus = profile.vendorInfo?.status || VENDOR_STATUS.PENDING;
     const contractStatus = profile.vendorInfo?.contractStatus || CONTRACT_STATUS.PENDING;
-    if (vendorStatus !== VENDOR_STATUS.APPROVED || contractStatus !== CONTRACT_STATUS.ACCEPTED) {
+    if (vendorStatus !== VENDOR_STATUS.APPROVED ||
+        contractStatus !== CONTRACT_STATUS.ACCEPTED ||
+        String(profile.vendorInfo?.contractVersion || '') !== CONFIG.VENDOR.CONTRACT_VERSION) {
         return { profile, wallet: null, reason: 'vendor-not-active' };
     }
 
@@ -556,6 +564,42 @@ async function loadWithdrawals() {
     }
 }
 
+async function loadWalletTransactions() {
+    if (!currentUserUid) {
+        cachedWalletTransactions = [];
+        return;
+    }
+    try {
+        // Requête volontairement simple : tri local pour éviter de dépendre
+        // d'un index composite vendorId + createdAt.
+        const q = query(
+            collection(db, "wallet_transactions"),
+            where("vendorId", "==", currentUserUid),
+            limit(100)
+        );
+        const snap = await getDocs(q);
+        cachedWalletTransactions = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => {
+            const ta = a.createdAt?.toDate?.()?.getTime?.() || 0;
+            const tb = b.createdAt?.toDate?.()?.getTime?.() || 0;
+            return tb - ta;
+        });
+    } catch (e) {
+        console.warn('[vendor-dashboard] Lecture historique portefeuille échouée :', e);
+        cachedWalletTransactions = [];
+    }
+}
+
+function getWalletTransactionLabel(tx) {
+    const labels = {
+        sale: 'Crédit de vente',
+        return_fee: 'Frais de retour',
+        payout: 'Retrait payé',
+        adjustment: 'Ajustement',
+        refund: 'Remboursement'
+    };
+    return labels[tx.type] || tx.description || 'Mouvement portefeuille';
+}
+
 /* ============================================================
    PRODUITS (CRUD et suppression)
    ============================================================ */
@@ -683,7 +727,7 @@ async function submitProduct() {
             const productData = {
                 nameFr, nameAr: nameAr || nameFr, nameEn: nameEn || nameFr, slug,
                 sku: `VND-${String(ts).slice(-6)}`, category: 'all', basePrice: price, price,
-                oldPrice: 0, purchasePrice: 0, stock, ratingAvg: 0, ratingCount: 0, salesCount: 0,
+                oldPrice: 0, purchasePrice: 0, stock,
                 isNew: false, hasSizeGuide: false, dimensions: { weight: 0, length: 0, width: 0, height: 0 },
                 variants: [], descFr: descFr || '', descAr: '', descEn: '', featuresFr: [], featuresAr: [], featuresEn: [],
                 img: newImageUrl, gallery: [], vendorId: currentUserUid, vendorName,
@@ -1101,7 +1145,7 @@ async function renderOrders(container) {
 
     if (cachedOrders.length === 0) {
         try {
-            const q = query(collection(db, "orders"), where("vendorIds", "array-contains", currentUserUid), orderBy("createdAt", "desc"), limit(10));
+            const q = query(collection(db, "vendor_orders", currentUserUid, "orders"), orderBy("createdAt", "desc"), limit(10));
             const snap = await getDocs(q);
             cachedOrders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
             ordersLastDoc = snap.docs[snap.docs.length - 1] || null;
@@ -1121,7 +1165,7 @@ async function renderOrders(container) {
         const shortId = (o.id || '').slice(0, 8).toUpperCase();
         const status = o.status || 'pending';
         const date = o.createdAt?.toDate?.()?.toLocaleDateString?.('fr-FR') || '—';
-        const myItems = (o.items || []).filter(it => String(it.vendorId) === String(currentUserUid));
+        const myItems = Array.isArray(o.items) ? o.items : [];
         const myGross = myItems.reduce((s, i) => s + (Number(i.price) || 0) * (Number(i.quantity) || 0), 0);
 
         let commissionInfo;
@@ -1137,14 +1181,16 @@ async function renderOrders(container) {
             return `<div style="font-size:0.8rem;color:var(--text-muted);">${escapeHTML(i.name || 'Produit')}${escapeHTML(variantText)} × ${i.quantity}</div>`;
         }).join('');
 
-        // Actions selon le statut (autorisées par les nouvelles règles Firestore)
+        // Une commande multi-vendeurs partage un statut global : un seul vendeur
+        // ne doit pas pouvoir faire avancer le flux de tous les autres vendeurs.
         let actionHtml = '';
-        if (status === 'pending') {
+        const isMultiVendorOrder = Number(o.vendorCount) > 1;
+        if (isMultiVendorOrder) {
+            actionHtml = `<span style="font-size:0.75rem;color:var(--text-muted);">Suivi de cette commande géré par l’administration (commande multi-vendeurs).</span>`;
+        } else if (status === 'pending') {
             actionHtml = `<button class="v-btn v-btn-primary" data-action="advance-order" data-id="${o.id}" data-next="confirmed" style="padding:0.3rem 0.6rem;font-size:0.75rem;">Confirmer</button>`;
         } else if (status === 'confirmed') {
             actionHtml = `<button class="v-btn v-btn-primary" data-action="advance-order" data-id="${o.id}" data-next="shipping" style="padding:0.3rem 0.6rem;font-size:0.75rem;">Expédier</button>`;
-        } else if (status === 'shipping') {
-            actionHtml = `<button class="v-btn v-btn-primary" data-action="advance-order" data-id="${o.id}" data-next="delivered" style="padding:0.3rem 0.6rem;font-size:0.75rem;">Marquer Livré</button>`;
         }
 
         return `
@@ -1191,7 +1237,7 @@ async function renderOrders(container) {
     document.getElementById('loadMoreOrdersBtn')?.addEventListener('click', async (e) => {
         const btn = e.target; btn.disabled = true; btn.textContent = '...';
         try {
-            const q = query(collection(db, "orders"), where("vendorIds", "array-contains", currentUserUid), orderBy("createdAt", "desc"), startAfter(ordersLastDoc), limit(10));
+            const q = query(collection(db, "vendor_orders", currentUserUid, "orders"), orderBy("createdAt", "desc"), startAfter(ordersLastDoc), limit(10));
             const snap = await getDocs(q);
             const more = snap.docs.map(d => ({ id: d.id, ...d.data() }));
             cachedOrders = [...cachedOrders, ...more];
@@ -1212,8 +1258,11 @@ async function renderStock(container) {
 
 async function renderWallet(container) {
     if (!cachedWithdrawals.length) await loadWithdrawals();
+    await loadWalletTransactions();
     const available = formatMAD(currentWallet?.availableBalance);
     const pending = formatMAD(currentWallet?.pendingBalance);
+    const negativeBalance = Math.max(0, -(Number(currentWallet?.negativeBalance) || 0));
+    const debt = formatMAD(negativeBalance);
     const minWithdrawal = formatMAD(CONFIG.VENDOR.MIN_WITHDRAWAL);
     const virtualAvailable = formatMAD(getVirtualAvailableBalance());
     const hasPendingRequest = getPendingWithdrawalTotal() > 0;
@@ -1222,6 +1271,7 @@ async function renderWallet(container) {
 
     let reason = '';
     if (!isVendorApproved()) reason = tr('vendor.wallet.withdrawLockedNotApproved', "Compte non approuvé : retrait verrouillé.");
+    else if (negativeBalance > 0.0001) reason = `Retrait bloqué : dette à régulariser de ${debt}.`;
     else if (hasPendingRequest) reason = "Demande de retrait en cours de traitement.";
     else if (getVirtualAvailableBalance() < CONFIG.VENDOR.MIN_WITHDRAWAL) reason = tr('vendor.wallet.withdrawLockedMin', "Solde insuffisant (minimum : {min}).").replace('{min}', minWithdrawal);
 
@@ -1235,15 +1285,43 @@ async function renderWallet(container) {
         return `<div style="display:flex;justify-content:space-between;align-items:center;padding:0.7rem 0;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:0.5rem;"><div><strong>${formatMAD(w.amount)}</strong> · ${escapeHTML(w.method || '—')} · ${date}</div><div>${statusBadge}</div></div>`;
     }).join('') : `<p style="color:var(--text-muted);font-size:0.85rem;text-align:center;">${tr('vendor.wallet.noWithdrawals', 'Aucune demande de retrait pour le moment.')}</p>`;
 
+    const transactionRows = cachedWalletTransactions.length ? cachedWalletTransactions.map(tx => {
+        const amount = Number(tx.amount) || 0;
+        const positive = amount >= 0;
+        const status = tx.status === 'pending' ? 'En attente de déblocage'
+            : tx.status === 'released' ? 'Confirmé'
+            : (tx.status || '—');
+        const date = tx.createdAt?.toDate?.()?.toLocaleString?.('fr-FR') || '—';
+        const details = [];
+        if (tx.type === 'return_fee' && Number(tx.returnedQty) > 0) details.push(`${Number(tx.returnedQty)} article(s) retourné(s)`);
+        if (Number(tx.pendingOffsetAmount) > 0) details.push(`prélevé sur attente : ${formatMAD(tx.pendingOffsetAmount)}`);
+        if (Number(tx.availableOffsetAmount) > 0) details.push(`prélevé sur disponible : ${formatMAD(tx.availableOffsetAmount)}`);
+        if (Number(tx.debtAmount) > 0) details.push(`dette créée : ${formatMAD(tx.debtAmount)}`);
+        if (Number(tx.reversedAmount) > 0) details.push(`compensation : ${formatMAD(tx.reversedAmount)}`);
+        if (Number(tx.releasedAmount) > 0 && tx.status === 'pending') details.push(`déjà débloqué : ${formatMAD(tx.releasedAmount)}`);
+        return `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:0.75rem;padding:0.75rem 0;border-bottom:1px solid var(--border);flex-wrap:wrap;">
+            <div style="min-width:0;flex:1;">
+                <strong>${escapeHTML(getWalletTransactionLabel(tx))}</strong>
+                <div style="font-size:0.72rem;color:var(--text-muted);">${escapeHTML(date)} · ${escapeHTML(status)}</div>
+                ${tx.description ? `<div style="font-size:0.75rem;color:var(--text-muted);">${escapeHTML(tx.description)}</div>` : ''}
+                ${details.length ? `<div style="font-size:0.7rem;color:var(--text-muted);">${details.map(escapeHTML).join(' · ')}</div>` : ''}
+            </div>
+            <strong style="white-space:nowrap;color:${positive ? 'var(--success)' : 'var(--danger)'};">${positive ? '+' : '−'} ${formatMAD(Math.abs(amount))}</strong>
+        </div>`;
+    }).join('') : `<p style="color:var(--text-muted);font-size:0.85rem;text-align:center;">Aucun mouvement de portefeuille pour le moment.</p>`;
+
     container.innerHTML = `
         <div class="v-wallet-hero">
             <div class="v-wallet-label">${escapeHTML(tr('vendor.wallet.available', 'Solde disponible'))}</div>
             <div class="v-wallet-amount">${available}</div>
-            <div style="margin-top:0.5rem; color:var(--text-muted); font-size:0.9rem;">${escapeHTML(tr('vendor.wallet.pending', 'En attente'))} : ${pending}${hasPendingRequest ? `<br><small>Solde virtuel (après demandes en cours) : ${virtualAvailable}</small>` : ''}</div>
+            <div style="margin-top:0.5rem; color:var(--text-muted); font-size:0.9rem;">${escapeHTML(tr('vendor.wallet.pending', 'En attente'))} : ${pending}</div>
+            ${negativeBalance > 0.0001 ? `<div style="margin-top:0.35rem;color:var(--danger);font-size:0.85rem;font-weight:700;">Dette à régulariser : ${debt}</div>` : ''}
+            ${hasPendingRequest ? `<div style="margin-top:0.35rem;color:var(--text-muted);font-size:0.8rem;">Solde virtuel (après demandes en cours) : ${virtualAvailable}</div>` : ''}
             <button type="button" id="btnRequestWithdrawal" class="v-btn v-btn-primary" style="margin-top:1rem;" ${disabledAttr}>${escapeHTML(tr('vendor.wallet.requestWithdrawal', 'Demander un retrait'))}</button>
             ${reason ? `<div style="margin-top:0.5rem; color:var(--text-muted); font-size:0.85rem;">${escapeHTML(reason)}</div>` : ''}
         </div>
-        <div class="v-card" style="margin-top:1.5rem;"><h3 class="v-card-title">${escapeHTML(tr('vendor.wallet.historyTitle', 'Historique des retraits'))}</h3>${withdrawalRows}</div>`;
+        <div class="v-card" style="margin-top:1.5rem;"><h3 class="v-card-title">${escapeHTML(tr('vendor.wallet.historyTitle', 'Historique des retraits'))}</h3>${withdrawalRows}</div>
+        <div class="v-card" style="margin-top:1.5rem;"><h3 class="v-card-title">Historique des mouvements du portefeuille</h3>${transactionRows}</div>`;
 
     const btn = document.getElementById('btnRequestWithdrawal');
     if (btn && canWithdraw) btn.addEventListener('click', openWithdrawModal);
@@ -1396,12 +1474,17 @@ function renderVendorAccessStatus(profile) {
             text: 'L’accès aux fonctionnalités vendeur est temporairement désactivé.',
             note: 'Veuillez contacter le support Smart Swi9a pour obtenir de l’aide.'
         };
-    } else if (contractStatus !== CONTRACT_STATUS.ACCEPTED) {
+    } else if (contractStatus !== CONTRACT_STATUS.ACCEPTED || needsResign(info)) {
+        const outdated = contractStatus === CONTRACT_STATUS.ACCEPTED && needsResign(info);
         state = {
-            icon: '📝', label: 'CONTRAT À SIGNER', heading: 'Finalisez votre inscription vendeur',
-            text: 'Pour terminer votre inscription, veuillez lire et accepter le contrat de partenariat.',
+            icon: '📝',
+            label: outdated ? 'NOUVEAU CONTRAT REQUIS' : 'CONTRAT À SIGNER',
+            heading: outdated ? 'Une nouvelle version du contrat doit être acceptée' : 'Finalisez votre inscription vendeur',
+            text: outdated
+                ? 'Votre ancien contrat reste enregistré, mais vous devez accepter la version actuelle pour retrouver les fonctionnalités vendeur.'
+                : 'Pour terminer votre inscription, veuillez lire et accepter le contrat de partenariat.',
             note: status === VENDOR_STATUS.APPROVED
-                ? 'Votre espace sera accessible après acceptation du contrat.'
+                ? 'Votre boutique sera réactivée dès la signature de la version actuelle.'
                 : 'Après signature, votre dossier restera en attente de validation par l’administration.'
         };
     } else {
@@ -1415,7 +1498,7 @@ function renderVendorAccessStatus(profile) {
     if (title) title.textContent = status === VENDOR_STATUS.PENDING ? 'Statut du compte vendeur' : 'Espace vendeur';
     if (!content) return;
 
-    const showSignButton = contractStatus !== CONTRACT_STATUS.ACCEPTED
+    const showSignButton = (contractStatus !== CONTRACT_STATUS.ACCEPTED || needsResign(info))
         && status !== VENDOR_STATUS.REJECTED && status !== VENDOR_STATUS.SUSPENDED;
 
     content.innerHTML = `

@@ -1,0 +1,93 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function admin() {
+      return signedIn() && (
+        request.auth.token.admin == true ||
+        (
+          firestore.exists(
+            /databases/(default)/documents/users/$(request.auth.uid)
+          ) &&
+          firestore.get(
+            /databases/(default)/documents/users/$(request.auth.uid)
+          ).data.role == 'admin'
+        )
+      );
+    }
+
+    function approvedVendor(uid) {
+      return signedIn() &&
+        request.auth.uid == uid &&
+        firestore.exists(
+          /databases/(default)/documents/users/$(uid)
+        ) &&
+        firestore.get(
+          /databases/(default)/documents/users/$(uid)
+        ).data.role == 'vendor' &&
+        firestore.get(
+          /databases/(default)/documents/users/$(uid)
+        ).data.get('vendorInfo', {}).get('status', '') == 'approved' &&
+        firestore.get(
+          /databases/(default)/documents/users/$(uid)
+        ).data.get('vendorInfo', {}).get('contractStatus', '') == 'accepted' &&
+        firestore.get(
+          /databases/(default)/documents/users/$(uid)
+        ).data.get('vendorInfo', {}).get('contractVersion', '') == '1.4.0';
+    }
+
+    function validImageUpload(maxSize) {
+      return request.resource != null &&
+        request.resource.size < maxSize &&
+        request.resource.contentType.matches('image/(jpeg|png|webp|gif)');
+    }
+
+    // Images des produits des vendeurs
+    match /vendors/{uid}/products/{fileName} {
+      allow read: if true;
+      allow create, update: if
+        (admin() || approvedVendor(uid)) &&
+        validImageUpload(5 * 1024 * 1024);
+      allow delete: if admin() || approvedVendor(uid);
+    }
+
+    // Photos d'avis : chaque utilisateur écrit uniquement dans son propre dossier.
+    match /reviews/{uid}/{fileName} {
+      allow read: if true;
+      allow create, update: if request.auth != null &&
+        request.auth.uid == uid &&
+        validImageUpload(5 * 1024 * 1024);
+      allow delete: if admin() || (request.auth != null && request.auth.uid == uid);
+    }
+
+    // Images générales des produits
+    match /products/{fileName} {
+      allow read: if true;
+      allow create, update: if admin() && validImageUpload(5 * 1024 * 1024);
+      allow delete: if admin();
+    }
+
+    // Galerie produits
+    match /products/gallery/{fileName} {
+      allow read: if true;
+      allow create, update: if admin() && validImageUpload(5 * 1024 * 1024);
+      allow delete: if admin();
+    }
+
+    // Images du blog
+    match /blog/{fileName} {
+      allow read: if true;
+      allow create, update: if admin() && validImageUpload(8 * 1024 * 1024);
+      allow delete: if admin();
+    }
+
+    // Refus par défaut
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

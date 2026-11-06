@@ -85,6 +85,29 @@ export const CONTRACT_TEMPLATES = {
 
     en: (t) => `VENDOR PARTNERSHIP AGREEMENT — SMART SWI9A Version ${t.version} Article 1 — Purpose This agreement governs the listing and sale of products by the Vendor on Smart Swi9a (smartswi9a.top), a Moroccan marketplace for connected devices and home products. Article 2 — Registration and verification The Vendor agrees to provide accurate information (shop name, phone, city, ICE or CIN). Any false statement results in immediate account suspension. Article 3 — Commission Smart Swi9a charges a ${pct( t.commissionRate )}% commission on the delivery-excluded amount of each sale. This commission may be adjusted between ${pct( t.commissionRateMin )}% and ${pct(t.commissionRateMax)}% with the Vendor's written consent. Article 4 — Shipping The Vendor chooses agency drop-off or Smart Swi9a fulfillment. Drop-off deadlines are ${ t.dropoffDeadlineHoursNew } hours (new accounts) or ${ t.dropoffDeadlineHoursEstablished } hours (mature accounts). Any delay may result in suspension. Article 5 — Payment Earnings are credited to the vendor wallet and become available ${ t.unlockDaysVendor } days after confirmed delivery (${ t.unlockDaysSmart } days for Smart Swi9a products). Minimum withdrawal is ${mad( t.minWithdrawal )} MAD. Article 6 — Returns In case of return, a ${mad( t.returnFeeLivo )} MAD fee is charged per returned parcel (fee charged by our logistics partner Livo). Repeated returns may lead to a review of the Vendor's status. Article 7 — Termination Either party may terminate this agreement at any time. Pending orders remain subject to these terms. Article 8 — Governing law This agreement is governed by Moroccan law. Any dispute falls under the jurisdiction of the courts of Casablanca. Article 9 — Electronic signature The electronic signature constitutes full acceptance. The IP, user-agent, server date, and a SHA-256 hash of this document are recorded as evidence. By signing, the Vendor acknowledges having read and understood this entire agreement.`,
   },
+  // Version 1.3.0 : gabarit 1.2.0 inchangé sur le fond, domaine .ma.
+  // Les versions publiées précédentes restent immuables pour les hashes.
+  "1.3.0": {
+    fr: (t) => CONTRACT_TEMPLATES["1.2.0"].fr(t).replaceAll("smartswi9a.top", "smartswika.ma"),
+    ar: (t) => CONTRACT_TEMPLATES["1.2.0"].ar(t).replaceAll("smartswi9a.top", "smartswika.ma"),
+    en: (t) => CONTRACT_TEMPLATES["1.2.0"].en(t).replaceAll("smartswi9a.top", "smartswika.ma"),
+  },
+  // Version 1.4.0 : frais de retour réels, distincts par vendeur.
+  // Les gabarits 1.1.0, 1.2.0 et 1.3.0 restent immuables.
+  "1.4.0": {
+    fr: (t) => CONTRACT_TEMPLATES["1.2.0"].fr(t)
+      .replace(/Article 6 — Retours En cas de retour,[\s\S]*?Les retours répétés peuvent entraîner une révision du statut du Vendeur\./,
+        "Article 6 — Retours Les frais de retour sont facturés séparément à chaque Vendeur selon le montant réel communiqué par le transporteur ou, à défaut, validé par l'administration. Aucun frais n'est débité avant l'enregistrement et la validation de ce montant. Les retours répétés peuvent entraîner une révision du statut du Vendeur.")
+      .replaceAll("smartswi9a.top", "smartswika.ma"),
+    ar: (t) => CONTRACT_TEMPLATES["1.2.0"].ar(t)
+      .replace(/المادة 6 — الإرجاع في حالة الإرجاع،[\s\S]*?الإرجاعات المتكررة قد تؤدي إلى مراجعة وضع البائع\./,
+        "المادة 6 — الإرجاع تُفرض رسوم الإرجاع بشكل منفصل على كل بائع وفق المبلغ الفعلي الذي يحدده الناقل، أو الذي تعتمده الإدارة عند عدم توفره. لا يتم خصم أي رسوم قبل تسجيل المبلغ واعتماده. وقد تؤدي الإرجاعات المتكررة إلى مراجعة وضع البائع.")
+      .replaceAll("smartswi9a.top", "smartswika.ma"),
+    en: (t) => CONTRACT_TEMPLATES["1.2.0"].en(t)
+      .replace(/Article 6 — Returns In case of return,[\s\S]*?Repeated returns may lead to a review of the Vendor's status\./,
+        "Article 6 — Returns Return fees are charged separately to each Vendor based on the actual amount provided by the carrier or, if unavailable, validated by the administration. No fee is debited until that amount has been recorded and approved. Repeated returns may lead to a review of the Vendor's status.")
+      .replaceAll("smartswi9a.top", "smartswika.ma"),
+  },
 };
 
 /* ============================================================ API PUBLIQUE ============================================================ */
@@ -119,7 +142,7 @@ export function getContractText( lang = "fr", version = CONFIG.VENDOR.CONTRACT_V
   return builder(snapshot);
 }
 
-/** * Retourne les versions de contrat disponibles, triées en semver * croissant. Ex. actuellement : ['1.1.0', '1.2.0']. * @returns {string[]} */
+/** * Retourne les versions de contrat disponibles, triées en semver * croissant. Ex. actuellement : ['1.1.0', '1.2.0', '1.3.0', '1.4.0']. * @returns {string[]} */
 export function getSupportedContractVersions() {
   const keys = Object.keys(CONTRACT_TEMPLATES);
   return keys.sort(function (a, b) {
@@ -134,5 +157,5 @@ export function getSupportedContractVersions() {
 
 /* ============================================================ LOG ============================================================ */
 console.log(
-  "[vendor-contract-text] v9.0.0 chargé (Lot 26 : gabarit 1.2.0 + returnFeeLivo)"
+  "[vendor-contract-text] v10.0.0 chargé (gabarit 1.4.0 : frais réels par vendeur)"
 );
