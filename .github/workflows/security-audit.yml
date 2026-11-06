@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [fix/smartswi9a-global-audit-2026-11-05]
+    branches: [main, fix/smartswi9a-global-audit-2026-11-05]
 
 jobs:
   static-and-rules:
