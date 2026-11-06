@@ -45,6 +45,16 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(uid)).data.role == 'vendor';
     }
 
+    // Une fiche publique n'existe que pour un vendeur approuvé avec le contrat courant.
+    // Le trigger serveur syncVendorPublic est le seul à pouvoir créer cette fiche.
+    function isPublicVendor(uid) {
+      return uid is string &&
+        uid != '' &&
+        exists(/databases/$(database)/documents/vendorsPublic/$(uid)) &&
+        get(/databases/$(database)/documents/vendorsPublic/$(uid)).data.get('status', '') == 'approved' &&
+        get(/databases/$(database)/documents/vendorsPublic/$(uid)).data.get('contractVersion', '') == '1.4.0';
+    }
+
     /* ============================================================
        PROFILS UTILISATEURS
        ============================================================ */
@@ -150,7 +160,15 @@ service cloud.firestore {
 
     match /products/{productId} {
       allow read: if isAdmin() ||
-        resource.data.get('status', '') == 'approved' ||
+        (
+          resource.data.get('status', '') == 'approved' &&
+          (
+            !('vendorId' in resource.data) ||
+            resource.data.get('vendorId', '') == '' ||
+            resource.data.get('vendorId', '') == 'smartswi9a' ||
+            isPublicVendor(resource.data.get('vendorId', ''))
+          )
+        ) ||
         (
           isSignedIn() &&
           resource.data.get('vendorId', '') == request.auth.uid &&
