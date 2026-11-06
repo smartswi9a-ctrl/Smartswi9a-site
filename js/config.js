@@ -15,7 +15,8 @@ export const APP_MODE = {
 };
 
 export function isTestMode() {
-    return APP_MODE.current === "test";
+    // Le mode snapshot/rollback a été retiré : aucune opération ne doit être simulée.
+    return false;
 }
 
 export const CONFIG = {

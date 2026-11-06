@@ -16,7 +16,7 @@ import {
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import {
     ROLES, ORDER_STATUS, CATEGORY_GROUPS, CONFIG, normalizeOrderStatus,
-    normalizeCategory, getCategoryById, APP_MODE, isTestMode,
+    normalizeCategory, getCategoryById, isTestMode,
     VENDOR_STATUS, CONTRACT_STATUS
 } from "./config.js";
 import {
@@ -29,18 +29,6 @@ import {
 } from "./orders.js";
 import { renderAdminReviews } from "./reviews.js";
 import { showToast, confirmAction } from "./ui-core.js";
-
-/* ============================================================
-   MODE TEST - CONFIGURATION
-   ============================================================ */
-const PROTECTED_USER_EMAILS = ["asaminfo20@gmail.com"];
-const TEST_SNAPSHOT_ROOT = "_test_snapshots";
-const COLLECTIONS_TO_SNAPSHOT = [
-    "products", "orders", "coupons", "coupon_uses", "reviews",
-    "notifications", "livo_pickups", "users", "blog",
-    "vendorsPublic", "wallets", "contracts", "payout_requests", "wallet_transactions"
-];
-const TEST_READ_BATCH_SIZE = 400;
 
 /* ============================================================
    ÉTAT LOCAL
@@ -184,277 +172,21 @@ async function deleteStorageImages(urls) {
 }
 
 /* ============================================================
-   MODE TEST - HELPERS
+   INITIALISATION ADMIN — MODE PRODUCTION UNIQUEMENT
    ============================================================ */
-async function readCollectionInBatches(coll) {
-    const out = [];
-    let lastDoc = null;
-    while (true) {
-        const constraints = [limit(TEST_READ_BATCH_SIZE)];
-        if (lastDoc) constraints.push(startAfter(lastDoc));
-        const q = query(collection(db, coll), ...constraints);
-        const snap = await getDocs(q);
-        if (snap.empty) break;
-        snap.forEach(d => out.push({ id: d.id, data: d.data() }));
-        lastDoc = snap.docs[snap.docs.length - 1];
-        if (snap.docs.length < TEST_READ_BATCH_SIZE) break;
-    }
-    return out;
-}
-
-async function collectTestFiles(batchId) {
-    const urlsToDelete = new Set();
-    const FILE_FIELDS = { products: ['img', 'gallery'], reviews: ['photos'], blog: ['image'] };
-
-    for (const [coll, fields] of Object.entries(FILE_FIELDS)) {
-        try {
-            const snapshotDocs = await getDocs(collection(db, TEST_SNAPSHOT_ROOT, batchId, coll));
-            const snapshotUrls = new Set();
-            snapshotDocs.forEach(d => {
-                const data = d.data();
-                fields.forEach(f => {
-                    const v = data[f];
-                    if (typeof v === 'string' && v) snapshotUrls.add(v);
-                    else if (Array.isArray(v)) v.forEach(u => u && snapshotUrls.add(u));
-                });
-            });
-
-            const curDocs = await readCollectionInBatches(coll);
-            curDocs.forEach(({ data }) => {
-                fields.forEach(f => {
-                    const v = data[f];
-                    const addIfNew = (u) => {
-                        if (u && typeof u === 'string' && u.startsWith('http') && !snapshotUrls.has(u)) {
-                            urlsToDelete.add(u);
-                        }
-                    };
-                    if (typeof v === 'string') addIfNew(v);
-                    else if (Array.isArray(v)) v.forEach(addIfNew);
-                });
-            });
-        } catch (e) {
-            console.warn('[admin] collectTestFiles(' + coll + ') :', e?.message || e);
-        }
-    }
-    return Array.from(urlsToDelete);
-}
-
-async function deleteStorageFiles(urls) {
-    let deleted = 0, failed = 0;
-    for (const url of urls) {
-        try {
-            const path = getStoragePathFromUrl(url);
-            if (!path) { failed++; continue; }
-            await deleteObject(ref(storage, path));
-            deleted++;
-        } catch (e) { failed++; }
-    }
-    return { deleted, failed };
-}
-
-/* ============================================================
-   MODE TEST - INITIALISATION & ROLLBACK
-   ============================================================ */
-function initTestMode() {
-    const saved = localStorage.getItem('swi9a_app_mode');
-    if (saved === 'test' || saved === 'production') {
-        APP_MODE.current = saved === 'test' ? 'test' : 'production';
-        APP_MODE.testBatchId = saved === 'test' ? localStorage.getItem('swi9a_test_batch') : null;
-        activateAdminPanel();
-    } else {
-        showModeChoiceScreen();
-    }
-}
-
-function showModeChoiceScreen() {
-    document.getElementById('adminLoginBox').style.display = 'none';
-    document.getElementById('adminPanel').style.display = 'none';
-    document.getElementById('modeChoiceScreen').style.display = 'flex';
-    document.body.style.paddingTop = '';
-    document.getElementById('chooseRealModeBtn').onclick = () => chooseMode('production');
-    document.getElementById('chooseTestModeBtn').onclick = () => chooseMode('test');
-}
-
-async function chooseMode(mode) {
-    if (mode === 'test') {
-        const ok = await confirmAction(
-            'Cette action va :\n\n1. Créer un SNAPSHOT complet de ta base\n2. Activer le mode test\n\nPendant le mode test :\n• Livo DÉSACTIVÉ\n• TOUTES tes actions seront enregistrées\n\nQuand tu cliqueras "Test Terminé", TOUT sera restauré.\n\nContinuer ?',
-            { title: 'Activer Mode Test', confirmText: 'Activer', cancelText: 'Annuler', variant: 'danger' }
-        );
-        if (!ok) return;
-        const btn = document.getElementById('chooseTestModeBtn');
-        btn.disabled = true;
-        btn.innerHTML = '<div style="font-size:1.5rem;font-weight:800;margin-bottom:0.3rem;">Snapshot...</div>';
-        await startTestBatch(btn);
-    } else {
-        APP_MODE.current = 'production';
-        APP_MODE.testBatchId = null;
-        localStorage.setItem('swi9a_app_mode', 'production');
-        localStorage.removeItem('swi9a_test_batch');
-        activateAdminPanel();
-    }
-}
-
-async function startTestBatch(btn) {
-    const batchId = 'batch_' + Date.now();
-    const errors = [];
-    try {
-        let totalDocs = 0;
-        for (const coll of COLLECTIONS_TO_SNAPSHOT) {
-            try {
-                const docs = await readCollectionInBatches(coll);
-                totalDocs += docs.length;
-                for (let i = 0; i < docs.length; i += 400) {
-                    const batch = writeBatch(db);
-                    docs.slice(i, i + 400).forEach(({ id, data }) => {
-                        batch.set(doc(db, TEST_SNAPSHOT_ROOT, batchId, coll, id), data);
-                    });
-                    await batch.commit();
-                }
-            } catch (e) {
-                console.error('[admin] Snapshot ' + coll + ' échoué :', e?.message || e);
-                errors.push({ coll, error: e?.code || e?.message });
-            }
-        }
-        await setDoc(doc(db, TEST_SNAPSHOT_ROOT, batchId), {
-            batchId, startedAt: Timestamp.now(),
-            collections: COLLECTIONS_TO_SNAPSHOT, totalDocs,
-            status: 'active', partial: errors.length > 0, errors
-        });
-        APP_MODE.current = 'test';
-        APP_MODE.testBatchId = batchId;
-        localStorage.setItem('swi9a_app_mode', 'test');
-        localStorage.setItem('swi9a_test_batch', batchId);
-
-        if (errors.length > 0) {
-            showToast('Mode TEST activé - ' + totalDocs + ' docs (PARTIEL : ' + errors.length + ' collection(s) en erreur)', 6000);
-        } else {
-            showToast('Mode TEST activé - ' + totalDocs + ' docs sauvegardés');
-        }
-        activateAdminPanel();
-    } catch (e) {
-        console.error('[admin] startTestBatch :', e);
-        showToast('Snapshot : ' + (e?.message || 'erreur'));
-        if (btn) {
-            btn.disabled = false;
-            btn.innerHTML = '<div style="font-size:1.5rem;font-weight:800;margin-bottom:0.3rem;">Mode Test</div><div style="font-size:0.85rem;opacity:0.9;">Snapshot base</div>';
-        }
-    }
-}
-
-async function endTestBatch() {
-    const batchId = APP_MODE.testBatchId;
-    if (!batchId) { showToast('Aucun batch actif'); return; }
-    const ok = await confirmAction('ROLLBACK COMPLET\n\nTOUT sera restauré à l\'état d\'avant le test.\n\nContinuer ?', {
-        title: 'Test Terminé', confirmText: 'TOUT RESTER', cancelText: 'Annuler', variant: 'danger'
-    });
-    if (!ok) return;
-    const btn = document.getElementById('endTestBtn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Rollback...'; }
-
-    APP_MODE.current = 'production';
-    APP_MODE.testBatchId = null;
-    localStorage.setItem('swi9a_app_mode', 'production');
+function initAdminPanel() {
+    // Nettoie les anciens indicateurs locaux du mode test sans toucher aux données Firestore.
+    localStorage.removeItem('swi9a_app_mode');
     localStorage.removeItem('swi9a_test_batch');
-    updateTestModeUI();
-
-    let totalDeleted = 0, totalRestored = 0, filesDeleted = 0, filesFailed = 0;
-    const restoreErrors = [];
-
-    try {
-        const testFiles = await collectTestFiles(batchId);
-
-        for (const coll of COLLECTIONS_TO_SNAPSHOT) {
-            try {
-                const snapshotDocs = await getDocs(collection(db, TEST_SNAPSHOT_ROOT, batchId, coll));
-                const snapshotMap = new Map();
-                snapshotDocs.forEach(d => snapshotMap.set(d.id, d.data()));
-
-                const isProtected = (d) =>
-                    coll === 'users'
-                    && PROTECTED_USER_EMAILS.map(e => e.toLowerCase()).includes((d.data()?.email || '').toLowerCase());
-
-                const curDocs = await readCollectionInBatches(coll);
-                const toDelete = curDocs.filter(({ id, data }) => !snapshotMap.has(id) && !isProtected({ data: () => data }));
-                for (let i = 0; i < toDelete.length; i += 400) {
-                    const batch = writeBatch(db);
-                    toDelete.slice(i, i + 400).forEach(({ id }) => batch.delete(doc(db, coll, id)));
-                    await batch.commit();
-                }
-                totalDeleted += toDelete.length;
-
-                const arr = Array.from(snapshotMap.entries());
-                for (let i = 0; i < arr.length; i += 400) {
-                    const batch = writeBatch(db);
-                    arr.slice(i, i + 400).forEach(([id, data]) => batch.set(doc(db, coll, id), data));
-                    await batch.commit();
-                }
-                totalRestored += arr.length;
-
-                for (let i = 0; i < snapshotDocs.docs.length; i += 400) {
-                    const batch = writeBatch(db);
-                    snapshotDocs.docs.slice(i, i + 400).forEach(d => batch.delete(d.ref));
-                    await batch.commit();
-                }
-            } catch (e) {
-                console.error('[admin] Rollback ' + coll + ' échoué :', e?.message || e);
-                restoreErrors.push({ coll, error: e?.code || e?.message });
-            }
-        }
-
-        if (testFiles.length > 0) {
-            const r = await deleteStorageFiles(testFiles);
-            filesDeleted = r.deleted;
-            filesFailed = r.failed;
-        }
-
-        try { await deleteDoc(doc(db, TEST_SNAPSHOT_ROOT, batchId)); } catch (e) { /* ignore */ }
-
-        let msg = 'Rollback OK : ' + totalDeleted + ' créés supprimés, ' + totalRestored + ' docs restaurés';
-        if (filesDeleted > 0) msg += ', ' + filesDeleted + ' fichiers supprimés';
-        if (restoreErrors.length > 0) {
-            msg += ' - ATTENTION : ' + restoreErrors.length + ' collection(s) partiellement restaurée(s)';
-            console.error('[admin] Rollback partiel :', restoreErrors);
-            showToast(msg, 8000);
-        } else {
-            showToast(msg, 5000);
-        }
-
-        await loadStats();
-        await loadOrders();
-        await loadProducts(true);
-    } catch (e) {
-        console.error('[admin] endTestBatch :', e);
-        showToast('Rollback : ' + (e?.message || 'erreur'));
-    } finally {
-        if (btn) { btn.disabled = false; btn.textContent = 'Test Terminé (Rollback)'; }
-    }
-}
-
-function updateTestModeUI() {
-    const indicator = document.getElementById('adminModeIndicator');
-    const banner = document.getElementById('testModeBanner');
-    if (isTestMode()) {
-        if (indicator) { indicator.innerHTML = 'MODE TEST'; indicator.style.color = '#dc3545'; }
-        if (banner) banner.style.display = 'flex';
-        document.body.style.paddingTop = '50px';
-    } else {
-        if (indicator) { indicator.innerHTML = 'MODE RÉEL'; indicator.style.color = '#2ecc71'; }
-        if (banner) banner.style.display = 'none';
-        document.body.style.paddingTop = '';
-    }
+    activateAdminPanel();
 }
 
 function activateAdminPanel() {
-    document.getElementById('modeChoiceScreen').style.display = 'none';
     document.getElementById('adminLoginBox').style.display = 'none';
     document.getElementById('adminPanel').style.display = 'block';
     if (currentAdmin) document.getElementById('adminUserEmail').textContent = currentAdmin.email;
-    updateTestModeUI();
-    if (isTestMode()) {
-        const endBtn = document.getElementById('endTestBtn');
-        if (endBtn) endBtn.onclick = endTestBatch;
-    }
+    const modeIndicator = document.getElementById('adminModeIndicator');
+    if (modeIndicator) modeIndicator.textContent = 'MODE RÉEL';
     loadStats();
     loadAllData();
     initAdminAlerts();
@@ -463,7 +195,6 @@ function activateAdminPanel() {
 
 function showLoginBox() {
     document.getElementById('adminLoginBox').style.display = 'block';
-    document.getElementById('modeChoiceScreen').style.display = 'none';
     document.getElementById('adminPanel').style.display = 'none';
     const msgEl = document.getElementById('adminLoginMsg');
     if (msgEl) {
@@ -534,7 +265,7 @@ function initAdmin() {
                     currentAdmin = user;
                     pendingLoginError = null;
                     resetAdminOrdersCache();
-                    initTestMode();
+                    initAdminPanel();
                 } else {
                     pendingLoginError = 'Ce compte n\'a pas les droits administrateur.';
                     currentAdmin = null;
@@ -580,8 +311,6 @@ function initAdmin() {
         await signOut(auth);
         localStorage.removeItem('swi9a_app_mode');
         localStorage.removeItem('swi9a_test_batch');
-        APP_MODE.current = 'production';
-        APP_MODE.testBatchId = null;
         showToast('Déconnecté');
     });
 

@@ -372,64 +372,11 @@
             .alert-tooltip { display: none; }
         }
 
-        #modeChoiceScreen {
-            min-height: 100vh; display: none; align-items: center; justify-content: center;
-            padding: 1rem; flex-direction: column; text-align: center;
-        }
-        #modeChoiceScreen h1 { font-family: var(--font-secondary); color: var(--gold); margin-bottom: 0.5rem; font-size: 1.5rem; }
-        #modeChoiceScreen p { color: var(--text-muted); margin-bottom: 2rem; font-size: 0.9rem; }
-        .mode-choice-btn {
-            border: none; border-radius: var(--radius-lg); padding: 1.5rem;
-            cursor: pointer; text-align: left; color: #fff;
-            transition: transform 0.2s, box-shadow 0.2s; width: 100%;
-        }
-        .mode-choice-btn:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
-        .mode-choice-btn .mode-title { font-size: 1.5rem; font-weight: 800; margin-bottom: 0.3rem; }
-        .mode-choice-btn .mode-desc { font-size: 0.85rem; opacity: 0.9; }
-        .mode-choice-btn.real { background: linear-gradient(135deg, #2ecc71, #1e7e34); }
-        .mode-choice-btn.test { background: linear-gradient(135deg, #dc3545, #a71d2a); }
-
-        #testModeBanner {
-            position: fixed; top: 0; left: 0; right: 0;
-            background: linear-gradient(90deg, #dc3545, #a71d2a);
-            color: #fff; text-align: center; padding: 0.5rem 1rem;
-            font-weight: 700; font-size: 0.85rem; z-index: 9999;
-            display: none; justify-content: center; align-items: center;
-            gap: 0.8rem; flex-wrap: wrap;
-        }
-        #testModeBanner button {
-            background: rgba(255,255,255,0.2); border: 1px solid #fff;
-            color: #fff; padding: 0.25rem 0.7rem; border-radius: 20px;
-            cursor: pointer; font-size: 0.75rem; font-weight: 700;
-        }
     </style>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
-
-    <div id="modeChoiceScreen">
-        <h1>⚙️ Administration Smart Swi9a</h1>
-        <p>Choisissez votre mode de travail</p>
-        <div style="display:flex;flex-direction:column;gap:1rem;max-width:420px;width:100%;">
-            <button id="chooseRealModeBtn" class="mode-choice-btn real">
-                <div class="mode-title">🟢 Mode Réel</div>
-                <div class="mode-desc">Site normal — données réelles — Livo activé</div>
-            </button>
-            <button id="chooseTestModeBtn" class="mode-choice-btn test">
-                <div class="mode-title">🔴 Mode Test</div>
-                <div class="mode-desc">Snapshot base — Livo désactivé — Rollback total</div>
-            </button>
-        </div>
-        <p style="margin-top:2rem;font-size:0.75rem;color:var(--text-dim);max-width:420px;">
-            ℹ️ Le mode est mémorisé jusqu'à ta prochaine déconnexion.
-        </p>
-    </div>
-
-    <div id="testModeBanner">
-        <span>🔴 MODE TEST — Livo DÉSACTIVÉ — Toutes les actions seront annulées</span>
-        <button id="endTestBtn" type="button">🟢 Test Terminé (Rollback)</button>
-    </div>
 
     <div class="admin-login-box" id="adminLoginBox">
         <h2>🔐 Administration</h2>
