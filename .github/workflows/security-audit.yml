@@ -16,7 +16,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Setup Java 21 for Firebase Emulator
         uses: actions/setup-java@v4
@@ -51,3 +51,4 @@ jobs:
 
       - name: Test Firestore and Storage rules in emulators
         run: firebase emulators:exec --only firestore,storage --project demo-smart-swi9a "node tests/rules.test.cjs"
+

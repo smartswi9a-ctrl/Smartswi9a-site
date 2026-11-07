@@ -74,6 +74,7 @@ service cloud.firestore {
             request.resource.data.get('isAdmin', false) == resource.data.get('isAdmin', false) &&
             request.resource.data.get('permissions', []) == resource.data.get('permissions', []) &&
             request.resource.data.get('vendorId', uid) == resource.data.get('vendorId', uid) &&
+            request.resource.data.get('vendorInfo', null) == resource.data.get('vendorInfo', null) &&
             request.resource.data.get('vendorInfo', {}).get('status', null) == resource.data.get('vendorInfo', {}).get('status', null) &&
             request.resource.data.get('vendorInfo', {}).get('contractStatus', null) == resource.data.get('vendorInfo', {}).get('contractStatus', null) &&
             request.resource.data.get('vendorInfo', {}).get('commissionRate', null) == resource.data.get('vendorInfo', {}).get('commissionRate', null) &&
@@ -416,3 +417,4 @@ service cloud.firestore {
     }
   }
 }
+

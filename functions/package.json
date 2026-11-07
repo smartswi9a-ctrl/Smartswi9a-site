@@ -2,7 +2,7 @@
   "name": "smartswi9a-vendor-auth",
   "private": true,
   "engines": {
-    "node": "20"
+    "node": "22"
   },
   "main": "index.js",
   "dependencies": {
@@ -11,3 +11,4 @@
     "firebase-functions": "^6.0.1"
   }
 }
+

@@ -2039,6 +2039,13 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
     const input = req.body || {};
     const delivery = input.deliveryInfo || {};
     const rawItems = Array.isArray(input.items) ? input.items : [];
+    const suppliedRequestId = String(input.requestId || '').trim();
+    if (suppliedRequestId && !/^[A-Za-z0-9_-]{20,80}$/.test(suppliedRequestId)) {
+      return res.status(400).json({ success: false, message: 'Identifiant de demande invalide.' });
+    }
+    // Compatibilité avec les versions du site déjà publiées; les versions
+    // récentes transmettent leur clé stable pour rendre les reprises idempotentes.
+    const requestId = suppliedRequestId || crypto.randomUUID();
 
     if (!rawItems.length || rawItems.length > 50) {
       return res.status(400).json({ success: false, message: 'Panier vide ou trop volumineux.' });
@@ -2065,9 +2072,41 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
       else merged.set(key, { productId, quantity: qty, variant: v, id: String(it.id || productId) });
     }
     const items = [...merged.values()];
+    const couponId = input.appliedCoupon?.id ? String(input.appliedCoupon.id) : null;
+    const requestPayloadHash = crypto.createHash('sha256').update(JSON.stringify({
+      userId: decoded.uid,
+      items: items.map(item => ({
+        productId: item.productId,
+        quantity: item.quantity,
+        variant: item.variant ? { size: item.variant.size || '', color: item.variant.color || '' } : null
+      })),
+      delivery: {
+        name: String(delivery.name || '').trim(),
+        phone: String(delivery.phone || '').trim(),
+        address: String(delivery.address || '').trim(),
+        city: String(delivery.city || '').trim(),
+        cityId: String(delivery.cityId || ''),
+        cityAr: String(delivery.cityAr || '').trim(),
+        cityFr: String(delivery.cityFr || '').trim(),
+        email: String(delivery.email || decoded.email || '').trim(),
+        note: String(delivery.note || '').trim()
+      },
+      couponId
+    })).digest('hex');
+    const requestRef = db.collection('order_requests').doc(`${decoded.uid}_${requestId}`);
     const orderRef = db.collection('orders').doc();
 
     const outcome = await db.runTransaction(async tx => {
+      const requestSnap = await tx.get(requestRef);
+      if (requestSnap.exists) {
+        const requestData = requestSnap.data();
+        if (requestData.payloadHash !== requestPayloadHash) {
+          throw new Error('Cette demande de commande a déjà été utilisée avec d’autres informations.');
+        }
+        if (!requestData.response) throw new Error('Commande précédente en cours de traitement. Réessayez dans un instant.');
+        return requestData.response;
+      }
+
       const productRefs = items.map(i => db.collection('products').doc(i.productId));
       const productSnaps = await Promise.all(productRefs.map(ref => tx.get(ref)));
       const vendorIdsSet = new Set();
@@ -2087,11 +2126,14 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
         if (vid !== 'smartswi9a') vendorIdsSet.add(vid);
       }
       const vendorIds = [...vendorIdsSet];
+      const shippingMethodsByVendor = new Map();
 
       // C6 : vérif vendeurs approuvés
       if (vendorIds.length > 0) {
         const vendorRefs = vendorIds.map(id => db.collection('vendorsPublic').doc(id));
         const vendorSnaps = await Promise.all(vendorRefs.map(ref => tx.get(ref)));
+        const vendorProfileRefs = vendorIds.map(id => db.collection('users').doc(id));
+        const vendorProfileSnaps = await Promise.all(vendorProfileRefs.map(ref => tx.get(ref)));
         vendorSnaps.forEach((snap, i) => {
           if (!snap.exists) throw new Error(`Le vendeur ${vendorIds[i]} n'est pas actif.`);
           const vData = snap.data();
@@ -2099,6 +2141,15 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
               String(vData.contractVersion || '') !== OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION) {
             throw new Error(`Le vendeur ${vendorIds[i]} n'est pas approuvé avec le contrat courant.`);
           }
+          const profileSnap = vendorProfileSnaps[i];
+          if (!profileSnap.exists || profileSnap.data().role !== 'vendor' || profileSnap.data().vendorInfo?.status !== 'approved') {
+            throw new Error(`Le vendeur ${vendorIds[i]} n'est plus actif.`);
+          }
+          const shippingMethod = String(profileSnap.data().vendorInfo?.shippingMethod || '');
+          if (!['dropoff', 'fulfillment'].includes(shippingMethod)) {
+            throw new Error(`Le mode logistique du vendeur ${vendorIds[i]} n'est pas configuré.`);
+          }
+          shippingMethodsByVendor.set(vendorIds[i], shippingMethod);
         });
       }
 
@@ -2154,6 +2205,9 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
           id: item.id,
           productId: item.productId,
           vendorId: String(data.vendorId || 'smartswi9a'),
+          shippingMethod: String(data.vendorId || 'smartswi9a') === 'smartswi9a'
+            ? 'platform'
+            : String(shippingMethodsByVendor.get(String(data.vendorId)) || ''),
           variant: item.variant,
           quantity: qty,
           price,
@@ -2203,8 +2257,6 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
       // C3 : coupon
       let couponData = null;
       let couponDiscount = 0;
-      const couponId = input.appliedCoupon?.id ? String(input.appliedCoupon.id) : null;
-
       if (couponId) {
         const couponRef = db.collection('coupons').doc(couponId);
         const couponSnap = await tx.get(couponRef);
@@ -2318,7 +2370,7 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
         createdAt: FieldValue.serverTimestamp()
       });
 
-      return {
+      const responseData = {
         orderId: orderRef.id,
         totals: {
           subtotal,
@@ -2331,6 +2383,14 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
         },
         validatedItems
       };
+      tx.create(requestRef, {
+        userId: decoded.uid,
+        payloadHash: requestPayloadHash,
+        orderId: orderRef.id,
+        response: responseData,
+        createdAt: FieldValue.serverTimestamp()
+      });
+      return responseData;
     });
 
     return res.status(200).json({ success: true, ...outcome });
@@ -2739,3 +2799,4 @@ exports.releaseDueFunds = onRequest({ region: 'europe-west1', cors: [...ALLOWED_
     return res.status(500).json({ success: false, message: 'Erreur serveur.' });
   }
 });
+

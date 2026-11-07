@@ -716,37 +716,39 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
     const firebaseUser = auth.currentUser;
     if (!firebaseUser) return { success: false, error: "NO_USER" };
     const idToken = await firebaseUser.getIdToken();
+    const requestBody = {
+      items: normalizedItems.map((item) => ({
+        id: String(item.id),
+        productId: String(item.productId),
+        quantity: Number(item.quantity),
+        variant: item.variant || null,
+      })),
+      deliveryInfo: {
+        name: String(deliveryInfo?.name || ""),
+        phone: String(deliveryInfo?.phone || ""),
+        address: String(deliveryInfo?.address || ""),
+        city: String(deliveryInfo?.city || ""),
+        cityId: deliveryInfo?.cityId || null,
+        cityAr: deliveryInfo?.cityAr || null,
+        cityFr: deliveryInfo?.cityFr || null,
+        email: String(deliveryInfo?.email || user.email || ""),
+        note: deliveryInfo?.note || null,
+      },
+      appliedCoupon: appliedCoupon
+        ? {
+            id: String(appliedCoupon.id || ""),
+            code: String(appliedCoupon.code || ""),
+          }
+        : null,
+    };
+    const requestId = await getOrderRequestId(firebaseUser.uid, requestBody);
     const response = await fetch("/api/createCustomerOrder", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${idToken}`,
       },
-      body: JSON.stringify({
-        items: normalizedItems.map((item) => ({
-          id: String(item.id),
-          productId: String(item.productId),
-          quantity: Number(item.quantity),
-          variant: item.variant || null,
-        })),
-        deliveryInfo: {
-          name: String(deliveryInfo?.name || ""),
-          phone: String(deliveryInfo?.phone || ""),
-          address: String(deliveryInfo?.address || ""),
-          city: String(deliveryInfo?.city || ""),
-          cityId: deliveryInfo?.cityId || null,
-          cityAr: deliveryInfo?.cityAr || null,
-          cityFr: deliveryInfo?.cityFr || null,
-          email: String(deliveryInfo?.email || user.email || ""),
-          note: deliveryInfo?.note || null,
-        },
-        appliedCoupon: appliedCoupon
-          ? {
-              id: String(appliedCoupon.id || ""),
-              code: String(appliedCoupon.code || ""),
-            }
-          : null,
-      }),
+      body: JSON.stringify({ ...requestBody, requestId }),
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok || result.success !== true)
@@ -754,6 +756,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
         success: false,
         error: result.message || "Création de commande impossible.",
       };
+    clearOrderRequestId();
     return {
       success: true,
       orderId: result.orderId,
@@ -766,6 +769,65 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
       success: false,
       error: error.message || "Erreur réseau pendant la création de commande.",
     };
+  }
+}
+
+const ORDER_REQUEST_STORAGE_KEY = "swi9a_pending_order_request";
+let inMemoryOrderRequest = null;
+
+async function getOrderRequestId(userId, requestBody) {
+  const serialized = JSON.stringify({ userId, ...requestBody });
+  let fingerprint = null;
+  try {
+    if (globalThis.crypto?.subtle && globalThis.TextEncoder) {
+      const digest = await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(serialized),
+      );
+      fingerprint = Array.from(new Uint8Array(digest), (byte) =>
+        byte.toString(16).padStart(2, "0"),
+      ).join("");
+    }
+  } catch (_) { /* Repli en mémoire uniquement; aucune donnée personnelle n’est stockée. */ }
+
+  const comparisonValue = fingerprint || serialized;
+
+  if (inMemoryOrderRequest?.fingerprint === comparisonValue) {
+    return inMemoryOrderRequest.requestId;
+  }
+
+  if (fingerprint) {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(ORDER_REQUEST_STORAGE_KEY) || "null");
+      if (saved?.fingerprint === fingerprint && typeof saved.requestId === "string") {
+        inMemoryOrderRequest = { fingerprint: comparisonValue, requestId: saved.requestId };
+        return saved.requestId;
+      }
+    } catch (_) {
+      /* sessionStorage peut être indisponible en navigation privée. */
+    }
+  }
+
+  const requestId = globalThis.crypto?.randomUUID
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+  inMemoryOrderRequest = { fingerprint: comparisonValue, requestId };
+  if (fingerprint) {
+    try {
+      sessionStorage.setItem(ORDER_REQUEST_STORAGE_KEY, JSON.stringify({ fingerprint, requestId }));
+    } catch (_) {
+      /* La clé est encore réutilisable tant que la page reste ouverte. */
+    }
+  }
+  return requestId;
+}
+
+function clearOrderRequestId() {
+  inMemoryOrderRequest = null;
+  try {
+    sessionStorage.removeItem(ORDER_REQUEST_STORAGE_KEY);
+  } catch (_) {
+    /* Non bloquant après confirmation serveur. */
   }
 }
 
@@ -885,3 +947,4 @@ export function checkAbandonedCart() {
 console.log(
   "✅ cart.js chargé - v10.0.0 (Lot 44 : préparation R2 lastOrderId + invariant)"
 );
+
