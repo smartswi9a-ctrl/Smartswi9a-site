@@ -1,9 +1,6 @@
-Warning: truncated output (original token count: 27171)
-Total output lines: 1934
-
 /* ============================================================
    js/orders.js
-   Gestion des commandes - Smart Swi9a
+   Gestion des commandes - Smartswika
    Version 11.1.0 - Nettoyage des imports (audit)
    ============================================================ */
 
@@ -93,8 +90,9 @@ async function sendEmailViaEmailJS(toEmail, toName, subject, htmlContent, textCo
         const response = await emailjs.send(EMAILJS.SERVICE_ID, EMAILJS.TEMPLATE_ID, templateParams);
         return { success: true, response };
     } catch (e) {
-        console.error('Erreur envoi email :', e);
-        return { success: false, error: e.message || e.text || 'unknown' };
+        const error = e?.text || e?.message || 'unknown';
+        console.error(`Erreur EmailJS (${EMAILJS.SERVICE_ID}/${EMAILJS.TEMPLATE_ID}) vers ${toEmail} :`, error, e);
+        return { success: false, error };
     }
 }
 
@@ -118,33 +116,33 @@ function buildOrderEmailSubject(status, recipient, orderId, lang = 'fr') {
     const shortId = String(orderId).slice(0, 8).toUpperCase();
     const subjects = {
         fr: {
-            pending:   { client: `Commande reçue #${shortId} | Smart Swi9a`, admin: `Nouvelle commande #${shortId}` },
-            confirmed: { client: `Commande confirmée #${shortId} | Smart Swi9a`, admin: null },
-            shipping:  { client: `Commande en route #${shortId} | Smart Swi9a`, admin: null },
-            delivered: { client: `Commande livrée #${shortId} | Smart Swi9a`, admin: `Commande livrée #${shortId}` },
-            returned:  { client: `Retour enregistré #${shortId} | Smart Swi9a`, admin: `Retour commande #${shortId}` },
-            cancelled: { client: `Commande annulée #${shortId} | Smart Swi9a`, admin: null }
+            pending:   { client: `Commande reçue #${shortId} | Smartswika`, admin: `Nouvelle commande #${shortId}` },
+            confirmed: { client: `Commande confirmée #${shortId} | Smartswika`, admin: null },
+            shipping:  { client: `Commande en route #${shortId} | Smartswika`, admin: null },
+            delivered: { client: `Commande livrée #${shortId} | Smartswika`, admin: `Commande livrée #${shortId}` },
+            returned:  { client: `Retour enregistré #${shortId} | Smartswika`, admin: `Retour commande #${shortId}` },
+            cancelled: { client: `Commande annulée #${shortId} | Smartswika`, admin: null }
         },
         ar: {
-            pending:   { client: `تم استلام طلبك #${shortId} | سمارت سويقة`, admin: `طلب جديد #${shortId}` },
-            confirmed: { client: `تم تأكيد طلبك #${shortId} | سمارت سويقة`, admin: null },
-            shipping:  { client: `طلبك في الطريق #${shortId} | سمارت سويقة`, admin: null },
-            delivered: { client: `تم تسليم طلبك #${shortId} | سمارت سويقة`, admin: `تم التسليم #${shortId}` },
-            returned:  { client: `تم تسجيل الإرجاع #${shortId} | سمارت سويقة`, admin: `إرجاع #${shortId}` },
-            cancelled: { client: `تم إلغاء طلبك #${shortId} | سمارت سويقة`, admin: null }
+            pending:   { client: `تم استلام طلبك #${shortId} | سمارتسويكا`, admin: `طلب جديد #${shortId}` },
+            confirmed: { client: `تم تأكيد طلبك #${shortId} | سمارتسويكا`, admin: null },
+            shipping:  { client: `طلبك في الطريق #${shortId} | سمارتسويكا`, admin: null },
+            delivered: { client: `تم تسليم طلبك #${shortId} | سمارتسويكا`, admin: `تم التسليم #${shortId}` },
+            returned:  { client: `تم تسجيل الإرجاع #${shortId} | سمارتسويكا`, admin: `إرجاع #${shortId}` },
+            cancelled: { client: `تم إلغاء طلبك #${shortId} | سمارتسويكا`, admin: null }
         },
         en: {
-            pending:   { client: `Order received #${shortId} | Smart Swi9a`, admin: `New order #${shortId}` },
-            confirmed: { client: `Order confirmed #${shortId} | Smart Swi9a`, admin: null },
-            shipping:  { client: `Order shipping #${shortId} | Smart Swi9a`, admin: null },
-            delivered: { client: `Order delivered #${shortId} | Smart Swi9a`, admin: `Order delivered #${shortId}` },
-            returned:  { client: `Return recorded #${shortId} | Smart Swi9a`, admin: `Return #${shortId}` },
-            cancelled: { client: `Order cancelled #${shortId} | Smart Swi9a`, admin: null }
+            pending:   { client: `Order received #${shortId} | Smartswika`, admin: `New order #${shortId}` },
+            confirmed: { client: `Order confirmed #${shortId} | Smartswika`, admin: null },
+            shipping:  { client: `Order shipping #${shortId} | Smartswika`, admin: null },
+            delivered: { client: `Order delivered #${shortId} | Smartswika`, admin: `Order delivered #${shortId}` },
+            returned:  { client: `Return recorded #${shortId} | Smartswika`, admin: `Return #${shortId}` },
+            cancelled: { client: `Order cancelled #${shortId} | Smartswika`, admin: null }
         }
     };
     const langSet = subjects[lang] || subjects.fr;
     const entry = langSet[status] || langSet.pending;
-    return entry[recipient] || `Smart Swi9a #${shortId}`;
+    return entry[recipient] || `Smartswika #${shortId}`;
 }
 
 /* ============================================================
@@ -161,7 +159,7 @@ function buildOrderEmailText(order, status, recipient, lang = 'fr') {
     const delivered = { fr: `Votre commande #${shortId} est livrée !`, ar: `تم تسليم طلبك #${shortId}!`, en: `Your order #${shortId} has been delivered!` };
     const returned = { fr: `Le retour de votre commande #${shortId} a été enregistré.`, ar: `لقد سجلنا إرجاع طلبك #${shortId}.`, en: `Your order #${shortId} return has been recorded.` };
     const cancelled = { fr: `Votre commande #${shortId} a été annulée.`, ar: `تم إلغاء طلبك #${shortId}.`, en: `Your order #${shortId} has been cancelled.` };
-    const team = { fr: "L'équipe Smart Swi9a", ar: "فريق سمارت سويقة", en: "Smart Swi9a team" };
+    const team = { fr: "L'équipe Smartswika", ar: "فريق سمارتسويكا", en: "Smartswika team" };
     const map = { pending: thanks, confirmed, shipping, delivered, returned, cancelled };
     const message = map[status]?.[lang] || thanks[lang];
     let text = `${greetings[lang]} ${name},\n\n${message}\n\nArticles :\n`;
@@ -237,9 +235,9 @@ function getInvoiceNumber(order) { return 'INV-' + String(order.id || '').slice(
 function buildInvoiceSubject(order, recipient, lang = 'fr') {
     const invoiceNum = getInvoiceNumber(order);
     const subjects = {
-        fr: { client: `Votre facture ${invoiceNum} | Smart Swi9a`, admin: `Facture ${invoiceNum} - Commande livrée` },
-        ar: { client: `فاتورتك ${invoiceNum} | سمارت سويقة`, admin: `فاتورة ${invoiceNum} - تم التسليم` },
-        en: { client: `Your invoice ${invoiceNum} | Smart Swi9a`, admin: `Invoice ${invoiceNum} - Delivered` }
+        fr: { client: `Votre facture ${invoiceNum} | Smartswika`, admin: `Facture ${invoiceNum} - Commande livrée` },
+        ar: { client: `فاتورتك ${invoiceNum} | سمارتسويكا`, admin: `فاتورة ${invoiceNum} - تم التسليم` },
+        en: { client: `Your invoice ${invoiceNum} | Smartswika`, admin: `Invoice ${invoiceNum} - Delivered` }
     };
     return (subjects[lang] || subjects.fr)[recipient] || subjects.fr.client;
 }
@@ -252,9 +250,9 @@ function buildInvoiceHtml(order, recipient, lang = 'fr') {
     const orderDate = toDate(order.createdAt);
     const invoiceDate = orderDate ? orderDate.toLocaleDateString(isRtl ? 'ar-MA' : (lang === 'en' ? 'en-GB' : 'fr-FR')) : '—';
     const labels = {
-        fr: { invoice: 'FACTURE', issuedOn: 'Émise le', billedTo: 'FACTURÉ À', items: 'ARTICLES', product: 'Produit', qty: 'Qté', unitPrice: 'Prix unit.', lineTotal: 'Total', subtotal: 'Sous-total', volumeDiscount: 'Réduction volume', couponDiscount: 'Code promo', delivery: 'Livraison', total: 'TOTAL', paymentMethod: 'Mode de paiement', cod: 'Paiement à la livraison', paid: 'Payé', shopName: 'SMART SWI9A', footer: 'Cet email tient lieu de facture. Aucune signature requise.' },
-        ar: { invoice: 'فاتورة', issuedOn: 'صدرت في', billedTo: 'فاتورة إلى', items: 'المنتجات', product: 'المنتج', qty: 'الكمية', unitPrice: 'سعر الوحدة', lineTotal: 'الإجمالي', subtotal: 'المجموع الفرعي', volumeDiscount: 'خصم الكمية', couponDiscount: 'كود الخصم', delivery: 'التوصيل', total: 'الإجمالي', paymentMethod: 'طريقة الدفع', cod: 'الدفع عند الاستلام', paid: 'مدفوع', shopName: 'سمارت سويقة', footer: 'هذا البريد بمثابة فاتورة. لا حاجة لتوقيع.' },
-        en: { invoice: 'INVOICE', issuedOn: 'Issued on', billedTo: 'BILLED TO', items: 'ITEMS', product: 'Product', qty: 'Qty', unitPrice: 'Unit price', lineTotal: 'Total', subtotal: 'Subtotal', volumeDiscount: 'Volume discount', couponDiscount: 'Coupon code', delivery: 'Delivery', total: 'TOTAL', paymentMethod: 'Payment method', cod: 'Cash on delivery', paid: 'Paid', shopName: 'SMART SWI9A', footer: 'This email serves as an invoice. No signature required.' }
+        fr: { invoice: 'FACTURE', issuedOn: 'Émise le', billedTo: 'FACTURÉ À', items: 'ARTICLES', product: 'Produit', qty: 'Qté', unitPrice: 'Prix unit.', lineTotal: 'Total', subtotal: 'Sous-total', volumeDiscount: 'Réduction volume', couponDiscount: 'Code promo', delivery: 'Livraison', total: 'TOTAL', paymentMethod: 'Mode de paiement', cod: 'Paiement à la livraison', paid: 'Payé', shopName: 'SMARTSWIKA', footer: 'Cet email tient lieu de facture. Aucune signature requise.' },
+        ar: { invoice: 'فاتورة', issuedOn: 'صدرت في', billedTo: 'فاتورة إلى', items: 'المنتجات', product: 'المنتج', qty: 'الكمية', unitPrice: 'سعر الوحدة', lineTotal: 'الإجمالي', subtotal: 'المجموع الفرعي', volumeDiscount: 'خصم الكمية', couponDiscount: 'كود الخصم', delivery: 'التوصيل', total: 'الإجمالي', paymentMethod: 'طريقة الدفع', cod: 'الدفع عند الاستلام', paid: 'مدفوع', shopName: 'سمارتسويكا', footer: 'هذا البريد بمثابة فاتورة. لا حاجة لتوقيع.' },
+        en: { invoice: 'INVOICE', issuedOn: 'Issued on', billedTo: 'BILLED TO', items: 'ITEMS', product: 'Product', qty: 'Qty', unitPrice: 'Unit price', lineTotal: 'Total', subtotal: 'Subtotal', volumeDiscount: 'Volume discount', couponDiscount: 'Coupon code', delivery: 'Delivery', total: 'TOTAL', paymentMethod: 'Payment method', cod: 'Cash on delivery', paid: 'Paid', shopName: 'SMARTSWIKA', footer: 'This email serves as an invoice. No signature required.' }
     };
     const l = labels[lang] || labels.fr;
     const clientName = escapeHTML(order.deliveryAddress?.name || '—');
@@ -294,7 +292,7 @@ function buildInvoiceText(order, recipient, lang = 'fr') {
     lines.push(`  ${isAr ? 'صدرت في' : 'Émise le'} ${invoiceDate}`);
     lines.push('════════════════════════════════════════');
     lines.push('');
-    lines.push(`SMART SWI9A`);
+    lines.push(`SMARTSWIKA`);
     lines.push(`+212 6 56 61 33 03`);
     lines.push(`smartswi9a@gmail.com`);
     lines.push('');
@@ -319,7 +317,7 @@ function buildInvoiceText(order, recipient, lang = 'fr') {
     lines.push('');
     lines.push(isAr ? 'شكراً على ثقتكم!' : 'Merci pour votre confiance !');
     lines.push('');
-    lines.push('SMART SWI9A');
+    lines.push('SMARTSWIKA');
     return lines.join('\n');
 }
 
@@ -339,7 +337,7 @@ export async function sendOrderEmail(order, status, recipient) {
     let toEmail, toName;
     if (recipient === 'admin') {
         toEmail = CONFIG.SHOP.EMAIL;
-        toName = 'Smart Swi9a Admin';
+        toName = 'Smartswika Admin';
     } else {
         toEmail = order.deliveryAddress?.email || order.userEmail;
         toName = order.deliveryAddress?.name || 'Client';
@@ -407,7 +405,7 @@ export async function sendToLivoAPI(order) {
             products: itemsWithLivoIds,
             desired_date: formatLivoDate(new Date()),
             openable: false,
-            comment: 'Commande Smart Swi9a',
+            comment: 'Commande Smartswika',
             status: 'pending',
             client_order_id: String(order.id).slice(0, 8).toUpperCase()
         };
@@ -591,7 +589,7 @@ export async function createLivoPickup(pickupData) {
             items: items,
             products: products,
             desired_date: formatLivoDate(pickupData.desired_date),
-            comment: String(pickupData.comment || 'Ramassage Smart Swi9a').slice(0, 200)
+            comment: String(pickupData.comment || 'Ramassage Smartswika').slice(0, 200)
         };
 
         const response = await fetch(`${LIVO_API_CONFIG.BASE_URL}${LIVO_API_CONFIG.ENDPOINTS.PICKUP}`, {
@@ -780,7 +778,7 @@ export async function updateOrderStatus(orderId, newStatus) {
                     showToast(`Colis créé chez Livo (Suivi: ${livoResult.trackingNumber})`);
                 } else {
                     if (livoResult.notConfigured) {
-                        showToast('Commande confirmée dans Smart Swi9a. La création automatique des colis Livo n’est pas encore activée.', 6000);
+                        showToast('Commande confirmée dans Smartswika. La création automatique des colis Livo n’est pas encore activée.', 6000);
                     } else {
                         showToast(`Colis Livo non créé : ${livoResult.error}`, 5000);
                     }
@@ -795,17 +793,24 @@ export async function updateOrderStatus(orderId, newStatus) {
                 const cancellation = await cancelLivoShipment(trackingId);
                 if (cancellation.success) showToast('Colis annulé chez Livo');
                 else if (cancellation.notConfigured) {
-                    showToast('Commande annulée dans Smart Swi9a, mais l’annulation automatique Livo n’est pas activée.', 6000);
+                    showToast('Commande annulée dans Smartswika, mais l’annulation automatique Livo n’est pas activée.', 6000);
                 } else {
-                    showToast(`Commande annulée dans Smart Swi9a; annulation Livo à vérifier : ${cancellation.error}`, 6000);
+                    showToast(`Commande annulée dans Smartswika; annulation Livo à vérifier : ${cancellation.error}`, 6000);
                 }
             }
         }
 
         if (emailStatus && ['confirmed', 'shipping', 'delivered', 'cancelled'].includes(emailStatus)) {
             try {
-                await sendOrderEmail(orderForEmail, emailStatus, 'client');
-                await sendOrderEmail(orderForEmail, emailStatus, 'admin');
+                const results = await Promise.all([
+                    sendOrderEmail(orderForEmail, emailStatus, 'client'),
+                    sendOrderEmail(orderForEmail, emailStatus, 'admin')
+                ]);
+                results.forEach((result, index) => {
+                    if (result?.success === false) {
+                        console.warn(`Email de commande non envoyé (${index === 0 ? 'client' : 'admin'}) :`, result.error);
+                    }
+                });
             } catch (e) {
                 console.warn('Email échoué (non bloquant):', e);
             }
@@ -829,7 +834,170 @@ function returnVariantKey(item) {
 function getReturnedQuantitiesByVariant(order) {
     const result = {};
     for (const entry of (Array.isArray(order?.returns) ? order.returns : [])) {
-        fo…2171 tokens truncated…ge || "Erreur lors du déblocage des fonds.");
+        for (const item of (Array.isArray(entry?.items) ? entry.items : [])) {
+            if (item?.productId == null) continue;
+            const key = returnVariantKey(item);
+            result[key] = (result[key] || 0) + Math.max(0, Number(item.delta) || 0);
+        }
+    }
+    return result;
+}
+
+function consolidateStockItems(items) {
+    const merged = new Map();
+    for (const item of (Array.isArray(items) ? items : [])) {
+        if (!item || item.productId == null) continue;
+        const variant = item.variant || null;
+        const key = JSON.stringify([String(item.productId), variant?.size || '', variant?.color || '']);
+        const quantity = Math.floor(Number(item.quantity));
+        if (!Number.isFinite(quantity) || quantity < 1) continue;
+        const existing = merged.get(key);
+        if (existing) existing.quantity += quantity;
+        else merged.set(key, { ...item, variant, quantity });
+    }
+    return Array.from(merged.values());
+}
+
+async function deductStockInTransaction(transaction, order, productSnaps, productRefs) {
+    productSnaps.forEach((snap, i) => {
+        const productId = productRefs[i].id;
+        if (!snap.exists()) throw new Error(`Produit ${productId} introuvable`);
+        const pData = snap.data();
+        const productItems = order.items.filter(item => String(item.productId) === productId);
+        if (!productItems.length) return;
+        const variants = Array.isArray(pData.variants) ? pData.variants.map(v => ({ ...v })) : [];
+        let simpleStock = Number(pData.stock) || 0;
+        let hasVariantItems = false, hasSimpleItems = false, totalQty = 0;
+        for (const item of productItems) {
+            const qty = Number(item.quantity);
+            if (!Number.isInteger(qty) || qty <= 0) throw new Error(`Quantité invalide pour ${pData.nameFr || productId}`);
+            totalQty += qty;
+            if (item.variant) {
+                hasVariantItems = true;
+                const idx = variants.findIndex(v => String(v.size || '') === String(item.variant.size || '') && String(v.color || '') === String(item.variant.color || ''));
+                if (idx < 0) throw new Error(`Variante introuvable pour ${pData.nameFr || productId}`);
+                const available = Number(variants[idx].stock);
+                if (!Number.isFinite(available) || available < qty) throw new Error(`Stock insuffisant pour ${pData.nameFr || 'ce produit'}`);
+                variants[idx].stock = available - qty;
+            } else {
+                hasSimpleItems = true;
+                if (simpleStock < qty) throw new Error(`Stock insuffisant pour ${pData.nameFr || 'ce produit'}`);
+                simpleStock -= qty;
+            }
+        }
+        if (hasVariantItems && hasSimpleItems) throw new Error(`Structure de stock incohérente pour ${productId}`);
+        const updateData = { salesCount: (Number(pData.salesCount) || 0) + totalQty, lastOrderId: order.id, updatedAt: Timestamp.now() };
+        if (hasVariantItems) {
+            updateData.variants = variants;
+            updateData.stock = variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
+        } else updateData.stock = simpleStock;
+        transaction.update(productRefs[i], updateData);
+    });
+}
+
+async function restoreStockInTransaction(transaction, order, productSnaps, productRefs) {
+    productSnaps.forEach((snap, i) => {
+        const productId = productRefs[i].id;
+        if (!snap.exists()) throw new Error(`Produit ${productId} introuvable : restitution du stock impossible.`);
+        const pData = snap.data();
+        const productItems = order.items.filter(item => String(item.productId) === productId);
+        if (!productItems.length) return;
+        const variants = Array.isArray(pData.variants) ? pData.variants.map(v => ({ ...v })) : [];
+        let simpleStock = Number(pData.stock) || 0;
+        let hasVariantItems = false, hasSimpleItems = false, totalQty = 0;
+        for (const item of productItems) {
+            const qty = Number(item.quantity);
+            if (!Number.isInteger(qty) || qty <= 0) throw new Error(`Quantité invalide pour ${productId}`);
+            totalQty += qty;
+            if (item.variant) {
+                hasVariantItems = true;
+                const idx = variants.findIndex(v => String(v.size || '') === String(item.variant.size || '') && String(v.color || '') === String(item.variant.color || ''));
+                if (idx < 0) throw new Error(`Variante introuvable pour ${productId} : restitution du stock impossible.`);
+                const currentStock = Number(variants[idx].stock);
+                if (!Number.isFinite(currentStock) || currentStock < 0) throw new Error(`Stock de variante invalide pour ${productId}`);
+                variants[idx].stock = currentStock + qty;
+            } else {
+                hasSimpleItems = true;
+                simpleStock += qty;
+            }
+        }
+        if (hasVariantItems && hasSimpleItems) throw new Error(`Structure de stock incohérente pour ${productId}`);
+        const updateData = { salesCount: Math.max(0, (Number(pData.salesCount) || 0) - totalQty), lastOrderId: order.id, updatedAt: Timestamp.now() };
+        if (hasVariantItems) {
+            updateData.variants = variants;
+            updateData.stock = variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
+        } else updateData.stock = simpleStock;
+        transaction.update(productRefs[i], updateData);
+    });
+}
+
+/* ============================================================
+   SUPPRESSION COMPLÈTE
+   ============================================================ */
+export async function deleteOrderCompletely(orderId) {
+    const orderSnap = await getDoc(doc(db, "orders", orderId));
+    if (!orderSnap.exists()) return { success: false };
+    const order = { id: orderId, ...orderSnap.data() };
+    order.items = consolidateStockItems(order.items);
+    const currentStatus = normalizeOrderStatus(order.status);
+
+    // Ne jamais supprimer une commande ayant un historique de livraison,
+    // de retour ou d'écriture financière. Seules les commandes annulées,
+    // dont le stock a déjà été restitué, peuvent être supprimées.
+    if (
+        currentStatus !== ORDER_STATUS.CANCELLED ||
+        order.stockDeducted === true ||
+        (Array.isArray(order.returns) && order.returns.length > 0) ||
+        Object.keys(order.vendorCredits || {}).length > 0 ||
+        Object.keys(order.vendorDebits || {}).length > 0
+    ) {
+        throw new Error("Suppression refusée : seules les commandes annulées sans retour ni mouvement financier peuvent être supprimées.");
+    }
+
+    const batch = writeBatch(db);
+    if (order.couponId && !order.couponRestored) {
+        const couponRef = doc(db, "coupons", order.couponId);
+        const couponSnap = await getDoc(couponRef);
+        if (couponSnap.exists() && Number(couponSnap.data().usedCount) > 0) {
+            batch.update(couponRef, { usedCount: increment(-1) });
+        }
+        batch.delete(doc(db, "coupon_uses", `${order.couponId}_${order.userId}`));
+    }
+    const notifQ = query(collection(db, "notifications"), where("orderId", "==", orderId));
+    const notifSnap = await getDocs(notifQ);
+    notifSnap.forEach(d => batch.delete(d.ref));
+    batch.delete(doc(db, "orders", orderId));
+    await batch.commit();
+
+    return { success: true };
+}
+
+/* ============================================================
+   RELEASE DES FONDS ÉCHUS (Appel API serveur)
+   ============================================================ */
+
+/**
+ * Débloque les fonds échus en appelant la Cloud Function sécurisée.
+ * Le serveur transfère pendingBalance -> availableBalance.
+ * NOTE : L'appel direct depuis un client (vendor-dashboard, etc.) est
+ * réservé à l'admin. Cette fonction est utilisée dans admin.js via
+ * fetch('/api/releaseDueFunds', ...).
+ */
+export async function releaseDueVendorFunds(options = {}) {
+    try {
+        const user = auth.currentUser;
+        if (!user) throw new Error("Session expirée.");
+        const idToken = await user.getIdToken(true);
+
+        const response = await fetch('/api/releaseDueFunds', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+            body: JSON.stringify({ batchSize: options.batchSize || 400 })
+        });
+
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.success) {
+            throw new Error(result.message || "Erreur lors du déblocage des fonds.");
         }
 
         return result;
@@ -1771,4 +1939,3 @@ export async function openOrderDetails(orderId, isAdmin = false) {
    LOG FINAL
    ============================================================ */
 console.log('✅ orders.js chargé - v11.1.0 (Wallet côté serveur, imports nettoyés)');
-
