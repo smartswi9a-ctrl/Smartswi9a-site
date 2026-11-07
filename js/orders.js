@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 27171)
+Total output lines: 1934
+
 /* ============================================================
    js/orders.js
    Gestion des commandes - Smart Swi9a
@@ -431,7 +434,11 @@ export async function sendToLivoAPI(order) {
 
         if (!response.ok) {
             const message = data?.error || data?.message || `Erreur Worker/Livo HTTP ${response.status}`;
-            return { success: false, error: String(message) };
+            return {
+                success: false,
+                error: String(message),
+                notConfigured: response.status === 501 && data?.error === 'Opération non activée.'
+            };
         }
 
         console.log('Livo create response:', JSON.stringify(data, null, 2));
@@ -466,7 +473,7 @@ export async function sendToLivoAPI(order) {
    LIVO - CANCEL SHIPMENT (via Worker proxy)
    ============================================================ */
 export async function cancelLivoShipment(livoOrderId) {
-    if (!livoOrderId) return false;
+    if (!livoOrderId) return { success: false, error: 'Numéro de suivi manquant.' };
     try {
         const response = await fetch(`${LIVO_API_CONFIG.BASE_URL}${LIVO_API_CONFIG.ENDPOINTS.CANCEL}`, {
             method: 'POST',
@@ -479,14 +486,19 @@ export async function cancelLivoShipment(livoOrderId) {
 
         const contentType = response.headers.get("content-type");
         if (!contentType || !contentType.includes("application/json")) {
-            return false;
+            return { success: false, error: `Réponse invalide du serveur (${response.status}).` };
         }
 
         const data = await response.json();
-        return response.ok && data?.success === true;
+        if (response.ok && data?.success === true) return { success: true };
+        return {
+            success: false,
+            error: String(data?.error || data?.message || `Erreur Worker/Livo HTTP ${response.status}`),
+            notConfigured: response.status === 501 && data?.error === 'Opération non activée.'
+        };
     } catch (error) {
         console.error('Erreur Livo cancel:', error);
-        return false;
+        return { success: false, error: error.message || 'Erreur inconnue' };
     }
 }
 
@@ -514,6 +526,9 @@ export async function syncLivoStatus(orderId) {
         }
 
         const data = await response.json();
+        if (response.status === 501 && data?.error === 'Opération non activée.') {
+            return { success: false, error: 'Le suivi automatique Livo n’est pas encore activé.' };
+        }
         const livoOrder = data?.data?.data || data?.data || null;
         if (!livoOrder) {
             return { success: false, error: "Réponse Livo vide" };
@@ -764,7 +779,11 @@ export async function updateOrderStatus(orderId, newStatus) {
                     orderForEmail.livoTracking = livoResult.trackingNumber;
                     showToast(`Colis créé chez Livo (Suivi: ${livoResult.trackingNumber})`);
                 } else {
-                    showToast(`Livo a refusé la commande : ${livoResult.error}`, 4000);
+                    if (livoResult.notConfigured) {
+                        showToast('Commande confirmée dans Smart Swi9a. La création automatique des colis Livo n’est pas encore activée.', 6000);
+                    } else {
+                        showToast(`Colis Livo non créé : ${livoResult.error}`, 5000);
+                    }
                 }
             }
         }
@@ -773,8 +792,13 @@ export async function updateOrderStatus(orderId, newStatus) {
         if (normalizedStatus === ORDER_STATUS.CANCELLED && orderForEmail) {
             const trackingId = orderForEmail.livoTracking || orderForEmail.speedafTracking;
             if (trackingId) {
-                const cancelled = await cancelLivoShipment(trackingId);
-                if (cancelled) showToast('Colis annulé chez Livo');
+                const cancellation = await cancelLivoShipment(trackingId);
+                if (cancellation.success) showToast('Colis annulé chez Livo');
+                else if (cancellation.notConfigured) {
+                    showToast('Commande annulée dans Smart Swi9a, mais l’annulation automatique Livo n’est pas activée.', 6000);
+                } else {
+                    showToast(`Commande annulée dans Smart Swi9a; annulation Livo à vérifier : ${cancellation.error}`, 6000);
+                }
             }
         }
 
@@ -805,170 +829,7 @@ function returnVariantKey(item) {
 function getReturnedQuantitiesByVariant(order) {
     const result = {};
     for (const entry of (Array.isArray(order?.returns) ? order.returns : [])) {
-        for (const item of (Array.isArray(entry?.items) ? entry.items : [])) {
-            if (item?.productId == null) continue;
-            const key = returnVariantKey(item);
-            result[key] = (result[key] || 0) + Math.max(0, Number(item.delta) || 0);
-        }
-    }
-    return result;
-}
-
-function consolidateStockItems(items) {
-    const merged = new Map();
-    for (const item of (Array.isArray(items) ? items : [])) {
-        if (!item || item.productId == null) continue;
-        const variant = item.variant || null;
-        const key = JSON.stringify([String(item.productId), variant?.size || '', variant?.color || '']);
-        const quantity = Math.floor(Number(item.quantity));
-        if (!Number.isFinite(quantity) || quantity < 1) continue;
-        const existing = merged.get(key);
-        if (existing) existing.quantity += quantity;
-        else merged.set(key, { ...item, variant, quantity });
-    }
-    return Array.from(merged.values());
-}
-
-async function deductStockInTransaction(transaction, order, productSnaps, productRefs) {
-    productSnaps.forEach((snap, i) => {
-        const productId = productRefs[i].id;
-        if (!snap.exists()) throw new Error(`Produit ${productId} introuvable`);
-        const pData = snap.data();
-        const productItems = order.items.filter(item => String(item.productId) === productId);
-        if (!productItems.length) return;
-        const variants = Array.isArray(pData.variants) ? pData.variants.map(v => ({ ...v })) : [];
-        let simpleStock = Number(pData.stock) || 0;
-        let hasVariantItems = false, hasSimpleItems = false, totalQty = 0;
-        for (const item of productItems) {
-            const qty = Number(item.quantity);
-            if (!Number.isInteger(qty) || qty <= 0) throw new Error(`Quantité invalide pour ${pData.nameFr || productId}`);
-            totalQty += qty;
-            if (item.variant) {
-                hasVariantItems = true;
-                const idx = variants.findIndex(v => String(v.size || '') === String(item.variant.size || '') && String(v.color || '') === String(item.variant.color || ''));
-                if (idx < 0) throw new Error(`Variante introuvable pour ${pData.nameFr || productId}`);
-                const available = Number(variants[idx].stock);
-                if (!Number.isFinite(available) || available < qty) throw new Error(`Stock insuffisant pour ${pData.nameFr || 'ce produit'}`);
-                variants[idx].stock = available - qty;
-            } else {
-                hasSimpleItems = true;
-                if (simpleStock < qty) throw new Error(`Stock insuffisant pour ${pData.nameFr || 'ce produit'}`);
-                simpleStock -= qty;
-            }
-        }
-        if (hasVariantItems && hasSimpleItems) throw new Error(`Structure de stock incohérente pour ${productId}`);
-        const updateData = { salesCount: (Number(pData.salesCount) || 0) + totalQty, lastOrderId: order.id, updatedAt: Timestamp.now() };
-        if (hasVariantItems) {
-            updateData.variants = variants;
-            updateData.stock = variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
-        } else updateData.stock = simpleStock;
-        transaction.update(productRefs[i], updateData);
-    });
-}
-
-async function restoreStockInTransaction(transaction, order, productSnaps, productRefs) {
-    productSnaps.forEach((snap, i) => {
-        const productId = productRefs[i].id;
-        if (!snap.exists()) throw new Error(`Produit ${productId} introuvable : restitution du stock impossible.`);
-        const pData = snap.data();
-        const productItems = order.items.filter(item => String(item.productId) === productId);
-        if (!productItems.length) return;
-        const variants = Array.isArray(pData.variants) ? pData.variants.map(v => ({ ...v })) : [];
-        let simpleStock = Number(pData.stock) || 0;
-        let hasVariantItems = false, hasSimpleItems = false, totalQty = 0;
-        for (const item of productItems) {
-            const qty = Number(item.quantity);
-            if (!Number.isInteger(qty) || qty <= 0) throw new Error(`Quantité invalide pour ${productId}`);
-            totalQty += qty;
-            if (item.variant) {
-                hasVariantItems = true;
-                const idx = variants.findIndex(v => String(v.size || '') === String(item.variant.size || '') && String(v.color || '') === String(item.variant.color || ''));
-                if (idx < 0) throw new Error(`Variante introuvable pour ${productId} : restitution du stock impossible.`);
-                const currentStock = Number(variants[idx].stock);
-                if (!Number.isFinite(currentStock) || currentStock < 0) throw new Error(`Stock de variante invalide pour ${productId}`);
-                variants[idx].stock = currentStock + qty;
-            } else {
-                hasSimpleItems = true;
-                simpleStock += qty;
-            }
-        }
-        if (hasVariantItems && hasSimpleItems) throw new Error(`Structure de stock incohérente pour ${productId}`);
-        const updateData = { salesCount: Math.max(0, (Number(pData.salesCount) || 0) - totalQty), lastOrderId: order.id, updatedAt: Timestamp.now() };
-        if (hasVariantItems) {
-            updateData.variants = variants;
-            updateData.stock = variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
-        } else updateData.stock = simpleStock;
-        transaction.update(productRefs[i], updateData);
-    });
-}
-
-/* ============================================================
-   SUPPRESSION COMPLÈTE
-   ============================================================ */
-export async function deleteOrderCompletely(orderId) {
-    const orderSnap = await getDoc(doc(db, "orders", orderId));
-    if (!orderSnap.exists()) return { success: false };
-    const order = { id: orderId, ...orderSnap.data() };
-    order.items = consolidateStockItems(order.items);
-    const currentStatus = normalizeOrderStatus(order.status);
-
-    // Ne jamais supprimer une commande ayant un historique de livraison,
-    // de retour ou d'écriture financière. Seules les commandes annulées,
-    // dont le stock a déjà été restitué, peuvent être supprimées.
-    if (
-        currentStatus !== ORDER_STATUS.CANCELLED ||
-        order.stockDeducted === true ||
-        (Array.isArray(order.returns) && order.returns.length > 0) ||
-        Object.keys(order.vendorCredits || {}).length > 0 ||
-        Object.keys(order.vendorDebits || {}).length > 0
-    ) {
-        throw new Error("Suppression refusée : seules les commandes annulées sans retour ni mouvement financier peuvent être supprimées.");
-    }
-
-    const batch = writeBatch(db);
-    if (order.couponId && !order.couponRestored) {
-        const couponRef = doc(db, "coupons", order.couponId);
-        const couponSnap = await getDoc(couponRef);
-        if (couponSnap.exists() && Number(couponSnap.data().usedCount) > 0) {
-            batch.update(couponRef, { usedCount: increment(-1) });
-        }
-        batch.delete(doc(db, "coupon_uses", `${order.couponId}_${order.userId}`));
-    }
-    const notifQ = query(collection(db, "notifications"), where("orderId", "==", orderId));
-    const notifSnap = await getDocs(notifQ);
-    notifSnap.forEach(d => batch.delete(d.ref));
-    batch.delete(doc(db, "orders", orderId));
-    await batch.commit();
-
-    return { success: true };
-}
-
-/* ============================================================
-   RELEASE DES FONDS ÉCHUS (Appel API serveur)
-   ============================================================ */
-
-/**
- * Débloque les fonds échus en appelant la Cloud Function sécurisée.
- * Le serveur transfère pendingBalance -> availableBalance.
- * NOTE : L'appel direct depuis un client (vendor-dashboard, etc.) est
- * réservé à l'admin. Cette fonction est utilisée dans admin.js via
- * fetch('/api/releaseDueFunds', ...).
- */
-export async function releaseDueVendorFunds(options = {}) {
-    try {
-        const user = auth.currentUser;
-        if (!user) throw new Error("Session expirée.");
-        const idToken = await user.getIdToken(true);
-
-        const response = await fetch('/api/releaseDueFunds', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
-            body: JSON.stringify({ batchSize: options.batchSize || 400 })
-        });
-
-        const result = await response.json().catch(() => ({}));
-        if (!response.ok || !result.success) {
-            throw new Error(result.message || "Erreur lors du déblocage des fonds.");
+        fo…2171 tokens truncated…ge || "Erreur lors du déblocage des fonds.");
         }
 
         return result;
@@ -1910,3 +1771,4 @@ export async function openOrderDetails(orderId, isAdmin = false) {
    LOG FINAL
    ============================================================ */
 console.log('✅ orders.js chargé - v11.1.0 (Wallet côté serveur, imports nettoyés)');
+
