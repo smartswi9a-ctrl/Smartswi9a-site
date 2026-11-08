@@ -410,7 +410,7 @@ function isOfficialVendorContract(vendorId, contract) {
 /* ============================================================
    CF : getLivoFees (PUBLIC)
    ============================================================ */
-exports.getLivoFees = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
+exports.getLivoFees = onRequest({ invoker: 'public', region: 'europe-west1', cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
   if (cors(req, res)) return;
   try {
     let cacheFresh = false;
@@ -499,7 +499,7 @@ exports.getLivoFees = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIG
 /* ============================================================
    CF : syncLivoCities (ADMIN)
    ============================================================ */
-exports.syncLivoCities = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS], timeoutSeconds: 60 }, async (req, res) => {
+exports.syncLivoCities = onRequest({ invoker: 'public', region: 'europe-west1', cors: [...ALLOWED_ORIGINS], timeoutSeconds: 60 }, async (req, res) => {
   if (cors(req, res)) return;
   try {
     const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
@@ -564,7 +564,7 @@ exports.syncVendorPublic = onDocumentWritten('users/{userId}', async (event) => 
 /* ============================================================
    CF : signVendorContract (Sécurisé + B-C1 snapshot officiel)
    ============================================================ */
-exports.signVendorContract = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
+exports.signVendorContract = onRequest({ invoker: 'public', region: 'europe-west1', cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
   if (cors(req, res)) return;
   try {
     const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
@@ -706,7 +706,7 @@ exports.signVendorContract = onRequest({ region: 'europe-west1', cors: [...ALLOW
 /* ============================================================
    CF : loginVendor (B-C3 : rate limiting)
    ============================================================ */
-exports.loginVendor = onRequest({ region: 'europe-west1', maxInstances: 5, timeoutSeconds: 20 }, async (req, res) => {
+exports.loginVendor = onRequest({ invoker: 'public', region: 'europe-west1', maxInstances: 5, timeoutSeconds: 20 }, async (req, res) => {
   if (cors(req, res)) return;
   const email = String(req.body?.email || '').trim().toLowerCase();
   const password = req.body?.password;
@@ -785,7 +785,7 @@ exports.loginVendor = onRequest({ region: 'europe-west1', maxInstances: 5, timeo
 /* ============================================================
    CF : setVendorPassword
    ============================================================ */
-exports.setVendorPassword = onRequest({ region: 'europe-west1', maxInstances: 5, timeoutSeconds: 15 }, async (req, res) => {
+exports.setVendorPassword = onRequest({ invoker: 'public', region: 'europe-west1', maxInstances: 5, timeoutSeconds: 15 }, async (req, res) => {
   if (cors(req, res)) return;
   try {
     const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
@@ -1017,7 +1017,7 @@ async function inspectVendorSettlement(vendorId) {
 /* ============================================================
    CF : adminVendorAction
    ============================================================ */
-exports.adminVendorAction = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS], timeoutSeconds: 540, maxInstances: 2 }, async (req, res) => {
+exports.adminVendorAction = onRequest({ invoker: 'public', region: 'europe-west1', cors: [...ALLOWED_ORIGINS], timeoutSeconds: 540, maxInstances: 2 }, async (req, res) => {
   if (cors(req, res)) return;
   try {
     const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
@@ -1283,7 +1283,7 @@ function returnFeeDocId(orderId, returnIndex, vendorId) {
    CF : adminSetReturnFee
    Enregistre un justificatif isolé par commande, retour et vendeur.
    ============================================================ */
-exports.adminSetReturnFee = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
+exports.adminSetReturnFee = onRequest({ invoker: 'public', region: 'europe-west1', cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
   if (cors(req, res)) return;
   try {
     const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
@@ -1414,7 +1414,7 @@ exports.adminSetReturnFee = onRequest({ region: 'europe-west1', cors: [...ALLOWE
 /* ============================================================
    CF : requestWithdrawal (B-C2 : check vendeur approuvé)
    ============================================================ */
-exports.requestWithdrawal = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
+exports.requestWithdrawal = onRequest({ invoker: 'public', region: 'europe-west1', cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
   if (cors(req, res)) return;
   try {
     const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
@@ -1878,7 +1878,7 @@ exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}',
    CF : createVerifiedReview
    Création d'avis avec vérification d'achat côté serveur.
    ============================================================ */
-exports.createVerifiedReview = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS], timeoutSeconds: 30 }, async (req, res) => {
+exports.createVerifiedReview = onRequest({ invoker: 'public', region: 'europe-west1', cors: [...ALLOWED_ORIGINS], timeoutSeconds: 30 }, async (req, res) => {
   if (cors(req, res)) return;
   try {
     const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
@@ -1974,7 +1974,7 @@ exports.createVerifiedReview = onRequest({ region: 'europe-west1', cors: [...ALL
    CF : backfillVendorOrderViews
    Migration idempotente des anciennes commandes vers les vues privées.
    ============================================================ */
-exports.backfillVendorOrderViews = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS], timeoutSeconds: 60 }, async (req, res) => {
+exports.backfillVendorOrderViews = onRequest({ invoker: 'public', region: 'europe-west1', cors: [...ALLOWED_ORIGINS], timeoutSeconds: 60 }, async (req, res) => {
   if (cors(req, res)) return;
   try {
     const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
@@ -2057,7 +2057,7 @@ exports.backfillVendorOrderViews = onRequest({ region: 'europe-west1', cors: [..
 /* ============================================================
    CF : createCustomerOrder
    ============================================================ */
-exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 10, timeoutSeconds: 30, cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
+exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-west1', maxInstances: 10, timeoutSeconds: 30, cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
   if (cors(req, res)) return;
   try {
     const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
@@ -2446,7 +2446,7 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
 /* ============================================================
    CF : cancelCustomerOrder
    ============================================================ */
-exports.cancelCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 10, timeoutSeconds: 30, cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
+exports.cancelCustomerOrder = onRequest({ invoker: 'public', region: 'europe-west1', maxInstances: 10, timeoutSeconds: 30, cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
   if (cors(req, res)) return;
   try {
     const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
@@ -2571,7 +2571,7 @@ exports.cancelCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
 /* ============================================================
    CF : adminPayoutAction (M3 : validation vendorId)
    ============================================================ */
-exports.adminPayoutAction = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS], timeoutSeconds: 30 }, async (req, res) => {
+exports.adminPayoutAction = onRequest({ invoker: 'public', region: 'europe-west1', cors: [...ALLOWED_ORIGINS], timeoutSeconds: 30 }, async (req, res) => {
   if (cors(req, res)) return;
   try {
     const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
@@ -2694,7 +2694,7 @@ exports.adminPayoutAction = onRequest({ region: 'europe-west1', cors: [...ALLOWE
 /* ============================================================
    CF : releaseDueFunds
    ============================================================ */
-exports.releaseDueFunds = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIGINS], timeoutSeconds: 60 }, async (req, res) => {
+exports.releaseDueFunds = onRequest({ invoker: 'public', region: 'europe-west1', cors: [...ALLOWED_ORIGINS], timeoutSeconds: 60 }, async (req, res) => {
   if (cors(req, res)) return;
   try {
     const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
