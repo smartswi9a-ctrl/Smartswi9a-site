@@ -203,18 +203,11 @@ service cloud.firestore {
        ============================================================ */
 
     match /orders/{orderId} {
-      // Un vendeur peut lire une commande globale uniquement si elle ne
-      // contient que ses propres articles. Les commandes multi-vendeurs
-      // restent cloisonnées dans vendor_orders/{vendorId}/orders.
+      // Les commandes globales contiennent les coordonnées de livraison.
+      // Les vendeurs lisent exclusivement leur projection expurgée dans
+      // vendor_orders/{vendorId}/orders.
       allow read: if isAdmin() ||
-        (isSignedIn() && resource.data.userId == request.auth.uid) ||
-        (
-          isApprovedVendor(request.auth.uid) &&
-          resource.data.get('containsPlatformItems', true) == false &&
-          resource.data.get('vendorIds', []) is list &&
-          resource.data.vendorIds.size() == 1 &&
-          resource.data.vendorIds[0] == request.auth.uid
-        );
+        (isSignedIn() && resource.data.userId == request.auth.uid);
 
       allow create: if false;
 
@@ -243,7 +236,10 @@ service cloud.firestore {
     match /vendor_orders/{vendorId}/orders/{orderId} {
       // L'identifiant vendeur est porté par le chemin ; aucune écriture client
       // n'est permise dans cette collection.
-      allow read: if isAdmin() || isApprovedVendor(vendorId);
+      // privacySafe n'est écrit que par les Cloud Functions serveur après
+      // suppression des coordonnées et identifiants acheteur.
+      allow read: if isAdmin() ||
+        (isApprovedVendor(vendorId) && resource.data.get('privacySafe', false) == true);
       allow create, update, delete: if false;
     }
 
