@@ -3334,6 +3334,60 @@ async function handlePayoutReject(payoutId) {
 /* ============================================================
    OUTILS - MIGRATIONS
    ============================================================ */
+async function handleMigrateVendorOrderPrivacy() {
+    const btn = document.getElementById('migrateVendorOrderPrivacyBtn');
+    const logEl = document.getElementById('vendorOrderPrivacyLog');
+    const log = (message, isErr = false) => {
+        if (!logEl) return;
+        logEl.classList.add('active');
+        const row = document.createElement('div');
+        if (isErr) row.className = 'error';
+        row.textContent = message;
+        logEl.appendChild(row);
+        logEl.scrollTop = logEl.scrollHeight;
+    };
+
+    if (logEl) logEl.innerHTML = '';
+    if (btn) btn.disabled = true;
+    if (!currentAdmin) {
+        log('Connexion administrateur requise.', true);
+        if (btn) btn.disabled = false;
+        return;
+    }
+
+    try {
+        const token = await currentAdmin.getIdToken(true);
+        let cursor = '';
+        let processed = 0;
+        let pages = 0;
+        do {
+            const response = await fetch('/api/backfillVendorOrderViews', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ pageSize: 100, ...(cursor ? { cursor } : {}) })
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok || result.success !== true) {
+                throw new Error(result.message || `Erreur HTTP ${response.status}`);
+            }
+            processed += Number(result.processedOrders) || 0;
+            pages++;
+            log(`${processed} commande(s) traitée(s).`);
+            cursor = result.nextCursor || '';
+            if (pages >= 1000 && !result.complete) {
+                throw new Error('Migration interrompue après 1 000 pages; relancez-la pour continuer.');
+            }
+            if (result.complete) break;
+            if (!cursor) throw new Error('Le serveur n’a pas renvoyé de curseur de reprise.');
+        } while (true);
+        log(`Terminé : ${processed} commande(s). Les vendeurs ne reçoivent plus les données acheteur.`);
+    } catch (error) {
+        log(error.message || 'La migration a échoué.', true);
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
 async function handleMigrateCities() {
     const btn = document.getElementById('migrateCitiesBtn');
     const logEl = document.getElementById('migrationLog');
@@ -3754,6 +3808,7 @@ function attachAllRemainingEvents() {
     }
 
     /* Outils. */
+    document.getElementById('migrateVendorOrderPrivacyBtn')?.addEventListener('click', handleMigrateVendorOrderPrivacy);
     document.getElementById('migrateCitiesBtn')?.addEventListener('click', handleMigrateCities);
     document.getElementById('migrateLegacyCategoriesBtn')?.addEventListener('click', handleMigrateLegacyCategories);
     document.getElementById('migrateSkuBtn')?.addEventListener('click', handleMigrateSku);
