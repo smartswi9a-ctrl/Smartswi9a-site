@@ -1350,7 +1350,7 @@ async function renderOrders(container) {
 
     if (cachedOrders.length === 0) {
         try {
-            const q = query(collection(db, "vendor_orders", currentUserUid, "orders"), orderBy("createdAt", "desc"), limit(10));
+            const q = query(collection(db, "vendor_orders", currentUserUid, "orders"), where("privacySafe", "==", true), orderBy("createdAt", "desc"), limit(10));
             const snap = await getDocs(q);
             cachedOrders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
             ordersLastDoc = snap.docs[snap.docs.length - 1] || null;
@@ -1442,7 +1442,7 @@ async function renderOrders(container) {
     document.getElementById('loadMoreOrdersBtn')?.addEventListener('click', async (e) => {
         const btn = e.target; btn.disabled = true; btn.textContent = '...';
         try {
-            const q = query(collection(db, "vendor_orders", currentUserUid, "orders"), orderBy("createdAt", "desc"), startAfter(ordersLastDoc), limit(10));
+            const q = query(collection(db, "vendor_orders", currentUserUid, "orders"), where("privacySafe", "==", true), orderBy("createdAt", "desc"), startAfter(ordersLastDoc), limit(10));
             const snap = await getDocs(q);
             const more = snap.docs.map(d => ({ id: d.id, ...d.data() }));
             cachedOrders = [...cachedOrders, ...more];
