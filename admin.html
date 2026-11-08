@@ -941,6 +941,13 @@
             <h3 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;">🛠️ Outils</h3>
 
             <div class="admin-tool-card">
+                <h4>🔒 Masquer les données acheteur aux vendeurs</h4>
+                <p>Nettoie les anciennes vues de commandes vendeur et retire les identifiants et coordonnées acheteur.</p>
+                <button class="admin-btn-primary" id="migrateVendorOrderPrivacyBtn">🔒 Nettoyer les vues vendeur</button>
+                <div class="admin-tool-log" id="vendorOrderPrivacyLog"></div>
+            </div>
+
+            <div class="admin-tool-card">
                 <h4>🏙️ Migration des villes</h4>
                 <p>Migre les 240 villes de <code>villes.json</code> vers Firestore.</p>
                 <button class="admin-btn-primary" id="migrateCitiesBtn">🚀 Lancer</button>
