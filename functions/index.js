@@ -1,5 +1,6 @@
 const { onRequest } = require('firebase-functions/v2/https');
 const { onDocumentWritten, onDocumentUpdated, onDocumentCreated } = require('firebase-functions/v2/firestore');
+const { defineSecret } = require('firebase-functions/params');
 const { initializeApp } = require('firebase-admin/app');
 const { getAuth } = require('firebase-admin/auth');
 const { getFirestore, FieldValue, FieldPath } = require('firebase-admin/firestore');
@@ -37,6 +38,14 @@ const LIVO_FEES_CACHE_HOURS = 24;
 const LIVO_FEES_FETCH_TIMEOUT_MS = 10000;
 const LIVO_FEES_CACHE_DOC = 'livo_fees_cache';
 const LIVO_FEES_META_COLLECTION = 'meta';
+const LIVO_WEBHOOK_SECRET = defineSecret('LIVO_WEBHOOK_SECRET');
+const LIVO_WEBHOOK_MAX_CLOCK_SKEW_SECONDS = 300;
+const LIVO_WEBHOOK_EVENT_COLLECTION = 'livo_webhook_events';
+const LIVO_WEBHOOK_ALLOWED_EVENTS = new Set([
+  'order.created', 'order.status_changed', 'order.return_status_changed',
+  'pickup.created', 'pickup.status_changed',
+  'return.created', 'return.status_changed', 'message.created', 'ping'
+]);
 
 const FALLBACK_DELIVERY_FEE = 30;
 
@@ -493,6 +502,139 @@ exports.getLivoFees = onRequest({ invoker: 'public', region: 'europe-west1', cor
   } catch (error) {
     console.error('[getLivoFees]', error);
     return res.status(500).json({ success: false, message: 'Erreur serveur.' });
+  }
+});
+
+/* ============================================================
+   CF : livoWebhook (Livo event receiver)
+   ============================================================ */
+const LIVO_STATUS_TO_ORDER_STATUS = Object.freeze({
+  draft: 'pending',
+  pending: 'pending',
+  'in progress': 'shipping',
+  fulfilled: 'delivered',
+  problem: 'shipping',
+  cancelled: 'cancelled',
+  'awaiting transfer': 'shipping',
+  'awaiting pickup': 'confirmed',
+  reported: 'shipping',
+  programmed: 'confirmed'
+});
+
+function timingSafeTextEqual(left, right) {
+  const leftBuffer = Buffer.from(String(left || ''), 'utf8');
+  const rightBuffer = Buffer.from(String(right || ''), 'utf8');
+  return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+exports.livoWebhook = onRequest({
+  invoker: 'public',
+  region: 'europe-west1',
+  timeoutSeconds: 10,
+  maxInstances: 5,
+  secrets: [LIVO_WEBHOOK_SECRET]
+}, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  if (req.method !== 'POST') return res.status(405).json({ success: false });
+
+  const secret = LIVO_WEBHOOK_SECRET.value();
+  const authorization = String(req.get('authorization') || '');
+  const expectedAuthorization = `Bearer ${secret}`;
+  if (!secret || !timingSafeTextEqual(authorization, expectedAuthorization)) {
+    return res.status(401).json({ success: false });
+  }
+
+  const timestampText = String(req.get('x-livo-timestamp') || '');
+  const timestamp = Number(timestampText);
+  if (!/^\d{10,12}$/.test(timestampText) || !Number.isFinite(timestamp) ||
+      Math.abs(Math.floor(Date.now() / 1000) - timestamp) > LIVO_WEBHOOK_MAX_CLOCK_SKEW_SECONDS) {
+    return res.status(401).json({ success: false, message: 'Horodatage invalide.' });
+  }
+
+  const rawBody = Buffer.isBuffer(req.rawBody) ? req.rawBody : null;
+  if (!rawBody || rawBody.length === 0 || rawBody.length > 512 * 1024) {
+    return res.status(400).json({ success: false, message: 'Corps de requête invalide.' });
+  }
+
+  const signature = String(req.get('x-livo-signature') || '').match(/^sha256=([a-f0-9]{64})$/i);
+  if (!signature) return res.status(401).json({ success: false });
+  const expectedSignature = crypto.createHmac('sha256', secret)
+    .update(timestampText)
+    .update('.')
+    .update(rawBody)
+    .digest('hex');
+  if (!timingSafeTextEqual(signature[1].toLowerCase(), expectedSignature)) {
+    return res.status(401).json({ success: false });
+  }
+
+  let event;
+  try { event = JSON.parse(rawBody.toString('utf8')); }
+  catch (_) { return res.status(400).json({ success: false, message: 'JSON invalide.' }); }
+
+  const eventId = String(req.get('x-livo-delivery') || event?.id || '').trim();
+  const eventType = String(req.get('x-livo-event') || event?.event || '').trim();
+  const data = event?.data && typeof event.data === 'object' && !Array.isArray(event.data) ? event.data : null;
+  if (!eventId || eventId.length > 200 || eventId.includes('/') || (eventType !== 'ping' && !data) ||
+      !LIVO_WEBHOOK_ALLOWED_EVENTS.has(eventType)) {
+    return res.status(400).json({ success: false, message: 'Événement Livo invalide.' });
+  }
+
+  const resourceId = String(data?._id || data?.order_id || data?.id || '').trim().slice(0, 200);
+  const livoStatus = String(data?.status || '').trim().slice(0, 80).toLowerCase();
+  const returnStatus = String(data?.return_status || '').trim().slice(0, 80).toLowerCase();
+  const mappedStatus = eventType === 'order.status_changed' ? LIVO_STATUS_TO_ORDER_STATUS[livoStatus] : null;
+
+  try {
+    let matchedOrderRef = null;
+    if (resourceId && ['order.status_changed', 'order.return_status_changed'].includes(eventType)) {
+      const matches = await db.collection('orders').where('livoTracking', '==', resourceId).limit(2).get();
+      if (matches.size === 1) matchedOrderRef = matches.docs[0].ref;
+    }
+
+    const eventRef = db.collection(LIVO_WEBHOOK_EVENT_COLLECTION).doc(eventId);
+    const outcome = await db.runTransaction(async tx => {
+      const previous = await tx.get(eventRef);
+      if (previous.exists) return { duplicate: true };
+
+      let orderSnap = null;
+      if (matchedOrderRef) orderSnap = await tx.get(matchedOrderRef);
+
+      const canApplyStatus = !!(orderSnap?.exists && mappedStatus &&
+        !['delivered', 'returned', 'cancelled'].includes(String(orderSnap.data().status || '').toLowerCase()));
+      const canApplyReturn = !!(orderSnap?.exists && eventType === 'order.return_status_changed' && returnStatus);
+
+      tx.create(eventRef, {
+        eventId,
+        eventType,
+        resourceId: resourceId || null,
+        livoStatus: livoStatus || null,
+        returnStatus: returnStatus || null,
+        processing: canApplyStatus || canApplyReturn ? 'applied' : (matchedOrderRef ? 'ignored' : 'unmatched'),
+        receivedAt: FieldValue.serverTimestamp()
+      });
+
+      if (canApplyStatus) {
+        tx.update(matchedOrderRef, {
+          status: mappedStatus,
+          livoStatusRaw: livoStatus,
+          livoSyncedAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp()
+        });
+      } else if (canApplyReturn) {
+        tx.update(matchedOrderRef, {
+          livoReturnStatus: returnStatus,
+          livoSyncedAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp()
+        });
+      }
+
+      return { duplicate: false, applied: canApplyStatus || canApplyReturn };
+    });
+
+    return res.status(200).json({ success: true, ...outcome });
+  } catch (error) {
+    console.error('[livoWebhook] Event processing failed:', error.message);
+    return res.status(500).json({ success: false, message: 'Traitement webhook temporairement indisponible.' });
   }
 });
 
@@ -2008,7 +2150,20 @@ exports.backfillVendorOrderViews = onRequest({ invoker: 'public', region: 'europ
       });
 
       for (const vendorId of vendorIds) {
-        const vendorItems = items.filter(item => String(item.vendorId || '') === vendorId);
+        const vendorItems = items
+          .filter(item => String(item.vendorId || '') === vendorId)
+          .map(item => ({
+            id: String(item.id || ''),
+            productId: String(item.productId || ''),
+            vendorId,
+            shippingMethod: String(item.shippingMethod || ''),
+            variant: item.variant && typeof item.variant === 'object'
+              ? { size: String(item.variant.size || ''), color: String(item.variant.color || '') }
+              : null,
+            quantity: Number(item.quantity) || 0,
+            price: Number(item.price) || 0,
+            name: String(item.name || 'Produit').slice(0, 160)
+          }));
         const vendorSubtotal = vendorItems.reduce(
           (sum, item) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 0),
           0
@@ -2020,10 +2175,8 @@ exports.backfillVendorOrderViews = onRequest({ invoker: 'public', region: 'europ
           data: {
             orderId: orderDoc.id,
             vendorId,
+            privacySafe: true,
             vendorCount: vendorIds.length + (items.some(item => String(item.vendorId || 'smartswi9a') === 'smartswi9a') ? 1 : 0),
-            userId: order.userId || '',
-            userName: String(order.userName || order.deliveryAddress?.name || 'Client').slice(0, 100),
-            deliveryAddress: order.deliveryAddress || {},
             items: vendorItems,
             vendorSubtotal,
             status: order.status || 'pending',
@@ -2036,7 +2189,9 @@ exports.backfillVendorOrderViews = onRequest({ invoker: 'public', region: 'europ
 
     for (let i = 0; i < writes.length; i += 400) {
       const batch = db.batch();
-      writes.slice(i, i + 400).forEach(write => batch.set(write.ref, write.data, { merge: true }));
+      // Remplacement complet pour effacer les coordonnées acheteur présentes
+      // dans les anciennes projections vendeur.
+      writes.slice(i, i + 400).forEach(write => batch.set(write.ref, write.data));
       await batch.commit();
     }
 
@@ -2380,7 +2535,20 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
       // Vue cloisonnée par vendeur : aucun vendeur ne reçoit les articles
       // des autres boutiques ni les totaux globaux de la commande.
       for (const vendorId of vendorList) {
-        const vendorItems = validatedItems.filter(item => item.vendorId === vendorId);
+        const vendorItems = validatedItems
+          .filter(item => item.vendorId === vendorId)
+          .map(item => ({
+            id: String(item.id || ''),
+            productId: String(item.productId || ''),
+            vendorId,
+            shippingMethod: String(item.shippingMethod || ''),
+            variant: item.variant && typeof item.variant === 'object'
+              ? { size: String(item.variant.size || ''), color: String(item.variant.color || '') }
+              : null,
+            quantity: Number(item.quantity) || 0,
+            price: Number(item.price) || 0,
+            name: String(item.name || 'Produit').slice(0, 160)
+          }));
         const vendorSubtotal = vendorItems.reduce(
           (sum, item) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 0),
           0
@@ -2390,10 +2558,8 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
         tx.set(vendorOrderRef, {
           orderId: orderRef.id,
           vendorId,
+          privacySafe: true,
           vendorCount: vendorCountForPrivacy,
-          userId: decoded.uid,
-          userName: String(delivery.name).trim().slice(0, 100),
-          deliveryAddress: delivery,
           items: vendorItems,
           vendorSubtotal,
           status: 'pending',
