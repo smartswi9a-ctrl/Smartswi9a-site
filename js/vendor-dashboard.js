@@ -1,6 +1,6 @@
 /* ============================================================
    js/vendor-dashboard.js
-   Logique du dashboard vendeur - Smart Swi9a
+   Logique du dashboard vendeur - Smartswika
    Version 10.0.0 - Gestion commandes + API Retraits
    ============================================================ */
 
@@ -27,7 +27,8 @@ import {
     LANGUAGES,
     DEFAULT_LANGUAGE,
     PRODUCT_STATUS,
-    calculateVendorCommission
+    calculateVendorCommission,
+    CATEGORY_GROUPS
 } from "./config.js";
 import { showToast, confirmAction } from "./ui-core.js";
 import {
@@ -309,6 +310,20 @@ function updateSidebarUI(profile) {
     statusEl.textContent = entry.text;
     statusEl.className = `v-shop-status ${entry.cls}`;
     statusEl.removeAttribute('data-i18n');
+
+    const shippingEl = document.getElementById('vShippingMode');
+    const stockTab = document.querySelector('.v-nav-link[data-tab="stock"]');
+    const shippingMethod = vendorInfo.shippingMethod;
+    if (shippingEl) {
+        shippingEl.textContent = shippingMethod === 'dropoff' ? 'Mode logistique : Drop-off Livo'
+            : shippingMethod === 'fulfillment' ? 'Mode logistique : Fulfillment Livo'
+                : 'Mode logistique : à configurer';
+        shippingEl.className = `v-shop-status ${shippingMethod === 'dropoff' || shippingMethod === 'fulfillment' ? 'approved' : 'pending'}`;
+        shippingEl.style.display = 'block';
+        shippingEl.style.margin = '0.65rem auto 0';
+        shippingEl.style.maxWidth = 'max-content';
+    }
+    if (stockTab) stockTab.hidden = shippingMethod !== 'fulfillment';
 }
 
 /* ============================================================
@@ -406,16 +421,42 @@ function injectModals() {
                 <div class="v-field"><label class="v-label">Nom du produit (Français) *</label><input type="text" id="vProdNameFr" class="v-input" placeholder="Ex: Montre connectée"></div>
                 <div class="v-field"><label class="v-label">Nom du produit (Arabe)</label><input type="text" id="vProdNameAr" class="v-input" placeholder="ساعة ذكية"></div>
                 <div class="v-field"><label class="v-label">Nom du produit (Anglais)</label><input type="text" id="vProdNameEn" class="v-input" placeholder="Smartwatch"></div>
+                <div class="v-field"><label class="v-label" for="vProdParentCategory">Catégorie principale *</label><select id="vProdParentCategory" class="v-input"><option value="">Choisir une catégorie</option></select></div>
+                <div class="v-field"><label class="v-label" for="vProdCategory">Sous-catégorie *</label><select id="vProdCategory" class="v-input" disabled><option value="">Choisissez d’abord une catégorie</option></select></div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.8rem;">
                     <div class="v-field"><label class="v-label">Prix de vente (MAD) *</label><input type="number" id="vProdPrice" class="v-input" min="1" step="0.5"></div>
-                    <div class="v-field"><label class="v-label">Stock initial *</label><input type="number" id="vProdStock" class="v-input" min="0" value="1"></div>
+                    <div class="v-field"><label class="v-label">Ancien prix (MAD)</label><input type="number" id="vProdOldPrice" class="v-input" min="0" step="0.5"></div>
                 </div>
-                <div class="v-field"><label class="v-label">Description (Français)</label><textarea id="vProdDescFr" class="v-input" rows="3" placeholder="Décrivez votre produit..."></textarea></div>
+                <div class="v-field"><label class="v-label">Stock total *</label><input type="number" id="vProdStock" class="v-input" min="0" value="1"></div>
+                <h3 class="v-card-title">Tailles et couleurs</h3>
+                <div class="v-field"><label class="v-label">Tailles (séparées par des virgules)</label><input type="text" id="vProdSizes" class="v-input" placeholder="S, M, L, XL"></div>
+                <div class="v-field"><label class="v-label">Couleurs (séparées par des virgules)</label><input type="text" id="vProdColors" class="v-input" placeholder="Noir, Blanc"></div>
+                <button type="button" id="vProdGenerateVariants" class="v-btn v-btn-secondary" style="margin-bottom:0.75rem;">Créer les variantes</button>
+                <div id="vProdVariantsContainer" style="display:none;overflow-x:auto;margin-bottom:1rem;">
+                    <table class="acc-table"><thead><tr><th>Variante</th><th>Prix (MAD)</th><th>Stock</th></tr></thead><tbody id="vProdVariantsBody"></tbody></table>
+                </div>
+                <label class="v-checkbox" style="margin:0 0 1rem;"><input type="checkbox" id="vProdSizeGuide"><span>Ajouter un guide des tailles</span></label>
+                <h3 class="v-card-title">Dimensions pour Livo</h3>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.8rem;">
+                    <div class="v-field"><label class="v-label">Poids (g)</label><input type="number" id="vProdWeight" class="v-input" min="0" step="1"></div>
+                    <div class="v-field"><label class="v-label">Longueur (cm)</label><input type="number" id="vProdLength" class="v-input" min="0" step="0.1"></div>
+                    <div class="v-field"><label class="v-label">Largeur (cm)</label><input type="number" id="vProdWidth" class="v-input" min="0" step="0.1"></div>
+                    <div class="v-field"><label class="v-label">Hauteur (cm)</label><input type="number" id="vProdHeight" class="v-input" min="0" step="0.1"></div>
+                </div>
+                <h3 class="v-card-title">Descriptions</h3>
+                <div class="v-field"><label class="v-label">Français</label><textarea id="vProdDescFr" class="v-input" rows="3" placeholder="Décrivez votre produit..."></textarea></div>
+                <div class="v-field"><label class="v-label">العربية</label><textarea id="vProdDescAr" class="v-input" rows="3" dir="rtl"></textarea></div>
+                <div class="v-field"><label class="v-label">English</label><textarea id="vProdDescEn" class="v-input" rows="3"></textarea></div>
+                <h3 class="v-card-title">Points forts (un point par ligne)</h3>
+                <div class="v-field"><label class="v-label">Français</label><textarea id="vProdFeaturesFr" class="v-input" rows="3"></textarea></div>
+                <div class="v-field"><label class="v-label">العربية</label><textarea id="vProdFeaturesAr" class="v-input" rows="3" dir="rtl"></textarea></div>
+                <div class="v-field"><label class="v-label">English</label><textarea id="vProdFeaturesEn" class="v-input" rows="3"></textarea></div>
                 <div class="v-field">
-                    <label class="v-label">Image du produit (max 2 Mo) *</label>
+                    <label class="v-label">Image principale (max 2 Mo) *</label>
                     <input type="file" id="vProdImageFile" accept="image/jpeg,image/png,image/webp" class="v-input">
                     <div id="vProdImagePreview" style="margin-top:0.5rem;"></div>
                 </div>
+                <div class="v-field"><label class="v-label">Images supplémentaires (max 2 Mo chacune)</label><input type="file" id="vProdGalleryFiles" accept="image/jpeg,image/png,image/webp" class="v-input" multiple><div id="vProdGalleryPreview" style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.5rem;"></div></div>
                 <div id="vProdError" style="color:var(--danger);font-size:0.85rem;min-height:1.2rem;text-align:center;margin:0.5rem 0;"></div>
                 <button type="button" id="vProdSubmitBtn" class="v-btn v-btn-primary v-btn-block">Envoyer pour validation</button>
             </div>
@@ -609,6 +650,71 @@ function generateSlug(str) {
     return 'product-' + Date.now().toString(36);
 }
 
+function initializeVendorProductCategories(selectedCategory = '') {
+    const parent = document.getElementById('vProdParentCategory');
+    const child = document.getElementById('vProdCategory');
+    if (!parent || !child) return;
+    if (!parent.dataset.initialized) {
+        parent.innerHTML = '<option value="">Choisir une catégorie</option>' + CATEGORY_GROUPS.map(group =>
+            `<option value="${escapeHTML(group.id)}">${group.emoji} ${escapeHTML(tr(group.label, group.id))}</option>`
+        ).join('');
+        parent.addEventListener('change', () => {
+            const group = CATEGORY_GROUPS.find(item => item.id === parent.value);
+            child.innerHTML = group
+                ? '<option value="">Choisir une sous-catégorie</option>' + group.children.map(item =>
+                    `<option value="${escapeHTML(item.id)}">${item.emoji} ${escapeHTML(tr(item.label, item.id))}</option>`
+                ).join('')
+                : '<option value="">Choisissez d’abord une catégorie</option>';
+            child.disabled = !group;
+        });
+        parent.dataset.initialized = 'true';
+    }
+    const group = CATEGORY_GROUPS.find(item => item.children.some(childItem => childItem.id === selectedCategory));
+    parent.value = group?.id || '';
+    parent.dispatchEvent(new Event('change'));
+    child.value = selectedCategory || '';
+}
+
+function productCsvValues(id) {
+    return [...new Set(String(document.getElementById(id)?.value || '').split(',').map(value => value.trim()).filter(Boolean))];
+}
+
+function renderVendorVariantRows(existingVariants = []) {
+    const container = document.getElementById('vProdVariantsContainer');
+    const tbody = document.getElementById('vProdVariantsBody');
+    const sizes = productCsvValues('vProdSizes');
+    const colors = productCsvValues('vProdColors');
+    if (!sizes.length && !colors.length && !existingVariants.length) {
+        container.style.display = 'none';
+        tbody.innerHTML = '';
+        return true;
+    }
+    const sizeValues = sizes.length ? sizes : [''];
+    const colorValues = colors.length ? colors : [''];
+    let combinations = existingVariants.length ? existingVariants.map(variant => ({
+        size: String(variant.size || ''), color: String(variant.color || ''),
+        price: Number(variant.price), stock: Number(variant.stock)
+    })) : sizeValues.flatMap(size => colorValues.map(color => ({ size, color })));
+    if (combinations.length > 100) return false;
+    const totalStock = Math.max(0, parseInt(document.getElementById('vProdStock').value, 10) || 0);
+    const basePrice = Math.max(0, parseFloat(document.getElementById('vProdPrice').value) || 0);
+    const allocatedBase = Math.floor(totalStock / combinations.length);
+    let remainder = totalStock % combinations.length;
+    tbody.innerHTML = combinations.map(variant => {
+        const label = [variant.size, variant.color].filter(Boolean).join(' · ') || 'Variante';
+        const fallbackStock = allocatedBase + (remainder-- > 0 ? 1 : 0);
+        const price = Number.isFinite(variant.price) ? variant.price : basePrice;
+        const stock = Number.isFinite(variant.stock) ? variant.stock : fallbackStock;
+        return `<tr data-size="${escapeHTML(variant.size)}" data-color="${escapeHTML(variant.color)}"><td>${escapeHTML(label)}</td><td><input type="number" class="v-variant-price v-input" min="0" step="0.5" value="${price}"></td><td><input type="number" class="v-variant-stock v-input" min="0" step="1" value="${stock}"></td></tr>`;
+    }).join('');
+    container.style.display = 'block';
+    return true;
+}
+
+function linesFromProductField(id) {
+    return String(document.getElementById(id)?.value || '').split('\n').map(value => value.trim()).filter(Boolean);
+}
+
 function openProductModal(product = null) {
     const modal = document.getElementById('vProductModal');
     if (!modal) return;
@@ -623,10 +729,34 @@ function openProductModal(product = null) {
     document.getElementById('vProdNameFr').value = product ? (product.nameFr || '') : '';
     document.getElementById('vProdNameAr').value = product ? (product.nameAr || '') : '';
     document.getElementById('vProdNameEn').value = product ? (product.nameEn || '') : '';
+    initializeVendorProductCategories(product?.category || '');
     document.getElementById('vProdPrice').value = product ? (product.price || '') : '';
+    document.getElementById('vProdOldPrice').value = product ? (product.oldPrice || '') : '';
     document.getElementById('vProdStock').value = product ? (product.stock ?? '1') : '1';
     document.getElementById('vProdDescFr').value = product ? (product.descFr || '') : '';
+    document.getElementById('vProdDescAr').value = product ? (product.descAr || '') : '';
+    document.getElementById('vProdDescEn').value = product ? (product.descEn || '') : '';
+    document.getElementById('vProdFeaturesFr').value = product ? (product.featuresFr || []).join('\n') : '';
+    document.getElementById('vProdFeaturesAr').value = product ? (product.featuresAr || []).join('\n') : '';
+    document.getElementById('vProdFeaturesEn').value = product ? (product.featuresEn || []).join('\n') : '';
+    document.getElementById('vProdSizes').value = product ? (product.sizes || [...new Set((product.variants || []).map(item => item.size).filter(Boolean))]).join(', ') : '';
+    document.getElementById('vProdColors').value = product ? (product.colors || [...new Set((product.variants || []).map(item => item.color).filter(Boolean))]).join(', ') : '';
+    document.getElementById('vProdSizeGuide').checked = !!product?.hasSizeGuide;
+    document.getElementById('vProdWeight').value = product?.dimensions?.weight || '';
+    document.getElementById('vProdLength').value = product?.dimensions?.length || '';
+    document.getElementById('vProdWidth').value = product?.dimensions?.width || '';
+    document.getElementById('vProdHeight').value = product?.dimensions?.height || '';
     document.getElementById('vProdImageFile').value = '';
+    document.getElementById('vProdGalleryFiles').value = '';
+    document.getElementById('vProdGalleryPreview').innerHTML = '';
+    (product?.gallery || []).forEach(url => {
+        const img = document.createElement('img');
+        img.src = safeImageUrl(url);
+        img.alt = '';
+        img.style.cssText = 'width:64px;height:64px;object-fit:cover;border-radius:8px;';
+        document.getElementById('vProdGalleryPreview').appendChild(img);
+    });
+    renderVendorVariantRows(product?.variants || []);
 
     const preview = document.getElementById('vProdImagePreview');
     if (preview) {
@@ -656,19 +786,38 @@ async function submitProduct() {
     const nameAr = (document.getElementById('vProdNameAr').value || '').trim();
     const nameEn = (document.getElementById('vProdNameEn').value || '').trim();
     const price = parseFloat(document.getElementById('vProdPrice').value);
-    const stock = parseInt(document.getElementById('vProdStock').value, 10);
+    const oldPrice = Math.max(0, parseFloat(document.getElementById('vProdOldPrice').value) || 0);
+    let stock = parseInt(document.getElementById('vProdStock').value, 10);
     const descFr = (document.getElementById('vProdDescFr').value || '').trim();
+    const descAr = (document.getElementById('vProdDescAr').value || '').trim();
+    const descEn = (document.getElementById('vProdDescEn').value || '').trim();
+    const parentCategory = document.getElementById('vProdParentCategory').value;
+    const category = document.getElementById('vProdCategory').value;
     const file = document.getElementById('vProdImageFile').files[0];
+    const galleryFiles = Array.from(document.getElementById('vProdGalleryFiles').files || []);
     const errEl = document.getElementById('vProdError');
     const btn = document.getElementById('vProdSubmitBtn');
 
     errEl.textContent = '';
 
     if (!nameFr || nameFr.length < 2) { errEl.textContent = 'Nom (FR) requis (min 2 caractères).'; return; }
+    if (!CATEGORY_GROUPS.some(group => group.id === parentCategory && group.children.some(child => child.id === category))) { errEl.textContent = 'Choisissez une catégorie et une sous-catégorie valides.'; return; }
     if (!Number.isFinite(price) || price <= 0) { errEl.textContent = 'Prix invalide.'; return; }
     if (!Number.isFinite(stock) || stock < 0) { errEl.textContent = 'Stock invalide.'; return; }
     if (!currentProductIdEditing && !file) { errEl.textContent = 'Image requise.'; return; }
     if (file && file.size > 2 * 1024 * 1024) { errEl.textContent = 'Image trop lourde (max 2 Mo).'; return; }
+    if ([file, ...galleryFiles].filter(Boolean).some(image => image.size > 2 * 1024 * 1024)) { errEl.textContent = 'Chaque image doit faire au maximum 2 Mo.'; return; }
+    if ([file, ...galleryFiles].filter(Boolean).some(image => !['image/jpeg', 'image/png', 'image/webp'].includes(image.type))) { errEl.textContent = 'Utilisez des images JPG, PNG ou WebP.'; return; }
+    if (galleryFiles.length > 12) { errEl.textContent = 'Ajoutez au maximum 12 images secondaires à la fois.'; return; }
+    const dimensionValues = ['weight', 'length', 'width', 'height'].map(key => parseFloat(document.getElementById(`vProd${key[0].toUpperCase()}${key.slice(1)}`).value) || 0);
+    if (dimensionValues.some(value => !Number.isFinite(value) || value < 0 || value > 100000)) { errEl.textContent = 'Vérifiez les dimensions et le poids.'; return; }
+    const sizes = productCsvValues('vProdSizes');
+    const colors = productCsvValues('vProdColors');
+    if (!document.querySelector('#vProdVariantsBody tr') && (sizes.length || colors.length)) {
+        if (!renderVendorVariantRows()) { errEl.textContent = 'Réduisez le nombre de combinaisons de tailles et de couleurs.'; return; }
+        errEl.textContent = 'Variantes créées. Vérifiez le stock et les prix de chaque variante, puis renvoyez le produit.';
+        return;
+    }
 
     btn.disabled = true;
     btn.textContent = 'Upload...';
@@ -676,6 +825,8 @@ async function submitProduct() {
     let newImagePath = null;
     let newImageUrl = null;
     let oldImagePath = null;
+    const uploadedPaths = [];
+    let productSaved = false;
 
     try {
         if (currentProductIdEditing) {
@@ -694,10 +845,46 @@ async function submitProduct() {
             const ts = Date.now();
             const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
             newImagePath = `vendors/${currentUserUid}/products/${ts}_${safeName}`;
+            uploadedPaths.push(newImagePath);
             const storageRef = ref(storage, newImagePath);
             await uploadBytes(storageRef, file);
             newImageUrl = await getDownloadURL(storageRef);
         }
+
+        let gallery = [];
+        if (currentProductIdEditing) {
+            const existing = await getDoc(doc(db, 'products', currentProductIdEditing));
+            if (existing.exists()) gallery = existing.data().gallery || [];
+        }
+        for (const image of galleryFiles) {
+            const ts = Date.now() + uploadedPaths.length;
+            const safeName = image.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+            const path = `vendors/${currentUserUid}/products/gallery/${ts}_${safeName}`;
+            uploadedPaths.push(path);
+            const galleryRef = ref(storage, path);
+            await uploadBytes(galleryRef, image);
+            gallery.push(await getDownloadURL(galleryRef));
+        }
+
+        const variants = [];
+        const variantRows = Array.from(document.querySelectorAll('#vProdVariantsBody tr'));
+        for (const row of variantRows) {
+            const variantPrice = parseFloat(row.querySelector('.v-variant-price').value);
+            const variantStock = parseInt(row.querySelector('.v-variant-stock').value, 10);
+            if (!Number.isFinite(variantPrice) || variantPrice < 0 || !Number.isInteger(variantStock) || variantStock < 0) {
+                throw new Error('Vérifiez le prix et le stock de chaque variante.');
+            }
+            variants.push({ size: row.dataset.size || '', color: row.dataset.color || '', price: variantPrice, stock: variantStock });
+        }
+        if (variants.length) stock = variants.reduce((total, item) => total + item.stock, 0);
+
+        const dimensions = Object.fromEntries(['weight', 'length', 'width', 'height'].map(key => {
+            const value = parseFloat(document.getElementById(`vProd${key[0].toUpperCase()}${key.slice(1)}`).value) || 0;
+            return [key, Math.max(0, value)];
+        }));
+        const featuresFr = linesFromProductField('vProdFeaturesFr');
+        const featuresAr = linesFromProductField('vProdFeaturesAr');
+        const featuresEn = linesFromProductField('vProdFeaturesEn');
 
         btn.textContent = 'Enregistrement...';
         const vendorName = (currentVendor?.vendorInfo?.shopName || currentVendor?.name || 'Vendeur').slice(0, 60);
@@ -705,20 +892,33 @@ async function submitProduct() {
         if (currentProductIdEditing) {
             const snap = await getDoc(doc(db, "products", currentProductIdEditing));
             const oldData = snap.exists() ? snap.data() : {};
-            const isStockOnly = (
-                oldData.nameFr === nameFr && oldData.price === price &&
-                oldData.descFr === descFr && (!file || newImageUrl === oldData.img)
-            );
+            const isStockOnly = oldData.nameFr === nameFr && oldData.nameAr === (nameAr || nameFr) && oldData.nameEn === (nameEn || nameFr) &&
+                Number(oldData.price) === price && Number(oldData.oldPrice || 0) === oldPrice && oldData.category === category &&
+                oldData.descFr === descFr && oldData.descAr === descAr && oldData.descEn === descEn &&
+                JSON.stringify(oldData.featuresFr || []) === JSON.stringify(featuresFr) &&
+                JSON.stringify(oldData.featuresAr || []) === JSON.stringify(featuresAr) &&
+                JSON.stringify(oldData.featuresEn || []) === JSON.stringify(featuresEn) &&
+                JSON.stringify(oldData.variants || []) === JSON.stringify(variants) &&
+                JSON.stringify(oldData.sizes || []) === JSON.stringify(sizes) &&
+                JSON.stringify(oldData.colors || []) === JSON.stringify(colors) &&
+                JSON.stringify(oldData.dimensions || {}) === JSON.stringify(dimensions) &&
+                !!oldData.hasSizeGuide === document.getElementById('vProdSizeGuide').checked &&
+                (!file || newImageUrl === oldData.img) && galleryFiles.length === 0;
 
             if (isStockOnly) {
                 await updateDoc(doc(db, "products", currentProductIdEditing), { stock, updatedAt: serverTimestamp() });
+                productSaved = true;
                 showToast('Stock mis à jour.');
             } else {
                 await updateDoc(doc(db, "products", currentProductIdEditing), {
                     nameFr, nameAr: nameAr || nameFr, nameEn: nameEn || nameFr,
-                    price, basePrice: price, descFr, img: newImageUrl, stock,
+                    category, price, basePrice: price, oldPrice, descFr, descAr, descEn,
+                    featuresFr, featuresAr, featuresEn, dimensions, variants, sizes, colors,
+                    hasSizeGuide: document.getElementById('vProdSizeGuide').checked,
+                    img: newImageUrl || oldData.img || '', gallery, stock,
                     vendorName, status: PRODUCT_STATUS.PENDING_ADMIN_APPROVAL, updatedAt: serverTimestamp()
                 });
+                productSaved = true;
                 showToast('Produit mis à jour et renvoyé pour validation.');
             }
         } else {
@@ -726,14 +926,15 @@ async function submitProduct() {
             const slug = generateSlug(nameFr) + '-' + ts.toString(36).slice(-4);
             const productData = {
                 nameFr, nameAr: nameAr || nameFr, nameEn: nameEn || nameFr, slug,
-                sku: `VND-${String(ts).slice(-6)}`, category: 'all', basePrice: price, price,
-                oldPrice: 0, purchasePrice: 0, stock,
-                isNew: false, hasSizeGuide: false, dimensions: { weight: 0, length: 0, width: 0, height: 0 },
-                variants: [], descFr: descFr || '', descAr: '', descEn: '', featuresFr: [], featuresAr: [], featuresEn: [],
-                img: newImageUrl, gallery: [], vendorId: currentUserUid, vendorName,
+                sku: `VND-${String(ts).slice(-6)}`, category, basePrice: price, price,
+                oldPrice, purchasePrice: 0, stock,
+                isNew: false, hasSizeGuide: document.getElementById('vProdSizeGuide').checked, dimensions,
+                variants, sizes, colors, descFr, descAr, descEn, featuresFr, featuresAr, featuresEn,
+                img: newImageUrl, gallery, vendorId: currentUserUid, vendorName,
                 status: PRODUCT_STATUS.PENDING_ADMIN_APPROVAL, createdAt: serverTimestamp(), updatedAt: serverTimestamp()
             };
             await addDoc(collection(db, "products"), productData);
+            productSaved = true;
             showToast('Produit envoyé pour validation admin.');
         }
 
@@ -747,12 +948,15 @@ async function submitProduct() {
 
     } catch (e) {
         console.error('[vendor-dashboard] Erreur création/édition produit :', e);
-        errEl.textContent = 'Erreur : ' + (e.message || 'inconnue');
-        if (newImagePath) {
-            try { await deleteObject(ref(storage, newImagePath)); } catch (_) { /* ignore */ }
+        if (productSaved) {
+            closeProductModal();
+            showToast('Produit enregistré. Actualisez la page si la liste ne se met pas à jour.');
+        } else {
+            errEl.textContent = 'Erreur : ' + (e.message || 'inconnue');
+            for (const path of uploadedPaths) { try { await deleteObject(ref(storage, path)); } catch (_) { /* ignore */ } }
+            btn.disabled = false;
+            btn.textContent = currentProductIdEditing ? 'Mettre à jour' : 'Envoyer pour validation';
         }
-        btn.disabled = false;
-        btn.textContent = currentProductIdEditing ? 'Mettre à jour' : 'Envoyer pour validation';
     }
 }
 
@@ -947,6 +1151,7 @@ async function submitContractSignature() {
         }
         currentContractDoc = await loadCurrentContract();
         document.querySelectorAll('.v-nav-link[data-tab]').forEach(link => { link.hidden = false; });
+        updateSidebarUI(currentVendor);
         setActiveTab('overview'); await renderTab('overview');
         
     } catch (e) {
@@ -1253,7 +1458,11 @@ async function renderOrders(container) {
 }
 
 async function renderStock(container) {
-    container.innerHTML = renderEmptyState('📥', tr('vendor.stock.empty.title', 'Aucun stock Fulfillment'), tr('vendor.stock.empty.desc', "L'envoi de stock à notre entrepôt partenaire sera disponible prochainement. Contactez le support pour plus d'informations."));
+    if (currentVendor?.vendorInfo?.shippingMethod !== 'fulfillment') {
+        container.innerHTML = renderEmptyState('📦', 'Mode Drop-off', 'Déposez les colis de vos commandes chez Livo après leur confirmation. Cet espace de gestion du stock est réservé aux vendeurs en mode Fulfillment.');
+        return;
+    }
+    container.innerHTML = renderEmptyState('📥', tr('vendor.stock.empty.title', 'Aucun stock Fulfillment'), tr('vendor.stock.empty.desc', "L'envoi de stock à l'entrepôt Livo sera disponible prochainement. Contactez le support pour organiser le dépôt de votre stock."));
 }
 
 async function renderWallet(container) {
@@ -1421,17 +1630,42 @@ function attachModalListeners() {
     document.getElementById('closeProductModal')?.addEventListener('click', closeProductModal);
     document.getElementById('vProductModal')?.addEventListener('click', (e) => { if (e.target.id === 'vProductModal') closeProductModal(); });
     document.getElementById('vProdSubmitBtn')?.addEventListener('click', submitProduct);
+    document.getElementById('vProdGenerateVariants')?.addEventListener('click', () => {
+        const error = document.getElementById('vProdError');
+        error.textContent = renderVendorVariantRows() ? '' : 'Réduisez le nombre de combinaisons (100 maximum).';
+    });
     document.getElementById('vProdImageFile')?.addEventListener('change', (e) => {
         const file = e.target.files[0];
         const preview = document.getElementById('vProdImagePreview');
         if (!preview) return;
         if (file && file.size <= 2 * 1024 * 1024) {
             const reader = new FileReader();
-            reader.onload = (ev) => { preview.innerHTML = `<img src="${ev.target.result}" alt="" style="width:80px;height:80px;object-fit:cover;border-radius:8px;">`; };
+            reader.onload = (ev) => {
+                const img = document.createElement('img');
+                img.src = ev.target.result;
+                img.alt = '';
+                img.style.cssText = 'width:80px;height:80px;object-fit:cover;border-radius:8px;';
+                preview.replaceChildren(img);
+            };
             reader.readAsDataURL(file);
         } else if (file) {
             preview.innerHTML = '<div style="color:var(--danger);font-size:0.8rem;">Image trop lourde (max 2 Mo).</div>';
             e.target.value = '';
+        }
+    });
+    document.getElementById('vProdGalleryFiles')?.addEventListener('change', (e) => {
+        const preview = document.getElementById('vProdGalleryPreview');
+        if (!preview) return;
+        preview.innerHTML = '';
+        for (const file of Array.from(e.target.files || [])) {
+            if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 2 * 1024 * 1024) continue;
+            const img = document.createElement('img');
+            img.alt = '';
+            img.style.cssText = 'width:64px;height:64px;object-fit:cover;border-radius:8px;';
+            const reader = new FileReader();
+            reader.onload = event => { img.src = event.target.result; };
+            reader.readAsDataURL(file);
+            preview.appendChild(img);
         }
     });
 
@@ -1466,13 +1700,13 @@ function renderVendorAccessStatus(profile) {
         state = {
             icon: '⚠️', label: 'DEMANDE REFUSÉE', heading: 'Votre inscription vendeur n’a pas été approuvée',
             text: 'L’administration n’a pas approuvé votre demande vendeur.',
-            note: 'Veuillez contacter le support Smart Swi9a pour obtenir plus d’informations.'
+            note: 'Veuillez contacter le support Smartswika pour obtenir plus d’informations.'
         };
     } else if (status === VENDOR_STATUS.SUSPENDED) {
         state = {
             icon: '🔒', label: 'COMPTE SUSPENDU', heading: 'Votre compte vendeur est suspendu',
             text: 'L’accès aux fonctionnalités vendeur est temporairement désactivé.',
-            note: 'Veuillez contacter le support Smart Swi9a pour obtenir de l’aide.'
+            note: 'Veuillez contacter le support Smartswika pour obtenir de l’aide.'
         };
     } else if (contractStatus !== CONTRACT_STATUS.ACCEPTED || needsResign(info)) {
         const outdated = contractStatus === CONTRACT_STATUS.ACCEPTED && needsResign(info);
@@ -1583,6 +1817,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     try { currentContractDoc = await loadCurrentContract(); } catch (_) { currentContractDoc = null; }
     document.querySelectorAll('.v-nav-link[data-tab]').forEach(link => { link.hidden = false; });
+    updateSidebarUI(currentVendor);
     setActiveTab('overview');
     await renderTab('overview');
 });

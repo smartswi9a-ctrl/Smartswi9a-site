@@ -1,6 +1,6 @@
 /* ============================================================
    js/auth.js
-   AUTHENTIFICATION - SMART SWI9A
+   AUTHENTIFICATION - SMARTSWIKA
    Version 10.0.0 - Version stabilisée
    ============================================================ */
 

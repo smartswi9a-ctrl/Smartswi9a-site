@@ -1,6 +1,6 @@
 /* ============================================================
    js/boutique.js
-   PAGE BOUTIQUE PUBLIQUE VENDEUR - SMART SWI9A
+   PAGE BOUTIQUE PUBLIQUE VENDEUR - SMARTSWIKA
    Version 11.0.0 - Pagination Firestore corrigée (orderBy)
    ============================================================ */
 
@@ -211,10 +211,10 @@ function updateBoutiqueMeta() {
     const name = currentVendor.shopName;
     const count = vendorProducts.length;
     const description = count > 0
-        ? `Découvrez les produits de la boutique ${name} sur Smart Swi9a. Livraison 24-72h, paiement à la livraison.`
-        : `Découvrez la boutique ${name} sur Smart Swi9a. Livraison 24-72h, paiement à la livraison.`;
+        ? `Découvrez les produits de la boutique ${name} sur Smartswika. Livraison 24-72h, paiement à la livraison.`
+        : `Découvrez la boutique ${name} sur Smartswika. Livraison 24-72h, paiement à la livraison.`;
     const url = `${CONFIG.SHOP.URL}/boutique.html?v=${encodeURIComponent(currentVendor.uid)}`;
-    document.title = `${name} | Smart Swi9a`;
+    document.title = `${name} | Smartswika`;
     setMeta('name', 'description', description.substring(0, 160));
     setMeta('property', 'og:title', name);
     setMeta('property', 'og:description', description.substring(0, 200));

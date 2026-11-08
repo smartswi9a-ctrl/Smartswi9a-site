@@ -54,7 +54,7 @@ const LOGIN_MAX_FAILURES = 8;
    avec "Falsification détectée".
    ============================================================ */
 const OFFICIAL_VENDOR_CONFIG = {
-  CONTRACT_VERSION: '1.4.0',
+  CONTRACT_VERSION: '1.5.0',
   COMMISSION_RATE: 0.07,
   COMMISSION_RATE_MIN: 0.05,
   COMMISSION_RATE_MAX: 0.15,
@@ -273,6 +273,7 @@ async function syncLivoCitiesFromApi(options = {}) {
   await db.collection(LIVO_FEES_META_COLLECTION).doc(LIVO_FEES_CACHE_DOC).set({
     updatedAt: FieldValue.serverTimestamp(),
     citiesCount: cities.length,
+    cityKeys: cities.map(city => city.city),
     requestDate,
     source: 'livo',
     created, updated, deleted
@@ -340,10 +341,10 @@ function getContractText(lang, version, snapshot) {
   // La version 1.3.0 reprend strictement le contrat Livo 1.2.0,
   // avec le nouveau domaine. Les gabarits 1.1.0 et 1.2.0 restent intacts
   // afin de préserver les empreintes des contrats déjà signés.
-  const sourceVersion = ["1.3.0", "1.4.0"].includes(version) ? "1.2.0" : version;
+  const sourceVersion = ["1.3.0", "1.4.0", "1.5.0"].includes(version) ? "1.2.0" : version;
   const t = templates[sourceVersion] || templates["1.2.0"];
   let text = t[lang] ? t[lang](snapshot) : t["fr"](snapshot);
-  if (version === "1.4.0") {
+  if (["1.4.0", "1.5.0"].includes(version)) {
     const clauses = {
       fr: `Article 6 — Retours
 Les frais de retour sont facturés séparément à chaque Vendeur selon le montant réel communiqué par le transporteur ou, à défaut, validé par l'administration. Aucun frais n'est débité avant l'enregistrement et la validation de ce montant. Les retours répétés peuvent entraîner une révision du statut du Vendeur.`,
@@ -359,7 +360,11 @@ Return fees are charged separately to each Vendor based on the actual amount pro
     };
     const language = clauses[lang] ? lang : "fr";
     text = text.replace(patterns[language], clauses[language]);
-    text = text.replaceAll("smartswi9a.top", "smartswika.ma").replace(/\s+/g, " ").trim();
+    text = text.replaceAll("smartswi9a.top", "smartswika.ma");
+    if (version === "1.5.0") {
+      text = text.replaceAll("SMART SWI9A", "SMARTSWIKA").replaceAll("Smart Swi9a", "Smartswika").replaceAll("سمارت سويقة", "سمارتسويكا");
+    }
+    text = text.replace(/\s+/g, " ").trim();
     return text;
   }
   return version === "1.3.0"
@@ -412,18 +417,31 @@ exports.getLivoFees = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIG
     try { cacheFresh = await isLivoFeesCacheFresh(); }
     catch (e) { console.warn('[getLivoFees] Cache check failed:', e.message); }
 
+    let syncError = null;
+    if (!cacheFresh) {
+      try {
+        await syncLivoCitiesFromApi({ preserveCustom: true });
+        cacheFresh = true;
+      } catch (e) {
+        syncError = e;
+        console.warn('[getLivoFees] Livo sync failed; serving last stored rates:', e.message);
+      }
+    }
+
     // Lecture Firestore avec fallback sans orderBy (B-I1)
     let cities = [];
     const mapFn = d => {
       const data = d.data();
+      const price = Number(data.price);
       return {
         id: Number(data.id) || 0,
         key: data.key || '',
         nameFr: data.nameFr || data.key || '',
         nameEn: data.nameEn || data.nameFr || data.key || '',
         nameAr: data.nameAr || data.nameFr || data.key || '',
-        price: Number(data.price) || FALLBACK_DELIVERY_FEE,
-        delay: data.delay || '48h'
+        price: Number.isFinite(price) ? price : FALLBACK_DELIVERY_FEE,
+        delay: data.delay || '48h',
+        fromLivo: !!data.lastSyncedFromLivo || data.source === 'livo'
       };
     };
     try {
@@ -439,11 +457,16 @@ exports.getLivoFees = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIG
       }
     }
 
-    // Sync arrière-plan si vide ou périmé
-    if (cities.length === 0 || !cacheFresh) {
-      syncLivoCitiesFromApi({ preserveCustom: true })
-        .then(r => console.log('[getLivoFees] Background sync OK:', r))
-        .catch(e => console.warn('[getLivoFees] Background sync failed:', e.message));
+    let meta = null;
+    try { meta = await getLivoFeesCacheMeta(); } catch (e) { console.warn('[getLivoFees] Cache metadata read failed:', e.message); }
+    // N'expose que les villes présentes dans la dernière réponse Livo. Cela
+    // exclut les anciennes villes et les éventuels tarifs manuels du tableau public.
+    if (Array.isArray(meta?.cityKeys) && meta.cityKeys.length) {
+      const activeKeys = new Set(meta.cityKeys.map(normalizeCityKey));
+      cities = cities.filter(city => activeKeys.has(normalizeCityKey(city.key)));
+    } else {
+      const livoCities = cities.filter(city => city.fromLivo);
+      if (livoCities.length) cities = livoCities;
     }
 
     if (cities.length === 0) {
@@ -454,12 +477,17 @@ exports.getLivoFees = onRequest({ region: 'europe-west1', cors: [...ALLOWED_ORIG
       });
     }
 
-    res.set('Cache-Control', 'public, max-age=3600');
+    const updatedAt = meta?.updatedAt?.toDate ? meta.updatedAt.toDate().toISOString() : (meta?.updatedAt ? new Date(meta.updatedAt).toISOString() : null);
+    res.set('Cache-Control', 'no-store');
     return res.status(200).json({
       success: true,
       count: cities.length,
-      source: cacheFresh ? 'firestore' : 'livo-cache-miss',
+      source: cacheFresh ? 'livo' : 'stale-cache',
       cacheFresh,
+      stale: !cacheFresh,
+      lastSyncedAt: updatedAt,
+      requestDate: meta?.requestDate || null,
+      ...(syncError ? { refreshError: 'Tarifs Livo indisponibles; affichage des derniers tarifs enregistrés.' } : {}),
       cities
     });
   } catch (error) {
@@ -1298,7 +1326,7 @@ exports.adminSetReturnFee = onRequest({ region: 'europe-west1', cors: [...ALLOWE
       if (!vendorData || vendorData.role !== 'vendor' ||
           vendorData.vendorInfo?.contractStatus !== 'accepted' ||
           String(vendorData.vendorInfo?.contractVersion || '') !== OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION) {
-        throw new Error('Le vendeur doit accepter le nouveau contrat 1.4.0 avant l’application de ces frais.');
+        throw new Error('Le vendeur doit accepter le nouveau contrat ' + OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION + ' avant l’application de ces frais.');
       }
 
       const orderedByVariant = {};
@@ -1513,7 +1541,7 @@ async function processReturnFeeDebit(orderId, returnIndex, vendorId) {
     }
     if (vendorData.vendorInfo?.contractStatus !== 'accepted' ||
         String(vendorData.vendorInfo?.contractVersion || '') !== OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION) {
-      throw new Error('Débit retour bloqué : contrat vendeur 1.4.0 non accepté.');
+      throw new Error('Débit retour bloqué : contrat vendeur ' + OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION + ' non accepté.');
     }
     if (vendorData.vendorInfo?.status === 'deletion_pending') {
       throw new Error('Débit retour bloqué : suppression du compte en cours.');
@@ -2093,6 +2121,21 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
       },
       couponId
     })).digest('hex');
+
+    // Le checkout ne doit jamais confirmer une commande avec une grille tarifaire
+    // Livo périmée. On synchronise avant la transaction Firestore.
+    let livoFeesFresh = false;
+    try { livoFeesFresh = await isLivoFeesCacheFresh(); } catch (e) { console.warn('[createCustomerOrder] Cache tarifs Livo illisible:', e.message); }
+    if (!livoFeesFresh) {
+      try {
+        await syncLivoCitiesFromApi({ preserveCustom: true });
+        livoFeesFresh = await isLivoFeesCacheFresh();
+      } catch (e) {
+        console.error('[createCustomerOrder] Actualisation des tarifs Livo impossible:', e.message);
+      }
+    }
+    if (!livoFeesFresh) throw new Error('Les tarifs Livo ne peuvent pas être vérifiés pour le moment. Réessayez dans quelques minutes.');
+
     const requestRef = db.collection('order_requests').doc(`${decoded.uid}_${requestId}`);
     const orderRef = db.collection('orders').doc();
 
@@ -2116,7 +2159,7 @@ exports.createCustomerOrder = onRequest({ region: 'europe-west1', maxInstances: 
         const pd = productSnaps[i].data();
         const vid = String(pd.vendorId || 'smartswi9a');
         // Les produits vendeurs doivent explicitement être approuvés.
-        // La tolérance au champ status absent est réservée au catalogue historique Smart Swi9a.
+        // La tolérance au champ status absent est réservée au catalogue historique Smartswika.
         if (vid !== 'smartswi9a' && pd.status !== 'approved') {
           throw new Error('Produit vendeur indisponible ou non approuvé.');
         }

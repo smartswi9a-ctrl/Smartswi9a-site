@@ -1,4 +1,4 @@
-/* ============================================================ js/vendor-attribution.js ATTRIBUTION VENDEUR - SMART SWI9A Version 9.0.0 - Lot 6/30 : dédup fetch, statut honnête, doc CHANGEMENTS v9.0.0 : - B-VA-1 (P1) : déduplication des fetch en cours via _pendingFetch (Map<uid, Promise>). Empêche N appels Firestore pour le même vendor si preloadVendorsForProducts() est appelée plusieurs fois en parallèle. - X2 (P2) : _resolveOwner() local remplace getProductOwner() pour rendre explicite le cas vendorId === '' (traité comme Smart). - B-VA-2 (P2) : getProductVendorLabelSync retourne status:'unknown' (au lieu de 'approved') quand product.vendorName est présent mais que le cache ne connaît pas le vendeur. Plus honnête, comportement aval identique. - JSDoc sur tous les exports. - Documentation : limitation "pas de TTL" et "pas d'invalidation à la déconnexion" (données publiques, risque limité à une session). - Bump version 1.1.0 -> 9.0.0. RAPPEL ARCHITECTURAL : - Ce module lit UNIQUEMENT vendorsPublic/{uid} (données publiques non sensibles : shopName, status). - Fallback users/{uid} réservé au vendeur propriétaire du compte courant (permet de voir son propre nom avant écriture de vendorsPublic par l'admin). - Les champs PII (email, phone, iceCin, city, adresse complète) ne sont JAMAIS lus ici. ALERTE 1 : plus aucun commentaire de ligne (//) en début de ligne utile. Tout est en bloc. ============================================================ */
+/* ============================================================ js/vendor-attribution.js ATTRIBUTION VENDEUR - SMARTSWIKA Version 9.0.0 - Lot 6/30 : dédup fetch, statut honnête, doc CHANGEMENTS v9.0.0 : - B-VA-1 (P1) : déduplication des fetch en cours via _pendingFetch (Map<uid, Promise>). Empêche N appels Firestore pour le même vendor si preloadVendorsForProducts() est appelée plusieurs fois en parallèle. - X2 (P2) : _resolveOwner() local remplace getProductOwner() pour rendre explicite le cas vendorId === '' (traité comme Smart). - B-VA-2 (P2) : getProductVendorLabelSync retourne status:'unknown' (au lieu de 'approved') quand product.vendorName est présent mais que le cache ne connaît pas le vendeur. Plus honnête, comportement aval identique. - JSDoc sur tous les exports. - Documentation : limitation "pas de TTL" et "pas d'invalidation à la déconnexion" (données publiques, risque limité à une session). - Bump version 1.1.0 -> 9.0.0. RAPPEL ARCHITECTURAL : - Ce module lit UNIQUEMENT vendorsPublic/{uid} (données publiques non sensibles : shopName, status). - Fallback users/{uid} réservé au vendeur propriétaire du compte courant (permet de voir son propre nom avant écriture de vendorsPublic par l'admin). - Les champs PII (email, phone, iceCin, city, adresse complète) ne sont JAMAIS lus ici. ALERTE 1 : plus aucun commentaire de ligne (//) en début de ligne utile. Tout est en bloc. ============================================================ */
 
 import {
   doc,
@@ -16,7 +16,7 @@ const _pendingFetch = new Map();
 let _allVendorsPreloaded = false;
 
 const GENERIC_SHOP_NAME = "Boutique";
-const SMART_NAME = "Smart Swi9a";
+const SMART_NAME = "Smartswika";
 const SMART_OWNER_ID = "smartswi9a";
 
 /* ============================================================ HELPERS INTERNES ============================================================ */
@@ -188,7 +188,7 @@ export function getProductVendorLabelSync(product) {
 export async function getProductVendorLabel(product) {
   const syncResult = getProductVendorLabelSync(product);
 
-  /* Produit Smart Swi9a : rien à chercher. */
+  /* Produit Smartswika : rien à chercher. */
   if (syncResult.type === "smart") return syncResult;
   /* Cache déjà rempli avec un vrai nom : pas d'appel réseau. */
   if (syncResult.name && syncResult.name !== GENERIC_SHOP_NAME)

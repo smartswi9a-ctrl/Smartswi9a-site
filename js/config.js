@@ -1,10 +1,10 @@
 /* ============================================================
    js/config.js
-   CONFIGURATION CENTRALISÉE - SMART SWI9A
+   CONFIGURATION CENTRALISÉE - SMARTSWIKA
    Version 10.1.0 - Nettoyage des doublons (Livo)
    ============================================================ */
 
-export const VIDEO_BASE_URL = "https://videos.smartswi9a.top/";
+export const VIDEO_BASE_URL = "https://videos.smartswika.ma/";
 
 /* ============================================================
    MODE TEST / RÉEL
@@ -28,9 +28,9 @@ export const CONFIG = {
         messagingSenderId: "933677210664",
         appId: "1:933677210664:web:1ee39f36dfa0806656e91d"
     },
-    VERSION: { CITIES_SCHEMA: 4 },
+    VERSION: { CITIES_SCHEMA: 5 },
     SHOP: {
-        NAME: 'Smart Swi9a',
+        NAME: 'Smartswika',
         WHATSAPP_NUMBER: '212656613303',
         EMAIL: 'smartswi9a@gmail.com',
         URL: 'https://smartswika.ma',
@@ -44,7 +44,7 @@ export const CONFIG = {
         RC: 'XXXXXX',
         PATENTE: 'XXXXXXXX',
         ADDRESS: 'Casablanca, Maroc',
-        LEGAL_REP: 'Smart Swi9a SARL'
+        LEGAL_REP: 'Smartswika'
     },
     STORAGE_KEYS: {
         CART: 'swi9a_cart', THEME: 'swi9a_theme', LANG: 'swi9a_lang',
@@ -114,7 +114,7 @@ export const CONFIG = {
         LABEL_FORMAT: 'PDF',
         PRODUCT_VALIDATION_HOURS: 48,
         VENDOR_VALIDATION_HOURS: 72,
-        CONTRACT_VERSION: '1.4.0',
+        CONTRACT_VERSION: '1.5.0',
         CONTRACT_RESIGN_GRACE_DAYS: 30,
         ALLOWED_CATEGORIES: []
     },
@@ -130,7 +130,7 @@ export const CONFIG = {
         LEGACY_AGENCIES_COLLECTION: 'speedaf_agencies',
         PICKUPS_FIRESTORE_COLLECTION: 'livo_pickups',
         LEGACY_PICKUPS_COLLECTION: 'speedaf_pickups',
-        SENDER_NAME: 'Smart Swi9a',
+        SENDER_NAME: 'Smartswika',
         SENDER_PHONE: '212656613303',
         USE_FIRESTORE_CITIES: true
     },

@@ -1,4 +1,4 @@
-Authentification vendeur Smart Swi9a
+Authentification vendeur Smartswika
 
 Cette fonction ajoute un mot de passe vendeur distinct, stocké uniquement sous forme de hash bcrypt dans vendorCredentials/{uid}. La connexion vendeur accepte le mot de passe vendeur ou le mot de passe Firebase acheteur. Un vendeur en attente peut se connecter pour consulter son statut ; un vendeur approuvé avec un ancien contrat peut se connecter uniquement pour le re-signer. Les droits métier exigent role == vendor, status == approved, contractStatus == accepted et contractVersion == 1.4.0.
 

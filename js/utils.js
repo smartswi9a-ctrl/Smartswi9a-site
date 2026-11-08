@@ -1,4 +1,4 @@
-/* ============================================================ js/utils.js UTILITAIRES - SMART SWI9A Version 9.0.0 - Lot 2/30 : ajout helpers Livo + corrections mineures CHANGEMENTS v9.0.0 : - Ajout : LIVO_ID_PREFIXES, getLivoIdPrefix, isValidLivoId, cleanLivoId, formatLivoDate, parseLivoDate, cleanMoroccanPhone, normalizeMoroccanPhone. - Ajout : helpers LIVO_STATUS_MAP pour affichage (via config). - Correction : getCityName retourne '' (et non le nom arabe) en FR si nameFr ET key sont vides (bug P2-16). - Correction : cleanMoroccanPhone gère 9 chiffres 6/7 sans préfixe 0/212. - Retrait : import ORDER_LEGACY_STATUS inutilisé. - Documentation : comportement de getCityName clarifié. ALERTE 1 : plus aucun commentaire de ligne (//) en début de ligne utile. Tout est en bloc (/* ... *\/). ============================================================ */
+/* ============================================================ js/utils.js UTILITAIRES - SMARTSWIKA Version 9.0.0 - Lot 2/30 : ajout helpers Livo + corrections mineures CHANGEMENTS v9.0.0 : - Ajout : LIVO_ID_PREFIXES, getLivoIdPrefix, isValidLivoId, cleanLivoId, formatLivoDate, parseLivoDate, cleanMoroccanPhone, normalizeMoroccanPhone. - Ajout : helpers LIVO_STATUS_MAP pour affichage (via config). - Correction : getCityName retourne '' (et non le nom arabe) en FR si nameFr ET key sont vides (bug P2-16). - Correction : cleanMoroccanPhone gère 9 chiffres 6/7 sans préfixe 0/212. - Retrait : import ORDER_LEGACY_STATUS inutilisé. - Documentation : comportement de getCityName clarifié. ALERTE 1 : plus aucun commentaire de ligne (//) en début de ligne utile. Tout est en bloc (/* ... *\/). ============================================================ */
 
 import {
   CONFIG,
@@ -758,7 +758,7 @@ export async function loadCities(force = false) {
       cached &&
       cached.version === CACHE_VERSION &&
       cached.timestamp &&
-      Date.now() - cached.timestamp < 86400000
+      Date.now() - cached.timestamp < 3600000
     ) {
       setDeliveryData(cached.data);
       return cached.data;
@@ -766,81 +766,25 @@ export async function loadCities(force = false) {
   }
 
   try {
-    const { collection, getDocs } = await import("firebase/firestore");
-    const { db } = await import("./firebase.js");
-    const snap = await getDocs(collection(db, "cities"));
-    if (!snap.empty) {
-      let data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      data.sort((a, b) => Number(a.id) - Number(b.id));
-
-      /* * Synchronisation des tarifs publics Livo : les noms sont normalisés * pour ignorer les accents, la casse et les espaces. On ne remplace * un prix Firestore que si une correspondance exacte de ville existe. * Si Livo est indisponible ou si une ville ne correspond pas, le prix * existant est conservé : aucun tarif arbitraire n'est inventé. */
-      try {
-        const workerUrl = CONFIG.LOGISTICS?.PROXY_WORKER_URL;
-        if (workerUrl) {
-          const feeResponse = await fetchWithRetry(
-            `${workerUrl.replace(/\/+$/, "")}/fees`,
-            { method: "GET", headers: { Accept: "application/json" } },
-            1,
-            300
-          );
-          if (!feeResponse.ok)
-            throw new Error(`Livo fees HTTP ${feeResponse.status}`);
-          const feeJson = await feeResponse.json();
-          const feeRows =
-            feeJson?.data?.data?.order_fees ||
-            feeJson?.data?.order_fees ||
-            feeJson?.order_fees;
-          if (!Array.isArray(feeRows))
-            throw new Error("Format de la grille de tarifs Livo non reconnu");
-          const normalizeCity = (value) =>
-            String(value || "")
-              .normalize("NFD")
-              .replace(/[\u0300-\u036f]/g, "")
-              .toLowerCase()
-              .replace(/[^a-z0-9]+/g, " ")
-              .trim();
-          const feeMap = new Map();
-          feeRows.forEach((row) => {
-            const key = normalizeCity(row?.city);
-            const fee = Number(row?.fee);
-            if (key && Number.isFinite(fee) && fee >= 0) feeMap.set(key, fee);
-          });
-          data = data.map((city) => {
-            const candidates = [
-              city.nameFr,
-              city.nameEn,
-              city.name,
-              city.key,
-              city.slug,
-            ]
-              .map(normalizeCity)
-              .filter(Boolean);
-            const match = candidates
-              .map((key) => feeMap.get(key))
-              .find((value) => value !== undefined);
-            return match === undefined
-              ? city
-              : {
-                  ...city,
-                  price: match,
-                  livoFee: match,
-                  feeSource: "livo",
-                  feeUpdatedAt:
-                    feeJson?.data?.data?.request_date ||
-                    feeJson?.data?.request_date ||
-                    null,
-                };
-          });
-          console.info(
-            `[Livo] ${feeMap.size} tarifs reçus; villes du site mises à jour uniquement en cas de correspondance exacte.`
-          );
-        }
-      } catch (feeError) {
-        console.warn(
-          "[Livo] Tarifs indisponibles; conservation des tarifs Firestore existants.",
-          feeError
-        );
+    try {
+      const feeResponse = await fetchWithRetry(
+        "/api/getLivoFees",
+        { method: "GET", headers: { Accept: "application/json" }, cache: "no-store" },
+        1,
+        300
+      );
+      if (!feeResponse.ok) throw new Error(`Livo fees HTTP ${feeResponse.status}`);
+      const feeJson = await feeResponse.json();
+      if (!feeJson?.success || !Array.isArray(feeJson.cities) || !feeJson.cities.length) {
+        throw new Error("Grille de tarifs Livo invalide");
       }
+      const data = feeJson.cities.map((city) => ({
+        ...city,
+        price: Number(city.price),
+        livoFee: Number(city.price),
+        feeSource: feeJson.stale ? "stale-cache" : "livo",
+        feeUpdatedAt: feeJson.lastSyncedAt || feeJson.requestDate || null,
+      }));
 
       setDeliveryData(data);
       safeSetItem(CACHE_KEY, {
@@ -848,6 +792,19 @@ export async function loadCities(force = false) {
         timestamp: Date.now(),
         version: CACHE_VERSION,
       });
+      return data;
+    } catch (feeError) {
+      console.warn("[Livo] Grille serveur indisponible; utilisation des tarifs enregistrés.", feeError);
+    }
+
+    const { collection, getDocs } = await import("firebase/firestore");
+    const { db } = await import("./firebase.js");
+    const snap = await getDocs(collection(db, "cities"));
+    if (!snap.empty) {
+      const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      data.sort((a, b) => Number(a.id) - Number(b.id));
+      setDeliveryData(data);
+      safeSetItem(CACHE_KEY, { data, timestamp: Date.now(), version: CACHE_VERSION });
       return data;
     }
   } catch (e) {

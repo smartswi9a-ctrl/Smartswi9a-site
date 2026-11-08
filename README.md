@@ -1,4 +1,4 @@
-Corrections authentification vendeur — Smart Swi9a
+Corrections authentification vendeur — Smartswika
 
 Cette archive contient uniquement les fichiers complets concernés par l'inscription et la connexion vendeur, la signature du contrat, les règles Firestore et le chemin du dashboard.
 

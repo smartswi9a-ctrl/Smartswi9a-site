@@ -1,4 +1,4 @@
-/* ============================================================ js/product-detail.js PAGE PRODUIT DYNAMIQUE - SMART SWI9A Version 9.0.0 - Lot 20/30 : gallery dedup + image fallback + prix guard CHANGEMENTS v9.0.0 : - B10 (P2) : renderMediaGallery déduplique [img, ...gallery] via Set. Plus de doublons visuels si img est aussi dans gallery. - B-PD-2 (P2) : renderMediaGallery utilise getFallbackImage() si product.img est null/vide. Fini l'icône cassée. - B-PD-4 (P2) : updateVariantDisplay garde le prix variante null/0 et fallback sur product.price. Fini "null MAD". - Faux-positif (annonce précédente) : openSizeGuideModal n'a PAS de data-photo-url. Aucune correction nécessaire. - JSDoc sur renderProductDetail. - Bump version 8.1.0 -> 9.0.0. NOTE (conservé) : la modale guide des tailles affiche un tableau statique S/M/L/XL/XXL. Si les tailles doivent être dynamiques par produit, il faudra un nouveau champ Firestore et une refonte (hors scope). ALERTE 1 : plus aucun commentaire de ligne (//) en début de ligne utile. Tout est en bloc. ============================================================ */
+/* ============================================================ js/product-detail.js PAGE PRODUIT DYNAMIQUE - SMARTSWIKA Version 9.0.0 - Lot 20/30 : gallery dedup + image fallback + prix guard CHANGEMENTS v9.0.0 : - B10 (P2) : renderMediaGallery déduplique [img, ...gallery] via Set. Plus de doublons visuels si img est aussi dans gallery. - B-PD-2 (P2) : renderMediaGallery utilise getFallbackImage() si product.img est null/vide. Fini l'icône cassée. - B-PD-4 (P2) : updateVariantDisplay garde le prix variante null/0 et fallback sur product.price. Fini "null MAD". - Faux-positif (annonce précédente) : openSizeGuideModal n'a PAS de data-photo-url. Aucune correction nécessaire. - JSDoc sur renderProductDetail. - Bump version 8.1.0 -> 9.0.0. NOTE (conservé) : la modale guide des tailles affiche un tableau statique S/M/L/XL/XXL. Si les tailles doivent être dynamiques par produit, il faudra un nouveau champ Firestore et une refonte (hors scope). ALERTE 1 : plus aucun commentaire de ligne (//) en début de ligne utile. Tout est en bloc. ============================================================ */
 
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "./firebase.js";
@@ -88,7 +88,7 @@ export async function renderProductDetail() {
   }
 
   /* Vérifier le statut vendeur (le cache products peut être obsolète). */
-  let vendorLabel = { type: "smart", name: "Smart Swi9a" };
+  let vendorLabel = { type: "smart", name: "Smartswika" };
   try {
     vendorLabel = await getProductVendorLabel(product);
   } catch (e) {
@@ -110,7 +110,7 @@ export async function renderProductDetail() {
   _relatedForProductId = null;
   _relatedProductsCache = null;
 
-  document.title = `${getProductName(product)} | Smart Swi9a`;
+  document.title = `${getProductName(product)} | Smartswika`;
 
   updateMetaTags(product);
   renderBreadcrumbs(product);
@@ -142,7 +142,7 @@ function updateMetaTags(product) {
     ? img
     : `${CONFIG.SHOP.URL}${img || "/assets/og-default.jpg"}`;
 
-  document.title = `${name} | Smart Swi9a`;
+  document.title = `${name} | Smartswika`;
 
   setMeta("name", "description", String(desc || "").substring(0, 160));
   setMeta("property", "og:title", name);
@@ -178,7 +178,7 @@ function updateMetaTags(product) {
     name: name,
     description: desc,
     image: absoluteImg,
-    brand: { "@type": "Brand", name: "Smart Swi9a" },
+    brand: { "@type": "Brand", name: "Smartswika" },
     offers:
       product.price > 0
         ? {
@@ -420,7 +420,7 @@ function renderProductVendorBlock(product) {
     const vendorUid = encodeURIComponent(owner);
     html = ` <div id="productVendorBlock" class="product-vendor-info" style="margin: 0.5rem 0 1rem; display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem;"> <span style="color: var(--text-muted);">${ t("vendorSoldBy") || "Vendu par" } :</span> <a href="/boutique.html?v=${vendorUid}" class="product-vendor-info-link" style="display: inline-flex; align-items: center; gap: 0.3rem; color: #6b46c1; font-weight: 700; text-decoration: none; background: rgba(107, 70, 193, 0.1); padding: 0.2rem 0.6rem; border-radius: 30px; border: 1px solid rgba(107, 70, 193, 0.3);"> <span>🏪</span> <span>${escapeHTML(vendorInfo.name)}</span> <span>→</span> </a> </div> `;
   } else {
-    html = ` <div id="productVendorBlock" class="product-vendor-info" style="margin: 0.5rem 0 1rem; display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem;"> <span style="color: var(--text-muted);">${ t("vendorSoldBy") || "Vendu par" } :</span> <span class="product-vendor-info-smart" style="display: inline-flex; align-items: center; gap: 0.3rem; color: var(--gold); font-weight: 700; background: rgba(165, 123, 46, 0.1); padding: 0.2rem 0.6rem; border-radius: 30px; border: 1px solid var(--border-gold);"> <span>✅</span> <span>${t("vendorSmartSwi9a") || "Smart Swi9a"}</span> </span> </div> `;
+    html = ` <div id="productVendorBlock" class="product-vendor-info" style="margin: 0.5rem 0 1rem; display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem;"> <span style="color: var(--text-muted);">${ t("vendorSoldBy") || "Vendu par" } :</span> <span class="product-vendor-info-smart" style="display: inline-flex; align-items: center; gap: 0.3rem; color: var(--gold); font-weight: 700; background: rgba(165, 123, 46, 0.1); padding: 0.2rem 0.6rem; border-radius: 30px; border: 1px solid var(--border-gold);"> <span>✅</span> <span>${t("vendorSmartSwi9a") || "Smartswika"}</span> </span> </div> `;
   }
   titleEl.insertAdjacentHTML("afterend", html);
 }
@@ -968,7 +968,7 @@ function renderRelatedProducts(product) {
     const isVendor = p.vendorId && p.vendorId !== "smartswi9a";
     const vendorBadge = isVendor
       ? `<div style="font-size:0.65rem;color:#6b46c1;font-weight:700;margin-top:0.2rem;">🏪 ${escapeHTML( p.vendorName || "Boutique" )}</div>`
-      : `<div style="font-size:0.65rem;color:var(--gold);font-weight:700;margin-top:0.2rem;">${ t("vendorSmartSwi9a") || "Smart Swi9a" }</div>`;
+      : `<div style="font-size:0.65rem;color:var(--gold);font-weight:700;margin-top:0.2rem;">${ t("vendorSmartSwi9a") || "Smartswika" }</div>`;
 
     html += ` <div class="product-card" data-id="${escapeHTML( String(pid) )}" data-slug="${escapeHTML(p.slug || "")}" style="cursor:pointer;"> <div class="product-img"> <img src="${safeImg}" alt="${name}" loading="lazy" onerror="this.onerror=null; this.src='${safeFallback}'"> <button class="favorite-btn ${ isFav ? "is-fav" : "" }" data-id="${escapeHTML(String(pid))}">${ isFav ? "❤️" : "🤍" }</button> </div> <div class="product-body" style="padding:0.8rem;"> <div class="p-name" style="font-size:0.85rem;">${name}</div> ${vendorBadge} <div class="p-price" style="font-size:0.95rem;margin-top:0.3rem;"> ${price} ${t("currency")} ${ oldPrice ? `<small>${oldPrice} ${t("currency")}</small>` : "" } </div> </div> </div> `;
   });

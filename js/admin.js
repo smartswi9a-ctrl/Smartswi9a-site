@@ -1,6 +1,6 @@
 /* ============================================================
    js/admin.js
-   PANNEAU ADMINISTRATION - SMART SWI9A
+   PANNEAU ADMINISTRATION - SMARTSWIKA
    Version 12.2.1 - Nettoyage des imports (audit)
    ============================================================ */
 
@@ -841,7 +841,6 @@ function resetProductForm() {
     document.getElementById('pParentCategory').value = '';
     document.getElementById('pCategory').innerHTML = '<option value="">-- Choisir une sous-catégorie --</option>';
     document.getElementById('pIsNew').checked = false;
-    document.getElementById('pLogisticsFee').checked = true;
     document.getElementById('pSizeGuide').checked = false;
     document.getElementById('variantsContainer').style.display = 'none';
     document.querySelector('#variantsTable tbody').innerHTML = '';
@@ -886,9 +885,7 @@ async function editProduct(id) {
             childSelect.value = p.category || '';
         }
 
-        const hasLogisticsFee = p.logisticsFee > 0;
-        document.getElementById('pLogisticsFee').checked = hasLogisticsFee;
-        document.getElementById('pPrice').value = hasLogisticsFee ? (Number(p.price) - Number(p.logisticsFee)) : (p.price || '');
+        document.getElementById('pPrice').value = p.price || '';
         document.getElementById('pOldPrice').value = p.oldPrice || '';
         document.getElementById('pPurchasePrice').value = p.purchasePrice || '';
         document.getElementById('pStock').value = p.stock || '';
@@ -966,7 +963,6 @@ async function saveProduct() {
     const slug = document.getElementById('pSlug').value.trim();
     const sku = document.getElementById('pSku').value.trim();
     const priceBase = parseFloat(document.getElementById('pPrice').value);
-    const applyFee = document.getElementById('pLogisticsFee').checked;
     const purchasePriceRaw = parseFloat(document.getElementById('pPurchasePrice').value);
     const stockRaw = parseInt(document.getElementById('pStock').value);
     const category = document.getElementById('pCategory').value;
@@ -1010,7 +1006,7 @@ async function saveProduct() {
                 const safeColor = String(tr.dataset.color).replace(/[<>"'&]/g, '').trim().slice(0, 50);
                 if (!Number.isFinite(vPrice) || vPrice < 0 || vPrice > 100000) throw new Error(`Prix invalide pour ${safeSize}/${safeColor}`);
                 if (!Number.isFinite(vStock) || vStock < 0 || vStock > 99999) throw new Error(`Stock invalide pour ${safeSize}/${safeColor}`);
-                variants.push({ size: safeSize, color: safeColor, price: vPrice + (applyFee ? 5 : 0), stock: vStock });
+                variants.push({ size: safeSize, color: safeColor, price: vPrice, stock: vStock });
             });
         }
 
@@ -1027,12 +1023,12 @@ async function saveProduct() {
         let finalSku = sku;
         if (!finalSku) finalSku = generateUniqueSku(category);
 
-        const finalPrice = priceBase + (applyFee ? 5 : 0);
+        const finalPrice = priceBase;
 
         const productData = {
             nameFr, nameAr: document.getElementById('pNameAr').value.trim(), nameEn: document.getElementById('pNameEn').value.trim(),
             slug, sku: finalSku, category,
-            basePrice: priceBase, logisticsFee: applyFee ? 5 : 0, price: finalPrice,
+            basePrice: priceBase, logisticsFee: 0, price: finalPrice,
             oldPrice: Math.max(0, parseFloat(document.getElementById('pOldPrice').value) || 0),
             purchasePrice: isNaN(purchasePriceRaw) ? 0 : purchasePriceRaw,
             stock: finalStock,
@@ -1402,7 +1398,7 @@ function resetBlogForm() {
     document.getElementById('bCategory').value = 'conseils';
     document.getElementById('bImageFile').value = '';
     document.getElementById('bStatus').value = 'draft';
-    document.getElementById('bAuthor').value = 'Smart Swi9a';
+    document.getElementById('bAuthor').value = 'Smartswika';
     document.getElementById('bImagePreview').style.display = 'none';
     document.getElementById('saveBlogBtnText').textContent = 'Enregistrer l\'article';
     document.getElementById('cancelBlogEdit').style.display = 'none';
@@ -1422,7 +1418,7 @@ async function editBlogPost(id) {
         document.getElementById('bContent').value = p.content || '';
         document.getElementById('bImage').value = p.image || '';
         document.getElementById('bStatus').value = p.status || 'draft';
-        document.getElementById('bAuthor').value = p.author || 'Smart Swi9a';
+        document.getElementById('bAuthor').value = p.author || 'Smartswika';
         document.getElementById('bTags').value = (p.tags || []).join(', ');
 
         const ip = document.getElementById('bImagePreview');
@@ -1473,7 +1469,7 @@ async function saveBlogPost() {
             category: document.getElementById('bCategory').value,
             excerpt: document.getElementById('bExcerpt').value.trim(),
             content, image: imgUrl, status,
-            author: document.getElementById('bAuthor').value.trim() || 'Smart Swi9a',
+            author: document.getElementById('bAuthor').value.trim() || 'Smartswika',
             tags: tagsRaw.split(',').map(x => x.trim()).filter(x => x),
             updatedAt: Timestamp.now()
         };
@@ -2048,7 +2044,7 @@ async function handleConfirmPickup() {
                     items: itemsToPickup,
                     products: productsToPickup,
                     desired_date: selectedDate,
-                    comment: note || `Ramassage Smart Swi9a — ${packages} colis, ${weight} kg`
+                    comment: note || `Ramassage Smartswika — ${packages} colis, ${weight} kg`
                 });
             } catch (e) {
                 console.warn('[admin] createLivoPickup a échoué :', e?.message || e);
@@ -2397,8 +2393,7 @@ async function refreshAccOverview() {
                 (o.items || []).forEach(item => {
                     const p = cachedProducts.find(pp => String(pp.id) === String(item.productId));
                     const buyPrice = p ? Number(p.purchasePrice) || 0 : 0;
-                    const logistics = p && p.logisticsFee ? Number(p.logisticsFee) : 0;
-                    cogs += (buyPrice + logistics) * (Number(item.quantity) || 1);
+                    cogs += buyPrice * (Number(item.quantity) || 1);
                 });
                 shippingCost += Number(o.deliveryFee) || 0;
             }
@@ -2865,7 +2860,7 @@ function calculateFinances() {
     const results = [];
 
     selected.forEach(p => {
-        const finalSalePrice = p.sale + 5;
+        const finalSalePrice = p.sale;
         const spdDeliveryCost = 35;
         const marginNetUnit = finalSalePrice - p.buy - spdDeliveryCost - logisticsCost;
         const cpaMax = Math.max(0, marginNetUnit * (1 - safetyMargin / 100));
@@ -2910,7 +2905,7 @@ function calculateFinances() {
         const p = cachedProducts.find(pp => pp.id === r.id);
         const name = p ? (p.nameFr || p.nameEn) : 'Inconnu';
         const verdict = r.marginNetUnit > 0 ? 'Rentable' : 'Non rentable';
-        rows += `<tr><td>${escapeHTML(name)}</td><td style="text-align:center;">${r.buy} MAD</td><td style="text-align:center;">${r.sale + 5} MAD</td><td style="text-align:center;font-weight:700;color:${r.marginNetUnit>0?'var(--success)':'var(--danger)'};">${r.marginNetUnit.toFixed(2)} MAD</td><td style="text-align:center;">${r.cpaMax.toFixed(2)} MAD</td><td style="text-align:center;">${r.stock}</td><td style="text-align:center;font-weight:700;">${r.profitTotal.toFixed(2)} MAD</td><td style="text-align:center;">${r.roi.toFixed(1)}%</td><td style="text-align:center;">${verdict}</td></tr>`;
+        rows += `<tr><td>${escapeHTML(name)}</td><td style="text-align:center;">${r.buy} MAD</td><td style="text-align:center;">${r.sale} MAD</td><td style="text-align:center;font-weight:700;color:${r.marginNetUnit>0?'var(--success)':'var(--danger)'};">${r.marginNetUnit.toFixed(2)} MAD</td><td style="text-align:center;">${r.cpaMax.toFixed(2)} MAD</td><td style="text-align:center;">${r.stock}</td><td style="text-align:center;font-weight:700;">${r.profitTotal.toFixed(2)} MAD</td><td style="text-align:center;">${r.roi.toFixed(1)}%</td><td style="text-align:center;">${verdict}</td></tr>`;
     });
     tbody.innerHTML = rows;
 }
@@ -2982,7 +2977,7 @@ function renderVendorsList(vendors) {
         const city = escapeHTML(v.vendorInfo?.city || '');
         const iceCin = escapeHTML(v.vendorInfo?.iceCin || '');
         const status = v.vendorInfo?.status || 'pending';
-        const shippingMethod = v.vendorInfo?.shippingMethod === 'dropoff' ? 'Drop-off' : 'Fulfillment';
+        const shippingMethod = v.vendorInfo?.shippingMethod || '';
         const createdAt = toDate(v.createdAt)?.toLocaleDateString('fr-FR') || '—';
         const contractStatus = v.vendorInfo?.contractStatus || 'pending';
         const contractAccepted = contractStatus === 'accepted';
@@ -3041,7 +3036,11 @@ function renderVendorsList(vendors) {
                 </div>
                 <div style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.3rem;">
                     ${email} · ${phone} · ${city} · ${iceCin}<br>
-                    Mode : <strong>${shippingMethod}</strong><br>
+                    Mode de ramassage : <select class="vendor-shipping-method" data-id="${escapeHTML(v.id)}" aria-label="Mode de ramassage pour ${shopName}" style="margin:.25rem 0;padding:.35rem .5rem;border:1px solid var(--border-gold);border-radius:8px;background:var(--bg-card);color:var(--text);">
+                        <option value="" disabled ${shippingMethod ? '' : 'selected'}>À configurer</option>
+                        <option value="dropoff" ${shippingMethod === 'dropoff' ? 'selected' : ''}>Drop-off Livo</option>
+                        <option value="fulfillment" ${shippingMethod === 'fulfillment' ? 'selected' : ''}>Fulfillment Livo</option>
+                    </select><br>
                     Contrat : version <strong>${escapeHTML(String(contractVersion))}</strong> · signé le <strong>${escapeHTML(contractSignedAt)}</strong>
                 </div>
                 <div style="display:flex;justify-content:flex-end;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem;">
@@ -3065,6 +3064,26 @@ function renderVendorsList(vendors) {
     });
     container.querySelectorAll('[data-action="vendor-delete"]').forEach(btn => {
         btn.addEventListener('click', () => handleVendorAction(btn.dataset.id, 'deleted'));
+    });
+    container.querySelectorAll('.vendor-shipping-method').forEach(select => {
+        select.addEventListener('change', async () => {
+            const vendorId = select.dataset.id;
+            const shippingMethod = select.value;
+            if (!vendorId || !['dropoff', 'fulfillment'].includes(shippingMethod)) return;
+            select.disabled = true;
+            try {
+                await updateDoc(doc(db, 'users', vendorId), {
+                    'vendorInfo.shippingMethod': shippingMethod,
+                    updatedAt: Timestamp.now()
+                });
+                showToast(`Mode de ramassage enregistré : ${shippingMethod === 'dropoff' ? 'Drop-off Livo' : 'Fulfillment Livo'}`);
+                await loadVendors();
+            } catch (error) {
+                console.error('[admin] Modification du mode de ramassage refusée :', error);
+                showToast('Impossible d’enregistrer le mode de ramassage.');
+                await loadVendors();
+            }
+        });
     });
 }
 

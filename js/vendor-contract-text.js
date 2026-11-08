@@ -108,6 +108,17 @@ export const CONTRACT_TEMPLATES = {
         "Article 6 — Returns Return fees are charged separately to each Vendor based on the actual amount provided by the carrier or, if unavailable, validated by the administration. No fee is debited until that amount has been recorded and approved. Repeated returns may lead to a review of the Vendor's status.")
       .replaceAll("smartswi9a.top", "smartswika.ma"),
   },
+  // Version 1.5.0 : changement de marque; les gabarits signés restent immuables.
+  "1.5.0": {
+    fr: (t) => CONTRACT_TEMPLATES["1.4.0"].fr(t)
+      .replaceAll("SMART SWI9A", "SMARTSWIKA")
+      .replaceAll("Smart Swi9a", "Smartswika"),
+    ar: (t) => CONTRACT_TEMPLATES["1.4.0"].ar(t)
+      .replaceAll("سمارت سويقة", "سمارتسويكا"),
+    en: (t) => CONTRACT_TEMPLATES["1.4.0"].en(t)
+      .replaceAll("SMART SWI9A", "SMARTSWIKA")
+      .replaceAll("Smart Swi9a", "Smartswika"),
+  },
 };
 
 /* ============================================================ API PUBLIQUE ============================================================ */
@@ -157,5 +168,5 @@ export function getSupportedContractVersions() {
 
 /* ============================================================ LOG ============================================================ */
 console.log(
-  "[vendor-contract-text] v10.0.0 chargé (gabarit 1.4.0 : frais réels par vendeur)"
+  "[vendor-contract-text] v10.1.0 chargé (gabarit 1.5.0 : nouvelle marque)"
 );

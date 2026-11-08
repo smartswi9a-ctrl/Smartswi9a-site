@@ -677,10 +677,17 @@ export async function checkout( cartItems, deliveryInfo, appliedCoupon = null, w
           email: deliveryInfo.email || user.email || "",
         },
       };
-      await sendOrderEmail(orderForEmail, "pending", "client");
-      await sendOrderEmail(orderForEmail, "pending", "admin");
+      const results = await Promise.all([
+        sendOrderEmail(orderForEmail, "pending", "client"),
+        sendOrderEmail(orderForEmail, "pending", "admin"),
+      ]);
+      results.forEach((result, index) => {
+        if (result?.success === false) {
+          console.error(`Email de commande non envoyé (${index === 0 ? "client" : "admin"}) :`, result.error);
+        }
+      });
     } catch (e) {
-      /* non bloquant */
+      console.error("Impossible de lancer les emails de commande :", e);
     }
   })();
 

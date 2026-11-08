@@ -1,4 +1,4 @@
-/* ============================================================ js/whatsapp.js COMMANDE VIA WHATSAPP - SMART SWI9A Version 9.0.0 - Lot 16/30 : normalisation téléphone + guards CHANGEMENTS v9.0.0 : - B-WHA-1 (P2) : normalizeWhatsAppPhone() défensive. Si CONFIG.SHOP.WHATSAPP_NUMBER est au format local '0656613303' (10 chiffres commençant par 0), il est converti en '212656613303'. Empêche le cassage du lien wa.me si la config change de format. - B-WHA-2 (P3) : imports getLang et escapeHTML retirés (jamais utilisés). - B-WHA-3 (P3) : message d'erreur plus explicite si le catalogue n'est pas encore chargé (products = []). - JSDoc sur les 3 exports publics. - Bump version 2.1.0 -> 9.0.0. RAPPEL TECHNIQUE : WhatsApp limite le texte à 4096 caractères (côté texte décodé). truncateMessage coupe proprement au dernier espace ou saut de ligne pour éviter de tronquer un mot. L'URL wa.me n'est PAS limitée par encodeURIComponent (le texte est décodé par WhatsApp). ALERTE 1 : plus aucun commentaire de ligne (//) en début de ligne utile. Tout est en bloc. ============================================================ */
+/* ============================================================ js/whatsapp.js COMMANDE VIA WHATSAPP - SMARTSWIKA Version 9.0.0 - Lot 16/30 : normalisation téléphone + guards CHANGEMENTS v9.0.0 : - B-WHA-1 (P2) : normalizeWhatsAppPhone() défensive. Si CONFIG.SHOP.WHATSAPP_NUMBER est au format local '0656613303' (10 chiffres commençant par 0), il est converti en '212656613303'. Empêche le cassage du lien wa.me si la config change de format. - B-WHA-2 (P3) : imports getLang et escapeHTML retirés (jamais utilisés). - B-WHA-3 (P3) : message d'erreur plus explicite si le catalogue n'est pas encore chargé (products = []). - JSDoc sur les 3 exports publics. - Bump version 2.1.0 -> 9.0.0. RAPPEL TECHNIQUE : WhatsApp limite le texte à 4096 caractères (côté texte décodé). truncateMessage coupe proprement au dernier espace ou saut de ligne pour éviter de tronquer un mot. L'URL wa.me n'est PAS limitée par encodeURIComponent (le texte est décodé par WhatsApp). ALERTE 1 : plus aucun commentaire de ligne (//) en début de ligne utile. Tout est en bloc. ============================================================ */
 
 import { CONFIG } from "./config.js";
 import { t, getProductName } from "./utils.js";
@@ -161,7 +161,7 @@ export async function orderViaWhatsApp(productId, variant = null) {
 /** * Ouvre WhatsApp avec un message de support (ou personnalisé). * @param {string} [message=''] * @returns {Promise<void>} */
 export async function contactSupport(message = "") {
   const defaultMsg =
-    message || `${t("emailHello")} - ${t("navAbout")} Smart Swi9a.`;
+    message || `${t("emailHello")} - ${t("navAbout")} Smartswika.`;
   await openWhatsAppWithToast(defaultMsg, "Support WhatsApp ouvert");
 }
 
@@ -181,7 +181,7 @@ export function shareProductOnWhatsApp(productId) {
   const url = `${CONFIG.SHOP.URL}/produit?slug=${encodeURIComponent( product.slug || "" )}`;
 
   const msg =
-    `${t("waProduct")} Smart Swi9a :\n\n` +
+    `${t("waProduct")} Smartswika :\n\n` +
     `*${name}*\n` +
     `${price} ${t("currency")}\n` +
     `${url}\n\n` +

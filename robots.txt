@@ -1,5 +1,5 @@
 # ============================================================
-# robots.txt - SMART SWI9A
+# robots.txt - SMARTSWIKA
 # Version 1.2.0 — Fix : autorisation explicite images + JSON
 # ============================================================
 # Dernière mise à jour : Octobre 2026
