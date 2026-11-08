@@ -3361,7 +3361,7 @@ async function handleMigrateVendorOrderPrivacy() {
         let processed = 0;
         let pages = 0;
         do {
-            const response = await fetch('/api/backfillVendorOrderViews', {
+            const response = await fetch('https://backfillvendororderviews-by7ztkygya-ew.a.run.app', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                 body: JSON.stringify({ pageSize: 100, ...(cursor ? { cursor } : {}) })
