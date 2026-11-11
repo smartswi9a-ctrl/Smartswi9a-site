@@ -10,6 +10,7 @@ const {
   collection,
   query,
   orderBy,
+  where,
   setDoc,
   getDoc,
   getDocs,
@@ -140,6 +141,7 @@ async function main() {
     await assertSucceeds(getDoc(doc(vendorDb, "vendor_orders", "vendorA", "orders", "multiOrder")));
     await assertSucceeds(getDocs(query(
       collection(vendorDb, "vendor_orders", "vendorA", "orders"),
+      where("privacySafe", "==", true),
       orderBy("createdAt", "desc")
     )));
     await assertFails(getDoc(doc(vendorBDb, "vendor_orders", "vendorA", "orders", "multiOrder")));
@@ -207,5 +209,14 @@ async function main() {
 
 main().catch((error) => {
   console.error(error);
+  // Emet l'assertion reelle comme annotation GitHub Actions :
+  // le log complet du step exige les droits admin, l'annotation non.
+  const raw = (error && (error.message || String(error))) || 'unknown';
+  const esc = String(raw)
+    .replace(/%/g, '%25')
+    .replace(/\r/g, '%0D')
+    .replace(/\n/g, '%0A')
+    .slice(0, 900);
+  console.log('::error title=rules.test.cjs failure::' + esc);
   process.exitCode = 1;
 });
