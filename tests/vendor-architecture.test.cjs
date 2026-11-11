@@ -25,8 +25,23 @@ assert.equal(serverVersion[1], contractVersion, "La version contrat client/serve
 const escapedVersion = contractVersion.replace(/[.*+?^\${}()|[\]\\]/g, "\\$&");
 assert.ok(new RegExp('["' + "'" + ']' + escapedVersion + '["' + "'" + ']\\s*:').test(contractText));
 assert.ok(new RegExp("if \\(version === ['" + '"' + "]" + escapedVersion + "['" + '"' + "]\\)").test(functions));
-assert.ok(new RegExp("contractVersion', ''\\) == '" + escapedVersion + "'").test(firestoreRules));
-assert.ok(new RegExp("contractVersion', ''\\) == '" + escapedVersion + "'").test(storageRules));
+/* P0-2bis : la version de contrat ne doit plus etre codee en dur.
+   Source unique de verite = document Firestore config/app.contractVersion.
+   On asserte le mecanisme, pas une constante semver. */
+assert.ok(/function currentContractVersion\(\)/.test(firestoreRules),
+  "firestore.rules doit definir le helper currentContractVersion()");
+assert.ok(/documents\/config\/app\)\.data\.contractVersion/.test(firestoreRules),
+  "firestore.rules doit lire config/app.contractVersion");
+assert.ok(/match \/config\/\{docId\}/.test(firestoreRules),
+  "firestore.rules doit declarer match /config/{docId} pour la source de verite");
+assert.ok(/function currentContractVersion\(\)/.test(storageRules),
+  "storage.rules doit definir le helper currentContractVersion()");
+assert.ok(/documents\/config\/app\)\.data\.contractVersion/.test(storageRules),
+  "storage.rules doit lire config/app.contractVersion");
+assert.doesNotMatch(firestoreRules, /contractVersion', ''\) == '\d+\.\d+\.\d+'/,
+  "aucune version semver ne doit rester codee en dur dans firestore.rules");
+assert.doesNotMatch(storageRules, /contractVersion', ''\) == '\d+\.\d+\.\d+'/,
+  "aucune version semver ne doit rester codee en dur dans storage.rules");
 
 assert.match(contractClient, /function compareVersions/);
 assert.match(contractClient, /compareVersions\(vendorInfo\.contractVersion, CONFIG\.VENDOR\.CONTRACT_VERSION\) < 0/);

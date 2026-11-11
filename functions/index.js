@@ -11,7 +11,6 @@ const crypto = require('node:crypto');
 initializeApp();
 const db = getFirestore();
 const PROJECT_ID = 'smartswi9a-31063';
-const FIREBASE_WEB_API_KEY = 'AIzaSyBhULwDxPBRqjywsSD_0ny41Bmt968ofSA';
 
 const ALLOWED_ORIGINS = new Set([
   'https://smartswika.ma',
@@ -294,12 +293,15 @@ async function syncLivoCitiesFromApi(options = {}) {
 /* ============================================================
    HELPERS THROTTLE LOGIN VENDEUR
    ============================================================ */
-function throttleId(email, ip) {
-  return crypto.createHash('sha256').update(`${email}|${ip || 'unknown'}`).digest('hex');
+function throttleId(email) {
+  // Cle basee sur l email uniquement : une IP issue d en-tetes client
+  // (X-Forwarded-For) est falsifiable et permettait de contourner le
+  // compteur en la faisant varier a chaque tentative.
+  return crypto.createHash('sha256').update(`email|${email}`).digest('hex');
 }
 
-async function isLoginThrottled(email, ip) {
-  const ref = db.collection('vendorLoginThrottle').doc(throttleId(email, ip));
+async function isLoginThrottled(email) {
+  const ref = db.collection('vendorLoginThrottle').doc(throttleId(email));
   const snap = await ref.get();
   if (!snap.exists) return false;
   const data = snap.data();
@@ -312,7 +314,8 @@ async function isLoginThrottled(email, ip) {
 }
 
 async function recordLoginFailure(email, ip) {
-  const ref = db.collection('vendorLoginThrottle').doc(throttleId(email, ip));
+  // ip conservee a titre d audit uniquement, jamais utilisee dans la cle
+  const ref = db.collection('vendorLoginThrottle').doc(throttleId(email));
   await db.runTransaction(async tx => {
     const snap = await tx.get(ref);
     const now = Date.now();
@@ -327,8 +330,8 @@ async function recordLoginFailure(email, ip) {
   });
 }
 
-async function clearLoginFailures(email, ip) {
-  await db.collection('vendorLoginThrottle').doc(throttleId(email, ip)).delete().catch(() => {});
+async function clearLoginFailures(email) {
+  await db.collection('vendorLoginThrottle').doc(throttleId(email)).delete().catch(() => {});
 }
 
 /* ============================================================
@@ -852,7 +855,9 @@ exports.loginVendor = onRequest({ invoker: 'public', region: 'europe-west1', max
   if (cors(req, res)) return;
   const email = String(req.body?.email || '').trim().toLowerCase();
   const password = req.body?.password;
-  const clientIp = String(req.ip || req.get('x-forwarded-for') || 'unknown').split(',')[0].trim().slice(0, 80);
+  // req.ip est fourni par l infrastructure Cloud Functions, jamais par le client.
+  // X-Forwarded-For n est volontairement plus lu : il est falsifiable.
+  const clientIp = String(req.ip || 'unknown').slice(0, 80);
 
   if (!validEmail(email) || typeof password !== 'string' || password.length === 0 || password.length > 128) {
     return res.status(400).json({ success: false, message: 'Identifiants invalides.' });
@@ -860,7 +865,7 @@ exports.loginVendor = onRequest({ invoker: 'public', region: 'europe-west1', max
 
   try {
     // B-C3 : throttle AVANT tout traitement
-    if (await isLoginThrottled(email, clientIp)) {
+    if (await isLoginThrottled(email)) {
       return res.status(429).json({
         success: false,
         message: 'Trop de tentatives échouées. Réessayez dans 15 minutes.'
@@ -885,21 +890,6 @@ exports.loginVendor = onRequest({ invoker: 'public', region: 'europe-west1', max
     }
 
     if (!validCredential) {
-      const authResponse = await fetch(
-        `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FIREBASE_WEB_API_KEY}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password, returnSecureToken: true })
-        }
-      );
-      if (authResponse.ok) {
-        const authData = await authResponse.json();
-        validCredential = authData.localId === uid;
-      }
-    }
-
-    if (!validCredential) {
       await recordLoginFailure(email, clientIp);
       return res.status(401).json({ success: false, message: 'Identifiants incorrects.' });
     }
@@ -914,7 +904,7 @@ exports.loginVendor = onRequest({ invoker: 'public', region: 'europe-west1', max
       return res.status(403).json({ success: false, message: statusMessage(profile) });
     }
 
-    await clearLoginFailures(email, clientIp);
+    await clearLoginFailures(email);
 
     const customToken = await getAuth().createCustomToken(uid, { vendorLogin: true });
     return res.status(200).json({ success: true, customToken, needsContract: !approved(profile) });

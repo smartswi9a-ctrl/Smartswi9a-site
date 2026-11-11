@@ -31,6 +31,9 @@ async function main() {
   try {
     await env.withSecurityRulesDisabled(async (ctx) => {
       const db = ctx.firestore();
+      // Source unique de verite de la version de contrat (P0-2bis).
+      // Les regles lisent config/app.contractVersion via get().
+      await setDoc(doc(db, "config", "app"), { contractVersion: "1.5.0" });
       await setDoc(doc(db, "users", "buyerA"), { role: "user", isAdmin: false, permissions: [] });
       await setDoc(doc(db, "users", "adminA"), { role: "admin", isAdmin: true, permissions: [] });
       await setDoc(doc(db, "users", "vendorA"), {

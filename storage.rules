@@ -20,6 +20,11 @@ service firebase.storage {
       );
     }
 
+    /* Version de contrat courante : source unique de verite (config/app). */
+    function currentContractVersion() {
+      return firestore.get(/databases/(default)/documents/config/app).data.contractVersion;
+    }
+
     function approvedVendor(uid) {
       return signedIn() &&
         request.auth.uid == uid &&
@@ -37,7 +42,7 @@ service firebase.storage {
         ).data.get('vendorInfo', {}).get('contractStatus', '') == 'accepted' &&
         firestore.get(
           /databases/(default)/documents/users/$(uid)
-        ).data.get('vendorInfo', {}).get('contractVersion', '') == '1.5.0';
+        ).data.get('vendorInfo', {}).get('contractVersion', '') == currentContractVersion();
     }
 
     function validImageUpload(maxSize) {

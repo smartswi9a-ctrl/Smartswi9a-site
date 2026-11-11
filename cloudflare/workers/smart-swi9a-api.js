@@ -46,6 +46,7 @@ export default {
     headers.delete("host");
     headers.delete("content-length");
     headers.delete("cf-connecting-ip");
+    headers.delete("x-forwarded-for");
 
     try {
       const upstream = await fetch(UPSTREAM + encodeURIComponent(functionName) + url.search, {

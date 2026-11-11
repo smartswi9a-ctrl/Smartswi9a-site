@@ -24,6 +24,12 @@ service cloud.firestore {
       );
     }
 
+    /* Version de contrat courante : source unique de verite (config/app).
+       Aucune version semver ne doit etre codee en dur dans ce fichier. */
+    function currentContractVersion() {
+      return get(/databases/$(database)/documents/config/app).data.contractVersion;
+    }
+
     function userProfileExists(uid) {
       return exists(/databases/$(database)/documents/users/$(uid));
     }
@@ -35,7 +41,7 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(uid)).data.role == 'vendor' &&
         get(/databases/$(database)/documents/users/$(uid)).data.get('vendorInfo', {}).get('status', '') == 'approved' &&
         get(/databases/$(database)/documents/users/$(uid)).data.get('vendorInfo', {}).get('contractStatus', '') == 'accepted' &&
-        get(/databases/$(database)/documents/users/$(uid)).data.get('vendorInfo', {}).get('contractVersion', '') == '1.5.0';
+        get(/databases/$(database)/documents/users/$(uid)).data.get('vendorInfo', {}).get('contractVersion', '') == currentContractVersion();
     }
 
     function isVendorOwner(uid) {
@@ -405,6 +411,18 @@ service cloud.firestore {
           resource.data.get('vendorId', '') == request.auth.uid
         )
       );
+    }
+
+    /* ============================================================
+       CONFIGURATION APPLICATIVE
+       Source unique de verite (ex. contractVersion). Ecriture serveur
+       uniquement ; la lecture par les regles passe par get() et ne
+       requiert aucune autorisation client.
+       ============================================================ */
+
+    match /config/{docId} {
+      allow read: if isAdmin();
+      allow write: if false;
     }
 
     /* REFUS PAR DÉFAUT */
