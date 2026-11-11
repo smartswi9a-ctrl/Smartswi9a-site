@@ -83,6 +83,7 @@ async function main() {
       });
       await setDoc(doc(db, "vendor_orders", "vendorA", "orders", "multiOrder"), {
         vendorId: "vendorA",
+        privacySafe: true,
         vendorCount: 2,
         status: "pending",
         createdAt: Timestamp.now(),
@@ -120,7 +121,7 @@ async function main() {
 
     await assertSucceeds(getDoc(doc(buyerDb, "orders", "multiOrder")));
     await assertFails(getDoc(doc(vendorDb, "orders", "multiOrder")));
-    await assertSucceeds(getDoc(doc(vendorDb, "orders", "singleVendorOrder")));
+    await assertFails(getDoc(doc(vendorDb, "orders", "singleVendorOrder")));
     await assertFails(getDoc(doc(vendorBDb, "orders", "singleVendorOrder")));
     await assertFails(getDoc(doc(vendorDb, "orders", "mixedOrder")));
     await assertFails(getDoc(doc(vendorDb, "orders", "legacyOrderWithoutPrivacyFlag")));
