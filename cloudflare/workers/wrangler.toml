@@ -1,0 +1,9 @@
+name = "smart-swi9a-api"
+main = "smart-swi9a-api.js"
+compatibility_date = "2025-01-01"
+
+# L'exposition publique sur <script>.<subdomain>.workers.dev contourne les
+# protections de zone (WAF, rate limiting, bot management) de smartswika.ma.
+# Seul le domaine de production doit etre un point d'entree.
+workers_dev = false
+preview_urls = false
