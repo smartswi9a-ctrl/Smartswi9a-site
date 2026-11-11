@@ -1,5 +1,6 @@
 const ALLOWED_FUNCTIONS = new Set([
   "getLivoFees",
+  "livoWebhook",
   "syncLivoCities",
   "signVendorContract",
   "loginVendor",

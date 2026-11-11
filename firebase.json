@@ -179,6 +179,13 @@
         }
       },
       {
+        "source": "/api/livoWebhook",
+        "function": {
+          "functionId": "livoWebhook",
+          "region": "europe-west1"
+        }
+      },
+      {
         "source": "/api/syncLivoCities",
         "function": {
           "functionId": "syncLivoCities",
