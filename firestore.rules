@@ -35,7 +35,7 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(uid)).data.role == 'vendor' &&
         get(/databases/$(database)/documents/users/$(uid)).data.get('vendorInfo', {}).get('status', '') == 'approved' &&
         get(/databases/$(database)/documents/users/$(uid)).data.get('vendorInfo', {}).get('contractStatus', '') == 'accepted' &&
-        get(/databases/$(database)/documents/users/$(uid)).data.get('vendorInfo', {}).get('contractVersion', '') == '1.4.0';
+        get(/databases/$(database)/documents/users/$(uid)).data.get('vendorInfo', {}).get('contractVersion', '') == '1.5.0';
     }
 
     function isVendorOwner(uid) {

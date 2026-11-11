@@ -36,13 +36,13 @@ async function main() {
         role: "vendor",
         isAdmin: false,
         permissions: [],
-        vendorInfo: { status: "approved", contractStatus: "accepted", contractVersion: "1.4.0", commissionRate: 0.07 }
+        vendorInfo: { status: "approved", contractStatus: "accepted", contractVersion: "1.5.0", commissionRate: 0.07 }
       });
       await setDoc(doc(db, "users", "vendorB"), {
         role: "vendor",
         isAdmin: false,
         permissions: [],
-        vendorInfo: { status: "approved", contractStatus: "accepted", contractVersion: "1.4.0" }
+        vendorInfo: { status: "approved", contractStatus: "accepted", contractVersion: "1.5.0" }
       });
       await setDoc(doc(db, "users", "vendorOld"), {
         role: "vendor",
