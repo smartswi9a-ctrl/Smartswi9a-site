@@ -52,3 +52,53 @@ jobs:
       - name: Test Firestore and Storage rules in emulators
         run: firebase emulators:exec --only firestore,storage --project demo-smart-swi9a "node tests/rules.test.cjs"
 
+  # ------------------------------------------------------------------
+  # npm-audit : SUIVI NON BLOQUANT, jamais un gate CI.
+  #
+  # Etat au moment de l'ajout : 8 vulnerabilites de severite moderate,
+  # toutes TRANSITIVES. Chaine :
+  #   firebase-admin -> @google-cloud/firestore / @google-cloud/storage
+  #   -> google-gax / gaxios / teeny-request / retry-request -> uuid < 11.1.1
+  # (GHSA-w5hq-g745-h8pq : bounds check manquant sur uuid v3/v5/v6).
+  #
+  # `npm audit fix` est un no-op ; le seul correctif est
+  # `npm audit fix --force`, qui installerait firebase-admin@14 : changement
+  # majeur, non teste. On ne l'applique donc pas.
+  #
+  # continue-on-error: true => une alerte ne bloque ni ne fait echouer la PR.
+  # Le rapport reste archive dans le resume du run (GITHUB_STEP_SUMMARY).
+  # ------------------------------------------------------------------
+  npm-audit:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          # Source unique de verite, partagee avec les postes de dev.
+          node-version-file: .nvmrc
+
+      - name: Audit dependencies (informational)
+        working-directory: functions
+        shell: bash
+        run: |
+          set +e
+          # --package-lock-only : audite le lockfile sans installer node_modules.
+          # `tee` conserve le rapport complet dans le resume du run.
+          npm audit --package-lock-only --audit-level=moderate 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          status=${PIPESTATUS[0]}
+          {
+            echo ""
+            if [ "$status" -eq 0 ]; then
+              echo "**Resultat :** aucune vulnerabilite de niveau moderate ou superieur."
+            else
+              echo "**Resultat :** vulnerabilites detectees (voir rapport ci-dessus)."
+              echo ""
+              echo "Suivi non bloquant. Ne pas appliquer npm audit fix --force :"
+              echo "cela installerait firebase-admin@14, un changement majeur non teste."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
