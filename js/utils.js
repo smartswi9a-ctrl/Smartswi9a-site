@@ -615,33 +615,70 @@ export function getRetryAfterMs(response) {
   return Math.min(seconds * 1000, MAX_RETRY_AFTER_MS);
 }
 
-export async function fetchWithRetry( url, options = {}, retries = 3, delay = 1000 ) {
+function isRetryableStatus(status) {
+  return status === 408 || status === 429 || status >= 500;
+}
+
+/**
+ * Variante bas niveau : retourne TOUJOURS la Response finale (succes comme
+ * echec), en rejouant uniquement les statuts reellement retentables.
+ * Indispensable pour les appels Livo : le corps d'erreur porte l'enveloppe
+ * { success, data: { fr_message, type, details } } qu'il faut lire pour
+ * traiter les erreurs "prompt" (confirm_text). Lever sur un 400 rendrait
+ * cette enveloppe inaccessible.
+ */
+export async function fetchWithRetryResponse( url, options = {}, retries = 3, delay = 1000 ) {
   let attempt = 0;
   let backoff = delay;
-  while (attempt < retries) {
+
+  while (true) {
+    let response;
+
     try {
-      const response = await fetch(url, options);
-      if (response.ok) return response;
-      const isNonRetryable =
-        response.status >= 400 &&
-        response.status < 500 &&
-        !RETRYABLE_4XX.has(response.status);
-      const err = new Error(`HTTP ${response.status}`);
-      err.status = response.status;
-      err.nonRetryable = isNonRetryable;
-      // Le delai demande par le serveur prime sur le backoff exponentiel.
-      err.retryAfterMs = getRetryAfterMs(response);
-      throw err;
-    } catch (error) {
+      response = await fetch(url, options);
+    } catch (networkError) {
+      // Erreur reseau : retentable, comme avant.
       attempt++;
-      if (attempt === retries || error.nonRetryable) throw error;
-      await new Promise((resolve) =>
-        setTimeout(resolve, error.retryAfterMs ?? backoff)
-      );
+      if (attempt >= retries) throw networkError;
+      await new Promise((resolve) => setTimeout(resolve, backoff));
       backoff *= 2;
+      continue;
     }
+
+    // 2xx/3xx et 4xx non retentables (400, 401, 403, 404...) : on rend la
+    // reponse immediatement, l'appelant decide quoi faire de l'enveloppe.
+    if (!isRetryableStatus(response.status)) return response;
+
+    attempt++;
+    if (attempt >= retries) return response;
+
+    // Le delai demande par le serveur prime sur le backoff exponentiel.
+    await new Promise((resolve) =>
+      setTimeout(resolve, getRetryAfterMs(response) ?? backoff)
+    );
+    backoff *= 2;
   }
 }
+
+/**
+ * Variante haute niveau : retourne la Response si ok, leve sinon.
+ * Conservee pour les appelants qui ne lisent pas le corps d'erreur
+ * (produits, villes, grille tarifaire).
+ */
+export async function fetchWithRetry( url, options = {}, retries = 3, delay = 1000 ) {
+  const response = await fetchWithRetryResponse(url, options, retries, delay);
+  if (response.ok) return response;
+
+  const err = new Error(`HTTP ${response.status}`);
+  err.status = response.status;
+  err.nonRetryable =
+    response.status >= 400 &&
+    response.status < 500 &&
+    !RETRYABLE_4XX.has(response.status);
+  err.retryAfterMs = getRetryAfterMs(response);
+  throw err;
+}
+
 
 export async function firestoreWithRetry(fn, retries = 3, delay = 1000) {
   const NON_RETRYABLE_CODES = [

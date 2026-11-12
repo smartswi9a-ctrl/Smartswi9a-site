@@ -36,8 +36,14 @@ assert.match(utils, /!RETRYABLE_4XX\.has\(response\.status\)/,
   "La liste des 4xx non retentables doit exclure 429.");
 assert.match(utils, /export function getRetryAfterMs\(response\)/,
   "getRetryAfterMs doit exister pour lire l'en-tete Retry-After.");
-assert.match(utils, /error\.retryAfterMs \?\? backoff/,
+assert.match(utils, /getRetryAfterMs\(response\) \?\? backoff/,
   "Le delai serveur doit primer sur le backoff exponentiel.");
+
+assert.match(utils, /export async function fetchWithRetryResponse\(/,
+  "fetchWithRetryResponse doit exister : les appels Livo doivent lire l'enveloppe d'erreur.");
+
+assert.match(utils, /function isRetryableStatus\(status\)/,
+  "isRetryableStatus doit centraliser la politique de retry (408/429/5xx).");
 
 /* ------------------------------------------------------------------ */
 /* 2. Erreurs "prompt" / confirm_text                                  */
@@ -134,4 +140,144 @@ assert.match(functions, /crypto\.createHmac\('sha256', secret\)/,
   "Le calcul HMAC doit rester present.");
 assert.match(functions, /\.update\('\.'\)/, "Le separateur '.' du HMAC doit rester present.");
 
-console.log("PASS: conformite API Livo (Retry-After, prompt/confirm_text, bornes, desired_date, perimetre).");
+/* ------------------------------------------------------------------ */
+/* 6. Le chemin create-order honore reellement Retry-After             */
+/*    (suite de la PR #11 : le helper corrige n'etait pas branche)     */
+/* ------------------------------------------------------------------ */
+
+// 6a. Les 4 appels Livo de orders.js passent par fetchWithRetryResponse.
+assert.match(orders, /fetchWithRetryResponse/,
+  "orders.js doit importer fetchWithRetryResponse.");
+assert.doesNotMatch(orders, /await fetch\(`\$\{LIVO_API_CONFIG\.BASE_URL\}/,
+  "Aucun appel Livo de orders.js ne doit rester en fetch brut.");
+
+const livoCalls = orders.match(/await fetchWithRetryResponse\(/g) || [];
+assert.equal(livoCalls.length, 4,
+  "Les 4 appels Livo (create, cancel, track, pickup) doivent utiliser fetchWithRetryResponse.");
+
+assert.match(orders, /fetchWithRetryResponse\(`\$\{LIVO_API_CONFIG\.BASE_URL\}\$\{LIVO_API_CONFIG\.ENDPOINTS\.CREATE\}`/,
+  "L'appel create-order doit specifiquement utiliser fetchWithRetryResponse.");
+
+// 6b. Execution reelle du helper extrait de utils.js dans un sandbox VM.
+const utilsSrc = read("js/utils.js");
+const blockStart = utilsSrc.indexOf("const RETRYABLE_4XX");
+const blockStop = utilsSrc.indexOf("export async function firestoreWithRetry");
+assert.ok(blockStart > -1 && blockStop > blockStart,
+  "Le bloc retry de utils.js doit etre localisable.");
+
+const retryCode = utilsSrc.slice(blockStart, blockStop).replace(/^export /gm, "");
+
+/* Fabrique une reponse minimale compatible avec le helper. */
+function makeResponse(status, headers = {}, body = "") {
+  return {
+    status,
+    ok: status >= 200 && status < 300,
+    headers: { get: (name) => headers[name] ?? null },
+    text: async () => body,
+    json: async () => JSON.parse(body || "{}"),
+  };
+}
+
+async function runRetry(fetchImpl, retries = 3, delay = 1000) {
+  const sandbox = { fetch: fetchImpl, setTimeout, console };
+  vm.createContext(sandbox);
+  vm.runInContext(
+    retryCode +
+      "\nthis.fetchWithRetry = fetchWithRetry;" +
+      "\nthis.fetchWithRetryResponse = fetchWithRetryResponse;" +
+      "\nthis.getRetryAfterMs = getRetryAfterMs;",
+    sandbox
+  );
+  return sandbox;
+}
+
+// 6c. 429 + Retry-After: 2 -> le 2e essai doit attendre ~2 s (pas le backoff 1 s).
+(async () => {
+  let calls = 0;
+  const sandbox = await runRetry(async () => {
+    calls++;
+    if (calls === 1) {
+      return makeResponse(429, { "Retry-After": "2" }, '{"success":false}');
+    }
+    return makeResponse(200, {}, '{"success":true}');
+  }, 3, 1000);
+
+  const startedAt = Date.now();
+  const response = await sandbox.fetchWithRetryResponse(
+    "https://worker/create-order",
+    { method: "POST" },
+    3,
+    1000
+  );
+  const elapsed = Date.now() - startedAt;
+
+  assert.equal(calls, 2, "Un 429 doit etre rejoue une fois.");
+  assert.equal(response.status, 200, "Le 2e essai doit reussir.");
+  assert.ok(elapsed >= 1900,
+    `Retry-After: 2 doit imposer ~2000 ms d'attente, mesure ${elapsed} ms.`);
+  assert.ok(elapsed < 3500,
+    `L'attente ne doit pas depasser largement 2 s (mesure ${elapsed} ms).`);
+
+  // 6d. Sans Retry-After, on retombe sur le backoff exponentiel (1 s ici).
+  let calls2 = 0;
+  const sandbox2 = await runRetry(async () => {
+    calls2++;
+    return calls2 === 1 ? makeResponse(429, {}, "{}") : makeResponse(200, {}, "{}");
+  }, 3, 300);
+  const t2 = Date.now();
+  await sandbox2.fetchWithRetryResponse("https://worker/create-order", {}, 3, 300);
+  const elapsed2 = Date.now() - t2;
+  assert.ok(elapsed2 >= 250 && elapsed2 < 1200,
+    `Sans Retry-After, le backoff initial doit s'appliquer (mesure ${elapsed2} ms).`);
+
+  // 6e. Un 400 "prompt" NE doit PAS lever : l'enveloppe doit rester lisible,
+  //     sinon confirm_text redevient inaccessible (regression de la PR #11).
+  const envelope = JSON.stringify({
+    success: false,
+    data: { fr_message: "Telephone deja utilise", type: "prompt",
+            details: { confirm_text: "duplicate_target" } },
+  });
+  let calls3 = 0;
+  const sandbox3 = await runRetry(async () => {
+    calls3++;
+    return makeResponse(400, {}, envelope);
+  }, 3, 1000);
+
+  const badResponse = await sandbox3.fetchWithRetryResponse(
+    "https://worker/create-order", {}, 3, 1000
+  );
+  assert.equal(badResponse.status, 400, "Le 400 doit etre retourne, pas leve.");
+  assert.equal(calls3, 1, "Un 400 ne doit pas etre rejoue.");
+  const parsed = JSON.parse(await badResponse.text());
+  assert.equal(parsed.data.details.confirm_text, "duplicate_target",
+    "L'enveloppe prompt/confirm_text doit rester accessible apres le passage en retry.");
+
+  // 6f. fetchWithRetry (variante levant) conserve son contrat historique.
+  const sandbox4 = await runRetry(async () => makeResponse(404, {}, "{}"), 3, 100);
+  let threw = false;
+  try {
+    await sandbox4.fetchWithRetry("https://x/y", {}, 3, 100);
+  } catch (error) {
+    threw = true;
+    assert.equal(error.status, 404, "fetchWithRetry doit exposer le statut.");
+    assert.equal(error.nonRetryable, true, "Un 404 reste non retentable.");
+  }
+  assert.ok(threw, "fetchWithRetry doit lever sur un 4xx non retentable.");
+
+  // 6g. Un 5xx reste retentable puis est rendu tel quel apres epuisement.
+  let calls5 = 0;
+  const sandbox5 = await runRetry(async () => {
+    calls5++;
+    return makeResponse(503, {}, "{}");
+  }, 2, 50);
+  const res5 = await sandbox5.fetchWithRetryResponse("https://x/y", {}, 2, 50);
+  assert.equal(res5.status, 503, "Le 503 doit etre rendu apres epuisement des essais.");
+  assert.equal(calls5, 2, "Un 503 doit etre rejoue jusqu'a epuisement.");
+
+  console.log("PASS: conformite API Livo (Retry-After, prompt/confirm_text, bornes, desired_date, perimetre).");
+  console.log("PASS: chemin create-order branche sur fetchWithRetryResponse et Retry-After honore.");
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
+

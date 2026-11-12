@@ -20,7 +20,8 @@ import {
     getOrderTimelineSteps,
     isOrderCancellable, getTimeRemainingForCancellation, formatTimeRemaining,
     toDate, getCityName, getLang,
-    cleanMoroccanPhone, formatLivoDate
+    cleanMoroccanPhone, formatLivoDate,
+    fetchWithRetryResponse
 } from "./utils.js";
 import { getCurrentUser } from "./auth.js";
 import { showToast, confirmAction } from "./ui-core.js";
@@ -453,7 +454,7 @@ export async function sendToLivoAPI(order, options = {}) {
             payload.confirm_text = options.confirmText.trim().slice(0, 200);
         }
 
-        const response = await fetch(`${LIVO_API_CONFIG.BASE_URL}${LIVO_API_CONFIG.ENDPOINTS.CREATE}`, {
+        const response = await fetchWithRetryResponse(`${LIVO_API_CONFIG.BASE_URL}${LIVO_API_CONFIG.ENDPOINTS.CREATE}`, {
             method: 'POST',
             headers: await getLivoRequestHeaders(),
             body: JSON.stringify(payload)
@@ -519,7 +520,7 @@ export async function sendToLivoAPI(order, options = {}) {
 export async function cancelLivoShipment(livoOrderId) {
     if (!livoOrderId) return { success: false, error: 'Numéro de suivi manquant.' };
     try {
-        const response = await fetch(`${LIVO_API_CONFIG.BASE_URL}${LIVO_API_CONFIG.ENDPOINTS.CANCEL}`, {
+        const response = await fetchWithRetryResponse(`${LIVO_API_CONFIG.BASE_URL}${LIVO_API_CONFIG.ENDPOINTS.CANCEL}`, {
             method: 'POST',
             headers: await getLivoRequestHeaders(),
             body: JSON.stringify({
@@ -559,7 +560,7 @@ export async function syncLivoStatus(orderId) {
         const trackingId = order.livoTracking || order.speedafTracking;
         if (!trackingId) return { success: false, error: "Aucun numéro de suivi Livo" };
 
-        const response = await fetch(`${LIVO_API_CONFIG.BASE_URL}${LIVO_API_CONFIG.ENDPOINTS.TRACK}/${encodeURIComponent(trackingId)}`, {
+        const response = await fetchWithRetryResponse(`${LIVO_API_CONFIG.BASE_URL}${LIVO_API_CONFIG.ENDPOINTS.TRACK}/${encodeURIComponent(trackingId)}`, {
             method: 'GET',
             headers: await getLivoRequestHeaders({ 'Accept': 'application/json' })
         });
@@ -638,7 +639,7 @@ export async function createLivoPickup(pickupData) {
             comment: String(pickupData.comment || 'Ramassage Smartswika').slice(0, 200)
         };
 
-        const response = await fetch(`${LIVO_API_CONFIG.BASE_URL}${LIVO_API_CONFIG.ENDPOINTS.PICKUP}`, {
+        const response = await fetchWithRetryResponse(`${LIVO_API_CONFIG.BASE_URL}${LIVO_API_CONFIG.ENDPOINTS.PICKUP}`, {
             method: 'POST',
             headers: await getLivoRequestHeaders(),
             body: JSON.stringify(payload)
