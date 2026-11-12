@@ -596,12 +596,13 @@ exports.livoWebhook = onRequest({
     return res.status(500).json({ success: false });
   }
 
-  // Le Bearer partage le meme secret que la signature HMAC. Livo ne le documente
-  // pas formellement : on ne l'exige donc pas. S'il est present, il doit etre
-  // exact ; sinon la signature HMAC ci-dessous reste le seul facteur d'authentification.
+  // Spec (api-entrepot-livo.json, section Webhooks > Securiser votre endpoint) :
+  // Livo envoie `secret` dans `Authorization: Bearer <secret>` a chaque livraison
+  // et impose de refuser toute requete dont l'en-tete n'est pas exactement celui-la,
+  // avec une comparaison a temps constant. Un en-tete absent est donc un 401.
   const authorization = String(req.get('authorization') || '');
   const expectedAuthorization = `Bearer ${secret}`;
-  if (authorization && !timingSafeTextEqual(authorization, expectedAuthorization)) {
+  if (!timingSafeTextEqual(authorization, expectedAuthorization)) {
     return res.status(401).json({ success: false, message: 'Autorisation invalide.' });
   }
 

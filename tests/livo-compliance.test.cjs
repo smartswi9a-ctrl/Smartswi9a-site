@@ -134,8 +134,11 @@ assert.doesNotMatch(config, /\/orders\/receive/,
 /* ------------------------------------------------------------------ */
 /* Bonus : controle Bearer du webhook rendu tolerant                   */
 /* ------------------------------------------------------------------ */
-assert.match(functions, /if \(authorization && !timingSafeTextEqual\(authorization, expectedAuthorization\)\)/,
-  "Le Bearer du webhook doit etre tolere s'il est absent ; la signature HMAC reste obligatoire.");
+/* Le Bearer du webhook est desormais EXIGE (spec complete, section
+   "Webhooks > Securiser votre endpoint"). Le detail des cas est couvert
+   par le bloc 7 ci-dessous. */
+assert.match(functions, /if \(!timingSafeTextEqual\(authorization, expectedAuthorization\)\) \{/,
+  "Le Bearer du webhook doit etre exige (comparaison a temps constant).");
 assert.match(functions, /crypto\.createHmac\('sha256', secret\)/,
   "Le calcul HMAC doit rester present.");
 assert.match(functions, /\.update\('\.'\)/, "Le separateur '.' du HMAC doit rester present.");
@@ -281,3 +284,181 @@ async function runRetry(fetchImpl, retries = 3, delay = 1000) {
   process.exit(1);
 });
 
+/* ------------------------------------------------------------------ */
+/* 7. Webhook : Authorization: Bearer obligatoire (exigence stricte)   */
+/*    Spec complete : docs/api/api-entrepot-livo.json, section         */
+/*    "Webhooks > Securiser votre endpoint" :                          */
+/*      "Refusez toute requete dont l'en-tete Authorization n'est pas  */
+/*       exactement `Bearer <votre-cle-webhook>` (comparaison a temps  */
+/*       constant)."                                                   */
+/*    Ce bloc execute reellement la chaine d'authentification extraite  */
+/*    de functions/index.js (secret -> bearer -> timestamp -> body ->   */
+/*    signature HMAC).                                                 */
+/* ------------------------------------------------------------------ */
+(async () => {
+  const crypto = require("node:crypto");
+
+  const fnSrc = read("functions/index.js");
+
+  // Contrat statique : le Bearer ne doit plus etre conditionnel.
+  assert.doesNotMatch(
+    fnSrc,
+    /if \(authorization && !timingSafeTextEqual\(authorization, expectedAuthorization\)\)/,
+    "Le Bearer du webhook ne doit plus etre optionnel : un en-tete absent est un 401."
+  );
+  assert.match(
+    fnSrc,
+    /if \(!timingSafeTextEqual\(authorization, expectedAuthorization\)\) \{/,
+    "Le controle Bearer doit etre inconditionnel (comparaison a temps constant)."
+  );
+  // Le 500 explicite quand le secret est absent doit etre conserve.
+  assert.match(
+    fnSrc,
+    /if \(!secret\) \{[\s\S]{0,200}?res\.status\(500\)/,
+    "Un secret absent doit toujours produire un 500 explicite."
+  );
+
+  // Extraction de la chaine d'authentification reelle.
+  const authStart = fnSrc.indexOf("  const secret = LIVO_WEBHOOK_SECRET.value();");
+  const authEnd = fnSrc.indexOf("  let event;");
+  assert.ok(
+    authStart > -1 && authEnd > authStart,
+    "La chaine d'authentification du webhook doit etre localisable dans functions/index.js."
+  );
+  const authRegion = fnSrc.slice(authStart, authEnd);
+
+  // Extraction de timingSafeTextEqual (helper utilise par la region).
+  const tsStart = fnSrc.indexOf("function timingSafeTextEqual");
+  const tsEnd = fnSrc.indexOf("}", fnSrc.indexOf("return leftBuffer.length")) + 1;
+  assert.ok(tsStart > -1 && tsEnd > tsStart, "timingSafeTextEqual doit etre localisable.");
+  const tsEqualSrc = fnSrc.slice(tsStart, tsEnd);
+
+  // La fenetre anti-replay est lue depuis le code, pas recopiee en dur :
+  // si quelqu'un la change, le test suit.
+  const skewMatch = fnSrc.match(/LIVO_WEBHOOK_MAX_CLOCK_SKEW_SECONDS = (\d+)/);
+  assert.ok(skewMatch, "LIVO_WEBHOOK_MAX_CLOCK_SKEW_SECONDS doit etre defini dans functions/index.js.");
+  const MAX_SKEW_SECONDS = Number(skewMatch[1]);
+  assert.equal(MAX_SKEW_SECONDS, 300, "La spec impose une fenetre anti-replay de 5 minutes.");
+
+  const sandbox = { crypto, Buffer, console };
+  vm.createContext(sandbox);
+  vm.runInContext(
+    `const LIVO_WEBHOOK_MAX_CLOCK_SKEW_SECONDS = ${MAX_SKEW_SECONDS};`,
+    sandbox
+  );
+  vm.runInContext(tsEqualSrc, sandbox);
+  vm.runInContext(
+    "this.runWebhookAuth = function(secretValue, headers, bodyBuffer) {\n" +
+      "  const LIVO_WEBHOOK_SECRET = { value: function () { return secretValue; } };\n" +
+      "  let captured = null;\n" +
+      "  const res = {\n" +
+      "    status: function (code) {\n" +
+      "      captured = { status: code };\n" +
+      "      return { json: function (payload) { captured.body = payload; return captured; } };\n" +
+      "    }\n" +
+      "  };\n" +
+      "  const req = {\n" +
+      "    rawBody: bodyBuffer,\n" +
+      "    get: function (name) {\n" +
+      "      const key = String(name).toLowerCase();\n" +
+      "      return Object.prototype.hasOwnProperty.call(headers, key) ? headers[key] : undefined;\n" +
+      "    }\n" +
+      "  };\n" +
+      authRegion +
+      "\n  return captured; // null = toutes les verifications sont passees\n" +
+      "};",
+    sandbox
+  );
+
+  const SECRET = "lv_whsec_7f3a9c1e5b2d8f4a6c0e9b1d3f5a7c9e";
+  const BODY = Buffer.from(
+    JSON.stringify({
+      id: "wd-abcde12345",
+      event: "order.status_changed",
+      created_at: "2026-11-05T10:24:00.000Z",
+      data: { _id: "or-ab12cd34", status: "fulfilled" },
+    }),
+    "utf8"
+  );
+  const now = String(Math.floor(Date.now() / 1000));
+  const goodSignature =
+    "sha256=" +
+    crypto.createHmac("sha256", SECRET).update(now).update(".").update(BODY).digest("hex");
+
+  function validHeaders(overrides = {}) {
+    return Object.assign(
+      {
+        authorization: "Bearer " + SECRET,
+        "x-livo-timestamp": now,
+        "x-livo-signature": goodSignature,
+      },
+      overrides
+    );
+  }
+
+  // 7a. Aucun en-tete Authorization -> 401.
+  const noAuth = sandbox.runWebhookAuth(SECRET, validHeaders({ authorization: undefined }), BODY);
+  assert.ok(noAuth, "Une requete sans Authorization doit etre rejetee.");
+  assert.equal(noAuth.status, 401, "Absence de Bearer doit renvoyer 401.");
+
+  // 7b. Bearer vide -> 401.
+  const emptyAuth = sandbox.runWebhookAuth(SECRET, validHeaders({ authorization: "" }), BODY);
+  assert.equal(emptyAuth.status, 401, "Un Bearer vide doit renvoyer 401.");
+
+  // 7c. Mauvais Bearer -> 401.
+  const badAuth = sandbox.runWebhookAuth(
+    SECRET,
+    validHeaders({ authorization: "Bearer lv_whsec_mauvais_secret_000000000000" }),
+    BODY
+  );
+  assert.equal(badAuth.status, 401, "Un mauvais Bearer doit renvoyer 401.");
+
+  // 7d. Secret correct mais prefixe/suffixe en trop -> 401 (egalite stricte).
+  const paddedAuth = sandbox.runWebhookAuth(
+    SECRET,
+    validHeaders({ authorization: "Bearer " + SECRET + " " }),
+    BODY
+  );
+  assert.equal(paddedAuth.status, 401, "L'egalite du Bearer doit etre stricte.");
+
+  // 7e. Cas nominal : tout est correct -> aucune erreur capturee.
+  const ok = sandbox.runWebhookAuth(SECRET, validHeaders(), BODY);
+  assert.equal(ok, null, "Une requete authentifiee correctement doit franchir toute la chaine.");
+
+  // 7f. Non-regression : la signature HMAC reste exigee meme avec un bon Bearer.
+  const noSig = sandbox.runWebhookAuth(SECRET, validHeaders({ "x-livo-signature": undefined }), BODY);
+  assert.equal(noSig.status, 401, "La signature HMAC doit rester obligatoire.");
+
+  const badSig = sandbox.runWebhookAuth(
+    SECRET,
+    validHeaders({ "x-livo-signature": "sha256=" + "0".repeat(64) }),
+    BODY
+  );
+  assert.equal(badSig.status, 401, "Une signature HMAC invalide doit renvoyer 401.");
+
+  // 7g. Non-regression : anti-replay toujours actif (timestamp hors fenetre).
+  const oldTs = String(Math.floor(Date.now() / 1000) - (MAX_SKEW_SECONDS + 60));
+  const replay = sandbox.runWebhookAuth(SECRET, validHeaders({ "x-livo-timestamp": oldTs }), BODY);
+  assert.equal(replay.status, 401, "Un timestamp de plus de 5 minutes doit renvoyer 401.");
+
+  // 7h. Secret absent -> 500 explicite, pas 401 silencieux.
+  const noSecret = sandbox.runWebhookAuth(undefined, validHeaders(), BODY);
+  assert.equal(noSecret.status, 500, "Un secret absent doit renvoyer 500.");
+
+  // 7i. La liste d'evenements autorises doit rester identique a l'enum de la spec.
+  const spec = JSON.parse(read("docs/api/api-entrepôt-livo.json"));
+  const specEvents = spec.components.schemas.WebhookEvent.properties.event.enum.slice().sort();
+  const codeEventsMatch = fnSrc.match(/LIVO_WEBHOOK_ALLOWED_EVENTS = new Set\(\[([\s\S]*?)\]\)/);
+  assert.ok(codeEventsMatch, "LIVO_WEBHOOK_ALLOWED_EVENTS doit exister.");
+  const codeEvents = [...codeEventsMatch[1].matchAll(/'([^']+)'/g)].map((m) => m[1]).sort();
+  assert.deepEqual(
+    codeEvents,
+    specEvents,
+    "Les evenements acceptes doivent correspondre exactement a WebhookEvent.event de la spec complete."
+  );
+
+  console.log("PASS: webhook - Authorization Bearer obligatoire (401 si absent ou invalide), HMAC et anti-replay conserves.");
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
