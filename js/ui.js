@@ -44,15 +44,11 @@ import {
   releaseFocusTrap,
   openImageLightbox,
 } from "./ui-core.js";
+import { normalizeProductId } from "./domain/product-id.js";
 
 /* ============================================================ HELPERS LOCAUX ============================================================ */
 
 /** * Normalise un ID produit. * @param {*} id * @returns {number|string|null} */
-function normalizeProductId(id) {
-  if (id == null || id === "") return null;
-  const n = Number(id);
-  return Number.isFinite(n) && String(n) === String(id) ? n : String(id);
-}
 
 /* ============================================================ ÉTAT LOCAL ============================================================ */
 let pendingVerificationEmail = null;

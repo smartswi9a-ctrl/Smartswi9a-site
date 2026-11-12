@@ -11,6 +11,10 @@
     "ignore": [
       "firebase.json",
       "**/.*",
+      "cloudflare/**",
+      "tests/**",
+      "_headers",
+      "**/*.md",
       "**/node_modules/**",
       "firestore.rules",
       "storage.rules",

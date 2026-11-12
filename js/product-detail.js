@@ -24,15 +24,11 @@ import {
   getProductVendorLabel,
   getProductVendorLabelSync,
 } from "./vendor-attribution.js";
+import { normalizeProductId } from "./domain/product-id.js";
 
 /* ============================================================ HELPERS LOCAUX ============================================================ */
 
 /** * Normalise un ID produit. * Numérique (compat favoris/reviews historiques) -> Number. * Alphanumérique (produits vendeurs Firestore auto-ID) -> String. * @param {*} id * @returns {number|string|null} */
-function normalizeProductId(id) {
-  if (id == null || id === "") return null;
-  const n = Number(id);
-  return Number.isFinite(n) && String(n) === String(id) ? n : String(id);
-}
 
 /* ============================================================ ÉTAT LOCAL ============================================================ */
 let currentProduct = null;
@@ -970,7 +966,7 @@ function renderRelatedProducts(product) {
       ? `<div style="font-size:0.65rem;color:#6b46c1;font-weight:700;margin-top:0.2rem;">🏪 ${escapeHTML( p.vendorName || "Boutique" )}</div>`
       : `<div style="font-size:0.65rem;color:var(--gold);font-weight:700;margin-top:0.2rem;">${ t("vendorSmartSwi9a") || "Smartswika" }</div>`;
 
-    html += ` <div class="product-card" data-id="${escapeHTML( String(pid) )}" data-slug="${escapeHTML(p.slug || "")}" style="cursor:pointer;"> <div class="product-img"> <img src="${safeImg}" alt="${name}" loading="lazy" onerror="this.onerror=null; this.src='${safeFallback}'"> <button class="favorite-btn ${ isFav ? "is-fav" : "" }" data-id="${escapeHTML(String(pid))}">${ isFav ? "❤️" : "🤍" }</button> </div> <div class="product-body" style="padding:0.8rem;"> <div class="p-name" style="font-size:0.85rem;">${name}</div> ${vendorBadge} <div class="p-price" style="font-size:0.95rem;margin-top:0.3rem;"> ${price} ${t("currency")} ${ oldPrice ? `<small>${oldPrice} ${t("currency")}</small>` : "" } </div> </div> </div> `;
+    html += ` <div class="product-card" data-id="${escapeHTML( String(pid) )}" data-slug="${escapeHTML(p.slug || "")}" style="cursor:pointer;"> <div class="product-img"> <img src="${safeImg}" alt="${name}" width="400" height="400" loading="lazy" onerror="this.onerror=null; this.src='${safeFallback}'"> <button class="favorite-btn ${ isFav ? "is-fav" : "" }" data-id="${escapeHTML(String(pid))}">${ isFav ? "❤️" : "🤍" }</button> </div> <div class="product-body" style="padding:0.8rem;"> <div class="p-name" style="font-size:0.85rem;">${name}</div> ${vendorBadge} <div class="p-price" style="font-size:0.95rem;margin-top:0.3rem;"> ${price} ${t("currency")} ${ oldPrice ? `<small>${oldPrice} ${t("currency")}</small>` : "" } </div> </div> </div> `;
   });
 
   html += `</div>`;

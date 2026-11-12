@@ -47,6 +47,7 @@ import {
   preloadVendorsForProducts,
   getProductVendorLabelSync,
 } from "./vendor-attribution.js";
+import { normalizeProductId } from "./domain/product-id.js";
 
 /* ============================================================ CACHE STATS AVIS ============================================================ Clé = String(normalizedPid) pour supporter Number ET String. TTL = 60s. MAX = 100 entrées (éviction FIFO). ============================================================ */
 const _statsCache = new Map();
@@ -62,11 +63,6 @@ let _lastRenderedParentId = null;
 let _lastRenderedLang = null;
 
 /* ============================================================ NORMALISATION D'ID PRODUIT ============================================================ - "42" (chaîne numérique) -> 42 (Number) - compat favoris/avis - "abc123" (auto-ID Firestore vendeur) -> "abc123" (String) - null/undefined/"" -> null Doit rester IDENTIQUE à reviews.js / product-detail.js / boutique.js. ============================================================ */
-function normalizeProductId(id) {
-  if (id == null || id === "") return null;
-  const n = Number(id);
-  return Number.isFinite(n) && String(n) === String(id) ? n : String(id);
-}
 
 if (typeof document !== "undefined") {
   document.addEventListener("review-submitted", (e) => {
@@ -734,7 +730,7 @@ export async function renderProducts() {
       ? !p.variants.some((v) => (Number(v.stock) || 0) > 0)
       : stock === 0;
 
-    html += ` <div class="product-card" data-id="${escapeHTML( String(pid) )}" data-slug="${escapeHTML(p.slug || "")}"> <div class="product-img"> <img src="${img}" alt="${name}" loading="lazy" onerror="this.onerror=null; this.src='${getFallbackImage( name )}'"> <button class="favorite-btn ${ isFav ? "is-fav" : "" }" data-id="${escapeHTML( String(pid) )}" aria-label="${favAriaLabel}">${isFav ? "❤️" : "🤍"}</button> ${optionsBadge} ${ isOutOfStock ? `<span class="badge badge-hot">${t( "outOfStock" )}</span>` : "" } ${ isPromo ? `<span class="badge badge-promo">-${discountPercent}%</span>` : "" } ${ isNew && !isOutOfStock && !isPromo ? `<span class="badge badge-new">${t( "trending" )}</span>` : "" } </div> <div class="product-body"> <div class="p-name">${name}</div> ${vendorBadgeHtml} <div class="p-desc">${desc}</div> <div class="p-stats">⭐ ${avgRating} <span style="color:var(--text-muted)">(${reviewCount})</span></div> <div class="p-footer"> <div class="p-price">${price} ${t("currency")} ${ oldPrice ? `<small>${oldPrice} ${t("currency")}</small>` : "" }</div> ${btnHtml} </div> </div> </div> `;
+    html += ` <div class="product-card" data-id="${escapeHTML( String(pid) )}" data-slug="${escapeHTML(p.slug || "")}"> <div class="product-img"> <img src="${img}" alt="${name}" width="400" height="400" loading="lazy" onerror="this.onerror=null; this.src='${getFallbackImage( name )}'"> <button class="favorite-btn ${ isFav ? "is-fav" : "" }" data-id="${escapeHTML( String(pid) )}" aria-label="${favAriaLabel}">${isFav ? "❤️" : "🤍"}</button> ${optionsBadge} ${ isOutOfStock ? `<span class="badge badge-hot">${t( "outOfStock" )}</span>` : "" } ${ isPromo ? `<span class="badge badge-promo">-${discountPercent}%</span>` : "" } ${ isNew && !isOutOfStock && !isPromo ? `<span class="badge badge-new">${t( "trending" )}</span>` : "" } </div> <div class="product-body"> <div class="p-name">${name}</div> ${vendorBadgeHtml} <div class="p-desc">${desc}</div> <div class="p-stats">⭐ ${avgRating} <span style="color:var(--text-muted)">(${reviewCount})</span></div> <div class="p-footer"> <div class="p-price">${price} ${t("currency")} ${ oldPrice ? `<small>${oldPrice} ${t("currency")}</small>` : "" }</div> ${btnHtml} </div> </div> </div> `;
   });
 
   grid.innerHTML = html;

@@ -38,13 +38,9 @@ import { getCurrentUser } from "./auth.js";
 import { showToast, confirmAction } from "./ui-core.js";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "./firebase.js";
+import { normalizeProductId } from "./domain/product-id.js";
 
 /* ============================================================ NORMALISATION D'ID PRODUIT ============================================================ - "42" (chaîne numérique) -> 42 (Number) - "abc123" (auto-ID Firestore vendeur) -> "abc123" (String) - null/undefined/"" -> null ============================================================ */
-function normalizeProductId(id) {
-  if (id == null || id === "") return null;
-  const n = Number(id);
-  return Number.isFinite(n) && String(n) === String(id) ? n : String(id);
-}
 
 /* ============================================================ ÉTAT LOCAL ============================================================ */
 let cartPageInitialized = false;
@@ -291,7 +287,7 @@ function renderCartItem(product, quantity, item) {
 
   const safeDataId = escapeHTML(String(pid));
 
-  return ` <div class="cart-page-item" data-product-id="${safeDataId}"> <a href="${productUrl}" class="cart-page-item-img-link"><img src="${img}" alt="${name}" class="cart-page-item-img" onerror="this.onerror=null;this.src='${fallback}'"></a> <div class="cart-page-item-info"> <a href="${productUrl}" class="cart-page-item-name">${name}</a> ${variantText} <div class="cart-page-item-meta"> <span class="cart-item-category">${categoryLabel}</span> ${stockHtml} </div> <div class="cart-page-item-bottom"> <div class="cart-page-item-price"> ${ isPromo ? `<span class="cart-item-old-price">${oldPrice} MAD</span>` : "" } <span class="cart-item-current-price">${price} MAD</span> </div> <div class="cart-page-item-actions"> <button class="cart-page-qty-btn" data-action="cart:decrease" data-id="${safeDataId}">−</button> <input type="number" class="cart-page-qty-input" data-id="${safeDataId}" value="${quantity}" min="1" max="${ maxStock || 999 }"> <button class="cart-page-qty-btn" data-action="cart:increase" data-id="${safeDataId}">+</button> </div> <div class="cart-page-item-linetotal">${lineTotal} MAD</div> <button class="cart-page-remove-btn" data-action="cart:remove" data-id="${safeDataId}">✕</button> </div> </div> </div> `;
+  return ` <div class="cart-page-item" data-product-id="${safeDataId}"> <a href="${productUrl}" class="cart-page-item-img-link"><img src="${img}" alt="${name}" width="96" height="96" class="cart-page-item-img" onerror="this.onerror=null;this.src='${fallback}'"></a> <div class="cart-page-item-info"> <a href="${productUrl}" class="cart-page-item-name">${name}</a> ${variantText} <div class="cart-page-item-meta"> <span class="cart-item-category">${categoryLabel}</span> ${stockHtml} </div> <div class="cart-page-item-bottom"> <div class="cart-page-item-price"> ${ isPromo ? `<span class="cart-item-old-price">${oldPrice} MAD</span>` : "" } <span class="cart-item-current-price">${price} MAD</span> </div> <div class="cart-page-item-actions"> <button class="cart-page-qty-btn" data-action="cart:decrease" data-id="${safeDataId}">−</button> <input type="number" class="cart-page-qty-input" data-id="${safeDataId}" value="${quantity}" min="1" max="${ maxStock || 999 }"> <button class="cart-page-qty-btn" data-action="cart:increase" data-id="${safeDataId}">+</button> </div> <div class="cart-page-item-linetotal">${lineTotal} MAD</div> <button class="cart-page-remove-btn" data-action="cart:remove" data-id="${safeDataId}">✕</button> </div> </div> </div> `;
 }
 
 /* ============================================================ COUPON & RÉCAPITULATIF ============================================================ */
@@ -391,7 +387,7 @@ function renderSuggestions() {
   random.forEach((p) => {
     const name = escapeHTML(getProductName(p));
     const pid = normalizeProductId(p.id);
-    html += ` <div class="cart-suggestion-card" data-slug="${escapeHTML( p.slug || "" )}"> <div class="cart-suggestion-img"><img src="${getProductImageUrl( p )}" alt="${name}" loading="lazy"></div> <div class="cart-suggestion-body"> <div class="cart-suggestion-name">${name}</div> <div class="cart-suggestion-price"><span class="cart-suggestion-current">${ p.price } MAD</span></div> <button class="cart-suggestion-btn" data-action="cart:add-suggestion" data-id="${escapeHTML( String(pid) )}">${t("addToCart")}</button> </div> </div> `;
+    html += ` <div class="cart-suggestion-card" data-slug="${escapeHTML( p.slug || "" )}"> <div class="cart-suggestion-img"><img src="${getProductImageUrl( p )}" alt="${name}" width="64" height="64" loading="lazy"></div> <div class="cart-suggestion-body"> <div class="cart-suggestion-name">${name}</div> <div class="cart-suggestion-price"><span class="cart-suggestion-current">${ p.price } MAD</span></div> <button class="cart-suggestion-btn" data-action="cart:add-suggestion" data-id="${escapeHTML( String(pid) )}">${t("addToCart")}</button> </div> </div> `;
   });
   html += `</div></section>`;
   container.innerHTML = html;

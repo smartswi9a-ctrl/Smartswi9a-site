@@ -33,13 +33,9 @@ import {
 } from "./store.js";
 import { getCurrentUser } from "./auth.js";
 import { showToast } from "./ui-core.js";
+import { normalizeProductId } from "./domain/product-id.js";
 
 /* ============================================================ NORMALISATION D'ID PRODUIT ============================================================ */
-function normalizeProductId(id) {
-  if (id == null || id === "") return null;
-  const n = Number(id);
-  return Number.isFinite(n) && String(n) === String(id) ? n : String(id);
-}
 
 /* ============================================================ ÉTAT LOCAL DU PANIER ============================================================ */
 let cart = [];
