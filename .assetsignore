@@ -1,0 +1,32 @@
+# Cloudflare Pages : fichiers exclus du deploiement statique
+# Le projet publie la racine du depot telle quelle (build_command = "exit 0",
+# destination_dir = "/"), donc tout ce qui n'est pas exclu ici est public.
+# NE PAS exclure : _headers, robots.txt, sitemap.xml, site.webmanifest,
+# produits.json, villes.json, translations.js, style*.css, vendor-style.css
+# (tous consommes par le frontend).
+
+# --- Configuration Firebase et regles de securite ---
+.firebaserc
+firebase.json
+firestore.rules
+firestore.indexes.json
+storage.rules
+
+# --- Metadonnees du depot ---
+.gitignore
+README.md
+*.md
+
+# --- Code source backend et infrastructure ---
+cloudflare/
+tests/
+functions/
+.github/
+
+# --- Dependances ---
+node_modules/
+package.json
+package-lock.json
+
+# --- Outil de developpement interne ---
+generer-villes.html
