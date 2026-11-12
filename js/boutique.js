@@ -14,15 +14,11 @@ import {
     getDiscountPercent, toDate
 } from "./utils.js";
 import { getCurrentUser } from "./auth.js";
+import { normalizeProductId } from "./domain/product-id.js";
 
 /* ============================================================
    HELPERS
    ============================================================ */
-function normalizeProductId(id) {
-    if (id == null || id === '') return null;
-    const n = Number(id);
-    return Number.isFinite(n) && String(n) === String(id) ? n : String(id);
-}
 
 function safeImageUrl(url) {
     if (typeof url !== 'string') return '';
@@ -385,7 +381,7 @@ function renderGrid() {
         html += `
             <div class="product-card" data-id="${escapeHTML(String(pid))}" data-slug="${escapeHTML(p.slug || '')}">
                 <div class="product-img">
-                    <img src="${img}" alt="${name}" loading="lazy" onerror="this.onerror=null; this.src='${fallback}'">
+                    <img src="${img}" alt="${name}" width="400" height="400" loading="lazy" onerror="this.onerror=null; this.src='${fallback}'">
                     <button class="favorite-btn ${isFav ? 'is-fav' : ''}" data-id="${escapeHTML(String(pid))}">${isFav ? '❤️' : '🤍'}</button>
                     ${variantBadge}
                     ${isOutOfStock ? `<span class="badge badge-hot">${t('outOfStock') || 'Épuisé'}</span>` : ''}

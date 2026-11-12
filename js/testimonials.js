@@ -14,13 +14,9 @@ import {
   getCityName,
 } from "./utils.js";
 import { getProducts } from "./store.js";
+import { normalizeProductId } from "./domain/product-id.js";
 
 /* ============================================================ NORMALISATION D'ID PRODUIT ============================================================ - "42" (chaîne numérique) -> 42 (Number) - "abc123" (auto-ID Firestore vendeur) -> "abc123" (String) - null/undefined/"" -> null Doit rester IDENTIQUE à products.js / reviews.js / product-detail.js / boutique.js / panier.js. ============================================================ */
-function normalizeProductId(id) {
-  if (id == null || id === "") return null;
-  const n = Number(id);
-  return Number.isFinite(n) && String(n) === String(id) ? n : String(id);
-}
 
 /* ============================================================ CONSTANTE ============================================================ */
 const MAX_TESTIMONIALS = 3;

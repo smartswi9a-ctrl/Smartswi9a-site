@@ -3,16 +3,12 @@
 import { CONFIG } from "./config.js";
 import { t, getProductName } from "./utils.js";
 import { getProducts } from "./store.js";
+import { normalizeProductId } from "./domain/product-id.js";
 
 /* ============================================================ CONSTANTE : Limite WhatsApp (texte décodé) ============================================================ */
 const WHATSAPP_MAX_LENGTH = 4096;
 
 /* ============================================================ NORMALISATION D'ID PRODUIT ============================================================ - "42" (chaîne numérique) -> 42 (Number) - "abc123" (auto-ID Firestore vendeur) -> "abc123" (String) - null/undefined/"" -> null Doit rester IDENTIQUE à products.js / cart.js / panier.js / reviews.js. ============================================================ */
-function normalizeProductId(id) {
-  if (id == null || id === "") return null;
-  const n = Number(id);
-  return Number.isFinite(n) && String(n) === String(id) ? n : String(id);
-}
 
 /* ============================================================ NORMALISATION NUMÉRO WHATSAPP (B-WHA-1) ============================================================ WhatsApp attend le format international sans '+', ex : 212656613303 (Maroc) On accepte en entrée : - '212656613303' -> inchangé - '+212656613303' -> '212656613303' - '00212656613303' -> '212656613303' - '0656613303' -> '212656613303' (format local MA) La règle de conversion ne s'applique QUE si le numéro commence par 0 et fait 10 chiffres (format local marocain). ============================================================ */
 function normalizeWhatsAppPhone(raw) {
