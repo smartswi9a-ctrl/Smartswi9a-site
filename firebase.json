@@ -19,16 +19,22 @@
       "firestore.rules",
       "storage.rules",
       "firestore.indexes.json",
-      "migrate-cities.html",
       "generer-villes.html",
-      "js/emailjs.js",
-      "logo-generator.html",
       "README.md",
       "**/functions/**"
     ],
     "cleanUrls": true,
     "trailingSlashBehavior": "remove",
     "headers": [
+      {
+        "source": "css/*.@(css)",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=31536000, immutable"
+          }
+        ]
+      },
       {
         "source": "**/*.@(js|css)",
         "headers": [
@@ -215,4 +221,3 @@
     "runtime": "nodejs22"
   }
 }
-
