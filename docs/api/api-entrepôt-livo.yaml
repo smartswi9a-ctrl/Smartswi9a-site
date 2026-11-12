@@ -1,0 +1,3296 @@
+openapi: 3.0.3
+info:
+  title: API Entrepôt Livo
+  version: 1.0.0
+  description: >-
+    L'**API Entrepôt Livo** est une interface RESTful serveur-à-serveur destinée
+    aux
+
+    opérateurs d'entrepôt qui gèrent la logistique de livraison e-commerce —
+    consulter
+
+    les commandes et mettre à jour leur statut, planifier les ramassages de
+    stock et
+
+    parcourir le catalogue de produits.
+
+
+    > Vous développez plutôt une intégration client/vendeur ? Cette API est
+
+    > documentée séparément dans le portail client Livo.
+
+
+    ## Authentification
+
+
+    Tous les endpoints, sauf ceux marqués **Reference**, nécessitent une clé API
+    émise
+
+    par Livo. Envoyez-la à chaque requête sous forme de jeton bearer :
+
+
+    ```
+
+    Authorization: Bearer <votre-cle-api>
+
+    ```
+
+
+    Pour vérifier qu'une clé est valide, appelez `GET /auth/keys` — une réponse
+
+    `200` signifie que la clé fonctionne.
+
+
+    ## Format des réponses
+
+
+    Les réponses réussies encapsulent les données dans une enveloppe :
+
+
+    ```json
+
+    { "success": true, "data": { } }
+
+    ```
+
+
+    `data` est la ressource pour les endpoints d'élément unique et un tableau
+    pour
+
+    les endpoints de liste. Codes de statut : `200` pour les lectures, `201`
+    pour
+
+    les créations, `202` pour les mises à jour.
+
+
+    ## Erreurs
+
+
+    Les requêtes en échec renvoient un corps JSON décrivant l'erreur :
+
+
+    ```json
+
+    {
+      "success": false,
+      "data": {
+        "en_message": "Pickup does not exist",
+        "fr_message": "Ramassage introuvable",
+        "error": "Pickup does not exist",
+        "type": "client",
+        "details": {}
+      }
+    }
+
+    ```
+
+
+    `type` vaut l'une des valeurs suivantes :
+
+
+    - `client` — entrée invalide ou violation d'une règle métier (400)
+
+    - `prompt` — l'action nécessite une confirmation ; renvoyez-la avec le
+      `confirm_text` fourni dans `details` (400)
+    - `permission` — clé API absente, invalide ou non autorisée (401/403)
+
+    - `internal` — erreur serveur inattendue (500)
+
+
+    Chaque endpoint ci-dessous documente ses cas `400` spécifiques avec des
+
+    exemples concrets.
+
+
+    ## Limite de débit
+
+
+    Tous les endpoints sont limités à **5 requêtes par seconde** par client.
+    Certains endpoints
+
+    ont une limite plus stricte qui leur est propre — le cas échéant, elle est
+    indiquée sur
+
+    l'endpoint et renvoyée dans sa réponse `429`.
+
+
+    ## Pagination
+
+
+    Les endpoints de liste renvoient au plus **500 éléments** par requête, ce
+    qui est aussi la
+
+    valeur par défaut quand `_limit` est omis. Parcourez les ensembles plus
+    grands avec
+
+    `_skip` et `_limit`.
+
+
+    ## Webhooks
+
+
+    Plutôt que d'interroger l'API en boucle, laissez Livo envoyer chaque mise à
+    jour à votre
+
+    serveur. Configurez-le dans le portail client (**Paramètres → Webhook**) ou
+    avec
+
+    `PUT /client_webhooks/me` : indiquez une URL publique en `https://` et une
+    **clé Bearer** de
+
+    votre choix (24 caractères minimum), puis choisissez les familles
+    d'événements à recevoir.
+
+    Seules les familles auxquelles votre compte a accès sont proposées, et seul
+    le propriétaire du
+
+    compte peut gérer le webhook.
+
+
+    Livo envoie un `POST` avec un corps JSON à votre URL pour chaque événement :
+
+
+    | Famille | Événements |
+
+    | --- | --- |
+
+    | `orders` | `order.created`, `order.status_changed`,
+    `order.return_status_changed` |
+
+    | `pickups` | `pickup.created`, `pickup.status_changed` |
+
+    | `returns` | `return.created`, `return.status_changed` |
+
+    | `messages` | `message.created` — un message de l'équipe Livo sur une
+    commande, un ramassage, un retour ou une réclamation |
+
+
+    Le corps est un `WebhookEvent`. Son `data` est la ressource telle qu'elle
+    est juste après le
+
+    changement, au même format que celui renvoyé par cette API : `ApiOrder` pour
+    les commandes,
+
+    `ApiPickup` pour les ramassages, `ApiReturn` pour les retours et
+    `WebhookMessage` pour les
+
+    messages.
+
+
+    ```json
+
+    {
+      "id": "wd-abcde12345",
+      "event": "order.status_changed",
+      "created_at": "2026-11-05T10:24:00.000Z",
+      "data": { "_id": "or-ab12cd34", "status": "fulfilled", "...": "mêmes champs que ApiOrder" }
+    }
+
+    ```
+
+
+    ### Sécuriser votre endpoint
+
+
+    Chaque requête porte ces en-têtes :
+
+
+    ```
+
+    Authorization: Bearer <votre-cle-webhook>
+
+    X-Livo-Event: order.status_changed
+
+    X-Livo-Delivery: wd-abcde12345
+
+    X-Livo-Timestamp: 1793874240
+
+    X-Livo-Signature: sha256=<HMAC-SHA256 hexadécimal de
+    "<X-Livo-Timestamp>.<corps brut>", avec votre clé webhook>
+
+    ```
+
+
+    1. **Refusez** toute requête dont l'en-tête `Authorization` n'est pas
+    exactement
+       `Bearer <votre-cle-webhook>` (comparaison à temps constant).
+    2. Pour une protection renforcée, recalculez la signature sur le corps brut
+    et comparez-la à
+       `X-Livo-Signature`. Refusez les requêtes dont `X-Livo-Timestamp` date de plus de 5 minutes,
+       pour qu'une requête interceptée ne puisse pas être rejouée.
+    3. Utilisez `X-Livo-Delivery` (aussi `id` dans le corps) pour ignorer une
+    livraison déjà traitée.
+
+
+    Gardez la clé webhook secrète. Livo ne l'affiche plus une fois enregistrée ;
+    remplacez-la à
+
+    tout moment avec un nouveau `PUT`.
+
+
+    ### Livraison
+
+
+    - Répondez avec un statut `2xx` en moins de **10 secondes**. Toute autre
+    réponse compte comme
+      un échec. Les redirections ne sont pas suivies.
+    - Chaque événement est envoyé une fois, et chaque tentative apparaît dans
+      `GET /client_webhooks/me/logs`.
+    - Après **50 échecs consécutifs**, le webhook se désactive ; corrigez votre
+    endpoint puis
+      réactivez-le.
+    - `POST /client_webhooks/me/test` envoie un événement `ping` pour vérifier
+    la configuration.
+  contact:
+    name: Livo Integration
+    email: integration@livo.ma
+servers:
+  - url: https://rest.livo.ma
+    description: Production
+  - url: http://localhost:4000
+    description: Local development
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API Key
+      description: Clé API émise par Livo.
+  schemas:
+    AddPickupRequest:
+      type: object
+      properties:
+        client_id:
+          type: string
+        items:
+          type: array
+          items:
+            type: string
+          minItems: 1
+          maxItems: 500
+        products:
+          type: array
+          items:
+            type: object
+            properties:
+              product_id:
+                type: string
+              quantity:
+                type: number
+                format: float
+                minimum: 1
+            required:
+              - product_id
+              - quantity
+            additionalProperties: false
+          minItems: 1
+        desired_date:
+          type: string
+        comment:
+          type: string
+      required:
+        - client_id
+      additionalProperties: false
+      example:
+        client_id: cl-ab12cd34
+        items:
+          - it-1a2b3c4d
+          - it-5e6f7g8h
+        desired_date: 25/05/2026
+        comment: Morning pickup
+    UpdateOrderStatusRequest:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+            - pending
+        orders:
+          type: array
+          items:
+            type: string
+      required:
+        - status
+        - orders
+      additionalProperties: false
+      example:
+        status: pending
+        orders:
+          - or-ab12cd34
+          - or-ef56gh78
+    ReceiveOrdersRequest:
+      type: object
+      properties:
+        order_ids:
+          type: array
+          items:
+            type: string
+            minLength: 1
+          minItems: 1
+          maxItems: 200
+          description: Identifiants des commandes à réceptionner dans l'entrepôt appelant.
+            Identifiants internes ou votre propre client_order_id.
+      required:
+        - order_ids
+      additionalProperties: false
+      example:
+        order_ids:
+          - or-ab12cd34
+          - or-ef56gh78
+          - SHOP-4471
+    EditPickupRequest:
+      type: object
+      description: Champs modifiables. Les champs acceptés dépendent du statut actuel
+        du ramassage et du rôle de l'appelant.
+      properties:
+        status:
+          type: string
+          enum:
+            - pending
+            - in progress
+            - fulfilling
+            - fulfilled
+            - cancelled
+        desired_date:
+          type: string
+          format: date-time
+        items:
+          type: array
+          items:
+            type: string
+          description: Identifiants des articles inclus dans le ramassage
+        deliverer_id:
+          type: string
+        comment:
+          type: string
+      example:
+        status: fulfilling
+        items:
+          - it-1a2b3c4d
+          - it-5e6f7g8h
+        comment: Two items scanned
+    EditOrderRequest:
+      type: object
+      description: Editable fields for a single order. Send only the fields you want
+        to change. Which fields the API will accept depends on the order's
+        current status and the caller's role — e.g. `products` can only be
+        changed by followup on a non-terminal order, `desired_date` is required
+        when transitioning to `reported` or `programmed` and forbidden once the
+        order is `cancelled`/`fulfilled`, and `cost` is only editable while the
+        order is still `draft` (or by followup pre-terminal).
+      properties:
+        status:
+          type: string
+          enum:
+            - draft
+            - pending
+            - in progress
+            - fulfilled
+            - problem
+            - cancelled
+            - reported
+            - programmed
+          description: Status to transition to. The valid transitions depend on the
+            order's current status and the caller's role.
+        message:
+          type: string
+          maxLength: 2000
+          description: Free-text comment attached to the order (max 2000 chars).
+        desired_date:
+          type: string
+          description: Customer's requested date in DD/MM/YYYY. Required when
+            transitioning to `reported` or `programmed`.
+        cost:
+          type: number
+          minimum: 0
+          description: Cash to collect on delivery (COD).
+        target:
+          $ref: "#/components/schemas/Target"
+        products:
+          type: array
+          description: Replace the order's product list. Followup-only, and only while the
+            order is non-terminal.
+          items:
+            type: object
+            required:
+              - product_id
+              - quantity
+            properties:
+              product_id:
+                type: string
+                example: pr-ab12cd34
+              quantity:
+                type: integer
+                minimum: 1
+                maximum: 99
+        deliverer_id:
+          type: string
+          description: Assign a registered deliverer by user id. admin/followup/warehouse
+            only, on `draft`/`pending`/`problem`/`in progress`. Empty string
+            clears the assignment on `draft`/`pending`/`problem` (forbidden on
+            `in progress` — change status first). On `in progress` orders the
+            items currently held by the previous deliverer are reassigned to the
+            new one in the same call. Mutually exclusive with `deliverer`.
+        deliverer:
+          type: object
+          description: "Assign an ad-hoc deliverer with just a name and phone — no user
+            lookup, no warehouse-match check. Useful for logging an external
+            deliverer that doesn't have an account. Same role/status rules as
+            `deliverer_id`. Items are not reassigned (an ad-hoc deliverer can't
+            physically hold stock in the system). Mutually exclusive with
+            `deliverer_id`. `phone` is the gate: a deliverer with no phone is
+            silently ignored (the name is dropped) rather than rejected, and the
+            rest of the edit still applies."
+          required:
+            - name
+          properties:
+            name:
+              type: string
+              minLength: 1
+              maxLength: 120
+              example: Ali Bennani
+            phone:
+              type: string
+              minLength: 1
+              maxLength: 40
+              example: "+212600000000"
+        tags:
+          type: array
+          items:
+            type: string
+          description: Free-form lowercase labels. Not editable by the `client` role.
+        items:
+          type: array
+          items:
+            type: string
+          description: Lock specific stock item ids to this order — only valid when
+            transitioning to `fulfilled`.
+          maxItems: 500
+        pinned:
+          type: boolean
+      example:
+        message: Customer asked to be called before delivery
+        desired_date: 27/05/2026
+        status: programmed
+    AddOrderRequest:
+      type: object
+      description: "Une nouvelle commande. `cost`, `target` et `products` sont requis.
+        La commande est créée en `draft` ; définissez `status: pending` pour la
+        soumettre dans le circuit de livraison dès le même appel."
+      required:
+        - cost
+        - target
+        - products
+      properties:
+        cost:
+          type: number
+          minimum: 0
+          description: Montant à encaisser à la livraison (paiement à la livraison)
+        target:
+          $ref: "#/components/schemas/Target"
+        products:
+          type: array
+          minItems: 1
+          maxItems: 99
+          description: Les articles commandés — vos produits existants, par identifiant.
+          items:
+            type: object
+            required:
+              - product_id
+              - quantity
+            properties:
+              product_id:
+                type: string
+                example: pr-ab12cd34
+              quantity:
+                type: integer
+                minimum: 1
+                maximum: 99
+                example: 2
+              refr:
+                type: string
+                description: Le SKU / la référence du client
+        desired_date:
+          type: string
+          description: Date de livraison souhaitée par le client au format JJ/MM/AAAA. Ne
+            doit pas être dans le passé.
+          example: 10/06/2026
+        openable:
+          type: boolean
+          description: Indique si le client peut ouvrir le colis avant de payer.
+        comment:
+          type: string
+          description: Note en texte libre attachée à la commande lors de sa création.
+        status:
+          type: string
+          enum:
+            - draft
+            - pending
+          description: Statut initial. `draft` par défaut ; utilisez `pending` pour
+            soumettre immédiatement la commande dans le circuit de livraison.
+        client_order_id:
+          type: string
+          maxLength: 100
+          description: La référence propre du client pour cette commande
+      example:
+        cost: 250
+        target:
+          name: Ahmed Bennani
+          phone: "0612345678"
+          city: casablanca
+          address: 12 Rue des Orangers
+        products:
+          - product_id: pr-ab12cd34
+            quantity: 2
+        desired_date: 10/06/2026
+        status: pending
+        client_order_id: SHOP-1042
+    Target:
+      type: object
+      required:
+        - name
+        - city
+        - address
+      properties:
+        name:
+          type: string
+          example: Ahmed Bennani
+        phone:
+          type: string
+          example: "+212600000000"
+        city:
+          type: string
+          example: casablanca
+        address:
+          type: string
+          example: 12 Rue des Orangers
+    Deliverer:
+      type: object
+      description: Le livreur assigné à la commande ou au ramassage.
+      properties:
+        _id:
+          type: string
+          example: us-xxxxxxxx
+        name:
+          type: string
+          example: Youssef El Amrani
+        phone:
+          type: string
+          example: "+212600000000"
+    OrderProduct:
+      type: object
+      properties:
+        product:
+          type: object
+          properties:
+            _id:
+              type: string
+            name:
+              type: string
+            image:
+              type: string
+              nullable: true
+            refr:
+              type: string
+        quantity:
+          type: integer
+          example: 2
+    Order:
+      type: object
+      properties:
+        _id:
+          type: string
+          example: or-xxxxxxxx
+        client_order_id:
+          type: string
+          description: La référence propre du client pour cette commande
+        status:
+          type: string
+          enum:
+            - draft
+            - pending
+            - in progress
+            - fulfilled
+            - problem
+            - cancelled
+            - awaiting transfer
+            - awaiting pickup
+            - reported
+            - programmed
+        cost:
+          type: number
+          description: Montant à encaisser à la livraison (paiement à la livraison)
+        target:
+          $ref: "#/components/schemas/Target"
+        products:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderProduct"
+        deliverer:
+          allOf:
+            - $ref: "#/components/schemas/Deliverer"
+          nullable: true
+        desired_date:
+          type: string
+          format: date-time
+          nullable: true
+        openable:
+          type: boolean
+        reserved:
+          type: boolean
+        deleted:
+          type: boolean
+        return_status:
+          type: string
+          nullable: true
+          enum:
+            - returned-pending
+            - returned-started
+            - returned-warehouse
+            - returned-fully
+        timestamps:
+          type: object
+          properties:
+            created:
+              type: string
+              format: date-time
+            updated:
+              type: string
+              format: date-time
+    ApiOrder:
+      type: object
+      description: Slim order confirmation returned to API-key callers from create and
+        edit. The full order document is returned only to the web app.
+      properties:
+        _id:
+          type: string
+          example: or-xxxxxxxx
+          description: Livo order / tracking id
+        client_order_id:
+          type: string
+          nullable: true
+          description: La référence propre du client pour cette commande
+        status:
+          type: string
+          enum:
+            - draft
+            - pending
+            - in progress
+            - fulfilled
+            - problem
+            - cancelled
+            - awaiting transfer
+            - awaiting pickup
+            - reported
+            - programmed
+        return_status:
+          type: string
+          nullable: true
+          enum:
+            - returned-pending
+            - returned-started
+            - returned-warehouse
+            - returned-fully
+        cost:
+          type: number
+          description: Montant à encaisser à la livraison (paiement à la livraison)
+        desired_date:
+          type: string
+          nullable: true
+          description: Requested delivery date, formatted dd/mm/yyyy
+          example: 10/06/2026
+        target:
+          type: object
+          nullable: true
+          properties:
+            name:
+              type: string
+              example: Ahmed Bennani
+            phone:
+              type: string
+              example: "+212600000000"
+            city:
+              type: string
+              example: casablanca
+        products:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              quantity:
+                type: integer
+                example: 2
+              refr:
+                type: string
+                nullable: true
+                description: Le SKU / la référence du client
+        deliverer:
+          type: object
+          nullable: true
+          description: Le livreur assigné ; null tant qu'aucun n'est assigné.
+          properties:
+            name:
+              type: string
+              example: Youssef El Amrani
+            phone:
+              type: string
+              example: "+212600000000"
+        api_version:
+          type: integer
+        timestamps:
+          type: object
+          properties:
+            created:
+              type: string
+              format: date-time
+            updated:
+              type: string
+              format: date-time
+    OrderStatus:
+      type: object
+      description: Un statut de commande avec sa signification et les champs de
+        commande dont il a besoin.
+      properties:
+        value:
+          type: string
+          description: La valeur de statut utilisée dans l'API
+          example: reported
+        label:
+          type: string
+          example: Reported
+        description:
+          type: string
+        requires:
+          type: array
+          items:
+            type: string
+          description: Champs de commande qui doivent être renseignés pour ce statut
+          example:
+            - desired_date
+        optional:
+          type: array
+          items:
+            type: string
+          description: Champs de commande pouvant être renseignés de façon facultative
+            pour ce statut
+          example:
+            - message
+    Pickup:
+      type: object
+      properties:
+        _id:
+          type: string
+          example: pi-xxxxxxxx
+        status:
+          type: string
+          enum:
+            - pending
+            - in progress
+            - fulfilling
+            - fulfilled
+            - problem
+            - cancelled
+        type:
+          type: string
+          enum:
+            - free
+            - paid
+        target:
+          type: object
+          nullable: true
+          properties:
+            name:
+              type: string
+              example: Ahmed Bennani
+            phone:
+              type: string
+              example: "+212600000000"
+            address:
+              type: string
+              example: 12 Rue des Orangers
+        products:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderProduct"
+        deliverer:
+          allOf:
+            - $ref: "#/components/schemas/Deliverer"
+          nullable: true
+        desired_date:
+          type: string
+          format: date-time
+          nullable: true
+        items_count:
+          type: integer
+          nullable: true
+        needs_packaging:
+          type: boolean
+        packaging_type:
+          type: string
+          nullable: true
+        deleted:
+          type: boolean
+        timestamps:
+          type: object
+          properties:
+            created:
+              type: string
+              format: date-time
+            updated:
+              type: string
+              format: date-time
+    Product:
+      type: object
+      properties:
+        _id:
+          type: string
+          example: pr-xxxxxxxx
+        id_name:
+          type: string
+          description: Nom en minuscules utilisé comme clé de recherche
+        name:
+          type: string
+        refr:
+          type: string
+          description: Le SKU / la référence du client
+        price:
+          type: number
+        image:
+          type: string
+          nullable: true
+        transfer_back:
+          type: boolean
+        deleted:
+          type: boolean
+        timestamps:
+          type: object
+          properties:
+            created:
+              type: string
+              format: date-time
+    ProductStock:
+      type: object
+      properties:
+        _id:
+          type: string
+          example: pr-xxxxxxxx
+        name:
+          type: string
+          example: Serum X
+        refr:
+          type: string
+          description: Le SKU / la référence du client
+        in_stock:
+          type: integer
+          example: 42
+          description: Unités disponibles dans l'entrepôt principal et non réservées — ni
+            à une commande, ni à un transfert, et non conservées comme
+            remplacement. Toujours 1 ou plus.
+    City:
+      type: object
+      properties:
+        _id:
+          type: string
+          example: ci-xxxxxxxx
+        name:
+          type: string
+          example: casablanca
+        hasItems:
+          type: boolean
+          description: Indique si la ville détient actuellement du stock
+        isMainCity:
+          type: boolean
+        mainCity:
+          type: string
+          description: La ville-pôle à laquelle cette ville est rattachée
+        canTransferOut:
+          type: boolean
+        canTransferIn:
+          type: boolean
+        canPickup:
+          type: boolean
+          description: Indique si des ramassages peuvent être planifiés depuis cette ville
+        canOrder:
+          type: boolean
+          description: Indique si des commandes peuvent être livrées dans cette ville
+        warehouseComment:
+          type: string
+        orderCutoffHour:
+          type: number
+          nullable: true
+          example: 21.5
+          description: Morocco-time hour (minutes as a fraction, 21.5 = 21:30) after which
+            a new order for this city leaves the next working day. null when no
+            cutoff is set.
+        orderCutoffHours:
+          type: array
+          items:
+            type: number
+            nullable: true
+          example:
+            - 21
+            - 20
+            - 20
+            - 20
+            - 20
+            - 20
+            - 18
+          description: orderCutoffHour resolved per weekday (index 0 = Sunday), weekday
+            overrides included.
+    Fees:
+      type: object
+      description: La grille publique des frais de livraison.
+      properties:
+        request_date:
+          type: string
+          description: Date de génération de la grille
+        order_fees:
+          type: array
+          description: Frais de livraison par ville
+          items:
+            type: object
+            properties:
+              city:
+                type: string
+                example: casablanca
+              fee:
+                type: number
+                example: 40
+    ApiKey:
+      type: object
+      properties:
+        _id:
+          type: string
+          example: ap-xxxxxxxx
+        key:
+          type: string
+          description: Le jeton bearer. Affiché en entier uniquement à la création.
+        label:
+          type: string
+        date_created:
+          type: string
+          format: date-time
+    ReceiveOrdersResult:
+      type: object
+      description: Résultat d'un scan de réception groupé. Seules les commandes qui
+        n'ont PAS été réceptionnées sont listées — tout ce qui est absent de
+        `failed_orders` est bien entré. `total` = `received` + `failed`.
+      properties:
+        total:
+          type: integer
+          description: Identifiants de commande envoyés
+          example: 3
+        received:
+          type: integer
+          description: Commandes entrées dans votre stock
+          example: 1
+        failed:
+          type: integer
+          description: Commandes non réceptionnées
+          example: 2
+        failed_orders:
+          type: array
+          description: Une entrée par commande non réceptionnée.
+          items:
+            type: object
+            properties:
+              order_id:
+                type: string
+                description: L'identifiant exactement tel que vous l'avez envoyé
+                example: or-ab12cd34
+              verdict:
+                type: string
+                enum:
+                  - already_received
+                  - not_found
+                  - no_items
+                  - scanned_by_wrong_warehouse
+                  - failed
+                description: "`already_received` — la commande est déjà dans votre stock ;
+                  renvoyer un lot est sans risque et remonte ce verdict plutôt
+                  qu'une erreur. `not_found` — aucune commande ne correspond à
+                  cet identifiant. `no_items` — la commande existe mais n'a
+                  aucun stock à remettre. `scanned_by_wrong_warehouse` — la
+                  marchandise était destinée à un autre dépôt. `failed` — le
+                  scan a été refusé ; voir `message`."
+              message:
+                type: string
+                description: Pourquoi l'échec. Présent sur `scanned_by_wrong_warehouse` et
+                  `failed`.
+                example: Scanné dans le mauvais dépôt, signalez-le à Livo
+      example:
+        total: 3
+        received: 1
+        failed: 2
+        failed_orders:
+          - order_id: or-ab12cd34
+            verdict: already_received
+          - order_id: SHOP-4471
+            verdict: scanned_by_wrong_warehouse
+            message: Scanné dans le mauvais dépôt, signalez-le à Livo
+    ErrorEnvelope:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+          example: false
+        data:
+          type: object
+          properties:
+            en_message:
+              type: string
+              description: Message lisible (anglais)
+            fr_message:
+              type: string
+              description: Message lisible (français)
+            error:
+              type: string
+              description: Alias de en_message
+            type:
+              type: string
+              enum:
+                - client
+                - prompt
+                - permission
+                - internal
+              description: client = entrée invalide ou violation d'une règle métier ; prompt =
+                l'action nécessite une confirmation (voir details.confirm_text)
+                ; permission = échec d'authentification/autorisation ; internal
+                = erreur serveur inattendue
+            details:
+              type: object
+              description: Contexte supplémentaire. Pour les erreurs de type `prompt`,
+                contient `confirm_text`.
+    ApiPickup:
+      type: object
+      description: Un ramassage, tel qu'envoyé par les webhooks. Mêmes champs que `Pickup`.
+      properties:
+        _id:
+          type: string
+          example: pi-xxxxxxxx
+        status:
+          type: string
+          enum:
+            - pending
+            - in progress
+            - fulfilling
+            - fulfilled
+            - problem
+            - cancelled
+        type:
+          type: string
+          enum:
+            - free
+            - paid
+        target:
+          type: object
+          nullable: true
+          properties:
+            name:
+              type: string
+              example: Ahmed Bennani
+            phone:
+              type: string
+              example: "+212600000000"
+            address:
+              type: string
+              example: 12 Rue des Orangers
+        products:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderProduct"
+        deliverer:
+          allOf:
+            - $ref: "#/components/schemas/Deliverer"
+          nullable: true
+        desired_date:
+          type: string
+          format: date-time
+          nullable: true
+        items_count:
+          type: integer
+          nullable: true
+        needs_packaging:
+          type: boolean
+        packaging_type:
+          type: string
+          nullable: true
+        deleted:
+          type: boolean
+        timestamps:
+          type: object
+          properties:
+            created:
+              type: string
+              format: date-time
+            updated:
+              type: string
+              format: date-time
+    ApiReturn:
+      type: object
+      description: "Un retour : du stock que Livo vous rapporte."
+      properties:
+        _id:
+          type: string
+          example: pu-xxxxxxxx
+        status:
+          type: string
+          enum:
+            - pending
+            - in progress
+            - fulfilled
+            - cancelled
+        kind:
+          type: string
+          enum:
+            - delivered
+            - onsite
+          description: delivered = livré à votre adresse ; onsite = récupéré au dépôt
+        target:
+          type: object
+          nullable: true
+          properties:
+            name:
+              type: string
+              example: Ahmed Bennani
+            phone:
+              type: string
+              example: "+212600000000"
+            city:
+              type: string
+              example: casablanca
+        products:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              quantity:
+                type: integer
+                example: 2
+              refr:
+                type: string
+                nullable: true
+                description: Le SKU / la référence du client
+        items_count:
+          type: integer
+          example: 3
+        deliverer:
+          type: object
+          nullable: true
+          description: Le livreur assigné ; null tant qu'aucun n'est assigné.
+          properties:
+            name:
+              type: string
+              example: Youssef El Amrani
+            phone:
+              type: string
+              example: "+212600000000"
+        desired_date:
+          type: string
+          format: date-time
+          nullable: true
+        order_id:
+          type: string
+          nullable: true
+          description: La commande qui transporte ce retour, le cas échéant
+        pickup_id:
+          type: string
+          nullable: true
+          description: Le ramassage avec lequel ce retour voyage, le cas échéant
+        api_version:
+          type: integer
+        timestamps:
+          type: object
+          properties:
+            created:
+              type: string
+              format: date-time
+            started:
+              type: string
+              format: date-time
+              nullable: true
+            fulfilled:
+              type: string
+              format: date-time
+              nullable: true
+            cancelled:
+              type: string
+              format: date-time
+              nullable: true
+    WebhookMessage:
+      type: object
+      description: Un message publié par l'équipe Livo (support, entrepôt, livreur)
+        sur l'un de vos documents. Les notes internes ne sont jamais envoyées.
+      properties:
+        _id:
+          type: string
+          example: me-xxxxxxxx
+        text:
+          type: string
+          example: Le client demande une livraison demain matin.
+        media:
+          type: object
+          nullable: true
+          properties:
+            kind:
+              type: string
+              enum:
+                - image
+                - audio
+                - video
+            link:
+              type: string
+        author:
+          type: object
+          properties:
+            role:
+              type: string
+              example: followup
+            name:
+              type: string
+              example: Support Livo
+        document:
+          type: object
+          description: Où le message a été publié
+          properties:
+            type:
+              type: string
+              enum:
+                - order
+                - pickup
+                - return
+                - ticket
+            _id:
+              type: string
+              example: or-xxxxxxxx
+        created_at:
+          type: string
+          format: date-time
+    WebhookEvent:
+      type: object
+      description: "Le corps de chaque envoi du webhook. `data` contient la ressource
+        telle qu'elle est juste après le changement, au même format que celui
+        documenté par l'API : `ApiOrder` pour les événements order.*,
+        `ApiPickup` pour pickup.*, `ApiReturn` pour return.*, `WebhookMessage`
+        pour message.created."
+      required:
+        - id
+        - event
+        - created_at
+        - data
+      properties:
+        id:
+          type: string
+          example: wd-abcde12345
+          description: Identifiant unique de l'envoi, aussi transmis dans
+            `X-Livo-Delivery`. Utilisez-le pour ignorer les doublons.
+        event:
+          type: string
+          enum:
+            - ping
+            - order.created
+            - order.status_changed
+            - order.return_status_changed
+            - pickup.created
+            - pickup.status_changed
+            - return.created
+            - return.status_changed
+            - message.created
+        created_at:
+          type: string
+          format: date-time
+        data:
+          oneOf:
+            - $ref: "#/components/schemas/ApiOrder"
+            - $ref: "#/components/schemas/ApiPickup"
+            - $ref: "#/components/schemas/ApiReturn"
+            - $ref: "#/components/schemas/WebhookMessage"
+      example:
+        id: wd-abcde12345
+        event: order.status_changed
+        created_at: 2026-11-05T10:24:00.000Z
+        data:
+          _id: or-ab12cd34
+          client_order_id: SHOP-4471
+          status: fulfilled
+          return_status: null
+          cost: 249
+          desired_date: 05/11/2026
+          target:
+            name: Ahmed Bennani
+            phone: "+212600000000"
+            city: casablanca
+          products:
+            - name: T-shirt noir M
+              quantity: 2
+              refr: TS-BLK-M
+          deliverer:
+            name: Youssef El Amrani
+            phone: "+212600000000"
+          api_version: 1
+          timestamps:
+            created: 2026-11-04T16:02:11.000Z
+            updated: 2026-11-05T10:24:00.000Z
+    SaveClientWebhookRequest:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+          example: https://shop.example.com/livo/webhook
+          description: URL publique en https:// qui reçoit les requêtes POST
+        secret:
+          type: string
+          minLength: 24
+          maxLength: 256
+          example: lv_whsec_7f3a9c1e5b2d8f4a6c0e9b1d3f5a7c9e
+          description: "Votre clé Bearer : Livo l'envoie dans `Authorization: Bearer
+            <secret>` et signe chaque corps avec. Jamais renvoyée par l'API."
+        events:
+          type: array
+          items:
+            type: string
+            enum:
+              - orders
+              - pickups
+              - returns
+              - messages
+          example:
+            - orders
+            - pickups
+            - returns
+            - messages
+          description: Familles d'événements à recevoir. Par défaut, toutes celles
+            auxquelles votre compte a accès.
+        active:
+          type: boolean
+          description: Activer ou désactiver les envois
+    ClientWebhook:
+      type: object
+      properties:
+        _id:
+          type: string
+          example: cwh-xxxxxxxx
+        url:
+          type: string
+          format: uri
+        events:
+          type: array
+          items:
+            type: string
+            enum:
+              - orders
+              - pickups
+              - returns
+              - messages
+        active:
+          type: boolean
+        secret_hint:
+          type: string
+          example: ••••7c9e
+          description: Les 4 derniers caractères de votre clé Bearer
+        failure_count:
+          type: integer
+          description: Envois échoués consécutifs. À 50, le webhook se désactive.
+        disabled_reason:
+          type: string
+          nullable: true
+          description: Pourquoi le webhook a été désactivé automatiquement
+        last_delivery:
+          type: object
+          nullable: true
+          properties:
+            at:
+              type: string
+              format: date-time
+            status:
+              type: string
+              enum:
+                - success
+                - failed
+            status_code:
+              type: integer
+              nullable: true
+            event:
+              type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ClientWebhookSettings:
+      type: object
+      properties:
+        webhook:
+          allOf:
+            - $ref: "#/components/schemas/ClientWebhook"
+          nullable: true
+        allowed_events:
+          type: array
+          items:
+            type: string
+            enum:
+              - orders
+              - pickups
+              - returns
+              - messages
+          description: Familles d'événements auxquelles votre compte peut s'abonner
+    WebhookTestResult:
+      type: object
+      properties:
+        delivery_id:
+          type: string
+        status:
+          type: string
+          enum:
+            - success
+            - failed
+          description: success = votre serveur a répondu 2xx
+        status_code:
+          type: integer
+          nullable: true
+        response_body:
+          type: string
+          nullable: true
+          description: Les 1000 premiers caractères de la réponse de votre serveur
+        error_message:
+          type: string
+          nullable: true
+        duration_ms:
+          type: integer
+    WebhookLog:
+      type: object
+      properties:
+        _id:
+          type: string
+        event:
+          type: string
+          enum:
+            - ping
+            - order.created
+            - order.status_changed
+            - order.return_status_changed
+            - pickup.created
+            - pickup.status_changed
+            - return.created
+            - return.status_changed
+            - message.created
+        document_id:
+          type: string
+          nullable: true
+        delivery_id:
+          type: string
+        status:
+          type: string
+          enum:
+            - success
+            - failed
+        status_code:
+          type: integer
+          nullable: true
+        error_message:
+          type: string
+          nullable: true
+        response_body:
+          type: string
+          nullable: true
+        request_payload:
+          $ref: "#/components/schemas/WebhookEvent"
+        created_at:
+          type: string
+          format: date-time
+    GenericOkResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            data:
+              type: object
+    OrderResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/Order"
+    OrderApiResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/ApiOrder"
+    OrderListResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/Order"
+    OrderStatusListResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/OrderStatus"
+    PickupResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/Pickup"
+    PickupListResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/Pickup"
+    ProductResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/Product"
+    ProductListResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/Product"
+    ProductStockListResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/ProductStock"
+    CityResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/City"
+    CityListResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/City"
+    ApiKeyListResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/ApiKey"
+    FeesResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/Fees"
+    ReceiveOrdersResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/ReceiveOrdersResult"
+    ClientWebhookResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/ClientWebhookSettings"
+    WebhookTestResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/WebhookTestResult"
+    WebhookLogListResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/WebhookLog"
+            count:
+              type: integer
+  responses:
+    Unauthorized:
+      description: La clé API est absente, invalide ou n'a pas accès à cette ressource.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            noKey:
+              summary: Clé API absente / invalide
+              value:
+                success: false
+                data:
+                  en_message: Authentication required
+                  fr_message: Authentication required
+                  error: Authentication required
+                  type: permission
+                  details:
+                    message: ""
+            notAllowed:
+              summary: Clé valide mais non autorisée sur cette ressource
+              value:
+                success: false
+                data:
+                  en_message: You do not have access to this resource
+                  fr_message: You do not have access to this resource
+                  error: You do not have access to this resource
+                  type: permission
+                  details:
+                    message: ""
+    TooManyRequests:
+      description: Limite de débit dépassée — les endpoints acceptent au maximum 5
+        requêtes par seconde par client. Patientez puis réessayez une fois la
+        fenêtre réinitialisée.
+      headers:
+        Retry-After:
+          description: Secondes à attendre avant de réessayer
+          schema:
+            type: integer
+            example: 1
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            rateLimited:
+              summary: Plus de 5 requêtes en une seconde
+              value:
+                success: false
+                data:
+                  en_message: Too many requests — limit is 5 requests per second
+                  fr_message: Too many requests — limit is 5 requests per second
+                  error: Too many requests — limit is 5 requests per second
+                  type: client
+                  details:
+                    message: Too many requests — limit is 5 requests per second
+    OrderEditBadRequest:
+      description: "La modification de la commande a été rejetée. Causes fréquentes :"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            orderNotFound:
+              summary: La commande n'existe pas
+              value:
+                success: false
+                data:
+                  en_message: order or-ab12cd34 not found
+                  fr_message: order or-ab12cd34 not found
+                  error: order or-ab12cd34 not found
+                  type: client
+                  details:
+                    message: ""
+            fieldForbidden:
+              summary: Champ non modifiable pour le statut de cette commande / le rôle de
+                l'appelant
+              value:
+                success: false
+                data:
+                  en_message: '"products" is not allowed'
+                  fr_message: '"products" is not allowed'
+                  error: '"products" is not allowed'
+                  type: client
+                  details:
+                    message: '"products" is not allowed'
+            invalidStatusTransition:
+              summary: Transition de statut non autorisée depuis le statut actuel par ce rôle
+              value:
+                success: false
+                data:
+                  en_message: '"status" must be one of [pending, problem, cancelled, reported,
+                    programmed]'
+                  fr_message: '"status" must be one of [pending, problem, cancelled, reported,
+                    programmed]'
+                  error: '"status" must be one of [pending, problem, cancelled, reported,
+                    programmed]'
+                  type: client
+                  details:
+                    message: '"status" must be one of [pending, problem, cancelled, reported,
+                      programmed]'
+            desiredDateRequired:
+              summary: desired_date est requis lors d'un passage à reported/programmed
+              value:
+                success: false
+                data:
+                  en_message: '"desired_date" is required'
+                  fr_message: '"desired_date" is required'
+                  error: '"desired_date" is required'
+                  type: client
+                  details:
+                    message: '"desired_date" is required'
+            invalidDate:
+              summary: desired_date invalide — format attendu JJ/MM/AAAA et date non passée
+              value:
+                success: false
+                data:
+                  en_message: '"desired_date" contains an invalid value'
+                  fr_message: '"desired_date" contains an invalid value'
+                  error: '"desired_date" contains an invalid value'
+                  type: client
+                  details:
+                    message: '"desired_date" contains an invalid value'
+            messageTooLong:
+              summary: Commentaire de plus de 2000 caractères
+              value:
+                success: false
+                data:
+                  en_message: '"message" length must be less than or equal to 2000 characters
+                    long'
+                  fr_message: '"message" length must be less than or equal to 2000 characters
+                    long'
+                  error: '"message" length must be less than or equal to 2000 characters long'
+                  type: client
+                  details:
+                    message: '"message" length must be less than or equal to 2000 characters long'
+            duplicateClientOrderId:
+              summary: client_order_id déjà utilisé par une autre commande
+              value:
+                success: false
+                data:
+                  en_message: Order ID already exists
+                  fr_message: Order ID already exists
+                  error: Order ID already exists
+                  type: client
+                  details:
+                    message: ""
+            cannotInitiateDelivery:
+              summary: Le rôle de l'appelant ne peut pas faire passer la commande en `in
+                progress`
+              value:
+                success: false
+                data:
+                  en_message: client cannot initiate delivery
+                  fr_message: client cannot initiate delivery
+                  error: client cannot initiate delivery
+                  type: permission
+                  details:
+                    message: ""
+    OrderCreateBadRequest:
+      description: "La commande n'a pas pu être créée. Causes fréquentes :"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            missingCost:
+              summary: Champ obligatoire manquant
+              value:
+                success: false
+                data:
+                  en_message: '"cost" is required'
+                  fr_message: '"cost" is required'
+                  error: '"cost" is required'
+                  type: client
+                  details:
+                    message: '"cost" is required'
+            noProducts:
+              summary: Tableau de produits vide
+              value:
+                success: false
+                data:
+                  en_message: '"products" must contain at least 1 items'
+                  fr_message: '"products" must contain at least 1 items'
+                  error: '"products" must contain at least 1 items'
+                  type: client
+                  details:
+                    message: '"products" must contain at least 1 items'
+            invalidPhone:
+              summary: Numéro de téléphone du destinataire invalide
+              value:
+                success: false
+                data:
+                  en_message: '"target.phone" contains an invalid value'
+                  fr_message: '"target.phone" contains an invalid value'
+                  error: '"target.phone" contains an invalid value'
+                  type: client
+                  details:
+                    message: '"target.phone" contains an invalid value'
+            nonMobilePhone:
+              summary: Recipient phone is not a mobile — it must start with 06 or 07
+              value:
+                success: false
+                data:
+                  en_message: Le numéro de téléphone doit commencer par 06 ou 07
+                  fr_message: Le numéro de téléphone doit commencer par 06 ou 07
+                  error: Le numéro de téléphone doit commencer par 06 ou 07
+                  type: client
+                  details:
+                    message: Le numéro de téléphone doit commencer par 06 ou 07
+            invalidDate:
+              summary: desired_date invalide — format attendu JJ/MM/AAAA et date non passée
+              value:
+                success: false
+                data:
+                  en_message: '"desired_date" contains an invalid value'
+                  fr_message: '"desired_date" contains an invalid value'
+                  error: '"desired_date" contains an invalid value'
+                  type: client
+                  details:
+                    message: '"desired_date" contains an invalid value'
+            productNotFound:
+              summary: Un identifiant de produit n'existe pas
+              value:
+                success: false
+                data:
+                  en_message: product not found
+                  fr_message: product not found
+                  error: product not found
+                  type: client
+                  details:
+                    message: product not found
+            duplicateClientOrderId:
+              summary: client_order_id déjà utilisé par une autre commande
+              value:
+                success: false
+                data:
+                  en_message: Order ID already exists
+                  fr_message: Order ID already exists
+                  error: Order ID already exists
+                  type: client
+                  details:
+                    message: ""
+            cityNotAllowed:
+              summary: Ville de livraison non autorisée pour ce compte
+              value:
+                success: false
+                data:
+                  en_message: City not allowed for your account
+                  fr_message: City not allowed for your account
+                  error: City not allowed for your account
+                  type: client
+                  details:
+                    message: ""
+            duplicatePhone:
+              summary: Même téléphone destinataire réutilisé pendant la fenêtre de doublon —
+                renvoyez avec confirm_text
+              value:
+                success: false
+                data:
+                  en_message: The phone number 0612345678 was previously used, please try again in
+                    24 hours
+                  fr_message: The phone number 0612345678 was previously used, please try again in
+                    24 hours
+                  error: The phone number 0612345678 was previously used, please try again in 24
+                    hours
+                  type: prompt
+                  details:
+                    confirm_text: duplicate_target
+    OrdersBadRequest:
+      description: "La mise à jour groupée des statuts a été rejetée. Causes fréquentes :"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            missingStatus:
+              summary: Champ obligatoire manquant
+              value:
+                success: false
+                data:
+                  en_message: '"status" is required'
+                  fr_message: '"status" is required'
+                  error: '"status" is required'
+                  type: client
+                  details:
+                    message: '"status" is required'
+            statusWrongType:
+              summary: Champ de type incorrect
+              value:
+                success: false
+                data:
+                  en_message: '"status" must be a string'
+                  fr_message: '"status" must be a string'
+                  error: '"status" must be a string'
+                  type: client
+                  details:
+                    message: '"status" must be a string'
+            invalidStatus:
+              summary: Valeur de statut non prise en charge
+              value:
+                success: false
+                data:
+                  en_message: '"status" must be one of [pending]'
+                  fr_message: '"status" must be one of [pending]'
+                  error: '"status" must be one of [pending]'
+                  type: client
+                  details:
+                    message: '"status" must be one of [pending]'
+            ordersWrongType:
+              summary: orders n'est pas un tableau
+              value:
+                success: false
+                data:
+                  en_message: '"orders" must be an array'
+                  fr_message: '"orders" must be an array'
+                  error: '"orders" must be an array'
+                  type: client
+                  details:
+                    message: '"orders" must be an array'
+            orderNotFound:
+              summary: Un identifiant de commande n'existe pas
+              value:
+                success: false
+                data:
+                  en_message: order or-ab12cd34 not found
+                  fr_message: order or-ab12cd34 not found
+                  error: order or-ab12cd34 not found
+                  type: client
+                  details:
+                    message: ""
+    OrderReceiveTooManyRequests:
+      description: Limite de débit dépassée. Au-delà des 5 requêtes par seconde
+        globales, cet endpoint dispose de son propre budget de 600 appels par
+        heure et par clé API — chaque appel couvrant déjà jusqu'à 200 commandes,
+        un conteneur représente un ou deux appels, pas des centaines.
+      headers:
+        Retry-After:
+          description: Secondes à attendre avant de réessayer
+          schema:
+            type: integer
+            example: 1800
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            rateLimited:
+              summary: Plus de 600 appels de réception en une heure
+              value:
+                success: false
+                data:
+                  en_message: Too many requests — limit is 600 requests per 1 hours
+                  fr_message: Too many requests — limit is 600 requests per 1 hours
+                  error: Too many requests — limit is 600 requests per 1 hours
+                  type: client
+                  details:
+                    message: Too many requests — limit is 600 requests per 1 hours
+    OrderReceiveBadRequest:
+      description: "Le lot lui-même était mal formé, rien n'a donc été scanné. Les
+        problèmes propres à une commande ne sont PAS des erreurs — ils
+        reviennent dans `failed_orders` avec un 202. Causes fréquentes :"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            missingOrderIds:
+              summary: Champ obligatoire manquant
+              value:
+                success: false
+                data:
+                  en_message: '"order_ids" is required'
+                  fr_message: '"order_ids" is required'
+                  error: '"order_ids" is required'
+                  type: client
+                  details:
+                    message: '"order_ids" is required'
+            emptyBatch:
+              summary: Liste vide
+              value:
+                success: false
+                data:
+                  en_message: '"order_ids" must contain at least 1 items'
+                  fr_message: '"order_ids" must contain at least 1 items'
+                  error: '"order_ids" must contain at least 1 items'
+                  type: client
+                  details:
+                    message: '"order_ids" must contain at least 1 items'
+            batchTooLarge:
+              summary: Plus de 200 identifiants en un seul appel
+              value:
+                success: false
+                data:
+                  en_message: '"order_ids" must contain less than or equal to 200 items'
+                  fr_message: '"order_ids" must contain less than or equal to 200 items'
+                  error: '"order_ids" must contain less than or equal to 200 items'
+                  type: client
+                  details:
+                    message: '"order_ids" must contain less than or equal to 200 items'
+    PickupBadRequest:
+      description: "Le ramassage n'a pas pu être créé. Causes fréquentes :"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            missingClient:
+              summary: Champ obligatoire manquant
+              value:
+                success: false
+                data:
+                  en_message: '"client_id" is required'
+                  fr_message: '"client_id" is required'
+                  error: '"client_id" is required'
+                  type: client
+                  details:
+                    message: '"client_id" is required'
+            itemsWrongType:
+              summary: Champ de type incorrect
+              value:
+                success: false
+                data:
+                  en_message: '"items" must be an array'
+                  fr_message: '"items" must be an array'
+                  error: '"items" must be an array'
+                  type: client
+                  details:
+                    message: '"items" must be an array'
+            noItems:
+              summary: Tableau d'articles vide
+              value:
+                success: false
+                data:
+                  en_message: '"items" must contain at least 1 items'
+                  fr_message: '"items" must contain at least 1 items'
+                  error: '"items" must contain at least 1 items'
+                  type: client
+                  details:
+                    message: '"items" must contain at least 1 items'
+            tooManyItems:
+              summary: Trop d'articles dans un seul ramassage
+              value:
+                success: false
+                data:
+                  en_message: '"items" must contain less than or equal to 500 items'
+                  fr_message: '"items" must contain less than or equal to 500 items'
+                  error: '"items" must contain less than or equal to 500 items'
+                  type: client
+                  details:
+                    message: '"items" must contain less than or equal to 500 items'
+            invalidDate:
+              summary: desired_date invalide — format attendu JJ/MM/AAAA et date non passée
+              value:
+                success: false
+                data:
+                  en_message: '"desired_date" contains an invalid value'
+                  fr_message: '"desired_date" contains an invalid value'
+                  error: '"desired_date" contains an invalid value'
+                  type: client
+                  details:
+                    message: '"desired_date" contains an invalid value'
+            itemsNotFound:
+              summary: Un identifiant d'article n'existe pas
+              value:
+                success: false
+                data:
+                  en_message: Items it-ab12cd34 not found
+                  fr_message: Items it-ab12cd34 not found
+                  error: Items it-ab12cd34 not found
+                  type: client
+                  details:
+                    message: ""
+            itemWrongStatus:
+              summary: L'article est dans un état qui ne permet pas le ramassage
+              value:
+                success: false
+                data:
+                  en_message: Item it-ab12cd34 cannot be pickup up while it is in progress
+                  fr_message: Item it-ab12cd34 cannot be pickup up while it is in progress
+                  error: Item it-ab12cd34 cannot be pickup up while it is in progress
+                  type: client
+                  details:
+                    message: ""
+            itemDifferentClient:
+              summary: L'article appartient à un autre client
+              value:
+                success: false
+                data:
+                  en_message: Item it-ab12cd34 belongs to a different client
+                  fr_message: Item it-ab12cd34 belongs to a different client
+                  error: Item it-ab12cd34 belongs to a different client
+                  type: client
+                  details:
+                    message: ""
+    WebhookBadRequest:
+      description: "Le webhook n'a pas pu être enregistré ou testé. Causes fréquentes :"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            firstSetup:
+              summary: URL ou clé Bearer manquante à la première configuration
+              value:
+                success: false
+                data:
+                  en_message: URL and Bearer key are required
+                  fr_message: URL and Bearer key are required
+                  error: URL and Bearer key are required
+                  type: client
+                  details:
+                    message: ""
+            shortSecret:
+              summary: Clé Bearer de moins de 24 caractères
+              value:
+                success: false
+                data:
+                  en_message: The Bearer key must be 24 to 256 printable characters without spaces
+                  fr_message: The Bearer key must be 24 to 256 printable characters without spaces
+                  error: The Bearer key must be 24 to 256 printable characters without spaces
+                  type: client
+                  details:
+                    message: ""
+            notHttps:
+              summary: L'URL n'est pas en https://
+              value:
+                success: false
+                data:
+                  en_message: "Invalid URL: it must start with https://"
+                  fr_message: "Invalid URL: it must start with https://"
+                  error: "Invalid URL: it must start with https://"
+                  type: client
+                  details:
+                    message: ""
+            privateHost:
+              summary: L'URL pointe vers une adresse privée ou locale
+              value:
+                success: false
+                data:
+                  en_message: The URL must point to a public server
+                  fr_message: The URL must point to a public server
+                  error: The URL must point to a public server
+                  type: client
+                  details:
+                    message: ""
+            eventNotAllowed:
+              summary: Famille d'événements inaccessible à votre compte
+              value:
+                success: false
+                data:
+                  en_message: You don't have access to some of these events
+                  fr_message: You don't have access to some of these events
+                  error: You don't have access to some of these events
+                  type: client
+                  details:
+                    message: ""
+            noWebhook:
+              summary: Test avant toute configuration du webhook
+              value:
+                success: false
+                data:
+                  en_message: Webhook not found
+                  fr_message: Webhook not found
+                  error: Webhook not found
+                  type: client
+                  details:
+                    message: ""
+    PickupEditBadRequest:
+      description: "Le ramassage n'a pas pu être mis à jour. Causes fréquentes :"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            pickupNotFound:
+              summary: Le ramassage n'existe pas
+              value:
+                success: false
+                data:
+                  en_message: Pickup does not exist
+                  fr_message: Pickup does not exist
+                  error: Pickup does not exist
+                  type: client
+                  details:
+                    message: ""
+            wrongType:
+              summary: Champ de type incorrect
+              value:
+                success: false
+                data:
+                  en_message: '"items" must be an array'
+                  fr_message: '"items" must be an array'
+                  error: '"items" must be an array'
+                  type: client
+                  details:
+                    message: '"items" must be an array'
+            invalidDate:
+              summary: desired_date invalide — format attendu JJ/MM/AAAA et date non passée
+              value:
+                success: false
+                data:
+                  en_message: '"desired_date" contains an invalid value'
+                  fr_message: '"desired_date" contains an invalid value'
+                  error: '"desired_date" contains an invalid value'
+                  type: client
+                  details:
+                    message: '"desired_date" contains an invalid value'
+            cannotFulfill:
+              summary: Transition de statut non autorisée pour ce rôle
+              value:
+                success: false
+                data:
+                  en_message: warehouse cannot fulfill pickup
+                  fr_message: warehouse cannot fulfill pickup
+                  error: warehouse cannot fulfill pickup
+                  type: client
+                  details:
+                    message: ""
+            productsRequired:
+              summary: Des produits sont requis pour terminer le ramassage
+              value:
+                success: false
+                data:
+                  en_message: Products required
+                  fr_message: Products required
+                  error: Products required
+                  type: client
+                  details:
+                    message: ""
+            itemCountMismatch:
+              summary: Le nombre d'articles scannés diffère du ramassage — confirmation
+                requise
+              value:
+                success: false
+                data:
+                  en_message: Expected 12 items; Received 10 items
+                  fr_message: Expected 12 items; Received 10 items
+                  error: Expected 12 items; Received 10 items
+                  type: prompt
+                  details:
+                    confirm_text: Confirm pickup with a different item count
+tags:
+  - name: Auth
+    description: Vérifier la clé API
+  - name: Orders
+    description: Consulter les commandes et mettre à jour leur statut
+  - name: Pickups
+    description: Planifier et gérer les ramassages de stock
+  - name: Products
+    description: Parcourir le catalogue de produits (lecture seule)
+  - name: Reference
+    description: Données de référence — villes desservies et frais de livraison
+  - name: Webhooks
+    description: Recevez vos commandes, ramassages, retours et messages sur votre
+      propre serveur
+paths:
+  /orders/statuses:
+    get:
+      tags:
+        - Reference
+      operationId: listOrderStatuses
+      summary: Lister les statuts de commande
+      description: Returns every status an order can hold, what each one means, and
+        which order fields are required for it. Requires authentication.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Les statuts de commande
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderStatusListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /orders/receive:
+    post:
+      tags:
+        - Orders
+      operationId: receiveOrders
+      summary: Réceptionner les commandes scannées dans votre entrepôt
+      description: >-
+        Prend les étiquettes de commande que votre équipe vient de scanner à
+        l'arrivée d'un conteneur et les réceptionne, en un seul appel, dans
+        l'entrepôt auquel appartient la clé API. C'est la même opération que le
+        scan des commandes dans l'application entrepôt Livo.
+
+
+        Pour chaque commande envoyée, son stock passe dans votre dépôt. Une fois
+        toute la marchandise d'un envoi scannée, le conteneur est marqué comme
+        arrivé et les commandes qu'il transportait repassent en `pending` —
+        prêtes à partir en livraison depuis chez vous.
+
+
+        La réponse ne liste que ce qui n'est **pas** entré : tout ce qui est
+        absent de `failed_orders` a bien été réceptionné. Renvoyer un lot est
+        sans risque — les commandes déjà dans votre stock reviennent en
+        `already_received` au lieu d'être scannées deux fois.
+
+
+        Surveillez `scanned_by_wrong_warehouse` : cette marchandise était
+        destinée à un autre dépôt, la commande est donc retirée du circuit de
+        livraison. Signalez-les à Livo.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReceiveOrdersRequest"
+      responses:
+        "202":
+          description: Lot traité — un rapport de ce qui a été réceptionné et de ce qui ne
+            l'a pas été
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReceiveOrdersResponse"
+        "400":
+          $ref: "#/components/responses/OrderReceiveBadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/OrderReceiveTooManyRequests"
+  /orders:
+    get:
+      tags:
+        - Orders
+      operationId: listOrders
+      summary: Lister les commandes
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+          description: Filtrer par statut de commande
+        - in: query
+          name: _limit
+          schema:
+            type: integer
+          description: Nombre maximum de commandes à retourner
+        - in: query
+          name: _skip
+          schema:
+            type: integer
+          description: Nombre de commandes à ignorer (pagination)
+        - in: query
+          name: _sort
+          schema:
+            type: string
+          description: Champs de tri, séparés par des espaces et préfixés par +/- (ex.
+            "-timestamps.created")
+      responses:
+        "200":
+          description: Liste paginée des commandes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      tags:
+        - Orders
+      operationId: createOrder
+      summary: Créer une commande
+      description: "Crée une nouvelle commande pour le client authentifié. Le
+        destinataire est indiqué dans `target`, le montant à encaisser à la
+        livraison dans `cost`, et les articles commandés — vos produits
+        existants, par identifiant — dans `products`. La commande est créée en
+        `draft` ; passez `status: pending` pour la soumettre dans le circuit de
+        livraison dès le même appel."
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddOrderRequest"
+      responses:
+        "201":
+          description: Commande créée — la nouvelle commande (format allégé destiné aux
+            partenaires)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderApiResponse"
+        "400":
+          $ref: "#/components/responses/OrderCreateBadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      tags:
+        - Orders
+      operationId: editOrder
+      summary: Edit an order, or bulk-move orders to pending
+      description: >-
+        Overloaded by request body:
+
+        • Provide `id` (plus the fields to change) to edit a **single** order —
+        partial updates are supported; which fields are accepted depends on the
+        order's current `status` and the caller's role (see `EditOrderRequest`).
+
+        • Provide `orders` (a list of ids) with `status: pending` to move
+        **many** orders into `pending` in one call.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - title: Single order edit
+                  allOf:
+                    - type: object
+                      required:
+                        - id
+                      properties:
+                        id:
+                          type: string
+                          description: The order id
+                    - $ref: "#/components/schemas/EditOrderRequest"
+                - title: Bulk move to pending
+                  $ref: "#/components/schemas/UpdateOrderStatusRequest"
+      responses:
+        "200":
+          description: Bulk move — per-order result of the status change
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericOkResponse"
+        "202":
+          description: Single-order edit — the updated order (slim, partner-facing shape)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderApiResponse"
+        "400":
+          $ref: "#/components/responses/OrderEditBadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /orders/{id}:
+    get:
+      tags:
+        - Orders
+      operationId: getOrder
+      summary: Récupérer une commande par identifiant
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: La commande
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /orders/get:
+    post:
+      tags:
+        - Orders
+      operationId: getOrderByBody
+      summary: Get an order by id (id in body)
+      description: Body-friendly equivalent of `GET /orders/{id}` — returns a single
+        order. Use this when you'd rather send the id in the body than the URL.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - id
+              properties:
+                id:
+                  type: string
+                  description: The order id
+      responses:
+        "200":
+          description: La commande
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /pickups:
+    get:
+      tags:
+        - Pickups
+      operationId: listPickups
+      summary: Lister les ramassages
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+        - in: query
+          name: _limit
+          schema:
+            type: integer
+        - in: query
+          name: _skip
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Liste paginée des ramassages
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PickupListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      tags:
+        - Pickups
+      operationId: createPickup
+      summary: Planifier un ramassage
+      description: Sélectionne des articles en stock appartenant à un client pour
+        créer un nouveau ramassage.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddPickupRequest"
+      responses:
+        "201":
+          description: Ramassage créé
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PickupResponse"
+        "400":
+          $ref: "#/components/responses/PickupBadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      tags:
+        - Pickups
+      operationId: updatePickup
+      summary: Mettre à jour un ramassage
+      description: Updates a pickup. The pickup id is supplied in the request body
+        (`id`), alongside the fields you want to change.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - type: object
+                  required:
+                    - id
+                  properties:
+                    id:
+                      type: string
+                      description: The pickup id
+                - $ref: "#/components/schemas/EditPickupRequest"
+      responses:
+        "202":
+          description: Ramassage mis à jour
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PickupResponse"
+        "400":
+          $ref: "#/components/responses/PickupEditBadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    delete:
+      tags:
+        - Pickups
+      operationId: deletePickup
+      summary: Delete a pickup
+      description: Deletes a pickup. The pickup id is supplied in the request body (`id`).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - id
+              properties:
+                id:
+                  type: string
+                  description: The pickup id
+      responses:
+        "200":
+          description: Pickup deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PickupResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /pickups/{id}:
+    get:
+      tags:
+        - Pickups
+      operationId: getPickup
+      summary: Récupérer un ramassage par identifiant
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Le ramassage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PickupResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /pickups/get:
+    post:
+      tags:
+        - Pickups
+      operationId: getPickupByBody
+      summary: Get a pickup by id (id in body)
+      description: Body-friendly equivalent of `GET /pickups/{id}` — returns a single
+        pickup. Use this when you'd rather send the id in the body than the URL.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - id
+              properties:
+                id:
+                  type: string
+                  description: The pickup id
+      responses:
+        "200":
+          description: Le ramassage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PickupResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /products:
+    get:
+      tags:
+        - Products
+      operationId: listProducts
+      summary: Lister les produits
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: _limit
+          schema:
+            type: integer
+        - in: query
+          name: _skip
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Liste des produits
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      tags:
+        - Products
+      operationId: updateProduct
+      summary: Update a product
+      description: Updates a product. The product id is supplied in the request body
+        (`id`), alongside the fields you want to change.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - id
+              properties:
+                id:
+                  type: string
+                  description: The product id
+                price:
+                  type: number
+                  minimum: 0
+                image:
+                  type: string
+                transfer_back:
+                  type: boolean
+      responses:
+        "202":
+          description: Product updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    delete:
+      tags:
+        - Products
+      operationId: deleteProduct
+      summary: Delete a product
+      description: Deletes a product. The product id is supplied in the request body (`id`).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - id
+              properties:
+                id:
+                  type: string
+                  description: The product id
+      responses:
+        "202":
+          description: Product deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /products/stock:
+    get:
+      tags:
+        - Products
+      operationId: getProductsStock
+      summary: Lister les produits en stock dans l'entrepôt principal
+      description: Returns one row per product that currently has free stock in the
+        main warehouse. "Free" means the unit is on the shelf and unclaimed —
+        not reserved to an order or a transfer, and not held aside as a
+        replacement. Products with no free stock are omitted, so every
+        `in_stock` is 1 or more. The full list is returned in a single response;
+        there is no pagination.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Produits avec du stock libre dans l'entrepôt principal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductStockListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /products/locations:
+    get:
+      tags:
+        - Products
+      operationId: getProductLocations
+      summary: List the emplacements (shelf codes) used in this depot
+      description: >-
+        Returns the emplacements the depot currently stores something at,
+        ordered the way the Produits list orders them, alongside `default_sort`
+        (the sort the list opens on) and `order` (the admin's walking route).
+        `count` is a number of products, and the `__none__` bucket — the
+        products nobody has shelved yet — trails, omitted when empty. These are
+        the options of the list's emplacement filter, so they are NOT narrowed
+        by that filter: the whole depot's shelves stay pickable.
+
+        An admin gets every emplacement in use rather than one depot's, because
+        `product.location` is a single global field and so is the route they
+        arrange.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Emplacements in use
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /products/{id}:
+    get:
+      tags:
+        - Products
+      operationId: getProduct
+      summary: Récupérer un produit par identifiant
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Le produit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /products/get:
+    post:
+      tags:
+        - Products
+      operationId: getProductByBody
+      summary: Get a product by id (id in body)
+      description: Body-friendly equivalent of `GET /products/{id}` — returns a single
+        product. Use this when you'd rather send the id in the body than the
+        URL.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - id
+              properties:
+                id:
+                  type: string
+                  description: The product id
+      responses:
+        "200":
+          description: Le produit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /auth/keys:
+    get:
+      tags:
+        - Auth
+      operationId: verifyApiKey
+      summary: Vérifiez votre clé API
+      description: "Test d'authentification. Appelez cet endpoint avec votre en-tête
+        `Authorization: Bearer <api-key>` — une réponse `200` confirme que la
+        clé est valide et active. Le corps de la réponse liste les clés API de
+        votre compte."
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: La clé API est valide
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiKeyListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /cities:
+    get:
+      tags:
+        - Reference
+      operationId: listCities
+      summary: Lister les villes desservies
+      description: Endpoint public — les villes desservies par Livo.
+      responses:
+        "200":
+          description: Liste des villes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CityListResponse"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /cities/{id}:
+    get:
+      tags:
+        - Reference
+      operationId: getCity
+      summary: Récupérer une ville par identifiant ou nom
+      description: Endpoint public.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: Identifiant ou nom de la ville
+      responses:
+        "200":
+          description: La ville
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CityResponse"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /client_webhooks/me:
+    get:
+      tags:
+        - Webhooks
+      operationId: getMyWebhook
+      summary: Consulter votre webhook
+      description: "Renvoie la configuration de votre webhook, ou `webhook: null` s'il
+        n'est pas encore configuré. La clé Bearer n'est jamais renvoyée,
+        seulement ses 4 derniers caractères (`secret_hint`). `allowed_events`
+        liste les familles d'événements auxquelles votre compte peut s'abonner.
+        Réservé au propriétaire du compte."
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: La configuration de votre webhook
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientWebhookResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    put:
+      tags:
+        - Webhooks
+      operationId: saveMyWebhook
+      summary: Configurer ou modifier votre webhook
+      description: "Crée votre webhook, ou met à jour les champs envoyés. `url` et
+        `secret` sont obligatoires la première fois. Livo envoie `secret` dans
+        l'en-tête `Authorization: Bearer <secret>` de chaque livraison et signe
+        chaque corps avec (`X-Livo-Signature`). L'URL doit être une adresse
+        publique en `https://`. Réactiver le webhook (`active: true`) remet son
+        compteur d'échecs à zéro. Réservé au propriétaire du compte."
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveClientWebhookRequest"
+      responses:
+        "202":
+          description: Webhook enregistré
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientWebhookResponse"
+        "400":
+          $ref: "#/components/responses/WebhookBadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    delete:
+      tags:
+        - Webhooks
+      operationId: deleteMyWebhook
+      summary: Supprimer votre webhook
+      description: Supprime votre webhook et sa clé Bearer. Les envois s'arrêtent
+        immédiatement. Réservé au propriétaire du compte.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Webhook supprimé
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientWebhookResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /client_webhooks/me/test:
+    post:
+      tags:
+        - Webhooks
+      operationId: testMyWebhook
+      summary: Envoyer un événement de test
+      description: Envoie immédiatement un événement `ping` à votre URL, signé comme
+        toute autre livraison, et renvoie la réponse de votre serveur. Un test
+        toutes les 10 secondes. Réservé au propriétaire du compte.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Le test a été envoyé (voir `status` pour la réponse de votre serveur)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookTestResponse"
+        "400":
+          $ref: "#/components/responses/WebhookBadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /client_webhooks/me/logs:
+    get:
+      tags:
+        - Webhooks
+      operationId: getMyWebhookLogs
+      summary: Lister les derniers envois
+      description: Les envois de votre webhook, du plus récent au plus ancien, avec le
+        corps envoyé et la réponse de votre serveur. Paginez avec `_limit` (100
+        max, 20 par défaut) et `_skip`. Réservé au propriétaire du compte.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: _limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - in: query
+          name: _skip
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Derniers envois
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookLogListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /fees/public:
+    get:
+      tags:
+        - Reference
+      operationId: getPublicFees
+      summary: Récupérer la grille publique des frais de livraison
+      description: Endpoint public — les frais de livraison actuellement publiés.
+      responses:
+        "200":
+          description: La grille publique des frais
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeesResponse"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
