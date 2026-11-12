@@ -148,7 +148,6 @@ export const CONFIG = {
             ORDER_LIST:      '/orders',
             ORDER_GET:       '/orders/{id}',
             ORDER_EDIT:      '/orders',
-            ORDER_RECEIVE:   '/orders/receive',
             ORDER_STATUSES:  '/orders/statuses',
             PICKUP_CREATE:   '/pickups',
             PICKUP_LIST:     '/pickups',

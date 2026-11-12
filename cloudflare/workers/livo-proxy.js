@@ -1,6 +1,9 @@
 const corsHeaders = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  // Sans Expose-Headers, le navigateur masque Retry-After au JS appelant
+  // et le client ne peut pas respecter le backoff demande par Livo en 429.
+  "Access-Control-Expose-Headers": "Retry-After",
   "Vary": "Origin",
 };
 
@@ -159,6 +162,74 @@ async function verifyFirebaseToken(request, env) {
   return payload;
 }
 
+/* ============================================================
+   DATES LIVO
+   Livo exige desired_date au format JJ/MM/AAAA et refuse toute
+   date dans le passe (cf. AddOrderRequest.desired_date et
+   EditOrderRequest.desired_date dans l'OpenAPI). On normalise et
+   on valide ici pour renvoyer un message clair au lieu de laisser
+   Livo repondre 400 "desired_date contains an invalid value".
+   ============================================================ */
+const LIVO_DATE_PATTERN = /^(\d{2})\/(\d{2})\/(\d{4})$/;
+
+function formatLivoDate(date) {
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${day}/${month}/${date.getFullYear()}`;
+}
+
+function isDateInstance(value) {
+  // Object.prototype.toString reste fiable meme si l'objet vient d'un autre
+  // realm (instanceof Date echoue dans ce cas).
+  return Object.prototype.toString.call(value) === "[object Date]";
+}
+
+// Retourne "JJ/MM/AAAA" ou null si la valeur est inexploitable.
+function normalizeLivoDate(value) {
+  if (isDateInstance(value)) {
+    return Number.isNaN(value.getTime()) ? null : formatLivoDate(value);
+  }
+
+  if (typeof value !== "string") return null;
+
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  let parts = trimmed.match(LIVO_DATE_PATTERN);
+  if (parts) {
+    parts = [parts[1], parts[2], parts[3]];
+  } else {
+    // Tolerance ISO 8601 (2026-06-10 ou 2026-06-10T00:00:00Z).
+    const iso = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ].*)?$/);
+    if (!iso) return null;
+    parts = [iso[3], iso[2], iso[1]];
+  }
+
+  const day = Number(parts[0]);
+  const month = Number(parts[1]);
+  const year = Number(parts[2]);
+
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+
+  const date = new Date(year, month - 1, day);
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null; // Rejette 31/02 ou 29/02 hors annee bissextile.
+  }
+
+  return `${parts[0]}/${parts[1]}/${parts[2]}`;
+}
+
+function isLivoDateInPast(formatted) {
+  const [day, month, year] = formatted.split("/").map(Number);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return new Date(year, month - 1, day) < today;
+}
+
 // Proxy sécurisé vers les endpoints Livo documentés.
 // Les réponses et erreurs de Livo sont relayées sans exposer la clé.
 async function callLivo(request, env, endpoint, method = "GET", payload) {
@@ -184,15 +255,23 @@ async function callLivo(request, env, endpoint, method = "GET", payload) {
 
   const body = await response.text();
 
+  const passthrough = {
+    "Content-Type":
+      response.headers.get("Content-Type") ||
+      "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+  };
+
+  // Livo limite a 5 req/s et impose un budget horaire sur certains endpoints.
+  // Sans Retry-After, le client ne peut pas respecter le backoff demande et
+  // retombe immediatement en 429 : l'en-tete doit traverser le Worker intact.
+  const retryAfter = response.headers.get("Retry-After");
+  if (retryAfter) passthrough["Retry-After"] = retryAfter;
+
   return new Response(body, {
     status: response.status,
-    headers: {
-      "Content-Type":
-        response.headers.get("Content-Type") ||
-        "application/json; charset=utf-8",
-      "Cache-Control": "no-store",
-      "X-Content-Type-Options": "nosniff",
-    },
+    headers: passthrough,
   });
 }
 
@@ -347,22 +426,42 @@ export default {
       const target = payload?.target;
       const products = payload?.products;
       const cost = Number(payload?.cost);
-      if (!Number.isFinite(cost) || cost <= 0 || cost > 1000000) {
+      // Spec AddOrderRequest : cost requis, number, minimum 0 (0 est valide).
+      if (!Number.isFinite(cost) || cost < 0 || cost > 1000000) {
         return json({ error: "Le montant de la commande est invalide." }, 400, headers);
       }
       if (!target || !["name", "phone", "city", "address"].every((key) => typeof target[key] === "string" && target[key].trim())) {
         return json({ error: "Les informations du destinataire sont incomplètes (nom, téléphone, ville, adresse)." }, 400, headers);
       }
-      if (!Array.isArray(products) || products.length < 1 || products.length > 50 || products.some((item) =>
+      // Spec AddOrderRequest : products 1..99, quantity entiere 1..99.
+      if (!Array.isArray(products) || products.length < 1 || products.length > 99 || products.some((item) =>
         !item || (typeof item.product_id !== "string" && typeof item.product_id !== "number") ||
         !String(item.product_id).trim() || !Number.isInteger(Number(item.quantity)) ||
-        Number(item.quantity) < 1 || Number(item.quantity) > 100
+        Number(item.quantity) < 1 || Number(item.quantity) > 99
       )) {
-        return json({ error: "La liste des produits Livo est invalide." }, 400, headers);
+        return json({ error: "La liste des produits Livo est invalide (1 à 99 articles, quantités de 1 à 99)." }, 400, headers);
       }
       if (payload?.status && !["draft", "pending"].includes(payload.status)) {
         return json({ error: "Statut de commande Livo non autorisé." }, 400, headers);
       }
+
+      // Spec AddOrderRequest.desired_date : JJ/MM/AAAA, jamais dans le passe.
+      let desiredDate = null;
+      if (payload?.desired_date !== undefined && payload?.desired_date !== null && payload?.desired_date !== "") {
+        desiredDate = normalizeLivoDate(payload.desired_date);
+        if (!desiredDate) {
+          return json({ error: "La date de livraison souhaitée doit être au format JJ/MM/AAAA." }, 400, headers);
+        }
+        if (isLivoDateInPast(desiredDate)) {
+          return json({ error: "La date de livraison souhaitée ne peut pas être dans le passé." }, 400, headers);
+        }
+      }
+
+      // Erreur Livo de type "prompt" (ex. duplicate_target) : le client doit
+      // renvoyer la requete avec le confirm_text fourni dans details.
+      const confirmText = typeof payload?.confirm_text === "string"
+        ? payload.confirm_text.trim().slice(0, 200)
+        : null;
       endpoint = "/orders";
       method = "POST";
       livoPayload = {
@@ -378,11 +477,12 @@ export default {
           quantity: Number(item.quantity),
           ...(typeof item.refr === "string" ? { refr: item.refr.slice(0, 100) } : {}),
         })),
-        ...(typeof payload.desired_date === "string" ? { desired_date: payload.desired_date } : {}),
+        ...(desiredDate ? { desired_date: desiredDate } : {}),
         ...(typeof payload.openable === "boolean" ? { openable: payload.openable } : {}),
         ...(typeof payload.comment === "string" ? { comment: payload.comment.slice(0, 500) } : {}),
         ...(payload.status ? { status: payload.status } : {}),
         ...(typeof payload.client_order_id === "string" ? { client_order_id: payload.client_order_id.slice(0, 100) } : {}),
+        ...(confirmText ? { confirm_text: confirmText } : {}),
       };
     } else if (path === "/cancel-order") {
       const id = String(payload?.id || "").trim();
