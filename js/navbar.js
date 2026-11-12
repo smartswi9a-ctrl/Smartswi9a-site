@@ -139,5 +139,33 @@
     if (window.innerWidth > 900) closeMenu();
   });
 
+  /* ============================================================
+     P3-6 : aria-current sur le lien de navigation actif.
+     Marque le lien dont le chemin correspond a la page courante.
+     Les ancres internes (#produits, #avis) sont exclues : elles
+     ne designent pas une page, aria-current serait trompeur.
+     ============================================================ */
+  function markActiveNavLink() {
+    var path = window.location.pathname.replace(/\/$/, "") || "/";
+    var links = document.querySelectorAll(
+      ".nav-links a[href], .nav-mobile a[href]"
+    );
+    for (var i = 0; i < links.length; i++) {
+      var href = links[i].getAttribute("href") || "";
+      if (!href || href.charAt(0) === "#" || href.indexOf(":") !== -1) continue;
+      var target = href.split("#")[0].split("?")[0].replace(/\.html$/, "")
+        .replace(/\/$/, "") || "/";
+      if (target === path) {
+        links[i].setAttribute("aria-current", "page");
+      }
+    }
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", markActiveNavLink);
+  } else {
+    markActiveNavLink();
+  }
+
   console.log("[navbar] Prêt (4 listeners, v9.0.0)");
 })();

@@ -225,6 +225,10 @@ async function syncLivoCitiesFromApi(options = {}) {
     displayName: c.city.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
   }));
 
+  // P2-7 : grille publique pre-calculee, ecrite dans meta/livo_fees_cache.
+  // Evite de relire jusqu'a 500 documents cities a chaque getLivoFees.
+  const gridByKey = new Map();
+
   for (let i = 0; i < allCities.length; i += BATCH_SIZE) {
     const batch = db.batch();
     const chunk = allCities.slice(i, i + BATCH_SIZE);
@@ -240,9 +244,20 @@ async function syncLivoCitiesFromApi(options = {}) {
           lastSyncedFromLivo: FieldValue.serverTimestamp()
         });
         updated++;
+        gridByKey.set(c.city, {
+          id: Number(existing.data.id) || 0,
+          key: c.city,
+          nameFr: existing.data.nameFr || c.displayName,
+          nameEn: existing.data.nameEn || c.displayName,
+          nameAr: existing.data.nameAr || c.displayName,
+          price: c.fee,
+          delay: existing.data.delay || '48h',
+          fromLivo: true
+        });
       } else {
+        const assignedId = nextId++;
         batch.set(ref, {
-          id: nextId++,
+          id: assignedId,
           key: c.city,
           nameFr: c.displayName,
           nameEn: c.displayName,
@@ -253,6 +268,16 @@ async function syncLivoCitiesFromApi(options = {}) {
           lastSyncedFromLivo: FieldValue.serverTimestamp()
         });
         created++;
+        gridByKey.set(c.city, {
+          id: assignedId,
+          key: c.city,
+          nameFr: c.displayName,
+          nameEn: c.displayName,
+          nameAr: c.displayName,
+          price: c.fee,
+          delay: '48h',
+          fromLivo: true
+        });
       }
       synced++;
     });
@@ -282,6 +307,10 @@ async function syncLivoCitiesFromApi(options = {}) {
     updatedAt: FieldValue.serverTimestamp(),
     citiesCount: cities.length,
     cityKeys: cities.map(city => city.city),
+    publicGrid: allCities
+      .map(c => gridByKey.get(c.city))
+      .filter(Boolean)
+      .sort((a, b) => a.id - b.id),
     requestDate,
     source: 'livo',
     created, updated, deleted
@@ -425,9 +454,18 @@ function isOfficialVendorContract(vendorId, contract) {
 exports.getLivoFees = onRequest({ invoker: 'public', region: 'europe-west1', cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
   if (cors(req, res)) return;
   try {
+    let metaEarly = null;
+    try { metaEarly = await getLivoFeesCacheMeta(); }
+    catch (e) { console.warn('[getLivoFees] Cache metadata read failed:', e.message); }
+
     let cacheFresh = false;
-    try { cacheFresh = await isLivoFeesCacheFresh(); }
-    catch (e) { console.warn('[getLivoFees] Cache check failed:', e.message); }
+    const wasFreshAtEntry = !!(metaEarly && metaEarly.updatedAt);
+    if (metaEarly && metaEarly.updatedAt) {
+      const updatedAt = metaEarly.updatedAt.toDate
+        ? metaEarly.updatedAt.toDate()
+        : new Date(metaEarly.updatedAt);
+      cacheFresh = (Date.now() - updatedAt.getTime()) / 3600000 < LIVO_FEES_CACHE_HOURS;
+    }
 
     let syncError = null;
     if (!cacheFresh) {
@@ -440,45 +478,54 @@ exports.getLivoFees = onRequest({ invoker: 'public', region: 'europe-west1', cor
       }
     }
 
-    // Lecture Firestore avec fallback sans orderBy (B-I1)
-    let cities = [];
-    const mapFn = d => {
-      const data = d.data();
-      const price = Number(data.price);
-      return {
-        id: Number(data.id) || 0,
-        key: data.key || '',
-        nameFr: data.nameFr || data.key || '',
-        nameEn: data.nameEn || data.nameFr || data.key || '',
-        nameAr: data.nameAr || data.nameFr || data.key || '',
-        price: Number.isFinite(price) ? price : FALLBACK_DELIVERY_FEE,
-        delay: data.delay || '48h',
-        fromLivo: !!data.lastSyncedFromLivo || data.source === 'livo'
-      };
-    };
-    try {
-      const snap = await db.collection('cities').orderBy('id', 'asc').limit(500).get();
-      cities = snap.docs.map(mapFn).filter(c => c.key);
-    } catch (e) {
-      console.warn('[getLivoFees] orderBy id failed, fallback unsorted:', e.message);
-      try {
-        const snap = await db.collection('cities').limit(500).get();
-        cities = snap.docs.map(mapFn).filter(c => c.key).sort((a, b) => a.id - b.id);
-      } catch (e2) {
-        console.warn('[getLivoFees] Fallback unsorted failed:', e2.message);
-      }
+    // P2-7 : apres une synchronisation, metaEarly est perime : on le relit
+    // pour disposer de la grille pre-calculee et des cityKeys a jour.
+    let meta = metaEarly;
+    if (!wasFreshAtEntry && !syncError) {
+      try { meta = await getLivoFeesCacheMeta(); }
+      catch (e) { console.warn('[getLivoFees] Cache metadata refresh failed:', e.message); }
     }
 
-    let meta = null;
-    try { meta = await getLivoFeesCacheMeta(); } catch (e) { console.warn('[getLivoFees] Cache metadata read failed:', e.message); }
-    // N'expose que les villes présentes dans la dernière réponse Livo. Cela
-    // exclut les anciennes villes et les éventuels tarifs manuels du tableau public.
-    if (Array.isArray(meta?.cityKeys) && meta.cityKeys.length) {
-      const activeKeys = new Set(meta.cityKeys.map(normalizeCityKey));
-      cities = cities.filter(city => activeKeys.has(normalizeCityKey(city.key)));
+    let cities = [];
+    if (cacheFresh && Array.isArray(meta?.publicGrid) && meta.publicGrid.length) {
+      cities = meta.publicGrid;
     } else {
-      const livoCities = cities.filter(city => city.fromLivo);
-      if (livoCities.length) cities = livoCities;
+        const mapFn = d => {
+          const data = d.data();
+          const price = Number(data.price);
+          return {
+            id: Number(data.id) || 0,
+            key: data.key || '',
+            nameFr: data.nameFr || data.key || '',
+            nameEn: data.nameEn || data.nameFr || data.key || '',
+            nameAr: data.nameAr || data.nameFr || data.key || '',
+            price: Number.isFinite(price) ? price : FALLBACK_DELIVERY_FEE,
+            delay: data.delay || '48h',
+            fromLivo: !!data.lastSyncedFromLivo || data.source === 'livo'
+          };
+        };
+        try {
+          const snap = await db.collection('cities').orderBy('id', 'asc').limit(500).get();
+          cities = snap.docs.map(mapFn).filter(c => c.key);
+        } catch (e) {
+          console.warn('[getLivoFees] orderBy id failed, fallback unsorted:', e.message);
+          try {
+            const snap = await db.collection('cities').limit(500).get();
+            cities = snap.docs.map(mapFn).filter(c => c.key).sort((a, b) => a.id - b.id);
+          } catch (e2) {
+            console.warn('[getLivoFees] Fallback unsorted failed:', e2.message);
+          }
+        }
+
+        // N'expose que les villes présentes dans la dernière réponse Livo. Cela
+        // exclut les anciennes villes et les éventuels tarifs manuels du tableau public.
+        if (Array.isArray(meta?.cityKeys) && meta.cityKeys.length) {
+          const activeKeys = new Set(meta.cityKeys.map(normalizeCityKey));
+          cities = cities.filter(city => activeKeys.has(normalizeCityKey(city.key)));
+        } else {
+          const livoCities = cities.filter(city => city.fromLivo);
+          if (livoCities.length) cities = livoCities;
+        }
     }
 
     if (cities.length === 0) {
@@ -490,7 +537,10 @@ exports.getLivoFees = onRequest({ invoker: 'public', region: 'europe-west1', cor
     }
 
     const updatedAt = meta?.updatedAt?.toDate ? meta.updatedAt.toDate().toISOString() : (meta?.updatedAt ? new Date(meta.updatedAt).toISOString() : null);
-    res.set('Cache-Control', 'no-store');
+    // P2-7 : grille fraiche -> cache navigateur/CDN 5 min. Perimee -> no-store.
+    res.set('Cache-Control', cacheFresh
+      ? 'public, max-age=300, stale-while-revalidate=60'
+      : 'no-store');
     return res.status(200).json({
       success: true,
       count: cities.length,

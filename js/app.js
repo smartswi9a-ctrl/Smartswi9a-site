@@ -207,21 +207,6 @@ async function init() {
   }
 }
 
-/* ============================================================ EXPOSITION GLOBALE (debug / appels manuels) ============================================================ Utilisé principalement pour le debug en console : - window._app.init() : relancer init (rare) - window._app.getProducts() : inspecter le state - window._app.updateUI() : forcer un refresh UI - window._app.renderProducts() : forcer un render grille NON UTILISÉ par le code de production. Peut être retiré en Lot 50 si aucun usage identifié. ============================================================ */
-window._app = {
-  init,
-  getProducts,
-  updateUI: async () => {
-    const { updateAccountButton, updateCartTotalsUI } = await import("./ui.js");
-    updateAccountButton();
-    updateCartTotalsUI();
-  },
-  renderProducts: async () => {
-    const m = await import("./products.js");
-    await m.renderProducts();
-  },
-};
-
 /* ============================================================ DÉMARRAGE ============================================================ P2-20-bis : .catch() explicite sur init() pour éviter les "unhandled promise rejection" silencieuses en production. ============================================================ */
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", () => {
