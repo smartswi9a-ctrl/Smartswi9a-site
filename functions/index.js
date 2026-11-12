@@ -591,10 +591,18 @@ exports.livoWebhook = onRequest({
   if (req.method !== 'POST') return res.status(405).json({ success: false });
 
   const secret = LIVO_WEBHOOK_SECRET.value();
+  if (!secret) {
+    console.error('[livoWebhook] LIVO_WEBHOOK_SECRET absent.');
+    return res.status(500).json({ success: false });
+  }
+
+  // Le Bearer partage le meme secret que la signature HMAC. Livo ne le documente
+  // pas formellement : on ne l'exige donc pas. S'il est present, il doit etre
+  // exact ; sinon la signature HMAC ci-dessous reste le seul facteur d'authentification.
   const authorization = String(req.get('authorization') || '');
   const expectedAuthorization = `Bearer ${secret}`;
-  if (!secret || !timingSafeTextEqual(authorization, expectedAuthorization)) {
-    return res.status(401).json({ success: false });
+  if (authorization && !timingSafeTextEqual(authorization, expectedAuthorization)) {
+    return res.status(401).json({ success: false, message: 'Autorisation invalide.' });
   }
 
   const timestampText = String(req.get('x-livo-timestamp') || '');

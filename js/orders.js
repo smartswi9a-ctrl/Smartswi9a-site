@@ -357,9 +357,45 @@ export async function sendOrderEmail(order, status, recipient) {
 }
 
 /* ============================================================
+   LIVO - LECTURE DE L'ENVELOPPE D'ERREUR
+   Livo encapsule les erreurs sur DEUX niveaux :
+     { success: false, data: { fr_message, type, details } }
+   Le Worker relaie ce corps tel quel. Sans de-imbrication, tout
+   tombe en "HTTP 400" generique et les erreurs de type "prompt"
+   (confirmation requise) deviennent impossibles a traiter.
+   ============================================================ */
+function extractLivoError(body, status) {
+    const payload = body?.data?.data || body?.data || body || {};
+
+    const message = String(
+        payload?.fr_message ||
+        payload?.en_message ||
+        payload?.error ||
+        payload?.message ||
+        (typeof body?.error === 'string' ? body.error : '') ||
+        `Erreur Worker/Livo HTTP ${status}`
+    );
+
+    // Spec ErrorEnvelope : type = client | prompt | permission | internal.
+    const type = String(payload?.type || '').trim();
+    const confirmText = typeof payload?.details?.confirm_text === 'string'
+        ? payload.details.confirm_text.trim()
+        : '';
+
+    return {
+        message,
+        type,
+        confirmText,
+        // Une erreur "prompt" n'est pas un echec definitif : Livo demande
+        // simplement que la requete soit renvoyee avec confirm_text.
+        needsConfirmation: type === 'prompt'
+    };
+}
+
+/* ============================================================
    LIVO - CREATE ORDER (via Worker proxy)
    ============================================================ */
-export async function sendToLivoAPI(order) {
+export async function sendToLivoAPI(order, options = {}) {
     try {
         if (!order || !order.deliveryAddress) {
             throw new Error('Données de commande invalides');
@@ -410,6 +446,13 @@ export async function sendToLivoAPI(order) {
             client_order_id: String(order.id).slice(0, 8).toUpperCase()
         };
 
+        // Relance apres une erreur "prompt" de Livo (ex. duplicate_target) :
+        // la spec impose de renvoyer la requete avec le confirm_text fourni
+        // dans details.confirm_text.
+        if (typeof options.confirmText === 'string' && options.confirmText.trim()) {
+            payload.confirm_text = options.confirmText.trim().slice(0, 200);
+        }
+
         const response = await fetch(`${LIVO_API_CONFIG.BASE_URL}${LIVO_API_CONFIG.ENDPOINTS.CREATE}`, {
             method: 'POST',
             headers: await getLivoRequestHeaders(),
@@ -431,10 +474,13 @@ export async function sendToLivoAPI(order) {
         }
 
         if (!response.ok) {
-            const message = data?.error || data?.message || `Erreur Worker/Livo HTTP ${response.status}`;
+            const parsed = extractLivoError(data, response.status);
             return {
                 success: false,
-                error: String(message),
+                error: parsed.message,
+                errorType: parsed.type,
+                needsConfirmation: parsed.needsConfirmation,
+                confirmText: parsed.confirmText,
                 notConfigured: response.status === 501 && data?.error === 'Opération non activée.'
             };
         }
@@ -452,14 +498,14 @@ export async function sendToLivoAPI(order) {
             };
         }
 
-        let errorMsg = 'Erreur inconnue';
-        const errData = data?.data?.data || data?.data || data;
-        if (errData?.fr_message) errorMsg = errData.fr_message;
-        else if (errData?.en_message) errorMsg = errData.en_message;
-        else if (errData?.error) errorMsg = errData.error;
-        else if (data.error) errorMsg = typeof data.error === 'string' ? data.error : JSON.stringify(data.error);
-
-        return { success: false, error: errorMsg };
+        const parsed = extractLivoError(data, response.status);
+        return {
+            success: false,
+            error: parsed.message,
+            errorType: parsed.type,
+            needsConfirmation: parsed.needsConfirmation,
+            confirmText: parsed.confirmText
+        };
 
     } catch (error) {
         console.error('Erreur Livo create:', error);
@@ -764,7 +810,29 @@ export async function updateOrderStatus(orderId, newStatus) {
         if (normalizedStatus === ORDER_STATUS.CONFIRMED && orderForEmail) {
             const trackingId = orderForEmail.livoTracking || orderForEmail.speedafTracking;
             if (!trackingId) {
-                const livoResult = await sendToLivoAPI(orderForEmail);
+                let livoResult = await sendToLivoAPI(orderForEmail);
+
+                /* Livo peut refuser la creation avec une erreur de type "prompt"
+                   (ex. duplicate_target : meme telephone reutilise sous 24 h).
+                   Ce n'est pas un echec definitif : la spec demande de renvoyer
+                   la requete avec le confirm_text fourni dans details. */
+                if (!livoResult.success && livoResult.needsConfirmation && livoResult.confirmText) {
+                    const accepted = await confirmAction(
+                        livoResult.error || 'Livo demande une confirmation pour créer ce colis.',
+                        {
+                            title: '⚠️ Confirmation Livo requise',
+                            confirmText: 'Forcer la création',
+                            cancelText: 'Annuler',
+                            variant: 'info'
+                        }
+                    );
+                    if (accepted) {
+                        livoResult = await sendToLivoAPI(orderForEmail, {
+                            confirmText: livoResult.confirmText
+                        });
+                    }
+                }
+
                 if (livoResult.success && livoResult.trackingNumber) {
                     await updateDoc(orderRef, {
                         status: ORDER_STATUS.SHIPPING,

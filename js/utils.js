@@ -601,22 +601,44 @@ export function isValidMoroccanPhone(phone) {
 }
 
 /* ============================================================ RETRY RÉSEAU ============================================================ */
+// 429 (et 408) sont des 4xx mais RESTENT retentables : la spec Livo impose
+// un Retry-After (5 req/s global, budget horaire sur certains endpoints).
+// Les traiter comme definitifs transformait un throttling passager en echec.
+const RETRYABLE_4XX = new Set([408, 429]);
+const MAX_RETRY_AFTER_MS = 60000;
+
+export function getRetryAfterMs(response) {
+  const header = response?.headers?.get?.("Retry-After");
+  if (!header) return null;
+  const seconds = Number(String(header).trim());
+  if (!Number.isFinite(seconds) || seconds < 0) return null;
+  return Math.min(seconds * 1000, MAX_RETRY_AFTER_MS);
+}
+
 export async function fetchWithRetry( url, options = {}, retries = 3, delay = 1000 ) {
   let attempt = 0;
+  let backoff = delay;
   while (attempt < retries) {
     try {
       const response = await fetch(url, options);
       if (response.ok) return response;
-      const isNonRetryable = response.status >= 400 && response.status < 500;
+      const isNonRetryable =
+        response.status >= 400 &&
+        response.status < 500 &&
+        !RETRYABLE_4XX.has(response.status);
       const err = new Error(`HTTP ${response.status}`);
       err.status = response.status;
       err.nonRetryable = isNonRetryable;
+      // Le delai demande par le serveur prime sur le backoff exponentiel.
+      err.retryAfterMs = getRetryAfterMs(response);
       throw err;
     } catch (error) {
       attempt++;
       if (attempt === retries || error.nonRetryable) throw error;
-      await new Promise((resolve) => setTimeout(resolve, delay));
-      delay *= 2;
+      await new Promise((resolve) =>
+        setTimeout(resolve, error.retryAfterMs ?? backoff)
+      );
+      backoff *= 2;
     }
   }
 }
