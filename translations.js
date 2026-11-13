@@ -111,7 +111,7 @@
         "Vos commandes apparaîtront ici dès que vos produits seront vendus.",
       "vendor.stock.empty.title": "Aucun stock Fulfillment",
       "vendor.stock.empty.desc":
-        "Envoyez vos produits chez Speedaf pour que nous gérions la livraison.",
+        "Envoyez vos produits chez Livo pour que nous gérions la livraison.",
       "vendor.wallet.available": "Solde disponible",
       "vendor.wallet.pending": "En attente",
       "vendor.wallet.requestWithdrawal": "Demander un retrait",
@@ -820,7 +820,7 @@
       "vendor.orders.empty.title": "لا توجد طلبات حالياً",
       "vendor.orders.empty.desc": "ستظهر طلباتك هنا بمجرد بيع منتجاتك.",
       "vendor.stock.empty.title": "لا يوجد مخزون Fulfillment",
-      "vendor.stock.empty.desc": "أرسل منتجاتك إلى Speedaf لنتولى التوصيل.",
+      "vendor.stock.empty.desc": "أرسل منتجاتك إلى Livo لنتولى التوصيل.",
       "vendor.wallet.available": "الرصيد المتاح",
       "vendor.wallet.pending": "قيد الانتظار",
       "vendor.wallet.requestWithdrawal": "طلب سحب",
@@ -2069,7 +2069,7 @@
         "Your orders will appear here as soon as your products are sold.",
       "vendor.stock.empty.title": "No fulfillment stock",
       "vendor.stock.empty.desc":
-        "Send your products to Speedaf so that we handle delivery.",
+        "Send your products to Livo so that we handle delivery.",
       "vendor.wallet.available": "Available balance",
       "vendor.wallet.pending": "Pending",
       "vendor.wallet.requestWithdrawal": "Request a withdrawal",
