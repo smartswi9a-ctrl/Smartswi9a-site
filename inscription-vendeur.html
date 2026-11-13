@@ -197,6 +197,17 @@
                 </div>
             </div>
 
+            <!-- Consentement legal obligatoire (CGU Vendeur + Contrat Vendeur) -->
+            <div class="legal-consent" id="vendorLegalConsent" data-legal-consent="vendeur">
+                <input type="checkbox" id="acceptCguVendeur" name="acceptCguVendeur" required>
+                <label for="acceptCguVendeur">
+                    J'ai lu et j'accepte les
+                    <a href="/cgu-vendeur.html" target="_blank" rel="noopener noreferrer">CGU Vendeur</a>
+                    et le
+                    <a href="/contrat-vendeur.html" target="_blank" rel="noopener noreferrer">Contrat Vendeur</a>.
+                </label>
+            </div>
+
             <button type="submit" id="btnSubmitVendor" class="v-btn v-btn-primary v-btn-large v-btn-block" disabled style="opacity:0.5;">
                 ✅ Créer mon compte vendeur
             </button>
@@ -256,5 +267,18 @@
     </div>
 
     <script type="module" src="/js/vendor-signup.js"></script>
+
+<footer class="page-legal-footer" role="contentinfo">
+    <nav class="footer-legal footer-legal--bar" aria-label="Informations légales">
+        <h3 class="footer-legal-title">Informations légales</h3>
+        <ul class="footer-legal-links">
+            <li><a href="/cgu-acheteur.html">CGU Acheteur</a></li>
+            <li><a href="/cgu-vendeur.html">CGU Vendeur</a></li>
+            <li><a href="/contrat-vendeur.html">Contrat Vendeur</a></li>
+            <li><a href="/politique-confidentialite.html">Politique de confidentialité</a></li>
+        </ul>
+    </nav>
+</footer>
+
 </body>
 </html>

@@ -389,6 +389,22 @@ document.addEventListener("DOMContentLoaded", () => {
         e.preventDefault();
         if (submitInProgress) return;
 
+        /* VENDOR_CONSENT_GUARD : acceptation obligatoire CGU Vendeur + Contrat. */
+        const consentEl = document.getElementById("acceptCguVendeur");
+        if (!consentEl || !consentEl.checked) {
+            const box = document.getElementById("vendorLegalConsent");
+            if (box) {
+                box.classList.add("legal-consent--invalid");
+                setTimeout(() => box.classList.remove("legal-consent--invalid"), 1200);
+                box.scrollIntoView({ behavior: "smooth", block: "center" });
+            }
+            if (consentEl) consentEl.focus({ preventScroll: true });
+            showToast(
+                "Vous devez accepter les CGU Vendeur et le Contrat Vendeur."
+            );
+            return;
+        }
+
         const honeypot = document.getElementById("vWebsite");
         if (honeypot && honeypot.value.trim()) {
             console.warn("[vendor-signup] Honeypot déclenché - soumission ignorée.");
