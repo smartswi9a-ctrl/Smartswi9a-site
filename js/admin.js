@@ -10,7 +10,7 @@ import {
 } from "firebase/auth";
 import {
     collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
-    query, where, writeBatch, Timestamp, getCountFromServer,
+    query, where, writeBatch, Timestamp, serverTimestamp, getCountFromServer,
     orderBy, limit, startAfter, increment, addDoc, deleteField
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
@@ -582,7 +582,7 @@ function renderProductsList(products) {
             statusBadge = `<span style="background:#f8d7da;color:#721c24;font-size:0.65rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;">Legacy</span>`;
         }
 
-        html += `<div class="admin-list-item" data-product-id="${p.id}"><div class="admin-list-item-info"><strong>${name}${videoBadge}${variantBadge}${vendorBadge}${statusBadge}${sku}</strong><div style="font-size:0.8rem;color:var(--text-muted);margin-top:0.2rem;">${categoryLabel} · ${price} MAD ${isPromo ? `<small style="text-decoration:line-through;color:var(--text-dim);">${oldPrice}</small>` : ''} · <span style="color:${stockColor};font-weight:700;">${stockEmoji}${stock}</span></div></div><div class="admin-list-item-actions"><button class="admin-btn-restock" data-action="restock-product" data-id="${p.id}">+</button><button class="admin-btn-icon" data-action="edit-product" data-id="${p.id}">Edit</button><button class="admin-btn-icon admin-btn-danger" data-action="delete-product" data-id="${p.id}">Del</button></div></div>`;
+        html += `<div class="admin-list-item" data-product-id="${p.id}"><div class="admin-list-item-info"><strong>${name}${videoBadge}${variantBadge}${vendorBadge}${statusBadge}${sku}</strong><div style="font-size:0.8rem;color:var(--text-muted);margin-top:0.2rem;">${categoryLabel} · ${price} MAD ${isPromo ? `<small style="text-decoration:line-through;color:var(--text-dim);">${oldPrice}</small>` : ''} · <span style="color:${stockColor};font-weight:700;">${stockEmoji}${stock}</span></div></div><div class="admin-list-item-actions">${productStatus === 'pending_admin_approval' || productStatus === 'pending' ? `<button class="admin-btn-icon" data-action="approve-product" data-id="${p.id}" style="background:var(--success-bg);color:var(--success);font-weight:700;">Valider</button><button class="admin-btn-icon" data-action="reject-product" data-id="${p.id}" style="background:var(--danger-bg);color:var(--danger);font-weight:700;">Rejeter</button>` : ''}<button class="admin-btn-restock" data-action="restock-product" data-id="${p.id}">+</button><button class="admin-btn-icon" data-action="edit-product" data-id="${p.id}">Edit</button><button class="admin-btn-icon admin-btn-danger" data-action="delete-product" data-id="${p.id}">Del</button></div></div>`;
     });
 
     if (totalPages > 1) {
@@ -606,6 +606,12 @@ function renderProductsList(products) {
     container.querySelectorAll('[data-action="delete-product"]').forEach(btn => {
         btn.addEventListener('click', () => deleteProduct(btn.dataset.id));
     });
+    container.querySelectorAll('[data-action="approve-product"]').forEach(btn => {
+        btn.addEventListener('click', () => handleProductModeration(btn.dataset.id, 'approved'));
+    });
+    container.querySelectorAll('[data-action="reject-product"]').forEach(btn => {
+        btn.addEventListener('click', () => handleProductModeration(btn.dataset.id, 'rejected'));
+    });
     container.querySelectorAll('[data-page]').forEach(btn => {
         btn.addEventListener('click', () => {
             const val = btn.dataset.page;
@@ -617,6 +623,40 @@ function renderProductsList(products) {
             container.scrollIntoView({ behavior: 'smooth', block: 'start' });
         });
     });
+}
+
+async function handleProductModeration(productId, newStatus) {
+    const approve = newStatus === 'approved';
+    const product = cachedProducts.find(p => p.id === productId);
+    const name = product ? (product.nameFr || product.nameEn || 'ce produit') : 'ce produit';
+
+    const ok = await confirmAction(
+        approve
+            ? `Valider "${name}" ? Il sera visible en boutique.`
+            : `Rejeter "${name}" ? Il ne sera pas publie.`,
+        {
+            title: approve ? 'Valider le produit' : 'Rejeter le produit',
+            confirmText: approve ? 'Valider' : 'Rejeter',
+            cancelText: 'Annuler',
+            variant: approve ? 'primary' : 'danger'
+        }
+    );
+    if (!ok) return;
+
+    try {
+        await updateDoc(doc(db, "products", productId), {
+            status: newStatus,
+            moderatedAt: serverTimestamp(),
+            moderatedBy: auth.currentUser?.uid || null,
+            updatedAt: serverTimestamp()
+        });
+        showToast(approve ? 'Produit valide.' : 'Produit rejete.');
+        await loadProducts(true);
+        filterProductsList();
+    } catch (e) {
+        console.error('[admin] Erreur moderation produit :', e);
+        showToast('Erreur : ' + (e.message || 'inconnue'));
+    }
 }
 
 function filterProductsList(resetPage = true) {
