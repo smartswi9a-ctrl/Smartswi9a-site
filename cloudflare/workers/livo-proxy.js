@@ -52,7 +52,93 @@ function decodeBase64Url(value) {
   return atob(padded);
 }
 
+/* ============================================================
+   DATES LIVO
+   Livo exige desired_date au format JJ/MM/AAAA et refuse toute
+   date dans le passe (cf. AddOrderRequest.desired_date et
+   EditOrderRequest.desired_date dans l'OpenAPI). On normalise et
+   on valide ici pour renvoyer un message clair au lieu de laisser
+   Livo repondre 400 "desired_date contains an invalid value".
+   ============================================================ */
+const LIVO_DATE_PATTERN = /^(\d{2})\/(\d{2})\/(\d{4})$/;
+
+function formatLivoDate(date) {
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${day}/${month}/${date.getFullYear()}`;
+}
+
+function isDateInstance(value) {
+  // Object.prototype.toString reste fiable meme si l'objet vient d'un autre
+  // realm (instanceof Date echoue dans ce cas).
+  return Object.prototype.toString.call(value) === "[object Date]";
+}
+
+// Retourne "JJ/MM/AAAA" ou null si la valeur est inexploitable.
+function normalizeLivoDate(value) {
+  if (isDateInstance(value)) {
+    return Number.isNaN(value.getTime()) ? null : formatLivoDate(value);
+  }
+
+  if (typeof value !== "string") return null;
+
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  let parts = trimmed.match(LIVO_DATE_PATTERN);
+  if (parts) {
+    parts = [parts[1], parts[2], parts[3]];
+  } else {
+    // Tolerance ISO 8601 (2026-06-10 ou 2026-06-10T00:00:00Z).
+    const iso = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ].*)?$/);
+    if (!iso) return null;
+    parts = [iso[3], iso[2], iso[1]];
+  }
+
+  const day = Number(parts[0]);
+  const month = Number(parts[1]);
+  const year = Number(parts[2]);
+
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+
+  const date = new Date(year, month - 1, day);
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null; // Rejette 31/02 ou 29/02 hors annee bissextile.
+  }
+
+  return `${parts[0]}/${parts[1]}/${parts[2]}`;
+}
+
+function isLivoDateInPast(formatted) {
+  const [day, month, year] = formatted.split("/").map(Number);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return new Date(year, month - 1, day) < today;
+}
+
 async function verifyFirebaseToken(request, env) {
+  // Verifie le jeton Firebase et renvoie ses claims, sans controle de role.
+  // Le controle de role (admin/vendeur) est fait par les wrappers ci-dessous.
+
+  const payload = await verifyFirebaseTokenClaims(request, env);
+
+  const admins = (env.LIVO_ADMIN_UIDS || "")
+    .split(",")
+    .map((uid) => uid.trim())
+    .filter(Boolean);
+
+  if (!admins.includes(payload.sub)) {
+    throw new Error("Acces administrateur refuse.");
+  }
+
+  return payload;
+}
+
+async function verifyFirebaseTokenClaims(request, env) {
   const authorization = request.headers.get("Authorization") || "";
   const match = authorization.match(/^Bearer\s+(.+)$/i);
 
@@ -150,84 +236,30 @@ async function verifyFirebaseToken(request, env) {
     throw new Error("Signature Firebase invalide.");
   }
 
-  const admins = (env.LIVO_ADMIN_UIDS || "")
-    .split(",")
-    .map((uid) => uid.trim())
-    .filter(Boolean);
-
-  if (!admins.includes(payload.sub)) {
-    throw new Error("Accès administrateur refusé.");
-  }
-
   return payload;
 }
 
-/* ============================================================
-   DATES LIVO
-   Livo exige desired_date au format JJ/MM/AAAA et refuse toute
-   date dans le passe (cf. AddOrderRequest.desired_date et
-   EditOrderRequest.desired_date dans l'OpenAPI). On normalise et
-   on valide ici pour renvoyer un message clair au lieu de laisser
-   Livo repondre 400 "desired_date contains an invalid value".
-   ============================================================ */
-const LIVO_DATE_PATTERN = /^(\d{2})\/(\d{2})\/(\d{4})$/;
-
-function formatLivoDate(date) {
-  const day = String(date.getDate()).padStart(2, "0");
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  return `${day}/${month}/${date.getFullYear()}`;
+// Autorise un vendeur approuve (role == 'vendor') a appeler le proxy.
+// La cle API Livo reste cote serveur : le client ne voit jamais de secret.
+function vendorUidsFromEnv(env) {
+  return (env.LIVO_VENDOR_UIDS || "")
+    .split(",")
+    .map((uid) => uid.trim())
+    .filter(Boolean);
 }
 
-function isDateInstance(value) {
-  // Object.prototype.toString reste fiable meme si l'objet vient d'un autre
-  // realm (instanceof Date echoue dans ce cas).
-  return Object.prototype.toString.call(value) === "[object Date]";
-}
+async function verifyVendorToken(request, env) {
+  const payload = await verifyFirebaseTokenClaims(request, env);
+  const allowedVendors = vendorUidsFromEnv(env);
 
-// Retourne "JJ/MM/AAAA" ou null si la valeur est inexploitable.
-function normalizeLivoDate(value) {
-  if (isDateInstance(value)) {
-    return Number.isNaN(value.getTime()) ? null : formatLivoDate(value);
+  // Allowlist optionnelle : si LIVO_VENDOR_UIDS est defini, on la respecte.
+  // Sinon, tout jeton Firebase valide est accepte et le client_id Livo est
+  // celui du compte (un seul client Livo cote Smart Swika).
+  if (allowedVendors.length && !allowedVendors.includes(payload.sub)) {
+    throw new Error("Acces vendeur refuse.");
   }
 
-  if (typeof value !== "string") return null;
-
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-
-  let parts = trimmed.match(LIVO_DATE_PATTERN);
-  if (parts) {
-    parts = [parts[1], parts[2], parts[3]];
-  } else {
-    // Tolerance ISO 8601 (2026-06-10 ou 2026-06-10T00:00:00Z).
-    const iso = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ].*)?$/);
-    if (!iso) return null;
-    parts = [iso[3], iso[2], iso[1]];
-  }
-
-  const day = Number(parts[0]);
-  const month = Number(parts[1]);
-  const year = Number(parts[2]);
-
-  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
-
-  const date = new Date(year, month - 1, day);
-  if (
-    date.getFullYear() !== year ||
-    date.getMonth() !== month - 1 ||
-    date.getDate() !== day
-  ) {
-    return null; // Rejette 31/02 ou 29/02 hors annee bissextile.
-  }
-
-  return `${parts[0]}/${parts[1]}/${parts[2]}`;
-}
-
-function isLivoDateInPast(formatted) {
-  const [day, month, year] = formatted.split("/").map(Number);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return new Date(year, month - 1, day) < today;
+  return payload;
 }
 
 // Proxy sécurisé vers les endpoints Livo documentés.
@@ -380,15 +412,23 @@ export default {
       }, 405, headers);
     }
 
-    // Les opérations administratives exigent un jeton Firebase valide
-    // et un UID présent dans LIVO_ADMIN_UIDS.
+    // Controle des roles par route :
+    //   /create-pickup  -> vendeur authentifie (verifie plus bas, role vendeur)
+    //   autres routes   -> administrateur (UID present dans LIVO_ADMIN_UIDS)
+    let callerUid = null;
     try {
-      await verifyFirebaseToken(request, env);
+      if (path === "/create-pickup") {
+        const claims = await verifyVendorToken(request, env);
+        callerUid = String(claims?.sub || "").trim();
+      } else {
+        const claims = await verifyFirebaseToken(request, env);
+        callerUid = String(claims?.sub || "").trim();
+      }
     } catch (error) {
       const message = error.message || "";
 
       const status =
-        message === "Accès administrateur refusé."
+        message === "Accès administrateur refusé." || message === "Accès vendeur refusé."
           ? 403
           : message.includes("indisponible")
             ? 503
@@ -402,25 +442,130 @@ export default {
 
     // Le contrat Livo public confirme POST/PATCH /orders et GET /orders/{id}.
     // Le Worker conserve la clé API côté serveur et limite les champs transmis.
-    if (path === "/create-pickup") {
-      return json({
-        error: "Ramassage non configuré.",
-        message: "Livo exige des informations de point de ramassage qui ne sont pas encore collectées par le site. Aucun ramassage n’a été créé.",
-      }, 501, headers);
-    }
-
     let payload;
-    if (path === "/create-order" || path === "/cancel-order") {
+    if (["/create-order", "/cancel-order", "/create-pickup"].includes(path)) {
       try {
         payload = await request.json();
       } catch {
         return json({ error: "Corps JSON invalide." }, 400, headers);
       }
+      if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+        return json({ error: "Le corps de la requete doit etre un objet JSON." }, 400, headers);
+      }
+    }
+
+    let pickupPayload = null;
+
+    if (path === "/create-pickup") {
+      pickupPayload = payload;
+
+      // AddPickupRequest (Livo) :
+      //   client_id      requis, ajoute par le Worker (jamais par le navigateur)
+      //   items          tableau d'identifiants d'articles en stock (1..500)
+      //   products       alternative a items : [{ product_id, quantity >= 1 }]
+      //   desired_date   JJ/MM/AAAA, jamais dans le passe
+      //   comment        libre
+      //   additionalProperties: false -> tout autre champ est rejete.
+      const rawItems = pickupPayload?.items;
+      const rawProducts = pickupPayload?.products;
+
+      const items = Array.isArray(rawItems)
+        ? rawItems.map((value) => String(value ?? "").trim()).filter(Boolean)
+        : [];
+
+      const products = Array.isArray(rawProducts)
+        ? rawProducts.map((item) => ({
+            product_id: String(item?.product_id ?? "").trim(),
+            quantity: Number(item?.quantity),
+          }))
+        : [];
+
+      if (!items.length && !products.length) {
+        return json({
+          error: "Selectionnez au moins un produit a envoyer (items ou products).",
+        }, 400, headers);
+      }
+
+      if (items.length > 500) {
+        return json({
+          error: "Un ramassage ne peut pas depasser 500 articles.",
+        }, 400, headers);
+      }
+
+      if (items.some((value) => value.length > 128 || /[/?#]/.test(value))) {
+        return json({ error: "Identifiant d'article Livo invalide." }, 400, headers);
+      }
+
+      if (products.some((item) =>
+        !item.product_id ||
+        item.product_id.length > 128 ||
+        !Number.isFinite(item.quantity) ||
+        item.quantity < 1 ||
+        item.quantity > 100000
+      )) {
+        return json({ error: "La liste des produits est invalide (quantites >= 1)." }, 400, headers);
+      }
+
+      if (items.length && products.length) {
+        return json({
+          error: "Envoyez soit 'items', soit 'products', pas les deux.",
+        }, 400, headers);
+      }
+
+      // desired_date : meme regle que pour les commandes (AddPickupRequest).
+      let pickupDate = null;
+      const rawDate = pickupPayload?.desired_date;
+      if (rawDate !== undefined && rawDate !== null && String(rawDate).trim() !== "") {
+        pickupDate = normalizeLivoDate(rawDate);
+        if (!pickupDate) {
+          return json({ error: "La date de ramassage doit etre au format JJ/MM/AAAA." }, 400, headers);
+        }
+        if (isLivoDateInPast(pickupDate)) {
+          return json({ error: "La date de ramassage ne peut pas etre dans le passe." }, 400, headers);
+        }
+      }
+
+      const comment = typeof pickupPayload?.comment === "string"
+        ? pickupPayload.comment.trim().slice(0, 500)
+        : "";
+
+      // client_id : compte Livo unique de Smart Swika, derive de l'environnement.
+      // Le navigateur ne choisit jamais ce champ (sinon un vendeur pourrait
+      // demander un ramassage sur le stock d'un autre client Livo).
+      let clientId =
+        (env.LIVO_CLIENT_ID || "").trim() ||
+        (env.LIVO_CUSTOMER_ID || "").trim();
+
+      // Identification d'appel : uniquement issue du jeton verifie (jamais d'un header client).
+      const vendorUid = String(callerUid || "").trim();
+      if (clientId && /\s/.test(clientId)) {
+        return json({ error: "Configuration serveur invalide (LIVO_CLIENT_ID)." }, 500, headers);
+      }
+      if (clientId && clientId.length > 128) {
+        return json({ error: "Configuration serveur invalide (LIVO_CLIENT_ID)." }, 500, headers);
+      }
+
+      pickupPayload = {
+        ...(clientId ? { client_id: clientId } : {}),
+        ...(items.length ? { items } : {}),
+        ...(products.length ? { products } : {}),
+        ...(pickupDate ? { desired_date: pickupDate } : {}),
+        ...(comment ? { comment } : {}),
+        ...(vendorUid ? { vendor_uid: vendorUid } : {}),
+      };
     }
 
     let endpoint;
     let method;
     let livoPayload;
+
+    if (path === "/create-pickup") {
+      endpoint = "/pickups";
+      method = "POST";
+      // additionalProperties: false cote Livo : vendor_uid ne doit pas partir.
+      const { vendor_uid: _vendorUid, ...toBeSent } = pickupPayload || {};
+      livoPayload = toBeSent;
+    }
 
     if (path === "/create-order") {
       const target = payload?.target;

@@ -462,6 +462,32 @@ function injectModals() {
             </div>
         </div>
 
+        <div class="modal-overlay" id="vPickupModal" style="z-index:2500;">
+            <div class="modal" style="max-width:640px; max-height:90vh; overflow-y:auto;">
+                <button class="modal-close" id="closePickupModal">&#10005;</button>
+                <h2 style="font-family:var(--font-secondary);color:var(--gold);text-align:center;margin-bottom:0.5rem;">Demander un ramassage</h2>
+                <p style="text-align:center;font-size:0.82rem;color:var(--text-muted);margin-bottom:1.2rem;">
+                    Livo vient chercher vos colis a l'adresse de votre boutique. Selectionnez les produits a envoyer,
+                    indiquez la date souhaitee au format JJ/MM/AAAA et ajoutez un commentaire si besoin.
+                </p>
+                <div class="v-field">
+                    <label class="v-label">Produits a envoyer *</label>
+                    <div id="vPickupProducts" style="max-height:260px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:0.5rem;"></div>
+                    <span class="v-hint">Choisissez les produits et la quantite de chaque article a remettre a Livo.</span>
+                </div>
+                <div class="v-field">
+                    <label class="v-label" for="vPickupDate">Date de ramassage souhaitee (JJ/MM/AAAA) *</label>
+                    <input type="text" id="vPickupDate" class="v-input" inputmode="numeric" placeholder="25/05/2026" maxlength="10" autocomplete="off">
+                </div>
+                <div class="v-field">
+                    <label class="v-label" for="vPickupComment">Commentaire (optionnel)</label>
+                    <textarea id="vPickupComment" class="v-input" rows="3" maxlength="500" placeholder="Ex : ramassage le matin, code portail 1234..."></textarea>
+                </div>
+                <div id="vPickupError" style="color:var(--danger);font-size:0.85rem;min-height:1.2rem;text-align:center;margin:0.5rem 0;"></div>
+                <button type="button" id="vPickupSubmitBtn" class="v-btn v-btn-primary v-btn-block">Confirmer la demande</button>
+            </div>
+        </div>
+
         <div class="modal-overlay" id="vContractModal" style="z-index:2500;">
             <div class="modal" style="max-width:800px;padding:0;display:flex;flex-direction:column;height:90vh;">
                 <div style="padding:1.5rem;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center;">
@@ -1457,12 +1483,200 @@ async function renderOrders(container) {
     });
 }
 
-async function renderStock(container) {
-    if (currentVendor?.vendorInfo?.shippingMethod !== 'fulfillment') {
-        container.innerHTML = renderEmptyState('📦', 'Mode Drop-off', 'Déposez les colis de vos commandes chez Livo après leur confirmation. Cet espace de gestion du stock est réservé aux vendeurs en mode Fulfillment.');
+
+/* ============================================================
+   RAMASSAGE LIVO (POST /pickups via proxy sécurisé)
+   ============================================================ */
+
+let _pickupSubmitting = false;
+
+function formatPickupDateInput(input) {
+    const digits = String(input || "").replace(/\D/g, "").slice(0, 8);
+    const day = digits.slice(0, 2);
+    const month = digits.slice(2, 4);
+    const year = digits.slice(4, 8);
+    return [day, month, year].filter(Boolean).join("/");
+}
+
+function isValidPickupDate(value) {
+    const match = String(value || "").trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (!match) return false;
+    const day = Number(match[1]);
+    const month = Number(match[2]);
+    const year = Number(match[3]);
+    if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+    const date = new Date(year, month - 1, day);
+    if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return date >= today;
+}
+
+function renderPickupProductRows() {
+    const container = document.getElementById('vPickupProducts');
+    if (!container) return;
+    const products = (cachedProducts || []).filter(p => p && p.id);
+    if (!products.length) {
+        container.innerHTML = `<p style="color:var(--text-muted);font-size:0.85rem;margin:0.5rem;">Aucun produit dans votre catalogue. Publiez un produit avant de demander un ramassage.</p>`;
         return;
     }
-    container.innerHTML = renderEmptyState('📥', tr('vendor.stock.empty.title', 'Aucun stock Fulfillment'), tr('vendor.stock.empty.desc', "L'envoi de stock à l'entrepôt Livo sera disponible prochainement. Contactez le support pour organiser le dépôt de votre stock."));
+    container.innerHTML = products.map(p => {
+        const label = escapeHTML(getProductLabel(p));
+        return `<div style="display:flex;align-items:center;gap:0.6rem;padding:0.45rem 0;border-bottom:1px solid var(--border);">
+            <label class="v-checkbox" style="flex:1;margin:0;min-width:0;">
+                <input type="checkbox" class="v-pickup-product" value="${escapeHTML(p.id)}" data-livo-id="${escapeHTML(p.livoProductId || '')}">
+                <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${label}</span>
+            </label>
+            <input type="number" class="v-input v-pickup-qty" data-for="${escapeHTML(p.id)}" min="1" max="9999" step="1" value="1" style="max-width:90px;" disabled>
+        </div>`;
+    }).join('');
+
+    container.querySelectorAll('.v-pickup-product').forEach(box => {
+        box.addEventListener('change', () => {
+            const qty = container.querySelector(`.v-pickup-qty[data-for="${CSS.escape(box.value)}"]`);
+            if (qty) qty.disabled = !box.checked;
+        });
+    });
+}
+
+function getProductLabel(product) {
+    const lang = typeof getLang === 'function' ? getLang() : (CONFIG.DEFAULT_LANGUAGE || 'fr');
+    if (lang === 'ar' && product.nameAr) return product.nameAr;
+    if (lang === 'en' && product.nameEn) return product.nameEn;
+    return product.nameFr || product.nameEn || product.nameAr || product.id;
+}
+
+function openPickupModal() {
+    const modal = document.getElementById('vPickupModal');
+    if (!modal) return;
+    document.getElementById('vPickupError').textContent = '';
+    document.getElementById('vPickupComment').value = '';
+    const dateInput = document.getElementById('vPickupDate');
+    dateInput.value = '';
+    renderPickupProductRows();
+    modal.classList.add('open');
+    document.body.style.overflow = 'hidden';
+    setTimeout(() => dateInput.focus(), 100);
+}
+
+function closePickupModal() {
+    const modal = document.getElementById('vPickupModal');
+    if (modal) modal.classList.remove('open');
+    document.body.style.overflow = '';
+}
+
+async function submitPickupRequest() {
+    if (_pickupSubmitting) return;
+
+    const errEl = document.getElementById('vPickupError');
+    const btn = document.getElementById('vPickupSubmitBtn');
+    errEl.textContent = '';
+
+    const checked = Array.from(document.querySelectorAll('.v-pickup-product:checked'));
+    if (!checked.length) {
+        errEl.textContent = 'Selectionnez au moins un produit a envoyer.';
+        return;
+    }
+
+    const products = [];
+    for (const box of checked) {
+        const qtyInput = document.querySelector(`.v-pickup-qty[data-for="${CSS.escape(box.value)}"]`);
+        const quantity = parseInt(qtyInput?.value, 10);
+        if (!Number.isInteger(quantity) || quantity < 1) {
+            errEl.textContent = 'Verifiez la quantite de chaque produit selectionne.';
+            return;
+        }
+        const livoId = box.dataset.livoId || '';
+        if (!livoId) {
+            errEl.textContent = 'Un produit selectionne n\'est pas encore synchronise avec Livo. Retirez-le de la demande.';
+            return;
+        }
+        products.push({ product_id: livoId, quantity });
+    }
+
+    const dateValue = document.getElementById('vPickupDate').value.trim();
+    if (!dateValue) {
+        errEl.textContent = 'Indiquez la date de ramassage (JJ/MM/AAAA).';
+        return;
+    }
+    if (!isValidPickupDate(dateValue)) {
+        errEl.textContent = 'Date invalide : utilisez le format JJ/MM/AAAA et une date non passee.';
+        return;
+    }
+
+    const comment = document.getElementById('vPickupComment').value.trim();
+
+    _pickupSubmitting = true;
+    btn.disabled = true;
+    btn.textContent = 'Envoi...';
+
+    try {
+        const user = auth.currentUser;
+        if (!user) throw new Error('Session expiree, reconnectez-vous.');
+        const token = await user.getIdToken();
+
+        const baseUrl = String(CONFIG.LOGISTICS.PROXY_WORKER_URL || '').replace(/\/+$/, '');
+        if (!baseUrl) throw new Error('Proxy Livo non configure.');
+
+        const response = await fetch(`${baseUrl}/create-pickup`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ products, desired_date: dateValue, ...(comment ? { comment } : {}) }),
+        });
+
+        let data = null;
+        try { data = await response.json(); } catch (_) { data = null; }
+
+        if (!response.ok || (data && data.success === false)) {
+            const message = data?.error || data?.data?.fr_message || data?.message || `Erreur ${response.status}`;
+            throw new Error(message);
+        }
+
+        const pickupId = data?.data?._id || data?.data?.data?._id || null;
+        showToast(pickupId ? `Demande de ramassage enregistree (${pickupId}).` : 'Demande de ramassage enregistree.');
+        closePickupModal();
+        await renderStock(document.getElementById('vTabContent'));
+    } catch (e) {
+        console.error('[vendor-dashboard] Erreur ramassage Livo :', e);
+        errEl.textContent = 'Erreur : ' + (e.message || 'inconnue');
+    } finally {
+        _pickupSubmitting = false;
+        btn.disabled = false;
+        btn.textContent = 'Confirmer la demande';
+    }
+}
+
+async function renderStock(container) {
+    const shippingMethod = currentVendor?.vendorInfo?.shippingMethod;
+
+    if (shippingMethod !== 'fulfillment') {
+        container.innerHTML = renderEmptyState('📦', 'Mode Drop-off',
+            "Déposez les colis de vos commandes chez Livo après leur confirmation. Cet espace de gestion du stock est réservé aux vendeurs en mode Fulfillment.");
+        return;
+    }
+
+    if (!cachedProducts.length) {
+        try { await loadVendorProducts(); } catch (_) { /* ignore */ }
+    }
+
+    const approved = (cachedProducts || []).filter(p => p && p.status === PRODUCT_STATUS.APPROVED).length;
+
+    container.innerHTML = `
+        <div class="v-card">
+            <h3 class="v-card-title">${escapeHTML(tr('vendor.stock.pickupTitle', 'Ramassage de stock Livo'))}</h3>
+            <p style="color:var(--text-muted);font-size:0.9rem;line-height:1.6;">
+                ${escapeHTML(tr('vendor.stock.empty.desc', "Envoyez vos produits chez Livo pour que nous gérions la livraison."))}
+            </p>
+            <p style="color:var(--text-muted);font-size:0.82rem;">
+                ${approved} ${escapeHTML(tr('vendor.stock.approvedCount', 'produit(s) validé(s) prêt(s) à être expédié(s)'))}
+            </p>
+            <button type="button" id="vPickupRequestBtn" class="v-btn v-btn-primary" style="margin-top:1rem;">
+                ${escapeHTML(tr('vendor.stock.requestPickup', 'Demander un ramassage'))}
+            </button>
+        </div>
+    `;
+
+    document.getElementById('vPickupRequestBtn')?.addEventListener('click', openPickupModal);
 }
 
 async function renderWallet(container) {
@@ -1622,6 +1836,13 @@ function createBannerHandlers() {
    MODALES - LISTENERS
    ============================================================ */
 function attachModalListeners() {
+    document.getElementById('closePickupModal')?.addEventListener('click', closePickupModal);
+    document.getElementById('vPickupModal')?.addEventListener('click', (e) => { if (e.target.id === 'vPickupModal') closePickupModal(); });
+    document.getElementById('vPickupSubmitBtn')?.addEventListener('click', submitPickupRequest);
+    document.getElementById('vPickupDate')?.addEventListener('input', (e) => {
+        const formatted = formatPickupDateInput(e.target.value);
+        if (e.target.value !== formatted) e.target.value = formatted;
+    });
     document.getElementById('closeWithdrawModal')?.addEventListener('click', closeWithdrawModal);
     document.getElementById('vWithdrawModal')?.addEventListener('click', (e) => { if (e.target.id === 'vWithdrawModal') closeWithdrawModal(); });
     document.getElementById('vWithdrawSubmitBtn')?.addEventListener('click', submitWithdrawal);
