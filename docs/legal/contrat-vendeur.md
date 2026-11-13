@@ -5,7 +5,12 @@ Version : 1.0.0 — 13 novembre 2026
 
 ---
 
-> **[À COMPLÉTER : Entité légale]** — Raison sociale, RC, ICE, adresse du siège social et hébergeur à compléter avant publication.
+**Éditeur du site et Propriétaire :** Smartswika (Entreprise individuelle - Personne physique)  
+**Responsable de la publication :** Monsieur Amine Mazini  
+**Responsable du traitement des données :** Amine Mazini  
+**Téléphone :** 0656613303  
+**Adresse :** Lot Zaitouna Amerchich, Daoudiat, Marrakech 40000, Maroc  
+**Hébergeur :** Cloudflare Inc. / Google Cloud Platform (Firebase)
 
 ## Entre les soussignés
 

@@ -6,7 +6,12 @@ Version : 1.0.0
 
 ---
 
-> **[À COMPLÉTER : Entité légale]** — Raison sociale, RC, ICE, adresse du siège social et hébergeur à compléter avant publication.
+**Éditeur du site et Propriétaire :** Smartswika (Entreprise individuelle - Personne physique)  
+**Responsable de la publication :** Monsieur Amine Mazini  
+**Responsable du traitement des données :** Amine Mazini  
+**Téléphone :** 0656613303  
+**Adresse :** Lot Zaitouna Amerchich, Daoudiat, Marrakech 40000, Maroc  
+**Hébergeur :** Cloudflare Inc. / Google Cloud Platform (Firebase)
 
 ## Article 1 — Objet
 
@@ -115,6 +120,11 @@ Le Vendeur s'engage à :
 ## Article 9 — Responsabilité
 
 Le Vendeur est seul responsable des produits qu'il met en vente, de leur conformité, de leur qualité et des mentions qui les accompagnent. La Plateforme agit comme intermédiaire technique et logistique.
+
+### 9.1 Responsabilité publicitaire et commerciale
+
+> **Responsabilité publicitaire et commerciale**
+> Le Vendeur est seul responsable de la promotion, de la publicité et de la communication de ses produits sur la Plateforme et en dehors. Smart Swika s'engage à promouvoir uniquement les produits vendus sous sa propre marque (Smart Swika). La Plateforme n'exerce aucun contrôle sur les campagnes publicitaires menées par les vendeurs sur des canaux externes (réseaux sociaux, moteurs de recherche, etc.) et décline toute responsabilité quant au contenu de ces communications. Le Vendeur garantit que ses publicités respectent la législation marocaine.
 
 ---
 

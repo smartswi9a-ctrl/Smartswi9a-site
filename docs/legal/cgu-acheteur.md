@@ -6,7 +6,12 @@ Version : 1.0.0
 
 ---
 
-> **[À COMPLÉTER : Entité légale]** — Raison sociale, RC, ICE, adresse du siège social et hébergeur à compléter avant publication.
+**Éditeur du site et Propriétaire :** Smartswika (Entreprise individuelle - Personne physique)  
+**Responsable de la publication :** Monsieur Amine Mazini  
+**Responsable du traitement des données :** Amine Mazini  
+**Téléphone :** 0656613303  
+**Adresse :** Lot Zaitouna Amerchich, Daoudiat, Marrakech 40000, Maroc  
+**Hébergeur :** Cloudflare Inc. / Google Cloud Platform (Firebase)
 
 ## Article 1 — Objet
 
@@ -118,6 +123,11 @@ Tout comportement frauduleux ou abusif (commandes répétées non réceptionnée
 La Plateforme agit en tant qu'intermédiaire de mise en relation et de distribution. Elle ne saurait être tenue responsable des dommages résultant d'un usage anormal du produit ou du non-respect des instructions du fabricant.
 
 La responsabilité de la Plateforme est, en tout état de cause, limitée au montant de la commande concernée.
+
+### 6.1 Rôle de la Plateforme
+
+> **Rôle de la Plateforme**
+> Smart Swika agit en tant qu'intermédiaire technique pour les produits vendus par des vendeurs tiers. Les campagnes de publicité externes menées par ces vendeurs ne sont pas contrôlées ni cautionnées par Smart Swika. L'acheteur est invité à se référer exclusivement aux informations présentes sur la fiche produit de la Plateforme.
 
 ---
 
