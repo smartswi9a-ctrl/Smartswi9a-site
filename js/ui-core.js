@@ -280,6 +280,238 @@ export function confirmAction(message, options = {}) {
   });
 }
 
+/* ============================================================
+   SAISIE DE TEXTE PERSONNALISÉE (promptAction)
+   ============================================================ */
+
+let activePromptModal = null;
+let activePromptResolver = null;
+let activePromptTimeout = null;
+
+const PROMPT_TIMEOUT_MS = 120000;
+
+/**
+ * Nettoie la modale de saisie active, libère le focus et résout la promesse.
+ * @param {{confirmed: boolean, value: (string|null)}} result
+ */
+function _cleanupActivePrompt(result) {
+  if (activePromptTimeout) {
+    clearTimeout(activePromptTimeout);
+    activePromptTimeout = null;
+  }
+  if (activePromptModal) {
+    try {
+      activePromptModal.remove();
+    } catch (e) {
+      /* ignore */
+    }
+    activePromptModal = null;
+  }
+  releaseFocusTrap();
+  if (activePromptResolver) {
+    const resolver = activePromptResolver;
+    activePromptResolver = null;
+    resolver(result);
+  }
+}
+
+/**
+ * Affiche une modale de saisie de texte et retourne une promesse.
+ *
+ * Remplace window.prompt() par une popup HTML stylée cohérente avec
+ * confirmAction(). La promesse résout TOUJOURS un objet :
+ *   - { confirmed: true,  value: "texte saisi" }  -> validation
+ *   - { confirmed: false, value: null }           -> annulation / Escape / clic extérieur / timeout
+ *
+ * @param {string} title                 Titre de la modale.
+ * @param {string} message               Texte explicatif affiché sous le titre.
+ * @param {Object}  [options]
+ * @param {string}  [options.label]        Libellé au-dessus du champ de saisie.
+ * @param {string}  [options.placeholder]  Placeholder du champ.
+ * @param {string}  [options.defaultValue] Valeur pré-remplie (sélectionnée à l'ouverture).
+ * @param {string}  [options.confirmText="Confirmer"]
+ * @param {string}  [options.cancelText="Annuler"]
+ * @param {string}  [options.variant="primary"] "primary" | "danger" | "info"
+ * @param {string}  [options.inputType="text"]  Type HTML du champ (text, number, tel...).
+ * @param {boolean} [options.required=true]     Si true, le bouton Confirmer est désactivé tant que le champ est vide.
+ * @param {number}  [options.maxLength=500]
+ * @returns {Promise<{confirmed: boolean, value: (string|null)}>}
+ */
+export function promptAction(title, message, options = {}) {
+  if (activePromptResolver) {
+    _cleanupActivePrompt({ confirmed: false, value: null });
+  }
+
+  const {
+    label = "",
+    placeholder = "",
+    defaultValue = "",
+    confirmText = "Confirmer",
+    cancelText = "Annuler",
+    variant = "primary",
+    inputType = "text",
+    required = true,
+    maxLength = 500,
+  } = options;
+
+  return new Promise((resolve) => {
+    activePromptResolver = resolve;
+
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay open";
+    overlay.style.zIndex = "20000";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+
+    const confirmBg =
+      {
+        danger: "linear-gradient(135deg, var(--danger), #7d241a)",
+        primary: "linear-gradient(135deg, var(--gold), #7d5a1d)",
+        info: "linear-gradient(135deg, var(--info), #2874a6)",
+      }[variant] || "linear-gradient(135deg, var(--gold), #7d5a1d)";
+
+    const safeTitle = escapeHTML(title || "Saisie");
+    const safeMessage = escapeHTML(message || "");
+    const safeLabel = escapeHTML(label);
+    const safePlaceholder = escapeHTML(placeholder);
+    const safeDefault = escapeHTML(defaultValue);
+    const safeConfirmText = escapeHTML(confirmText);
+    const safeCancelText = escapeHTML(cancelText);
+    const safeMaxLength = Number.isFinite(Number(maxLength)) ? Number(maxLength) : 500;
+    const safeInputType = /^(text|number|tel|email)$/.test(inputType) ? inputType : "text";
+
+    const labelHtml = safeLabel
+      ? `<label for="promptActionInput" style="display:block;text-align:left;font-size:0.8rem;font-weight:600;color:var(--text-muted);margin-bottom:0.35rem;">${safeLabel}</label>`
+      : "";
+
+    overlay.innerHTML = `
+      <div class="modal" style="max-width:440px;padding:1.8rem;">
+        <h3 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:0.6rem;font-size:1.15rem;text-align:center;">
+          ${safeTitle}
+        </h3>
+        <p style="font-size:0.92rem;color:var(--text);margin-bottom:1.1rem;line-height:1.5;word-break:break-word;text-align:center;">
+          ${safeMessage}
+        </p>
+        <div style="margin-bottom:1.4rem;">
+          ${labelHtml}
+          <input
+            id="promptActionInput"
+            class="prompt-action-input"
+            type="${safeInputType}"
+            maxlength="${safeMaxLength}"
+            placeholder="${safePlaceholder}"
+            value="${safeDefault}"
+            autocomplete="off"
+            style="width:100%;padding:0.7rem 0.9rem;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:0.95rem;font-family:inherit;outline:none;box-sizing:border-box;"
+          >
+        </div>
+        <div style="display:flex;gap:0.5rem;justify-content:center;flex-wrap:wrap;">
+          <button type="button" class="prompt-cancel-btn" style="min-width:110px;padding:0.7rem 1.2rem;background:transparent;border:1px solid var(--border);color:var(--text-muted);border-radius:30px;font-weight:600;cursor:pointer;font-size:0.9rem;transition:all 0.2s;">
+            ${safeCancelText}
+          </button>
+          <button type="button" class="prompt-ok-btn" style="min-width:110px;padding:0.7rem 1.2rem;background:${confirmBg};color:#ffffff;border:none;border-radius:30px;font-weight:700;cursor:pointer;font-size:0.9rem;transition:all 0.2s;">
+            ${safeConfirmText}
+          </button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+    activePromptModal = overlay;
+
+    const modalEl = overlay.querySelector(".modal");
+    const inputEl = overlay.querySelector(".prompt-action-input");
+    const cancelBtn = overlay.querySelector(".prompt-cancel-btn");
+    const okBtn = overlay.querySelector(".prompt-ok-btn");
+
+    const syncOkState = () => {
+      const empty = !String(inputEl.value || "").trim();
+      const disabled = required && empty;
+      okBtn.disabled = disabled;
+      okBtn.style.opacity = disabled ? "0.5" : "1";
+      okBtn.style.cursor = disabled ? "not-allowed" : "pointer";
+    };
+    syncOkState();
+
+    inputEl.addEventListener("input", syncOkState);
+    inputEl.addEventListener("focus", () => {
+      inputEl.style.borderColor = "var(--gold)";
+      inputEl.style.boxShadow = "0 0 0 3px rgba(165,123,46,0.15)";
+    });
+    inputEl.addEventListener("blur", () => {
+      inputEl.style.borderColor = "var(--border)";
+      inputEl.style.boxShadow = "none";
+    });
+
+    cancelBtn.addEventListener("mouseenter", () => {
+      cancelBtn.style.borderColor = "var(--gold)";
+      cancelBtn.style.color = "var(--gold)";
+    });
+    cancelBtn.addEventListener("mouseleave", () => {
+      cancelBtn.style.borderColor = "var(--border)";
+      cancelBtn.style.color = "var(--text-muted)";
+    });
+    okBtn.addEventListener("mouseenter", () => {
+      if (okBtn.disabled) return;
+      okBtn.style.transform = "scale(1.03)";
+      okBtn.style.boxShadow = "var(--shadow-gold)";
+    });
+    okBtn.addEventListener("mouseleave", () => {
+      okBtn.style.transform = "scale(1)";
+      okBtn.style.boxShadow = "none";
+    });
+
+    const cleanup = (result) => {
+      document.removeEventListener("keydown", keyHandler);
+      _cleanupActivePrompt(result);
+    };
+
+    const submit = () => {
+      const raw = String(inputEl.value || "").trim();
+      if (required && !raw) return;
+      cleanup({ confirmed: true, value: raw });
+    };
+
+    cancelBtn.addEventListener("click", () => cleanup({ confirmed: false, value: null }));
+    okBtn.addEventListener("click", () => {
+      if (okBtn.disabled) return;
+      submit();
+    });
+
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) cleanup({ confirmed: false, value: null });
+    });
+
+    const keyHandler = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        cleanup({ confirmed: false, value: null });
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        submit();
+      }
+    };
+    document.addEventListener("keydown", keyHandler);
+
+    trapFocus(modalEl);
+
+    setTimeout(() => {
+      try {
+        inputEl.focus();
+        if (safeDefault) inputEl.select();
+      } catch (e) {
+        /* ignore */
+      }
+    }, 100);
+
+    if (activePromptTimeout) clearTimeout(activePromptTimeout);
+    activePromptTimeout = setTimeout(() => {
+      console.warn("promptAction : timeout atteint, résolution par annulation");
+      _cleanupActivePrompt({ confirmed: false, value: null });
+    }, PROMPT_TIMEOUT_MS);
+  });
+}
+
 /* ============================================================ SCROLL VERS UN ÉLÉMENT ============================================================ */
 
 /** * Scroll vers un élément avec un offset. * @param {HTMLElement} element * @param {number} [offset=80] */
