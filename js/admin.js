@@ -48,6 +48,8 @@ let lastProductsLoadTime = 0;
 let simulatorListenersAttached = false;
 let alertInterval = null;
 let tempStockFilter = null;
+let tempProductStatusFilter = null;
+let orderStatusFilter = null;
 let isSyncingAllLivo = false;
 let revenueChartInstance = null;
 let currentChartPeriod = 7;
@@ -429,6 +431,8 @@ async function loadStats() {
 
 async function loadOrders() {
     await renderAdminOrders('adminOrdersList');
+    syncOrderStatusFilterUI();
+    applyOrderStatusFilter();
 }
 
 async function loadReviews() {
@@ -516,8 +520,38 @@ function attachClearTempFilterListener() {
     btn._listenerAttached = true;
     btn.addEventListener('click', () => {
         tempStockFilter = null;
+        tempProductStatusFilter = null;
+        productsCurrentPage = 1;
         filterProductsList();
     });
+}
+
+const PRODUCT_STATUS_FILTER_LABELS = {
+    pending: 'Produits en attente de validation',
+    pending_admin_approval: 'Produits en attente de validation',
+    draft: 'Produits en brouillon',
+    rejected: 'Produits rejetes',
+    approved: 'Produits approuves'
+};
+
+/**
+ * Filtre la liste produits sur un statut "en attente".
+ * Un produit sans statut est considere en attente (comme le badge "A valider" cote stock: legacy exclu).
+ */
+function applyProductStatusFilter(statusFilter) {
+    tempProductStatusFilter = statusFilter || null;
+    tempStockFilter = null;
+    productsCurrentPage = 1;
+    filterProductsList();
+}
+
+function matchesProductStatusFilter(p, statusFilter) {
+    const st = p.status || 'legacy';
+    if (statusFilter === 'pending') {
+        // Tout ce qui n'est ni approuve ni rejete : pending, draft, pending_admin_approval, statut absent.
+        return st !== 'approved' && st !== 'rejected';
+    }
+    return st === statusFilter;
 }
 
 function renderProductsList(products) {
@@ -525,9 +559,14 @@ function renderProductsList(products) {
     if (!container) return;
 
     let filterIndicator = '';
+    let filterLabel = '';
     if (tempStockFilter === 'out' || tempStockFilter === 'low') {
-        const label = tempStockFilter === 'out' ? 'Ruptures de stock' : 'Stocks bas (< 5)';
-        filterIndicator = `<div style="background:rgba(212,175,55,0.1);border:1px solid var(--border-gold);border-radius:var(--radius-sm);padding:0.6rem 1rem;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;font-size:0.85rem;"><span><strong>Filtre actif :</strong> ${label} (<strong>${products.length}</strong> produit${products.length > 1 ? 's' : ''})</span><button id="clearTempFilterBtn" class="admin-btn-secondary" style="padding:0.3rem 0.8rem;font-size:0.75rem;">Enlever le filtre</button></div>`;
+        filterLabel = tempStockFilter === 'out' ? 'Ruptures de stock' : 'Stocks bas (< 5)';
+    } else if (tempProductStatusFilter) {
+        filterLabel = PRODUCT_STATUS_FILTER_LABELS[tempProductStatusFilter] || tempProductStatusFilter;
+    }
+    if (filterLabel) {
+        filterIndicator = `<div style="background:rgba(212,175,55,0.1);border:1px solid var(--border-gold);border-radius:var(--radius-sm);padding:0.6rem 1rem;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;font-size:0.85rem;"><span><strong>Filtre actif :</strong> ${filterLabel} (<strong>${products.length}</strong> produit${products.length > 1 ? 's' : ''})</span><button id="clearTempFilterBtn" class="admin-btn-secondary" style="padding:0.3rem 0.8rem;font-size:0.75rem;">Enlever le filtre</button></div>`;
     }
 
     if (products.length === 0) {
@@ -569,6 +608,9 @@ function renderProductsList(products) {
         const vendorBadge = p.vendorId && p.vendorId !== 'smartswi9a' ? `<span style="background:#3498db;color:#fff;font-size:0.6rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;">VND</span>` : '';
 
         const productStatus = p.status || 'legacy';
+        // Boutons Valider / Rejeter : tout produit qui n'est ni approuve ni rejete
+        // (couvre pending, draft, pending_admin_approval, statut absent, ...).
+        const canModerate = productStatus !== 'approved' && productStatus !== 'rejected';
         let statusBadge = '';
         if (productStatus === 'pending_admin_approval' || productStatus === 'pending') {
             statusBadge = `<span style="background:var(--warning);color:#fff;font-size:0.65rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;">A valider</span>`;
@@ -582,7 +624,7 @@ function renderProductsList(products) {
             statusBadge = `<span style="background:#f8d7da;color:#721c24;font-size:0.65rem;padding:0.1rem 0.4rem;border-radius:30px;margin-left:0.3rem;vertical-align:middle;">Legacy</span>`;
         }
 
-        html += `<div class="admin-list-item" data-product-id="${p.id}"><div class="admin-list-item-info"><strong>${name}${videoBadge}${variantBadge}${vendorBadge}${statusBadge}${sku}</strong><div style="font-size:0.8rem;color:var(--text-muted);margin-top:0.2rem;">${categoryLabel} · ${price} MAD ${isPromo ? `<small style="text-decoration:line-through;color:var(--text-dim);">${oldPrice}</small>` : ''} · <span style="color:${stockColor};font-weight:700;">${stockEmoji}${stock}</span></div></div><div class="admin-list-item-actions">${productStatus === 'pending_admin_approval' || productStatus === 'pending' ? `<button class="admin-btn-icon" data-action="approve-product" data-id="${p.id}" style="background:var(--success-bg);color:var(--success);font-weight:700;">Valider</button><button class="admin-btn-icon" data-action="reject-product" data-id="${p.id}" style="background:var(--danger-bg);color:var(--danger);font-weight:700;">Rejeter</button>` : ''}<button class="admin-btn-restock" data-action="restock-product" data-id="${p.id}">+</button><button class="admin-btn-icon" data-action="edit-product" data-id="${p.id}">Edit</button><button class="admin-btn-icon admin-btn-danger" data-action="delete-product" data-id="${p.id}">Del</button></div></div>`;
+        html += `<div class="admin-list-item" data-product-id="${p.id}"><div class="admin-list-item-info"><strong>${name}${videoBadge}${variantBadge}${vendorBadge}${statusBadge}${sku}</strong><div style="font-size:0.8rem;color:var(--text-muted);margin-top:0.2rem;">${categoryLabel} · ${price} MAD ${isPromo ? `<small style="text-decoration:line-through;color:var(--text-dim);">${oldPrice}</small>` : ''} · <span style="color:${stockColor};font-weight:700;">${stockEmoji}${stock}</span></div></div><div class="admin-list-item-actions">${canModerate ? `<button class="admin-btn-icon" data-action="approve-product" data-id="${p.id}" style="background:var(--success-bg);color:var(--success);font-weight:700;">Valider</button><button class="admin-btn-icon" data-action="reject-product" data-id="${p.id}" style="background:var(--danger-bg);color:var(--danger);font-weight:700;">Rejeter</button>` : ''}<button class="admin-btn-restock" data-action="restock-product" data-id="${p.id}">+</button><button class="admin-btn-icon" data-action="edit-product" data-id="${p.id}">Edit</button><button class="admin-btn-icon admin-btn-danger" data-action="delete-product" data-id="${p.id}">Del</button></div></div>`;
     });
 
     if (totalPages > 1) {
@@ -687,6 +729,10 @@ function filterProductsList(resetPage = true) {
         const s = Number(p.stock) || 0;
         return s > 0 && s <= 4;
     });
+
+    if (tempProductStatusFilter) {
+        filtered = filtered.filter(p => matchesProductStatusFilter(p, tempProductStatusFilter));
+    }
 
     if (resetPage) productsCurrentPage = 1;
     renderProductsList(filtered);
@@ -2137,6 +2183,160 @@ async function handleConfirmPickup() {
 }
 
 /* ============================================================
+   RACCOURCIS TABLEAU DE BORD
+   ============================================================ */
+const ORDER_STATUS_FILTER_LABELS = {
+    pending: 'Commandes en attente',
+    confirmed: 'Commandes confirmees',
+    shipping: 'Commandes en livraison',
+    delivered: 'Commandes livrees',
+    returned: 'Commandes retournees',
+    cancelled: 'Commandes annulees'
+};
+
+/**
+ * Navigue vers un onglet admin et applique, apres chargement, un filtre optionnel.
+ * @param {string} tab  data-tab de l'onglet cible
+ * @param {{productStatusFilter?: string, orderStatusFilter?: string}} [options]
+ */
+async function navigateToAdminSection(tab, options = {}) {
+    const { productStatusFilter = null, orderStatusFilter: orderFilter = null } = options || {};
+
+    const tabBtn = document.querySelector('.admin-tabs > button[data-tab="' + tab + '"]');
+    if (!tabBtn) return;
+
+    // L'etat des filtres doit etre pose AVANT le clic : le handler d'onglet
+    // declenche loadProducts()/loadOrders() qui rendent la liste filtree.
+    if (tab === 'products') {
+        tempProductStatusFilter = productStatusFilter || null;
+        if (productStatusFilter) tempStockFilter = null;
+    }
+    if (tab === 'orders') {
+        orderStatusFilter = orderFilter || null;
+    }
+
+    tabBtn.click();
+
+    // Le rendu liste est asynchrone : on attend qu'il soit termine avant de finaliser.
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await waitForAdminTabReady(tab);
+
+    if (tab === 'orders') {
+        syncOrderStatusFilterUI();
+        applyOrderStatusFilter();
+    }
+}
+
+/**
+ * Attend (au mieux) que le contenu de l'onglet cible ne soit plus en etat de chargement.
+ */
+function waitForAdminTabReady(tab, maxAttempts = 40) {
+    const targetByTab = {
+        products: 'adminProductsList',
+        orders: 'adminOrdersList'
+    };
+    const id = targetByTab[tab];
+    if (!id) return Promise.resolve();
+
+    return new Promise(resolve => {
+        let attempts = 0;
+        const tick = () => {
+            const el = document.getElementById(id);
+            const loading = el && (el.querySelector('.admin-loading') || /Chargement/.test(el.textContent || ''));
+            if (!el || !loading || attempts >= maxAttempts) { resolve(); return; }
+            attempts++;
+            setTimeout(tick, 100);
+        };
+        tick();
+    });
+}
+
+/**
+ * Aligne le select #orderStatusFilter sur l'etat module orderStatusFilter.
+ */
+function syncOrderStatusFilterUI() {
+    const sel = document.getElementById('orderStatusFilter');
+    if (sel && sel.value !== (orderStatusFilter || 'all')) {
+        sel.value = orderStatusFilter || 'all';
+    }
+}
+
+/**
+ * Affiche/masque les commandes deja rendues dans #adminOrdersList selon orderStatusFilter.
+ * renderAdminOrders (js/orders.js) ne prend pas de filtre : on agit sur le DOM deja rendu.
+ */
+function applyOrderStatusFilter() {
+    const container = document.getElementById('adminOrdersList');
+    if (!container) return;
+
+    const filter = orderStatusFilter || 'all';
+    const items = container.querySelectorAll('.admin-order-item');
+    let visible = 0;
+    items.forEach(item => {
+        const statusSel = item.querySelector('select[data-field="status"]');
+        const status = statusSel ? statusSel.value : '';
+        const match = filter === 'all' || status === filter;
+        item.style.display = match ? '' : 'none';
+        if (match) visible++;
+    });
+
+    const indicator = document.getElementById('orderStatusFilterIndicator');
+    if (indicator) {
+        if (filter === 'all') {
+            indicator.innerHTML = '';
+            indicator.style.display = 'none';
+        } else {
+            const label = ORDER_STATUS_FILTER_LABELS[filter] || filter;
+            indicator.innerHTML = '<div style="background:rgba(212,175,55,0.1);border:1px solid var(--border-gold);border-radius:var(--radius-sm);padding:0.6rem 1rem;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;font-size:0.85rem;"><span><strong>Filtre actif :</strong> ' + label + ' (<strong>' + visible + '</strong> commande' + (visible > 1 ? 's' : '') + ')</span><button id="clearOrderFilterBtn" class="admin-btn-secondary" style="padding:0.3rem 0.8rem;font-size:0.75rem;">Enlever le filtre</button></div>';
+            indicator.style.display = 'block';
+            attachClearOrderFilterListener();
+        }
+    }
+}
+
+function attachClearOrderFilterListener() {
+    const btn = document.getElementById('clearOrderFilterBtn');
+    if (!btn || btn._listenerAttached) return;
+    btn._listenerAttached = true;
+    btn.addEventListener('click', () => {
+        orderStatusFilter = null;
+        syncOrderStatusFilterUI();
+        applyOrderStatusFilter();
+    });
+}
+
+/**
+ * Branche les raccourcis des cartes du tableau de bord (#adminStats uniquement).
+ * Les cartes Livo / financieres utilisent aussi .admin-stat-card : on ne cible que #adminStats.
+ */
+function initDashboardShortcuts() {
+    const stats = document.getElementById('adminStats');
+    if (!stats) return;
+
+    const shortcuts = {
+        statProductsPending: () => navigateToAdminSection('products', { productStatusFilter: 'pending' }),
+        statOrdersPending: () => navigateToAdminSection('orders', { orderStatusFilter: 'pending' }),
+        statOrders: () => navigateToAdminSection('orders'),
+        statUsers: () => navigateToAdminSection('users'),
+        statReviewsPending: () => navigateToAdminSection('reviews'),
+        statRevenue: () => navigateToAdminSection('finances')
+    };
+
+    stats.querySelectorAll('.admin-stat-card').forEach(card => {
+        const valueEl = card.querySelector('.stat-value');
+        const handler = valueEl ? shortcuts[valueEl.id] : null;
+        if (!handler) return;
+        card.dataset.shortcut = valueEl.id;
+        card.setAttribute('role', 'button');
+        card.setAttribute('tabindex', '0');
+        card.addEventListener('click', handler);
+        card.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handler(); }
+        });
+    });
+}
+
+/* ============================================================
    ALERTES BANNER
    ============================================================ */
 function formatTooltipList(arr, max = 5) {
@@ -2163,6 +2363,9 @@ function initAdminAlerts() {
     document.getElementById('alertStockLowBtn')?.addEventListener('click', () => {
         tempStockFilter = 'low';
         document.querySelector('[data-tab="products"]')?.click();
+    });
+    document.getElementById('alertProductsPendingBtn')?.addEventListener('click', () => {
+        navigateToAdminSection('products', { productStatusFilter: 'pending' });
     });
 }
 
@@ -3754,9 +3957,13 @@ async function loadCollectionsStatus() {
 function attachAllRemainingEvents() {
     attachProductFormEvents();
 
+    /* Raccourcis du tableau de bord. */
+    initDashboardShortcuts();
+
     /* Produits. */
     document.getElementById('productSearchAdmin')?.addEventListener('input', () => {
         tempStockFilter = null;
+        tempProductStatusFilter = null;
         productsCurrentPage = 1;
         filterProductsList();
     });
@@ -3764,6 +3971,12 @@ function attachAllRemainingEvents() {
         tempStockFilter = null;
         productsCurrentPage = 1;
         filterProductsList();
+    });
+
+    /* Commandes : filtre de statut. */
+    document.getElementById('orderStatusFilter')?.addEventListener('change', (e) => {
+        orderStatusFilter = e.target.value === 'all' ? null : e.target.value;
+        applyOrderStatusFilter();
     });
 
     /* Clients. */
