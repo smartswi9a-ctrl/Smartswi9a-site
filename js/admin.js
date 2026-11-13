@@ -3407,6 +3407,13 @@ async function loadPayouts() {
     }
 }
 
+/* Statuts de retrait cote admin : 'paid' (ancien) est aliasе en 'completed'. */
+function normalizePayoutStatusAdmin(status) {
+    const st = String(status || 'pending').trim().toLowerCase();
+    if (st === 'paid') return 'completed';
+    return st;
+}
+
 function renderPayoutsList(payouts) {
     const container = document.getElementById('payoutsList');
     if (!container) return;
@@ -3424,46 +3431,89 @@ function renderPayoutsList(payouts) {
         return;
     }
 
+    const badgeBase = 'padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;';
+    const PAYOUT_BADGE = {
+        pending: `<span style="background:var(--warning-bg);color:var(--warning);${badgeBase}">En attente</span>`,
+        sent: `<span style="background:rgba(52,152,219,0.15);color:#2f86c9;${badgeBase}">Envoyé — à retirer</span>`,
+        completed: `<span style="background:var(--success-bg);color:var(--success);${badgeBase}">Retiré</span>`,
+        rejected: `<span style="background:var(--danger-bg);color:var(--danger);${badgeBase}">Rejeté</span>`,
+        cancelled: `<span style="background:var(--bg-surface);color:var(--text-muted);${badgeBase}">Annulé</span>`
+    };
+
     let html = releaseBanner;
     payouts.forEach(p => {
-        const vendorName = p.vendorName ? escapeHTML(p.vendorName) : (p.vendorId ? `Vendeur ${String(p.vendorId).slice(0, 8)}...` : 'Inconnu');
+        const status = normalizePayoutStatusAdmin(p.status);
+        const statusBadge = PAYOUT_BADGE[status] || PAYOUT_BADGE.pending;
+
+        const firstName = escapeHTML(String(p.firstName || '').trim() || '—');
+        const lastName = escapeHTML(String(p.lastName || '').trim() || '—');
+        const cin = escapeHTML(String(p.cin || '').trim() || '—');
+        const phone = escapeHTML(String(p.phone || p.account || '').trim() || '—');
+        const shopName = p.vendorName
+            ? escapeHTML(p.vendorName)
+            : (p.vendorId ? escapeHTML(`Vendeur ${String(p.vendorId).slice(0, 8)}...`) : 'Inconnu');
+        const method = escapeHTML(p.method || '—');
         const amount = Number(p.amount) || 0;
-        const method = escapeHTML(p.method || 'Wafacash');
-        const account = escapeHTML(p.account || p.phone || '');
-        const status = p.status || 'pending';
         const date = p.requestedAt ? p.requestedAt.toLocaleDateString('fr-FR') : '—';
 
-        let statusBadge = '';
-        if (status === 'pending') statusBadge = `<span style="background:var(--warning-bg);color:var(--warning);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">En attente</span>`;
-        else if (status === 'paid') statusBadge = `<span style="background:var(--success-bg);color:var(--success);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">Payé</span>`;
-        else if (status === 'rejected') statusBadge = `<span style="background:var(--danger-bg);color:var(--danger);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">Rejeté</span>`;
-        else if (status === 'cancelled') statusBadge = `<span style="background:var(--bg-surface);color:var(--text-muted);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">Annulé</span>`;
+        const identityRow = (label, value) =>
+            `<div style="font-size:0.8rem;color:var(--text-muted);"><span style="color:var(--text-dim);">${label} :</span> <strong style="color:var(--text);">${value}</strong></div>`;
+
+        let extraBlock = '';
+        if (status === 'sent') {
+            const transferNumber = escapeHTML(String(p.transferNumber || '').trim() || '—');
+            extraBlock = `
+                <div style="margin-top:0.6rem;background:rgba(52,152,219,0.08);border:1px solid rgba(52,152,219,0.45);border-radius:var(--radius-sm);padding:0.6rem 0.8rem;font-size:0.8rem;line-height:1.5;color:var(--text-muted);">
+                    Numéro de transfert : <strong style="letter-spacing:0.05em;color:var(--text);">${transferNumber}</strong>
+                </div>`;
+        } else if (status === 'rejected' && p.rejectionReason) {
+            extraBlock = `
+                <div style="margin-top:0.6rem;background:rgba(231,76,60,0.08);border:1px solid rgba(231,76,60,0.45);border-radius:var(--radius-sm);padding:0.6rem 0.8rem;font-size:0.8rem;line-height:1.5;color:var(--text-muted);">
+                    Motif du rejet : <strong style="color:var(--text);">${escapeHTML(String(p.rejectionReason))}</strong>
+                </div>`;
+        }
 
         let actionsHtml = '';
         if (status === 'pending') {
             actionsHtml = `
-                <button class="admin-btn-approve" data-action="payout-pay" data-id="${p.id}">Marquer payé</button>
+                <input type="text" data-transfer-input="${p.id}" placeholder="Numéro de transfert" maxlength="60" autocomplete="off"
+                    style="flex:1;min-width:160px;padding:0.5rem 0.7rem;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:0.85rem;font-family:inherit;outline:none;">
+                <button class="admin-btn-approve" data-action="payout-send" data-id="${p.id}">Marquer comme envoyé</button>
+                <button class="admin-btn-icon admin-btn-danger" data-action="payout-reject" data-id="${p.id}">Rejeter</button>
+            `;
+        } else if (status === 'sent') {
+            actionsHtml = `
+                <button class="admin-btn-approve" data-action="payout-complete" data-id="${p.id}">Marquer comme retiré</button>
                 <button class="admin-btn-icon admin-btn-danger" data-action="payout-reject" data-id="${p.id}">Rejeter</button>
             `;
         }
 
         html += `
             <div class="admin-list-item" style="flex-direction:column;align-items:stretch;padding:1rem;">
-                <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">
+                <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.6rem;">
                     <div><strong style="color:var(--gold);font-size:1rem;">${formatMAD(amount)}</strong><span style="margin-left:0.5rem;">${statusBadge}</span></div>
                     <div style="font-size:0.8rem;color:var(--text-dim);">Demandé le ${date}</div>
                 </div>
-                <div style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.5rem;">
-                    <strong>${vendorName}</strong> · <code>${account}</code> · ${method}
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:0.35rem 1rem;">
+                    ${identityRow('Prénom', firstName)}
+                    ${identityRow('Nom', lastName)}
+                    ${identityRow('CIN', cin)}
+                    ${identityRow('Téléphone', phone)}
+                    ${identityRow('Boutique', shopName)}
+                    ${identityRow('Réseau', method)}
                 </div>
-                <div style="display:flex;justify-content:flex-end;gap:0.5rem;margin-top:0.5rem;">${actionsHtml}</div>
+                ${extraBlock}
+                <div style="display:flex;justify-content:flex-end;align-items:center;gap:0.5rem;margin-top:0.7rem;flex-wrap:wrap;">${actionsHtml}</div>
             </div>
         `;
     });
     container.innerHTML = html;
 
-    container.querySelectorAll('[data-action="payout-pay"]').forEach(btn => {
-        btn.addEventListener('click', () => handlePayoutPaid(btn.dataset.id));
+    container.querySelectorAll('[data-action="payout-send"]').forEach(btn => {
+        btn.addEventListener('click', () => handlePayoutSent(btn.dataset.id));
+    });
+    container.querySelectorAll('[data-action="payout-complete"]').forEach(btn => {
+        btn.addEventListener('click', () => handlePayoutCompleted(btn.dataset.id));
     });
     container.querySelectorAll('[data-action="payout-reject"]').forEach(btn => {
         btn.addEventListener('click', () => handlePayoutReject(btn.dataset.id));
@@ -3471,6 +3521,7 @@ function renderPayoutsList(payouts) {
     attachReleaseDueFundsListener();
 }
 
+// Conserve à l'identique : inchangé par le chantier retraits.
 function attachReleaseDueFundsListener() {
     const btn = document.getElementById('releaseDueFundsBtn');
     if (!btn || btn._listenerAttached) return;
@@ -3512,10 +3563,23 @@ async function handleReleaseDueFunds() {
     }
 }
 
-async function handlePayoutPaid(payoutId) {
-    const confirmed = await confirmAction('Confirmez-vous avoir effectué ce virement ?', {
-        title: 'Confirmer le virement',
-        confirmText: 'Oui, payé',
+/**
+ * Marque une demande comme envoyée à l'agence (l'argent est déposé au nom du
+ * vendeur). Le wallet vendeur est débité côté serveur à cet instant.
+ */
+async function handlePayoutSent(payoutId) {
+    const input = document.querySelector(`[data-transfer-input="${payoutId}"]`);
+    const transferNumber = (input?.value || '').trim();
+
+    if (transferNumber.length < 3) {
+        showToast('Renseigne le numéro de transfert remis par l’agence (3 caractères minimum).');
+        input?.focus();
+        return;
+    }
+
+    const confirmed = await confirmAction('Confirmer le dépôt à l’agence ? Le montant sera débité du portefeuille du vendeur.', {
+        title: 'Marquer comme envoyé',
+        confirmText: 'Oui, envoyé',
         cancelText: 'Annuler',
         variant: 'primary'
     });
@@ -3523,58 +3587,108 @@ async function handlePayoutPaid(payoutId) {
 
     try {
         const adminUser = auth.currentUser;
-        if (!adminUser) throw new Error("Session expirée.");
+        if (!adminUser) throw new Error('Session expirée.');
         const idToken = await adminUser.getIdToken(true);
 
         const response = await fetch('/api/adminPayoutAction', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
-            body: JSON.stringify({ payoutId, action: 'paid' })
+            body: JSON.stringify({ payoutId, action: 'sent', transferNumber })
         });
 
         const result = await response.json().catch(() => ({}));
         if (!response.ok || !result.success) {
-            throw new Error(result.message || "Erreur lors du paiement.");
+            throw new Error(result.message || "Erreur lors de l'envoi.");
         }
 
-        showToast('Retrait marqué comme payé !');
+        showToast(`Retrait marqué comme envoyé ! Numéro de transfert : ${transferNumber}`, 5000);
         await loadPayouts();
     } catch (e) {
-        console.error('[admin] handlePayoutPaid :', e);
+        console.error('[admin] handlePayoutSent :', e);
         showToast(e.message || 'Erreur');
     }
 }
 
-async function handlePayoutReject(payoutId) {
-    const confirmed = await confirmAction('Rejeter cette demande de retrait ?', {
-        title: 'Rejeter',
-        confirmText: 'Rejeter',
+/**
+ * Marque une demande envoyée comme retirée par le vendeur en agence.
+ * Aucun mouvement d'argent : le wallet a déjà été débité au statut 'sent'.
+ */
+async function handlePayoutCompleted(payoutId) {
+    const confirmed = await confirmAction('Confirmer que le vendeur a bien retiré cet argent à l’agence ?', {
+        title: 'Marquer comme retiré',
+        confirmText: 'Oui, retiré',
         cancelText: 'Annuler',
-        variant: 'danger'
+        variant: 'primary'
     });
     if (!confirmed) return;
 
     try {
         const adminUser = auth.currentUser;
-        if (!adminUser) throw new Error("Session expirée.");
+        if (!adminUser) throw new Error('Session expirée.');
         const idToken = await adminUser.getIdToken(true);
 
         const response = await fetch('/api/adminPayoutAction', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
-            body: JSON.stringify({ payoutId, action: 'rejected' })
+            body: JSON.stringify({ payoutId, action: 'completed' })
         });
 
         const result = await response.json().catch(() => ({}));
         if (!response.ok || !result.success) {
-            throw new Error(result.message || "Erreur lors du rejet.");
+            throw new Error(result.message || 'Erreur lors de la validation.');
         }
 
-        showToast('Demande rejetée');
+        showToast('Retrait marqué comme retiré !');
+        await loadPayouts();
+    } catch (e) {
+        console.error('[admin] handlePayoutCompleted :', e);
+        showToast(e.message || 'Erreur');
+    }
+}
+
+/**
+ * Rejette une demande. Le motif est optionnel : on le demande via promptAction,
+ * une saisie vide est acceptée et correspond à "aucun motif".
+ */
+async function handlePayoutReject(payoutId) {
+    const { confirmed, value } = await promptAction(
+        'Rejeter la demande',
+        'Motif du rejet (optionnel) : il sera transmis au vendeur.',
+        {
+            label: 'Motif',
+            placeholder: 'Ex : CIN illisible, montant incorrect…',
+            confirmText: 'Rejeter',
+            cancelText: 'Annuler',
+            variant: 'danger',
+            required: false,
+            maxLength: 300
+        }
+    );
+    if (!confirmed) return;
+
+    const reason = String(value || '').trim();
+
+    try {
+        const adminUser = auth.currentUser;
+        if (!adminUser) throw new Error('Session expirée.');
+        const idToken = await adminUser.getIdToken(true);
+
+        const response = await fetch('/api/adminPayoutAction', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+            body: JSON.stringify({ payoutId, action: 'rejected', reason })
+        });
+
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.success) {
+            throw new Error(result.message || 'Erreur lors du rejet.');
+        }
+
+        showToast('Demande de retrait rejetée.');
         await loadPayouts();
     } catch (e) {
         console.error('[admin] handlePayoutReject :', e);
-        showToast('Erreur : ' + (e.message || 'inconnue'));
+        showToast(e.message || 'Erreur');
     }
 }
 
