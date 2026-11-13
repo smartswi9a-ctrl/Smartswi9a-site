@@ -14,6 +14,7 @@ Allow: /sitemap.xml
 
 # Pages privées (à ne pas indexer)
 Disallow: /admin
+Disallow: /api
 Disallow: /admin.html
 Disallow: /reset-password
 Disallow: /reset-password.html

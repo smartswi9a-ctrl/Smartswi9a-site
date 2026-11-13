@@ -140,7 +140,10 @@ function updateMetaTags(product) {
 
   document.title = `${name} | Smartswika`;
 
-  setMeta("name", "description", String(desc || "").substring(0, 160));
+  const seoDescription =
+    String(desc || "").substring(0, 160) ||
+    `Découvrez ${name} sur Smartswika : gadgets, tech et Smart Home livrés en 24-72h partout au Maroc, paiement à la livraison.`;
+  setMeta("name", "description", seoDescription);
   setMeta("property", "og:title", name);
   setMeta("property", "og:description", String(desc || "").substring(0, 200));
   setMeta("property", "og:image", absoluteImg);
