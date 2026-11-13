@@ -12,6 +12,7 @@ const ALLOWED_FUNCTIONS = new Set([
   "createVerifiedReview",
   "backfillVendorOrderViews",
   "cancelCustomerOrder",
+  "adminManageWallet",
   "adminPayoutAction",
   "releaseDueFunds"
 ]);
