@@ -153,6 +153,7 @@ async function main() {
       vendorId: "vendorA",
       status: "pending_admin_approval",
       nameFr: "New product",
+      category: "smartphones-android",
       price: 100
     }));
     await assertFails(setDoc(doc(oldVendorDb, "products", "oldContractProduct"), {
