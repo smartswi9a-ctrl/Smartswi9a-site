@@ -136,9 +136,10 @@ function addDaysToDate(date, days) {
 /**
  * Determine la date d'ancrage du chrono et le delai applicable.
  *
- * Regle prudente (validee) : 15 jours UNIQUEMENT si un article porte
- * explicitement isSmartSwika: true. Par defaut on retombe sur 7 jours
- * (vendeur), ce qui protege le vendeur d'une retenue excessive.
+ * Regle : 15 jours UNIQUEMENT si un article porte explicitement
+ * isSmartSwika: true, sans condition sur le vendorId (le vendeur
+ * 'smartswi9a' est le vendeur par defaut de la plateforme).
+ * Par defaut on retombe sur 7 jours (vendeur).
  *
  * @returns {{ok: true, date: Date, unlockDays: number, scope: string}|{ok: false, reason: string}}
  */
@@ -157,9 +158,11 @@ function resolveCreditUnlockBase(order) {
   }
 
   const items = Array.isArray(order.items) ? order.items : [];
+  // 15 jours des qu'un article est marque isSmartSwika: true, quel que soit
+  // le vendorId. Le vendeur 'smartswi9a' est le vendeur par defaut de la
+  // plateforme : l'exclure annulait le marqueur sur ses propres produits.
   const hasSmartSwika = items.some(item =>
-    item && item.isSmartSwika === true &&
-    String(item.vendorId || '') !== 'smartswi9a'
+    item && item.isSmartSwika === true
   );
 
   const unlockDays = hasSmartSwika

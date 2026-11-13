@@ -336,6 +336,7 @@ function initAdmin() {
             else if (tab === 'reviews') await loadReviews();
             else if (tab === 'vendors') await loadVendors();
             else if (tab === 'wallets') await loadPayouts();
+            else if (tab === 'disputes') await loadDisputes();
         });
     });
 
@@ -928,6 +929,7 @@ function resetProductForm() {
     document.getElementById('pCategory').innerHTML = '<option value="">-- Choisir une sous-catégorie --</option>';
     document.getElementById('pIsNew').checked = false;
     document.getElementById('pSizeGuide').checked = false;
+    document.getElementById('pIsSmartSwika').checked = false;
     document.getElementById('variantsContainer').style.display = 'none';
     document.querySelector('#variantsTable tbody').innerHTML = '';
     document.getElementById('pImgFile').value = '';
@@ -978,6 +980,7 @@ async function editProduct(id) {
         document.getElementById('pRating').value = p.ratingAvg || '';
         document.getElementById('pIsNew').checked = !!p.isNew;
         document.getElementById('pSizeGuide').checked = !!p.hasSizeGuide;
+        document.getElementById('pIsSmartSwika').checked = !!p.isSmartSwika;
         document.getElementById('pWeight').value = p.dimensions?.weight || '';
         document.getElementById('pLength').value = p.dimensions?.length || '';
         document.getElementById('pWidth').value = p.dimensions?.width || '';
@@ -1121,6 +1124,7 @@ async function saveProduct() {
             ratingAvg: Math.min(5, Math.max(0, parseFloat(document.getElementById('pRating').value) || 0)),
             isNew: document.getElementById('pIsNew').checked,
             hasSizeGuide: document.getElementById('pSizeGuide').checked,
+            isSmartSwika: document.getElementById('pIsSmartSwika').checked,
             dimensions, variants,
             descFr: document.getElementById('pDescFr').value.trim(),
             descAr: document.getElementById('pDescAr').value.trim(),
@@ -3952,10 +3956,283 @@ async function loadCollectionsStatus() {
 }
 
 /* ============================================================
+   LITIGES / RETOURS
+   ============================================================ */
+let cachedDisputes = [];
+
+/**
+ * Une commande est un litige si elle porte le statut "problem" ou "returned".
+ */
+function isDisputeOrder(order) {
+    const status = String(order?.status || '').toLowerCase();
+    return status === 'problem' || status === 'returned';
+}
+
+/**
+ * Extrait les vendeurs concernes par une commande de litige.
+ * Un vendeur est "en tort" s'il a encore des articles dans le retour.
+ */
+function getDisputeVendors(order) {
+    const returns = Array.isArray(order?.returns) ? order.returns : [];
+    const byVendor = new Map();
+
+    const add = (vendorId, vendorName, qty) => {
+        const id = String(vendorId || '').trim();
+        if (!id) return;
+        if (!byVendor.has(id)) byVendor.set(id, { vendorId: id, vendorName: vendorName || id, returnIndexes: [], returnedQty: 0 });
+        const entry = byVendor.get(id);
+        if (Number.isInteger(qty) && qty > 0) entry.returnedQty += qty;
+    };
+
+    returns.forEach((ret, idx) => {
+        (ret?.items || []).forEach(retItem => {
+            const productId = String(retItem?.productId || '');
+            if (!productId) return;
+            const matching = (order?.items || []).filter(item => String(item?.productId || '') === productId);
+            const owners = [...new Set(matching.map(i => String(i?.vendorId || '').trim()))];
+            if (owners.length !== 1) return;
+            const ownerId = owners[0];
+            if (!ownerId) return;
+            const ownerItem = matching.find(i => String(i?.vendorId || '').trim() === ownerId) || {};
+            const name = ownerItem.vendorName || ownerItem.shopName || ownerItem.shop || '';
+            add(ownerId, name, Number(retItem?.delta) || 0);
+            const entry = byVendor.get(ownerId);
+            if (entry && !entry.returnIndexes.includes(idx)) entry.returnIndexes.push(idx);
+        });
+    });
+
+    // Repli : si la commande n'a pas de structure returns exploitable,
+    // on propose au moins les vendeurs presents dans les articles.
+    if (byVendor.size === 0) {
+        (order?.items || []).forEach(item => {
+            const id = String(item?.vendorId || '').trim();
+            if (!id) return;
+            add(id, item?.vendorName || item?.shopName || '', Number(item?.quantity) || 0);
+        });
+    }
+
+    return [...byVendor.values()];
+}
+
+async function loadDisputes() {
+    const container = document.getElementById('adminDisputesList');
+    if (!container) return;
+    container.innerHTML = '<div class="admin-loading">Chargement des litiges...</div>';
+
+    try {
+        const q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'), limit(300));
+        const snap = await getDocs(q);
+        cachedDisputes = snap.docs
+            .map(d => ({ id: d.id, ...d.data() }))
+            .filter(isDisputeOrder);
+        renderDisputesList(cachedDisputes);
+    } catch (e) {
+        console.error('[admin] loadDisputes :', e);
+        container.innerHTML = '<div class="admin-empty">Impossible de charger les litiges.</div>';
+    }
+}
+
+function renderDisputesList(disputes) {
+    const container = document.getElementById('adminDisputesList');
+    if (!container) return;
+
+    if (!disputes || disputes.length === 0) {
+        container.innerHTML = '<div class="admin-empty">Aucun litige en cours. \u2705</div>';
+        return;
+    }
+
+    let html = '';
+    disputes.forEach(order => {
+        const orderRef = escapeHTML(order.orderNumber || order.id);
+        const customer = escapeHTML(order.customerName || order.customer?.name || order.shippingAddress?.name || '\u2014');
+        const phone = escapeHTML(order.customerPhone || order.shippingAddress?.phone || '');
+        const createdAt = toDate(order.createdAt)?.toLocaleDateString('fr-FR') || '\u2014';
+        const status = String(order.status || '').toLowerCase();
+        const refundAmount = Number(order.refundAmount ?? order.total ?? 0) || 0;
+
+        const statusBadge = status === 'returned'
+            ? '<span style="background:var(--danger-bg);color:var(--danger);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">\u21a9\ufe0f Retourn\u00e9e</span>'
+            : '<span style="background:var(--warning-bg);color:var(--warning);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">\u26a0\ufe0f Probl\u00e8me</span>';
+
+        const vendors = getDisputeVendors(order);
+
+        let vendorsHtml = '';
+        if (vendors.length === 0) {
+            vendorsHtml = '<div style="font-size:0.85rem;color:var(--text-muted);">Aucun vendeur identifi\u00e9 sur cette commande.</div>';
+        } else {
+            vendorsHtml = vendors.map(v => {
+                const canDebit = v.returnIndexes.length > 0 && v.returnedQty > 0 && status === 'returned';
+                const disabledAttr = canDebit ? '' : 'disabled title="N\u00e9cessite une commande retourn\u00e9e avec des articles retourn\u00e9s pour ce vendeur"';
+                const disabledStyle = canDebit ? '' : 'opacity:0.5;cursor:not-allowed;';
+                const firstIndex = v.returnIndexes.length ? v.returnIndexes[0] : 0;
+                return `
+          <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;align-items:center;padding:0.55rem 0.7rem;background:var(--bg-surface);border-radius:var(--radius-sm);margin-bottom:0.4rem;">
+            <div style="font-size:0.85rem;">
+              <strong>${escapeHTML(v.vendorName)}</strong>
+              <code style="font-size:0.7rem;opacity:0.7;">${escapeHTML(v.vendorId)}</code>
+              ${v.returnedQty > 0 ? `<span style="color:var(--text-muted);"> \u00b7 ${v.returnedQty} article(s) retourn\u00e9(s)</span>` : ''}
+            </div>
+            <button class="admin-btn-icon admin-btn-danger"
+                    data-action="dispute-blame"
+                    data-order-id="${escapeHTML(order.id)}"
+                    data-vendor-id="${escapeHTML(v.vendorId)}"
+                    data-vendor-name="${escapeHTML(v.vendorName)}"
+                    data-return-index="${firstIndex}"
+                    data-returned-qty="${v.returnedQty}"
+                    ${disabledAttr}
+                    style="${disabledStyle}">D\u00e9clarer le vendeur en tort</button>
+          </div>
+        `;
+            }).join('');
+        }
+
+        html += `
+      <div class="admin-list-item" style="flex-direction:column;align-items:stretch;padding:1rem;">
+        <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">
+          <div>
+            <strong style="color:var(--gold);font-size:1rem;">#${orderRef}</strong>
+            <span style="margin-left:0.5rem;">${statusBadge}</span>
+          </div>
+          <div style="font-size:0.8rem;color:var(--text-dim);">${createdAt}</div>
+        </div>
+        <div style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.6rem;">
+          \ud83d\udc64 ${customer}${phone ? ' \u00b7 <code>' + phone + '</code>' : ''} \u00b7 \ud83d\udcb0 ${formatMAD(refundAmount)}
+        </div>
+        <div style="font-size:0.8rem;color:var(--text-dim);margin-bottom:0.3rem;">Vendeurs concern\u00e9s :</div>
+        ${vendorsHtml}
+      </div>
+    `;
+    });
+
+    container.innerHTML = html;
+    attachDisputeListeners();
+}
+
+function attachDisputeListeners() {
+    const container = document.getElementById('adminDisputesList');
+    if (!container) return;
+    container.querySelectorAll('[data-action="dispute-blame"]').forEach(btn => {
+        btn.addEventListener('click', () => handleDisputeBlame(btn.dataset));
+    });
+}
+
+/**
+ * Declare le vendeur en tort.
+ *
+ * 1) POST /api/adminSetReturnFee  -> cree le justificatif order_return_fees
+ *    (status "validated", source "manual", recordedBy = admin). Les regles
+ *    Firestore interdisent toute ecriture client sur cette collection.
+ * 2) POST /api/adminManageWallet  -> action "suspend" (portefeuille suspendu).
+ *
+ * Le debit effectif est realise par le trigger serveur onOrderReturnFeeCreated
+ * via processReturnFeeDebit : la creation du document suffit, on n'ecrit jamais
+ * directement dans la commande ni dans le wallet.
+ */
+async function handleDisputeBlame(dataset) {
+    const orderId = String(dataset.orderId || '');
+    const vendorId = String(dataset.vendorId || '');
+    const vendorName = String(dataset.vendorName || vendorId);
+    const returnIndex = Number(dataset.returnIndex);
+    const returnedQty = Number(dataset.returnedQty) || 0;
+    const order = cachedDisputes.find(o => o.id === orderId);
+
+    if (!orderId || !vendorId || !Number.isInteger(returnIndex)) {
+        showToast('Litige incomplet : commande, vendeur ou retour manquant.');
+        return;
+    }
+
+    const defaultAmount = Math.max(0, Number(CONFIG.VENDOR?.RETURN_FEE_LIVO) || 20) * Math.max(1, returnedQty);
+    const input = window.prompt(
+        'Frais de retour \u00e0 d\u00e9biter pour ' + vendorName + ' (MAD) :',
+        String(defaultAmount)
+    );
+    if (input === null || input === undefined) return;
+
+    const amount = Number(String(input).replace(',', '.'));
+    if (!Number.isFinite(amount) || amount <= 0) {
+        showToast('Montant invalide.');
+        return;
+    }
+
+    const confirmed = await confirmAction(
+        'Confirmer la d\u00e9claration de tort de ' + vendorName + ' pour un montant de ' + formatMAD(amount) + ' ? ' +
+        'Le justificatif de frais de retour sera cr\u00e9\u00e9 puis le portefeuille du vendeur suspendu.',
+        { title: 'D\u00e9clarer le vendeur en tort', confirmText: 'Confirmer', cancelText: 'Annuler', variant: 'danger' }
+    );
+    if (!confirmed) return;
+
+    try {
+        const adminUser = auth.currentUser;
+        if (!adminUser) throw new Error('Session administrateur expir\u00e9e. Reconnectez-vous.');
+        const idToken = await adminUser.getIdToken(true);
+
+        /* --- 1. Justificatif de frais de retour --- */
+        const feeRes = await fetch('/api/adminSetReturnFee', {
+            method: 'POST',
+            cache: 'no-store',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + idToken,
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({ orderId, returnIndex, vendorId, amount })
+        });
+        const feeText = await feeRes.text();
+        let feeJson = {};
+        try { feeJson = feeText ? JSON.parse(feeText) : {}; }
+        catch (_) { feeJson = { message: feeText.slice(0, 300) }; }
+        if (!feeRes.ok || !feeJson.success) {
+            throw new Error(feeJson.message || ('Enregistrement des frais impossible (HTTP ' + feeRes.status + ').'));
+        }
+
+        /* --- 2. Suspension du portefeuille vendeur --- */
+        const walletRes = await fetch('/api/adminManageWallet', {
+            method: 'POST',
+            cache: 'no-store',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + idToken,
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({
+                vendorId,
+                action: 'suspend',
+                reason: 'Litige commande #' + (order?.orderNumber || orderId) + ' : vendeur d\u00e9clar\u00e9 en tort.'
+            })
+        });
+        const walletText = await walletRes.text();
+        let walletJson = {};
+        try { walletJson = walletText ? JSON.parse(walletText) : {}; }
+        catch (_) { walletJson = { message: walletText.slice(0, 300) }; }
+        if (!walletRes.ok || !walletJson.success) {
+            throw new Error(walletJson.message || ('Suspension du portefeuille impossible (HTTP ' + walletRes.status + ').'));
+        }
+
+        showToast('Frais de retour enregistr\u00e9s et portefeuille suspendu.');
+        await loadDisputes();
+    } catch (e) {
+        console.error('[admin] handleDisputeBlame :', e);
+        showToast(e.message || 'Erreur');
+    }
+}
+
+
+/* ============================================================
    ÉVÉNEMENTS FINAUX
    ============================================================ */
 function attachAllRemainingEvents() {
     attachProductFormEvents();
+
+    /* Litiges / retours. */
+    document.getElementById('refreshDisputesBtn')?.addEventListener('click', () => loadDisputes());
+    document.getElementById('disputeSearchAdmin')?.addEventListener('input', () => {
+        const s = (document.getElementById('disputeSearchAdmin')?.value || '').toLowerCase();
+        renderDisputesList(cachedDisputes.filter(o => {
+            const hay = [o.orderNumber, o.id, o.customerName, o.customerPhone].join(' ').toLowerCase();
+            const vendors = getDisputeVendors(o).map(v => v.vendorName + ' ' + v.vendorId).join(' ').toLowerCase();
+            return hay.includes(s) || vendors.includes(s);
+        }));
+    });
 
     /* Raccourcis du tableau de bord. */
     initDashboardShortcuts();
