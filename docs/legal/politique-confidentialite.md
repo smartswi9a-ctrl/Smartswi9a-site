@@ -50,7 +50,7 @@ Pour toute question relative à vos données personnelles, vous pouvez contacter
 - **ICE** ou **CIN** (justificatif d'activité)
 - Informations de contrat signé électroniquement (version, langue, empreinte SHA-256, adresse IP, user-agent, date serveur)
 - Données de portefeuille : soldes, historique des transactions, demandes de retrait
-- **Coordonnées de versement** : numéro de téléphone mobile (Wafacash, Cash Plus) ou RIB (virement bancaire)
+- **Coordonnées de versement** : nom, prénom, numéro de CIN et numéro de téléphone mobile (retrait via Wafacash ou Cash Plus)
 
 ### 3.4 Données techniques
 
@@ -88,7 +88,7 @@ Les données peuvent être transmises aux destinataires suivants, strictement po
 
 - **Notre partenaire logistique Livo**, pour l'acheminement des colis (nom, téléphone, ville, adresse du destinataire) ;
 - **Les vendeurs concernés**, pour les seules informations nécessaires à l'expédition de leur commande ;
-- **Les prestataires de paiement** (Wafacash, Cash Plus, établissements bancaires), pour l'exécution des retraits vendeurs ;
+- **Les prestataires de paiement** (Wafacash, Cash Plus), pour l'exécution des retraits vendeurs ;
 - **Les autorités compétentes**, lorsque la loi l'exige.
 
 Aucune donnée n'est vendue, louée ou cédée à des tiers à des fins commerciales.

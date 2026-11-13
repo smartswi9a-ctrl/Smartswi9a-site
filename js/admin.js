@@ -930,6 +930,7 @@ function resetProductForm() {
     document.getElementById('pIsNew').checked = false;
     document.getElementById('pSizeGuide').checked = false;
     document.getElementById('pIsSmartSwika').checked = false;
+    document.getElementById('productNewCertifyCheckbox').checked = false;
     document.getElementById('variantsContainer').style.display = 'none';
     document.querySelector('#variantsTable tbody').innerHTML = '';
     document.getElementById('pImgFile').value = '';
@@ -949,6 +950,7 @@ async function editProduct(id) {
 
         document.getElementById('productFormTitle').textContent = 'Modifier le produit';
         document.getElementById('productEditId').value = id;
+        document.getElementById('productNewCertifyCheckbox').checked = false;
         document.getElementById('pNameFr').value = p.nameFr || '';
         document.getElementById('pNameAr').value = p.nameAr || '';
         document.getElementById('pNameEn').value = p.nameEn || '';
@@ -1061,6 +1063,12 @@ async function saveProduct() {
     if (!category) { showToast('Sélectionnez une sous-catégorie'); return; }
     if (isNaN(priceBase) || priceBase < 0) { showToast('Prix invalide'); return; }
     if (isNaN(stockRaw) || stockRaw < 0) { showToast('Stock invalide'); return; }
+
+    const newCertify = document.getElementById('productNewCertifyCheckbox');
+    if (!newCertify || !newCertify.checked) {
+        showToast("Vous devez certifier que le produit est neuf, jamais utilisé et dans son emballage d'origine avant d'enregistrer.");
+        return;
+    }
 
     saveBtn.disabled = true;
     const oldText = btnText.textContent;

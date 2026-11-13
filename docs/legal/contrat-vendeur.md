@@ -71,13 +71,19 @@ La libération des fonds peut précéder la fin de la période de garantie de l'
 
 Le retrait minimum est de **200 MAD**. Une seule demande de retrait peut être en cours à la fois.
 
-### 5.4 Frais de retrait
+### 5.4 Frais de retrait et modalités de versement
 
-Les frais de retrait sont à la charge du Vendeur et déduits du montant demandé :
+Le retrait s'effectue **exclusivement** par l'un des deux canaux suivants : **Wafacash** ou **Cash Plus**. Aucun autre canal n'est proposé : **aucun virement bancaire et aucune communication de RIB ne sont admis**.
 
-- **Wafacash : 10 MAD par transaction**
-- **Cash Plus : 10 MAD par transaction**
-- Virement bancaire : 0 MAD
+Pour chaque demande, le Vendeur communique son **nom**, son **prénom**, son **numéro de CIN** et son **numéro de téléphone**, informations strictement nécessaires au versement du montant demandé auprès de l'agence choisie.
+
+La Plateforme dépose, auprès de l'agence désignée, le **montant exact demandé par le Vendeur**, dans un délai indicatif de **48 (quarante-huit) heures ouvrées** à compter de la validation de la demande. Un **numéro de transfert** est ensuite communiqué au Vendeur dans son espace vendeur ; le Vendeur se présente à l'agence **muni de sa pièce d'identité (CIN)** pour retirer les fonds.
+
+**Smart Swika ne prélève aucun frais de retrait.** La commission de 7 % prévue à l'article 3 est appliquée en amont ; le montant demandé est intégralement déposé auprès de l'agence.
+
+**Les frais de l'agence de transfert sont à la charge du Vendeur.** Wafacash et Cash Plus appliquent des **frais variables**, déterminés et déduits par l'agence elle-même lors de la remise des fonds. Ces frais ne sont ni calculés, ni prélevés, ni contrôlés par la Plateforme. En conséquence, **le montant effectivement perçu par le Vendeur est inférieur au montant demandé** ; le Vendeur reconnaît que cet écart correspond aux frais de l'agence et ne constitue pas un prélèvement de la Plateforme.
+
+Ce processus est **temporairement manuel** et a vocation à être automatisé. Les modalités essentielles (canaux disponibles et prise en charge des frais d'agence par le Vendeur) demeurent inchangées.
 
 ---
 
@@ -119,6 +125,36 @@ Le Vendeur s'engage à :
 - accepter les modalités de retour et de garantie.
 
 ---
+
+## Article 8 bis — Qualité et état des produits
+
+Le Vendeur ne peut proposer à la vente, sur la Plateforme, que des produits **neufs et jamais utilisés**, destinés à une première mise en service par l'Acheteur.
+
+### 8 bis.1 Nature des produits admis
+
+Le produit doit être **neuf** et **n'avoir jamais été utilisé**, ni par le Vendeur, ni par un tiers, ni avoir servi de produit de démonstration hors de son emballage scellé. Les produits d'occasion, reconditionnés, repris, issus de retours clients ou de déstockage sont **exclus** du périmètre du présent contrat, sous réserve de l'article 8 bis.5.
+
+### 8 bis.2 Emballage d'origine
+
+Le produit est livré dans son **emballage d'origine, scellé et complet** (boîte du fabricant, accessoires, notices, garanties et documents de conformité). Un produit dont l'emballage d'origine est ouvert, dégradé, substitué ou manquant ne peut être vendu comme neuf. Le Vendeur garantit la conformité entre l'état déclaré et l'état livré.
+
+### 8 bis.3 Interdiction des représentations trompeuses
+
+Il est **interdit** d'employer des photographies, visuels, vidéos ou descriptions ne correspondant pas exactement au produit expédié, notamment : images d'un autre modèle ou d'une autre gamme, retouche trompeuse, omission de défauts, ou toute présentation de nature à induire l'Acheteur en erreur sur l'état, la nature ou l'origine du produit.
+
+### 8 bis.4 Sanctions contractuelles
+
+Tout manquement aux articles 8 bis.1 à 8 bis.3 constitue un **manquement grave** au présent contrat. La Plateforme peut, sans préavis et sans indemnité :
+
+- **suspendre immédiatement** le compte du Vendeur et retirer les annonces concernées ;
+- **geler l'intégralité des fonds** du portefeuille du Vendeur jusqu'à résolution du litige, dans les conditions de l'article 7.2 ;
+- rechercher la responsabilité du Vendeur pour tout préjudice causé à l'Acheteur ou à la Plateforme.
+
+Le gel conserve les fonds intacts et n'emporte ni confiscation ni déduction ; demeurent réservées les sommes dues au titre des remboursements et des frais de retour prévus au présent contrat.
+
+### 8 bis.5 Remise en vente de produits retournés
+
+Un produit retourné par un Acheteur **ne peut être remis en vente comme produit neuf**. Sa remise en vente suppose l'**accord préalable et écrit de Smart Swika** et s'effectue **exclusivement sous la mention « reconditionné »**, assortie d'une description exacte de l'état du produit et des défauts constatés. Toute remise en vente sans cet accord, ou sous une mention « neuf », constitue un manquement grave sanctionné au titre de l'article 8 bis.4.
 
 ## Article 9 — Responsabilité
 
