@@ -442,6 +442,115 @@ function statusEvent(status = 'in progress') {
     assert.strictEqual(res._status, 405);
   });
 
+  /* 14. pending : le chrono demarre des le premier statut de tracking Livo */
+  await check('order.status_changed "pending" -> trackingStartedAt pose (ancre chrono)', async () => {
+    const { handler, stub } = buildHandler({ seedOrders: ORDER_SEED });
+    const res = await deliver({ handler, event: statusEvent('pending'), eventId: 'evt_sim_14' });
+    assert.strictEqual(res._status, 200, 'status ' + res._status);
+    assert.strictEqual(res._body.applied, true, 'applied attendu true');
+    const order = stub.state.orders.get('cmd_sim_001');
+    assert.strictEqual(order.status, 'pending', 'statut commande: ' + order.status);
+    assert.strictEqual(order.livoStatusRaw, 'pending');
+    assert.ok(order.trackingStartedAt, 'trackingStartedAt doit etre pose');
+    assert.deepStrictEqual(order.trackingStartedAt, { __serverTimestamp: true });
+    assert.strictEqual(order.trackingStartedFrom, 'livo_webhook_pending');
+  });
+
+  /* 15. pending puis in progress : l'ancre ne doit jamais etre repoussee */
+  await check('pending puis "in progress" -> trackingStartedAt non ecrase ni repousse', async () => {
+    const { handler, stub } = buildHandler({ seedOrders: ORDER_SEED });
+    const first = await deliver({ handler, event: statusEvent('pending'), eventId: 'evt_sim_15a' });
+    assert.strictEqual(first._status, 200);
+    const anchorAfterFirst = stub.state.orders.get('cmd_sim_001').trackingStartedAt;
+    assert.ok(anchorAfterFirst, 'ancre posee sur pending');
+    const fromAfterFirst = stub.state.orders.get('cmd_sim_001').trackingStartedFrom;
+
+    const second = await deliver({ handler, event: statusEvent('in progress'), eventId: 'evt_sim_15b' });
+    assert.strictEqual(second._status, 200);
+    const order = stub.state.orders.get('cmd_sim_001');
+    assert.strictEqual(order.status, 'shipping', 'statut commande: ' + order.status);
+    assert.deepStrictEqual(order.trackingStartedAt, anchorAfterFirst, 'ancre inchangee');
+    assert.strictEqual(order.trackingStartedFrom, fromAfterFirst, 'origine inchangee');
+  });
+
+  /* 16. fulfilled sans ancre : le webhook applique `delivered` mais ne pose PAS
+        l'ancre (statut terminal, hors TRACKING_START_STATUSES). C'est
+        onOrderStatusChanged qui fournit le fallback createdAt (test 17). */
+  await check('fulfilled sans trackingStartedAt -> delivered applique, ancre non posee par le webhook', async () => {
+    const seed = { cmd_sim_016: { id: 'cmd_sim_016', status: 'shipping', livoTracking: 'LIVO-TRK-0016' } };
+    const { handler, stub } = buildHandler({ seedOrders: seed });
+    const evt = { id: 'evt_sim_16', event: 'order.status_changed', created_at: '2026-11-12T20:00:00Z', data: { _id: 'LIVO-TRK-0016', status: 'fulfilled' } };
+    const res = await deliver({ handler, event: evt, eventId: 'evt_sim_16' });
+    assert.strictEqual(res._status, 200, 'status ' + res._status);
+    assert.strictEqual(res._body.applied, true, 'delivered doit etre applique');
+    const order = stub.state.orders.get('cmd_sim_016');
+    assert.strictEqual(order.status, 'delivered');
+    assert.strictEqual(order.trackingStartedAt, undefined, 'le webhook ne pose pas l ancre sur fulfilled');
+  });
+
+  /* 17. Fallback createdAt : resolveCreditUnlockBase (code REEL extrait de
+        functions/index.js) ancre sur createdAt quand trackingStartedAt est
+        absent, puis sur updatedAt, et echoue proprement sans aucune date. */
+  await check('resolveCreditUnlockBase : fallback createdAt puis updatedAt si trackingStartedAt absent', async () => {
+    const start = src.indexOf('function resolveCreditUnlockBase(order) {');
+    assert.ok(start >= 0, 'resolveCreditUnlockBase introuvable dans index.js');
+
+    let depth = 0, i = start, quote = null, escaped = false;
+    for (; i < src.length; i++) {
+      const c = src[i];
+      if (quote) {
+        if (escaped) { escaped = false; continue; }
+        if (c === '\\') { escaped = true; continue; }
+        if (c === quote) quote = null;
+        continue;
+      }
+      if (c === '"' || c === "'" || c === '`') { quote = c; continue; }
+      if (c === '{') depth++;
+      else if (c === '}') { depth--; if (depth === 0) break; }
+    }
+    const fnSrc = src.slice(start, i + 1);
+
+    const sandbox2 = {
+      console: { log() {}, warn() {}, error() {} },
+      OFFICIAL_VENDOR_CONFIG: { UNLOCK_DAYS_SMART: 15, UNLOCK_DAYS_VENDOR: 7 }
+    };
+    vm.createContext(sandbox2);
+    vm.runInContext(fnSrc + '; __fn = resolveCreditUnlockBase;', sandbox2);
+    const resolve = sandbox2.__fn;
+    assert.strictEqual(typeof resolve, 'function', 'extraction impossible');
+
+    const createdAt = new Date('2026-01-10T08:00:00Z');
+    const updatedAt = new Date('2026-01-12T09:30:00Z');
+
+    // Cas A : ancre normale prioritaire.
+    const a = resolve({ trackingStartedAt: new Date('2026-01-20T00:00:00Z'), items: [] });
+    assert.strictEqual(a.ok, true);
+    assert.strictEqual(a.date.toISOString(), '2026-01-20T00:00:00.000Z');
+    assert.strictEqual(a.unlockDays, 7);
+
+    // Cas B : fallback createdAt.
+    const b = resolve({ createdAt, updatedAt, items: [] });
+    assert.strictEqual(b.ok, true, 'fallback doit reussir: ' + JSON.stringify(b));
+    assert.strictEqual(b.date.toISOString(), createdAt.toISOString());
+    assert.strictEqual(b.unlockDays, 7);
+
+    // Cas C : fallback updatedAt quand createdAt absent.
+    const c = resolve({ updatedAt, items: [] });
+    assert.strictEqual(c.ok, true, 'fallback updatedAt: ' + JSON.stringify(c));
+    assert.strictEqual(c.date.toISOString(), updatedAt.toISOString());
+
+    // Cas D : aucune date -> echec explicite.
+    const d = resolve({ items: [] });
+    assert.strictEqual(d.ok, false);
+    assert.ok(/createdAt\/updatedAt/.test(d.reason), 'raison explicite attendue: ' + d.reason);
+
+    // Cas E : produit Smart Swika -> 15 jours meme via le fallback.
+    const e = resolve({ createdAt, items: [{ isSmartSwika: true }] });
+    assert.strictEqual(e.ok, true);
+    assert.strictEqual(e.unlockDays, 15);
+    assert.strictEqual(e.scope, 'smart');
+  });
+
   const failed = results.filter(r => !r.ok);
   console.log('\n' + (results.length - failed.length) + '/' + results.length + ' verifications PASS');
   if (failed.length) {

@@ -148,13 +148,34 @@ function resolveCreditUnlockBase(order) {
     return { ok: false, reason: 'commande absente' };
   }
 
-  const startedAt = order.trackingStartedAt;
-  if (!startedAt) {
-    return { ok: false, reason: 'trackingStartedAt absent (colis non pris en charge par Livo)' };
+  // Ancrage principal : prise en charge reelle par Livo.
+  // Fallback documente : si la commande a ete livree sans que le moindre
+  // evenement de tracking n'ait ete enregistre (webhook perdu, transition de
+  // statut manuelle, import historique), on ancre sur createdAt puis updatedAt.
+  // Un warning est emis pour rendre le cas visible dans les logs.
+  const toDateOrNull = (value) => {
+    if (!value) return null;
+    const parsed = value.toDate ? value.toDate() : new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
+
+  let date = toDateOrNull(order.trackingStartedAt);
+  let anchoredFrom = 'trackingStartedAt';
+
+  if (!date) {
+    date = toDateOrNull(order.createdAt) || toDateOrNull(order.updatedAt);
+    anchoredFrom = date ? (toDateOrNull(order.createdAt) ? 'createdAt' : 'updatedAt') : null;
+    if (date) {
+      const orderId = order.id || order.slug || '(sans id)';
+      console.warn(
+        '[resolveCreditUnlockBase] trackingStartedAt absent, ancrage de secours sur ' +
+        anchoredFrom + ' pour la commande ' + orderId
+      );
+    }
   }
-  const date = startedAt.toDate ? startedAt.toDate() : new Date(startedAt);
-  if (Number.isNaN(date.getTime())) {
-    return { ok: false, reason: 'trackingStartedAt invalide' };
+
+  if (!date) {
+    return { ok: false, reason: 'trackingStartedAt absent et aucune date de repli (createdAt/updatedAt)' };
   }
 
   const items = Array.isArray(order.items) ? order.items : [];
@@ -770,14 +791,19 @@ exports.livoWebhook = onRequest({
           updatedAt: FieldValue.serverTimestamp()
         };
 
-        // Chrono garantie : le colis est pris en charge par Livo quand la
-        // commande passe a `in progress`. C'est la seule ancre documentee par
-        // la spec (order.status_changed avec data.status = "in progress").
+        // Chrono garantie : l'ancre est la prise en charge du colis par Livo.
+        // La spec (components.schemas.Order.properties.status) liste `pending`
+        // et `in progress` comme statuts d'une commande creee / prise en charge.
+        // On ancre donc des le premier etat de tracking connu : `pending` (colis
+        // enregistre chez Livo) puis `in progress` (colis en circulation).
         // Ecrit une seule fois : un retour en arriere puis un nouveau passage
-        // en "in progress" ne doit jamais repousser la date de deblocage.
-        if (livoStatus === 'in progress' && !orderSnap.data().trackingStartedAt) {
+        // en `pending`/`in progress` ne doit jamais repousser la date de deblocage.
+        const TRACKING_START_STATUSES = ['pending', 'in progress'];
+        if (TRACKING_START_STATUSES.includes(livoStatus) && !orderSnap.data().trackingStartedAt) {
           statusPatch.trackingStartedAt = FieldValue.serverTimestamp();
-          statusPatch.trackingStartedFrom = 'livo_webhook';
+          statusPatch.trackingStartedFrom = livoStatus === 'pending'
+            ? 'livo_webhook_pending'
+            : 'livo_webhook';
         }
 
         tx.update(matchedOrderRef, statusPatch);
@@ -2083,14 +2109,26 @@ exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}',
   // Synchroniser uniquement le statut dans les vues privées de chaque vendeur.
   // Les articles et montants propres à chaque vendeur restent cloisonnés.
   // Filet de securite : si le webhook Livo n'a pas pose la date (commande
-  // passee en livraison par un autre chemin), on l'ancre ici pour que le
-  // chrono 7/15 jours ne soit jamais perdu.
-  if (after.status === 'shipping' && !after.trackingStartedAt) {
+  // passee en livraison/livree par un autre chemin), on l'ancre ici pour que
+  // le chrono 7/15 jours ne soit jamais perdu.
+  // - `shipping` : prise en charge logistique confirmee.
+  // - `delivered` sans ancre : on utilise createdAt (date de commande) puis
+  //   updatedAt comme repli, afin de ne jamais bloquer un credit legitime.
+  const trackingFallbackStatuses = ['shipping', 'delivered'];
+  if (trackingFallbackStatuses.includes(after.status) && !after.trackingStartedAt) {
+    const fallbackDate = after.status === 'shipping'
+      ? FieldValue.serverTimestamp()
+      : (after.createdAt || after.updatedAt || FieldValue.serverTimestamp());
+    const trackingStartedFrom = after.status === 'shipping'
+      ? 'status_transition'
+      : 'status_transition_delivered_fallback';
     await db.collection('orders').doc(orderId).update({
-      trackingStartedAt: FieldValue.serverTimestamp(),
-      trackingStartedFrom: 'status_transition'
+      trackingStartedAt: fallbackDate,
+      trackingStartedFrom
     }).catch(err => console.error('[onOrderStatusChanged] trackingStartedAt :', err.message));
-    after.trackingStartedAt = new Date();
+    after.trackingStartedAt = after.status === 'shipping'
+      ? new Date()
+      : (after.createdAt || after.updatedAt || new Date());
   }
 
   if (before.status !== after.status && Array.isArray(after.vendorIds)) {
