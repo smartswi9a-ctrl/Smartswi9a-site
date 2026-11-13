@@ -614,8 +614,27 @@ function renderFeaturesSection(product) {
     el.innerHTML = "";
     return;
   }
+  /* Nettoyage : les caracteristiques sont saisies dans l'admin avec un ">"
+     initial (heritage d'une liste markdown). On retire ce prefixe ligne par
+     ligne + trim, et on ignore les lignes devenues vides. */
+  const cleanFeatures = features
+    .map((f) =>
+      String(f === null || f === undefined ? "" : f)
+        .split(/\r?\n/)
+        .map((line) => line.replace(/^>\s*/, "").trim())
+        .filter((line) => line.length > 0)
+        .join(" ")
+    )
+    .filter((f) => f.length > 0);
+
+  if (cleanFeatures.length === 0) {
+    if (parentDiv) parentDiv.style.display = "none";
+    el.innerHTML = "";
+    return;
+  }
+
   if (parentDiv) parentDiv.style.display = "";
-  el.innerHTML = features
+  el.innerHTML = cleanFeatures
     .map(
       (f) =>
         `<li><span class="feature-check">✓</span><span class="feature-text">${escapeHTML( f )}</span></li>`
@@ -678,7 +697,7 @@ async function renderReviewsSection(product) {
     } else if (reviewCheck.reason === "already_reviewed") {
       html += `<p style="font-size:0.85rem;color:var(--text-muted);margin-top:1rem;text-align:center;">${t( "reviewAlreadyExists" )}</p>`;
     } else if (reviewCheck.reason === "check_failed") {
-      html += `<p style="font-size:0.85rem;color:var(--text-muted);margin-top:1rem;text-align:center;">${ t("error") || "Vérification impossible. Réessayez." }</p>`;
+      html += `<p style="font-size:0.85rem;color:var(--text-muted);margin-top:1rem;text-align:center;">${ t("reviewCheckUnavailable") }</p>`;
     }
 
     container.innerHTML = html;
@@ -686,7 +705,7 @@ async function renderReviewsSection(product) {
     attachReviewEvents(product, productId);
   } catch (e) {
     console.error("Erreur chargement avis :", e);
-    container.innerHTML = `<p style="text-align:center;color:var(--danger);">${t( "loadingError" )}</p>`;
+    container.innerHTML = `<p style="text-align:center;color:var(--text-muted);padding:1rem;">${t( "reviewsLoadError" )}</p>`;
   }
 }
 

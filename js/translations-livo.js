@@ -36,6 +36,10 @@
       "Du point le plus haut de l'épaule jusqu'au bas du vêtement.",
     reviewsShowAll: "Afficher tous les commentaires",
     reviewsShowLess: "Voir moins d'avis",
+    reviewsLoadError:
+      "Impossible de charger les avis pour le moment. Réessayez plus tard.",
+    reviewCheckUnavailable:
+      "Vérification impossible pour le moment. Réessayez plus tard.",
   });
 
   /* ============================================================ ARABE (ar) ============================================================ */
@@ -61,6 +65,10 @@
     sizeGuideLengthHelp: "من أعلى نقطة في الكتف حتى أسفل الملابس.",
     reviewsShowAll: "عرض جميع التعليقات",
     reviewsShowLess: "عرض عدد أقل من التقييمات",
+    reviewsLoadError:
+      "تعذر تحميل التقييمات حاليًا. يُرجى المحاولة لاحقًا.",
+    reviewCheckUnavailable:
+      "تعذر التحقق من إمكانية إضافة تقييم حاليًا. يُرجى المحاولة لاحقًا.",
   });
 
   /* ============================================================ ANGLAIS (en) ============================================================ */
@@ -88,6 +96,9 @@
       "From the highest point of the shoulder to the bottom of the garment.",
     reviewsShowAll: "Show all reviews",
     reviewsShowLess: "Show fewer reviews",
+    reviewsLoadError: "Unable to load reviews right now. Please try again later.",
+    reviewCheckUnavailable:
+      "Verification unavailable right now. Please try again later.",
   });
 
   console.log("✅ translations-livo.js chargé — v1.0.0 (19 clés × 3 langues)");
