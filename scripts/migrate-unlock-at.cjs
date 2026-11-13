@@ -32,6 +32,7 @@
  *   node scripts/migrate-unlock-at.cjs --force-fallback-date
  *   node scripts/migrate-unlock-at.cjs --only-products
  *   node scripts/migrate-unlock-at.cjs --only-transactions
+ *   node scripts/migrate-unlock-at.cjs --diagnose
  *
  * OPTIONS
  *   --dry-run              Simulation : compteurs + 3 exemples avant/apres,
@@ -44,6 +45,10 @@
  *                          Desactive par defaut.
  *   --only-products        Ne traite que la collection products.
  *   --only-transactions    Ne traite que la collection wallet_transactions.
+ *   --diagnose             Diagnostic seul (aucune ecriture) : identite du
+ *                          projet, credentials, emulateur, comptages bruts et
+ *                          filtres, echantillons et collections visibles.
+ *                          A utiliser quand la migration renvoie 0 document.
  *   --help                 Affiche cette aide.
  *
  * PREREQUIS
@@ -52,6 +57,10 @@
  *
  * Le script est idempotent : relance sans effet si tout est deja conforme.
  * ========================================================================== */
+
+const fs = require('fs');
+
+const APOS = String.fromCharCode(39); // apostrophe, sans antislash
 
 const PROJECT_ID = 'smartswi9a-31063';
 
@@ -69,6 +78,7 @@ const FORCE_FALLBACK_DATE = argv.has('--force-fallback-date');
 const ONLY_PRODUCTS = argv.has('--only-products');
 const ONLY_TRANSACTIONS = argv.has('--only-transactions');
 const SHOW_HELP = argv.has('--help') || argv.has('-h');
+const DIAGNOSE = argv.has('--diagnose');
 
 const DO_PRODUCTS = !ONLY_TRANSACTIONS;
 const DO_TRANSACTIONS = !ONLY_PRODUCTS;
@@ -82,6 +92,7 @@ function printHelp() {
   console.log('');
   console.log('  node scripts/migrate-unlock-at.cjs --dry-run   # simulation');
   console.log('  node scripts/migrate-unlock-at.cjs             # ecriture reelle');
+  console.log('  node scripts/migrate-unlock-at.cjs --diagnose # diagnostic seul');
   console.log('');
   console.log('Options :');
   console.log('  --dry-run              Aucune ecriture, seulement le rapport.');
@@ -89,6 +100,9 @@ function printHelp() {
   console.log('                         (ancre = createdAt de la transaction). DANGEREUX.');
   console.log('  --only-products        Traite uniquement products.');
   console.log('  --only-transactions    Traite uniquement wallet_transactions.');
+  console.log('  --diagnose             Diagnostic seul (aucune ecriture) :');
+  console.log('                         projet, credentials, emulateur, comptages,');
+  console.log('                         echantillons, collections visibles.');
   console.log('  --help                 Cette aide.');
   console.log('');
   console.log('Prerequis :');
@@ -512,6 +526,343 @@ async function migrateProducts(db) {
 }
 
 /* ============================================================
+   MODE --diagnose (aucune ecriture)
+   ------------------------------------------------------------
+   Objectif : expliquer pourquoi la migration renvoie 0 document alors
+   que la base devrait etre peuplee (mauvais projet, emulateur actif,
+   nom de collection errone, champ type absent...).
+   Ce mode ne fait que LIRE.
+   ============================================================ */
+
+/** Lit uniquement le champ project_id d'un service account. Jamais la cle. */
+function readServiceAccountProjectId(filePath) {
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8');
+    const parsed = JSON.parse(raw);
+    return typeof parsed.project_id === 'string' ? parsed.project_id : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+/** Rend un champ texte lisible, ou '(absent)'. */
+function fieldOr(value, fallback) {
+  if (value === undefined || value === null || value === '') {
+    return fallback || '(absent)';
+  }
+  return String(value);
+}
+
+/** Compte les documents d'une collection (count() si dispo, sinon borne). */
+async function countCollection(db, collectionName) {
+  const ref = db.collection(collectionName);
+  try {
+    if (typeof ref.count === 'function') {
+      const agg = await ref.count().get();
+      return { total: agg.data().count, method: 'aggregation count()' };
+    }
+  } catch (err) {
+    // On retombe sur une lecture bornee.
+  }
+  try {
+    const snap = await ref.limit(1000).get();
+    return { total: snap.size, method: 'lecture bornee limit(1000)', capped: snap.size >= 1000 };
+  } catch (err) {
+    return { total: null, method: 'indisponible', error: err && err.message ? err.message : String(err) };
+  }
+}
+
+/** Repartition des valeurs d'un champ, par pages de 500. */
+async function countByField(db, collectionName, fieldName, maxPages) {
+  const pages = maxPages || 10;
+  const counts = new Map();
+  let scanned = 0;
+  let lastDoc = null;
+
+  for (let page = 0; page < pages; page += 1) {
+    let query = db.collection(collectionName).orderBy('__name__').limit(500);
+    if (lastDoc) query = query.startAfter(lastDoc);
+    const snap = await query.get();
+    if (snap.empty) break;
+    snap.docs.forEach((doc) => {
+      const data = doc.data() || {};
+      const key = fieldOr(data[fieldName], '(champ absent)');
+      counts.set(key, (counts.get(key) || 0) + 1);
+      scanned += 1;
+    });
+    lastDoc = snap.docs[snap.docs.length - 1];
+    if (snap.size < 500) break;
+  }
+
+  const sorted = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+  return { scanned, counts: sorted, truncated: scanned >= pages * 500 };
+}
+
+async function runDiagnose() {
+  const startedAt = Date.now();
+
+  printHeader('DIAGNOSTIC - migrate-unlock-at');
+  console.log('  Mode lecture seule : aucune ecriture ne sera effectuee.');
+  console.log('  Projet attendu par le script : ' + PROJECT_ID);
+
+  /* ---------- 1. Connexion et identite ---------- */
+  printHeader('1 - CONNEXION ET IDENTITE');
+
+  const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS || '';
+  console.log('  GOOGLE_APPLICATION_CREDENTIALS : ' + (credPath || '(non defini)'));
+
+  let credProjectId = null;
+  if (credPath) {
+    if (!fs.existsSync(credPath)) {
+      console.log('    ! fichier introuvable a ce chemin');
+    } else {
+      credProjectId = readServiceAccountProjectId(credPath);
+      if (credProjectId) {
+        console.log('    project_id du service account : ' + credProjectId);
+      } else {
+        console.log('    ! fichier illisible, JSON invalide, ou champ project_id absent');
+      }
+    }
+  }
+  console.log('    (la cle privee n' + APOS + 'est jamais affichee, seul project_id est lu)');
+
+  const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST || '';
+  if (emulatorHost) {
+    console.log('  FIRESTORE_EMULATOR_HOST        : ' + emulatorHost + '   <-- EMULATEUR ACTIF');
+    console.log('    ! Les donnees lues viennent de l' + APOS + 'emulateur local, pas de la production.');
+  } else {
+    console.log('  FIRESTORE_EMULATOR_HOST        : (non defini) - connexion reelle');
+  }
+
+  if (process.env.GCLOUD_PROJECT) {
+    console.log('  GCLOUD_PROJECT                 : ' + process.env.GCLOUD_PROJECT);
+  }
+  if (process.env.GOOGLE_CLOUD_PROJECT) {
+    console.log('  GOOGLE_CLOUD_PROJECT           : ' + process.env.GOOGLE_CLOUD_PROJECT);
+  }
+
+  const { app, firestore } = loadAdmin();
+  const { initializeApp, applicationDefault } = app;
+  const { getFirestore } = firestore;
+
+  const appInstance = initializeApp({
+    projectId: PROJECT_ID,
+    credential: applicationDefault()
+  });
+
+  const effectiveProjectId =
+    appInstance && appInstance.options && appInstance.options.projectId
+      ? appInstance.options.projectId
+      : PROJECT_ID;
+
+  console.log('');
+  console.log('  projectId utilise par le SDK   : ' + effectiveProjectId);
+
+  const mismatches = [];
+  if (credProjectId && credProjectId !== effectiveProjectId) {
+    mismatches.push(
+      'le service account pointe sur "' + credProjectId + '" mais le SDK interroge "' + effectiveProjectId + '"'
+    );
+  }
+  if (emulatorHost) {
+    mismatches.push('un emulateur Firestore est actif : les collections peuvent etre vides');
+  }
+
+  if (mismatches.length > 0) {
+    console.log('');
+    console.log('  ! COHERENCE A VERIFIER :');
+    mismatches.forEach((m) => console.log('    - ' + m));
+  } else {
+    console.log('  coherence projet : OK (aucun ecart detecte)');
+  }
+
+  const db = getFirestore();
+  db.settings({ ignoreUndefinedProperties: true });
+
+  console.log('');
+  let pingOk = false;
+  try {
+    const pingSnap = await db.collection('__diagnostic_ping__').limit(1).get();
+    pingOk = true;
+    console.log('  appel de test Firestore       : OK (reponse recue, ' + pingSnap.size + ' document(s))');
+  } catch (err) {
+    console.log('  appel de test Firestore       : ECHEC');
+    console.log('    ' + (err && err.message ? err.message : err));
+    console.log('');
+    console.log('  Diagnostic interrompu : la connexion Firestore ne repond pas.');
+    return;
+  }
+
+  /* ---------- 2. Comptages bruts vs filtres ---------- */
+  printHeader('2 - COMPTAGES : BRUT vs FILTRES DE MIGRATION');
+
+  const txTotal = await countCollection(db, 'wallet_transactions');
+  if (txTotal.total === null) {
+    console.log('  wallet_transactions (total)   : indisponible (' + (txTotal.error || 'erreur') + ')');
+  } else {
+    console.log('  wallet_transactions (total)   : ' + txTotal.total + '   [' + txTotal.method + ']');
+  }
+
+  const prodTotal = await countCollection(db, 'products');
+  if (prodTotal.total === null) {
+    console.log('  products (total)              : indisponible (' + (prodTotal.error || 'erreur') + ')');
+  } else {
+    console.log('  products (total)              : ' + prodTotal.total + '   [' + prodTotal.method + ']');
+  }
+
+  let txSale = null;
+  try {
+    const snap = await db.collection('wallet_transactions').where('type', '==', 'sale').get();
+    txSale = snap.size;
+    console.log('  wallet_transactions type=sale : ' + snap.size + '   [filtre de la migration]');
+  } catch (err) {
+    console.log('  wallet_transactions type=sale : ECHEC - ' + (err && err.message ? err.message : err));
+  }
+
+  let prodSmart = null;
+  try {
+    const snap = await db.collection('products')
+      .where('vendorId', '==', SMART_SWIKA_VENDOR_ID)
+      .get();
+    prodSmart = snap.size;
+    console.log('  products vendorId=' + SMART_SWIKA_VENDOR_ID + '     : ' + snap.size + '   [filtre de la migration]');
+  } catch (err) {
+    console.log('  products vendorId=' + SMART_SWIKA_VENDOR_ID + '     : ECHEC - ' + (err && err.message ? err.message : err));
+  }
+
+  /* ---------- 3. Echantillons ---------- */
+  printHeader('3 - ECHANTILLONS (' + MAX_SAMPLES + ' premiers documents)');
+
+  try {
+    const snap = await db.collection('wallet_transactions').limit(MAX_SAMPLES).get();
+    if (snap.empty) {
+      console.log('  wallet_transactions : collection vide ou inexistante');
+    } else {
+      snap.docs.forEach((doc, index) => {
+        const data = doc.data() || {};
+        console.log('');
+        console.log('  [' + (index + 1) + '/' + snap.size + '] wallet_transactions');
+        console.log('    id                : ' + doc.id);
+        console.log('    type              : ' + fieldOr(data.type));
+        console.log('    status            : ' + fieldOr(data.status));
+        console.log('    vendorId          : ' + fieldOr(data.vendorId));
+        console.log('    orderId           : ' + fieldOr(data.orderId));
+        console.log('    unlockAt          : ' + formatDate(data.unlockAt));
+        console.log('    trackingStartedAt : ' + formatDate(data.trackingStartedAt));
+        console.log('    createdAt         : ' + formatDate(data.createdAt));
+      });
+    }
+  } catch (err) {
+    console.log('  wallet_transactions : ECHEC - ' + (err && err.message ? err.message : err));
+  }
+
+  try {
+    const snap = await db.collection('products').limit(MAX_SAMPLES).get();
+    if (snap.empty) {
+      console.log('');
+      console.log('  products : collection vide ou inexistante');
+    } else {
+      snap.docs.forEach((doc, index) => {
+        const data = doc.data() || {};
+        console.log('');
+        console.log('  [' + (index + 1) + '/' + snap.size + '] products');
+        console.log('    id                : ' + doc.id);
+        console.log('    vendorId          : ' + fieldOr(data.vendorId));
+        console.log('    type              : ' + fieldOr(data.type));
+        console.log('    status            : ' + fieldOr(data.status));
+        console.log('    isSmartSwika      : ' + fieldOr(data.isSmartSwika));
+        console.log('    nom               : ' + fieldOr(data.nameFr || data.nameEn || data.slug));
+      });
+    }
+  } catch (err) {
+    console.log('  products : ECHEC - ' + (err && err.message ? err.message : err));
+  }
+
+  /* ---------- 4. Collections visibles ---------- */
+  printHeader('4 - COLLECTIONS VISIBLES A LA RACINE');
+
+  let visibleCollections = [];
+  try {
+    const collections = await db.listCollections();
+    visibleCollections = collections.map((c) => c.id).sort();
+    if (visibleCollections.length === 0) {
+      console.log('  Aucune collection visible a la racine.');
+      console.log('  ! La base semble vide, ou les droits de lecture sont insuffisants.');
+    } else {
+      console.log('  ' + visibleCollections.length + ' collection(s) :');
+      visibleCollections.forEach((name) => console.log('    - ' + name));
+    }
+  } catch (err) {
+    console.log('  listCollections() : ECHEC - ' + (err && err.message ? err.message : err));
+  }
+
+  if (visibleCollections.length > 0) {
+    const expected = ['wallet_transactions', 'products', 'orders'];
+    const missing = expected.filter((name) => visibleCollections.indexOf(name) === -1);
+    console.log('');
+    if (missing.length > 0) {
+      console.log('  ! Collections attendues mais ABSENTES : ' + missing.join(', '));
+    } else {
+      console.log('  Les collections attendues (wallet_transactions, products, orders) sont presentes.');
+    }
+  }
+
+  /* ---------- 5. Repartition par type ---------- */
+  printHeader('5 - wallet_transactions : REPARTITION PAR type');
+
+  try {
+    const byType = await countByField(db, 'wallet_transactions', 'type');
+    if (byType.scanned === 0) {
+      console.log('  Aucun document lisible dans wallet_transactions.');
+    } else {
+      console.log('  ' + byType.scanned + ' document(s) analyse(s)' +
+        (byType.truncated ? ' (echantillon tronque)' : '') + ' :');
+      byType.counts.forEach((entry) => {
+        console.log('    ' + String(entry[0]).padEnd(20, ' ') + ' : ' + entry[1]);
+      });
+      const hasSale = byType.counts.some((e) => e[0] === 'sale');
+      if (!hasSale) {
+        console.log('');
+        console.log('  ! Aucun document type="sale" : la migration n' + APOS + 'a donc rien a traiter.');
+        console.log('    Le champ type existe-t-il sous un autre nom, ou avec une autre valeur ?');
+      }
+    }
+  } catch (err) {
+    console.log('  repartition par type : ECHEC - ' + (err && err.message ? err.message : err));
+  }
+
+  /* ---------- 6. Conclusion ---------- */
+  printHeader('CONCLUSION');
+
+  const problems = [];
+  if (mismatches.length > 0) problems = problems.concat(mismatches);
+  if (visibleCollections.length === 0) {
+    problems.push('aucune collection visible : base vide ou droits insuffisants');
+  }
+  if (txTotal.total === 0) problems.push('wallet_transactions est vide');
+  if (prodTotal.total === 0) problems.push('products est vide');
+  if (txTotal.total !== null && txTotal.total > 0 && txSale === 0) {
+    problems.push('des transactions existent mais aucune n' + APOS + 'est de type "sale"');
+  }
+  if (prodTotal.total !== null && prodTotal.total > 0 && prodSmart === 0) {
+    problems.push('des produits existent mais aucun n' + APOS + 'a vendorId="smartswi9a"');
+  }
+
+  if (problems.length === 0) {
+    console.log('  Aucun probleme detecte : les filtres de migration trouvent bien des documents.');
+    console.log('  Vous pouvez lancer : node scripts/migrate-unlock-at.cjs --dry-run');
+  } else {
+    console.log('  Piste(s) expliquant probablement le resultat "0 document" :');
+    problems.forEach((p) => console.log('    - ' + p));
+  }
+
+  console.log('');
+  console.log('  duree : ' + ((Date.now() - startedAt) / 1000).toFixed(1) + ' s');
+  console.log('  Aucune ecriture effectuee (mode --diagnose).');
+  console.log('');
+}
+
+/* ============================================================
    MAIN
    ============================================================ */
 async function main() {
@@ -583,7 +934,9 @@ if (SHOW_HELP) {
   process.exit(0);
 }
 
-main().catch((err) => {
+const runner = DIAGNOSE ? runDiagnose : main;
+
+runner().catch((err) => {
   console.error('');
   console.error('ERREUR : ' + (err && err.message ? err.message : err));
   const message = String((err && err.message) || '');
