@@ -28,7 +28,7 @@ import {
     syncLivoStatus, createLivoPickup
 } from "./orders.js";
 import { renderAdminReviews } from "./reviews.js";
-import { showToast, confirmAction } from "./ui-core.js";
+import { showToast, confirmAction, promptAction } from "./ui-core.js";
 
 /* ============================================================
    ÉTAT LOCAL
@@ -4142,13 +4142,24 @@ async function handleDisputeBlame(dataset) {
     }
 
     const defaultAmount = Math.max(0, Number(CONFIG.VENDOR?.RETURN_FEE_LIVO) || 20) * Math.max(1, returnedQty);
-    const input = window.prompt(
-        'Frais de retour \u00e0 d\u00e9biter pour ' + vendorName + ' (MAD) :',
-        String(defaultAmount)
+    const feePrompt = await promptAction(
+        'D\u00e9clarer le vendeur en tort',
+        'Frais de retour \u00e0 d\u00e9biter \u00e0 ' + vendorName + '. ' +
+        'Le justificatif de frais sera cr\u00e9\u00e9 puis le portefeuille du vendeur suspendu.',
+        {
+            label: 'Frais de retour (MAD)',
+            placeholder: String(defaultAmount),
+            defaultValue: String(defaultAmount),
+            inputType: 'number',
+            confirmText: 'Continuer',
+            cancelText: 'Annuler',
+            variant: 'danger',
+            maxLength: 12
+        }
     );
-    if (input === null || input === undefined) return;
+    if (!feePrompt.confirmed) return;
 
-    const amount = Number(String(input).replace(',', '.'));
+    const amount = Number(String(feePrompt.value).replace(',', '.'));
     if (!Number.isFinite(amount) || amount <= 0) {
         showToast('Montant invalide.');
         return;
@@ -4197,7 +4208,7 @@ async function handleDisputeBlame(dataset) {
             body: JSON.stringify({
                 vendorId,
                 action: 'suspend',
-                reason: 'Litige commande #' + (order?.orderNumber || orderId) + ' : vendeur d\u00e9clar\u00e9 en tort.'
+                reason: 'Litige commande #' + (order?.orderNumber || orderId) + ' : vendeur d\u00e9clar\u00e9 en tort. Frais de retour : ' + formatMAD(amount) + '.'
             })
         });
         const walletText = await walletRes.text();
