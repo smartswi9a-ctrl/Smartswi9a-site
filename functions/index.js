@@ -91,6 +91,90 @@ function buildOfficialSnapshot() {
 }
 
 /* ============================================================
+   HELPERS FINANCIERS (chrono 7/15 jours + statut portefeuille)
+   ============================================================ */
+
+/**
+ * Statuts du portefeuille vendeur.
+ * - active    : retraits autorises.
+ * - frozen    : litige ouvert, retraits bloques, fonds conserves.
+ * - suspended : solde debiteur (dette de frais de retour), retraits bloques.
+ */
+const WALLET_STATUS = Object.freeze({
+  ACTIVE: 'active',
+  FROZEN: 'frozen',
+  SUSPENDED: 'suspended'
+});
+
+const WALLET_STATUS_VALUES = new Set(Object.values(WALLET_STATUS));
+
+/**
+ * Lit le statut portefeuille d'un profil vendeur.
+ * Le champ vit sur le profil (users/{uid}.wallet_status), jamais sur le wallet,
+ * car les regles Firestore interdisent au vendeur d'ecrire dans wallets/.
+ * Absence de champ => 'active' (compatibilite avec les comptes existants).
+ */
+function normalizeWalletStatus(vendorData) {
+  const raw = vendorData && vendorData.wallet_status;
+  const value = String(raw || '').trim().toLowerCase();
+  return WALLET_STATUS_VALUES.has(value) ? value : WALLET_STATUS.ACTIVE;
+}
+
+/**
+ * Date de disponibilite des fonds = base + delai de garantie.
+ * La base est la prise en charge du colis par Livo (trackingStartedAt),
+ * jamais la date de commande.
+ */
+function addDaysToDate(date, days) {
+  const base = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(base.getTime())) return null;
+  const result = new Date(base.getTime());
+  result.setUTCDate(result.getUTCDate() + Number(days));
+  return result;
+}
+
+/**
+ * Determine la date d'ancrage du chrono et le delai applicable.
+ *
+ * Regle prudente (validee) : 15 jours UNIQUEMENT si un article porte
+ * explicitement isSmartSwika: true. Par defaut on retombe sur 7 jours
+ * (vendeur), ce qui protege le vendeur d'une retenue excessive.
+ *
+ * @returns {{ok: true, date: Date, unlockDays: number, scope: string}|{ok: false, reason: string}}
+ */
+function resolveCreditUnlockBase(order) {
+  if (!order || typeof order !== 'object') {
+    return { ok: false, reason: 'commande absente' };
+  }
+
+  const startedAt = order.trackingStartedAt;
+  if (!startedAt) {
+    return { ok: false, reason: 'trackingStartedAt absent (colis non pris en charge par Livo)' };
+  }
+  const date = startedAt.toDate ? startedAt.toDate() : new Date(startedAt);
+  if (Number.isNaN(date.getTime())) {
+    return { ok: false, reason: 'trackingStartedAt invalide' };
+  }
+
+  const items = Array.isArray(order.items) ? order.items : [];
+  const hasSmartSwika = items.some(item =>
+    item && item.isSmartSwika === true &&
+    String(item.vendorId || '') !== 'smartswi9a'
+  );
+
+  const unlockDays = hasSmartSwika
+    ? OFFICIAL_VENDOR_CONFIG.UNLOCK_DAYS_SMART
+    : OFFICIAL_VENDOR_CONFIG.UNLOCK_DAYS_VENDOR;
+
+  return {
+    ok: true,
+    date,
+    unlockDays,
+    scope: hasSmartSwika ? 'smart' : 'vendor'
+  };
+}
+
+/* ============================================================
    HELPERS GÉNÉRAUX
    ============================================================ */
 function cors(req, res) {
@@ -676,12 +760,24 @@ exports.livoWebhook = onRequest({
       });
 
       if (canApplyStatus) {
-        tx.update(matchedOrderRef, {
+        const statusPatch = {
           status: mappedStatus,
           livoStatusRaw: livoStatus,
           livoSyncedAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp()
-        });
+        };
+
+        // Chrono garantie : le colis est pris en charge par Livo quand la
+        // commande passe a `in progress`. C'est la seule ancre documentee par
+        // la spec (order.status_changed avec data.status = "in progress").
+        // Ecrit une seule fois : un retour en arriere puis un nouveau passage
+        // en "in progress" ne doit jamais repousser la date de deblocage.
+        if (livoStatus === 'in progress' && !orderSnap.data().trackingStartedAt) {
+          statusPatch.trackingStartedAt = FieldValue.serverTimestamp();
+          statusPatch.trackingStartedFrom = 'livo_webhook';
+        }
+
+        tx.update(matchedOrderRef, statusPatch);
       } else if (canApplyReturn) {
         tx.update(matchedOrderRef, {
           livoReturnStatus: returnStatus,
@@ -1625,6 +1721,16 @@ exports.requestWithdrawal = onRequest({ invoker: 'public', region: 'europe-west1
       return res.status(400).json({ success: false, message: 'Méthode de retrait invalide.' });
     }
 
+    // Frais de retrait : preleves sur le montant demande et enregistres sur la
+    // demande, pour que l'admin verse exactement le net attendu par le vendeur.
+    // Virement bancaire : pas de frais operateur cote plateforme.
+    const feeTable = { 'Wafacash': 10, 'Cash Plus': 10, 'Virement bancaire': 0 };
+    const fee = Number(feeTable[method]) || 0;
+    const netAmount = Math.round((amount - fee) * 100) / 100;
+    if (netAmount <= 0) {
+      return res.status(400).json({ success: false, message: 'Montant insuffisant pour couvrir les frais de retrait.' });
+    }
+
     const validPhone = /^(?:\+212|0)[67]\d{8}$/.test(account);
     const validRib = /^\d{24}$/.test(account);
     if ((method === 'Virement bancaire' && !validRib) ||
@@ -1657,6 +1763,17 @@ exports.requestWithdrawal = onRequest({ invoker: 'public', region: 'europe-west1
           vendorData.vendorInfo?.contractStatus !== 'accepted' ||
           String(vendorData.vendorInfo?.contractVersion || '') !== OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION) {
         throw new Error('Votre compte vendeur doit être approuvé et votre contrat accepté.');
+      }
+
+      // Statut portefeuille : un compte gele (litige) ou suspendu (dette)
+      // ne peut demander aucun retrait. 'active' par defaut pour ne pas
+      // bloquer les vendeurs qui n'ont pas encore le champ.
+      const walletStatus = normalizeWalletStatus(vendorData);
+      if (walletStatus === WALLET_STATUS.FROZEN) {
+        throw new Error('Retrait impossible : vos fonds sont gelés suite à un litige en cours.');
+      }
+      if (walletStatus === WALLET_STATUS.SUSPENDED) {
+        throw new Error('Retrait impossible : votre portefeuille est suspendu (solde débiteur à régulariser).');
       }
 
       if (!walletSnap.exists) throw new Error('Wallet introuvable.');
@@ -1693,6 +1810,76 @@ exports.requestWithdrawal = onRequest({ invoker: 'public', region: 'europe-west1
   } catch (error) {
     const message = error.message || 'Erreur serveur.';
     const clientError = /introuvable|invalide|minimum|coordonnées|méthode|solde insuffisant|solde débiteur|retrait impossible|déjà en cours|doit être approuvé/i.test(message);
+    return res.status(clientError ? 400 : 500).json({ success: false, message });
+  }
+});
+
+/* ============================================================
+   CF : adminManageWallet (gestion du statut portefeuille vendeur)
+   ============================================================ */
+exports.adminManageWallet = onRequest({
+  invoker: 'public',
+  region: 'europe-west1',
+  cors: [...ALLOWED_ORIGINS],
+  timeoutSeconds: 30
+}, async (req, res) => {
+  if (cors(req, res)) return;
+  try {
+    const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
+    if (!match) return res.status(401).json({ success: false, message: 'Connexion requise.' });
+    const decoded = await getAuth().verifyIdToken(match[1], true);
+    const adminSnap = await db.collection('users').doc(decoded.uid).get();
+    const isAdmin = decoded.admin === true || (adminSnap.exists && adminSnap.data()?.role === 'admin');
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, message: 'Action réservée à un administrateur.' });
+    }
+
+    const vendorId = String(req.body?.vendorId || '').trim();
+    const action = String(req.body?.action || '').trim();
+    const reason = String(req.body?.reason || '').trim().slice(0, 500);
+
+    if (!vendorId || vendorId.length > 128) {
+      return res.status(400).json({ success: false, message: 'Vendeur invalide.' });
+    }
+
+    const ACTIONS = {
+      freeze:        { status: WALLET_STATUS.FROZEN,    label: 'Portefeuille gelé' },
+      unfreeze:      { status: WALLET_STATUS.ACTIVE,    label: 'Portefeuille débloqué' },
+      suspend:       { status: WALLET_STATUS.SUSPENDED, label: 'Portefeuille suspendu' },
+      reactivate:    { status: WALLET_STATUS.ACTIVE,    label: 'Portefeuille réactivé' }
+    };
+    const decision = ACTIONS[action];
+    if (!decision) {
+      return res.status(400).json({ success: false, message: 'Action invalide.' });
+    }
+
+    const vendorRef = db.collection('users').doc(vendorId);
+    const previous = await db.runTransaction(async tx => {
+      const snap = await tx.get(vendorRef);
+      if (!snap.exists || snap.data()?.role !== 'vendor') {
+        throw new Error('Profil vendeur introuvable.');
+      }
+      const before = normalizeWalletStatus(snap.data());
+      tx.update(vendorRef, {
+        wallet_status: decision.status,
+        wallet_status_updated_at: FieldValue.serverTimestamp(),
+        wallet_status_updated_by: decoded.uid,
+        wallet_status_reason: reason || null,
+        updatedAt: FieldValue.serverTimestamp()
+      });
+      return before;
+    });
+
+    return res.status(200).json({
+      success: true,
+      action,
+      previousStatus: previous,
+      wallet_status: decision.status,
+      message: decision.label + '.'
+    });
+  } catch (error) {
+    const message = error.message || 'Erreur serveur.';
+    const clientError = /introuvable|invalide/i.test(message);
     return res.status(clientError ? 400 : 500).json({ success: false, message });
   }
 });
@@ -1892,6 +2079,17 @@ exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}',
 
   // Synchroniser uniquement le statut dans les vues privées de chaque vendeur.
   // Les articles et montants propres à chaque vendeur restent cloisonnés.
+  // Filet de securite : si le webhook Livo n'a pas pose la date (commande
+  // passee en livraison par un autre chemin), on l'ancre ici pour que le
+  // chrono 7/15 jours ne soit jamais perdu.
+  if (after.status === 'shipping' && !after.trackingStartedAt) {
+    await db.collection('orders').doc(orderId).update({
+      trackingStartedAt: FieldValue.serverTimestamp(),
+      trackingStartedFrom: 'status_transition'
+    }).catch(err => console.error('[onOrderStatusChanged] trackingStartedAt :', err.message));
+    after.trackingStartedAt = new Date();
+  }
+
   if (before.status !== after.status && Array.isArray(after.vendorIds)) {
     await Promise.all(after.vendorIds.map(vendorId =>
       db.collection('vendor_orders').doc(String(vendorId))
@@ -1972,8 +2170,17 @@ exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}',
         if (net <= 0) continue;
 
         const walletRef = db.collection('wallets').doc(vendorId);
-        const unlockAt = new Date();
-        unlockAt.setDate(unlockAt.getDate() + 7);
+
+        // Le deblocage part de la prise en charge par Livo (trackingStartedAt),
+        // jamais de la date de commande : 7 jours pour une vente vendeur,
+        // 15 jours pour un produit Smart Swika. Les deux valeurs viennent des
+        // constantes officielles du contrat, aucune duree en dur.
+        const creditBase = resolveCreditUnlockBase(after);
+        if (!creditBase.ok) {
+          console.error('[onOrderStatusChanged] Deblocage differe (commande ' + orderId + ') : ' + creditBase.reason);
+          continue;
+        }
+        const unlockAt = addDaysToDate(creditBase.date, creditBase.unlockDays);
 
         await db.runTransaction(async (tx) => {
           const orderRef = db.collection('orders').doc(orderId);
