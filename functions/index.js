@@ -121,6 +121,27 @@ function normalizeWalletStatus(vendorData) {
 }
 
 /**
+ * CIN marocaine : 1 a 3 lettres suivies de 4 a 8 chiffres (ex : AB123456,
+ * EE105603). Retourne true si le format est valide.
+ */
+function isValidMoroccanCin(value) {
+  return /^[A-Z]{1,3}\d{4,8}$/.test(String(value || '').trim().toUpperCase());
+}
+
+/**
+ * Normalise un numero de telephone marocain : supprime espaces, points et
+ * tirets, convertit le prefixe +212 en 0. Retourne le numero normalise
+ * (ex : '0612345678') ou null si le format final n'est pas 06/07 + 8 chiffres.
+ */
+function normalizeMoroccanPhone(value) {
+  let raw = String(value || '').replace(/[\s.\-()]/g, '');
+  if (raw.startsWith('+212')) raw = '0' + raw.slice(4);
+  else if (raw.startsWith('00212')) raw = '0' + raw.slice(5);
+  else if (raw.startsWith('212') && raw.length === 12) raw = '0' + raw.slice(3);
+  return /^(?:0)[67]\d{8}$/.test(raw) ? raw : null;
+}
+
+/**
  * Date de disponibilite des fonds = base + delai de garantie.
  * La base est la prise en charge du colis par Livo (trackingStartedAt),
  * jamais la date de commande.
@@ -1739,33 +1760,42 @@ exports.requestWithdrawal = onRequest({ invoker: 'public', region: 'europe-west1
 
     const amount = Number(req.body?.amount);
     const method = String(req.body?.method || '').trim();
-    const account = String(req.body?.account || '').trim();
+
+    // Identité du bénéficiaire : l'admin dépose le montant à l'agence au nom
+    // du vendeur, ces informations sont donc obligatoires et validées ici.
+    const firstName = String(req.body?.firstName || '').trim();
+    const lastName = String(req.body?.lastName || '').trim();
+    const cin = String(req.body?.cin || '').trim().toUpperCase();
+    const phone = normalizeMoroccanPhone(req.body?.phone || req.body?.account || '');
+    // `account` est l'ancien nom du champ de réception : conservé égal à `phone`
+    // pour ne pas casser les demandes déjà enregistrées.
+    const account = phone || '';
 
     if (!Number.isFinite(amount) || amount < 200) {
       return res.status(400).json({ success: false, message: 'Montant invalide. Minimum 200 MAD.' });
     }
 
-    const allowedMethods = new Set(['Wafacash', 'Cash Plus', 'Virement bancaire']);
+    const allowedMethods = new Set(['Wafacash', 'CashPlus']);
     if (!allowedMethods.has(method)) {
-      return res.status(400).json({ success: false, message: 'Méthode de retrait invalide.' });
+      return res.status(400).json({ success: false, message: 'Réseau de retrait invalide (Wafacash ou CashPlus).' });
     }
 
-    // Frais de retrait : preleves sur le montant demande et enregistres sur la
-    // demande, pour que l'admin verse exactement le net attendu par le vendeur.
-    // Virement bancaire : pas de frais operateur cote plateforme.
-    const feeTable = { 'Wafacash': 10, 'Cash Plus': 10, 'Virement bancaire': 0 };
-    const fee = Number(feeTable[method]) || 0;
-    const netAmount = Math.round((amount - fee) * 100) / 100;
-    if (netAmount <= 0) {
-      return res.status(400).json({ success: false, message: 'Montant insuffisant pour couvrir les frais de retrait.' });
+    if (firstName.length < 2 || firstName.length > 60) {
+      return res.status(400).json({ success: false, message: 'Prénom invalide (2 à 60 caractères).' });
+    }
+    if (lastName.length < 2 || lastName.length > 60) {
+      return res.status(400).json({ success: false, message: 'Nom invalide (2 à 60 caractères).' });
+    }
+    if (!isValidMoroccanCin(cin)) {
+      return res.status(400).json({ success: false, message: 'CIN invalide (ex : AB123456).' });
+    }
+    if (!/^(?:\+212|0)[67]\d{8}$/.test(phone || '')) {
+      return res.status(400).json({ success: false, message: 'Numéro de téléphone invalide (06XXXXXXXX ou 07XXXXXXXX).' });
     }
 
-    const validPhone = /^(?:\+212|0)[67]\d{8}$/.test(account);
-    const validRib = /^\d{24}$/.test(account);
-    if ((method === 'Virement bancaire' && !validRib) ||
-        (method !== 'Virement bancaire' && !validPhone)) {
-      return res.status(400).json({ success: false, message: 'Coordonnées de réception invalides.' });
-    }
+    // Aucun frais n'est retenu par Smart Swika : l'admin dépose exactement le
+    // montant demandé. Les frais de retrait sont déduits par l'agence
+    // Wafacash/CashPlus et ne concernent pas la plateforme.
 
     const vendorRef = db.collection('users').doc(decoded.uid);
     const walletRef = db.collection('wallets').doc(decoded.uid);
@@ -1827,10 +1857,16 @@ exports.requestWithdrawal = onRequest({ invoker: 'public', region: 'europe-west1
       tx.create(payoutRef, {
         vendorId: decoded.uid,
         vendorName: String(vendorData.vendorInfo?.shopName || vendorData.name || 'Vendeur').slice(0, 120),
+        firstName,
+        lastName,
+        cin,
+        phone,
         amount,
         method,
         account,
         status: 'pending',
+        transferNumber: null,
+        sentAt: null,
         requestedAt: FieldValue.serverTimestamp()
       });
     });
@@ -1838,7 +1874,7 @@ exports.requestWithdrawal = onRequest({ invoker: 'public', region: 'europe-west1
     return res.status(200).json({ success: true });
   } catch (error) {
     const message = error.message || 'Erreur serveur.';
-    const clientError = /introuvable|invalide|minimum|coordonnées|méthode|solde insuffisant|solde débiteur|retrait impossible|déjà en cours|doit être approuvé/i.test(message);
+    const clientError = /introuvable|invalide|minimum|coordonnées|méthode|réseau|prénom|\bnom\b|CIN|téléphone|solde insuffisant|solde débiteur|retrait impossible|déjà en cours|doit être approuvé/i.test(message);
     return res.status(clientError ? 400 : 500).json({ success: false, message });
   }
 });
@@ -3034,6 +3070,15 @@ exports.cancelCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
 /* ============================================================
    CF : adminPayoutAction (M3 : validation vendorId)
    ============================================================ */
+/* ============================================================
+   CF : adminPayoutAction
+   Cycle de vie d'une demande de retrait Wafacash/CashPlus :
+     pending --(sent)--> sent --(completed)--> completed
+     pending|sent --(rejected)--> rejected
+   L'argent est debite du wallet au moment de 'sent' (l'admin a depose le
+   montant a l'agence). Les frais de l'agence sont deduits a la source par
+   Wafacash/CashPlus : Smart Swika ne preleve aucun frais.
+   ============================================================ */
 exports.adminPayoutAction = onRequest({ invoker: 'public', region: 'europe-west1', cors: [...ALLOWED_ORIGINS], timeoutSeconds: 30 }, async (req, res) => {
   if (cors(req, res)) return;
   try {
@@ -3048,9 +3093,17 @@ exports.adminPayoutAction = onRequest({ invoker: 'public', region: 'europe-west1
     }
 
     const payoutId = String(req.body?.payoutId || '');
-    const action = String(req.body?.action || '');
-    if (!payoutId || !['paid', 'rejected'].includes(action)) {
+    const rawAction = String(req.body?.action || '').trim();
+    // Retro-compatibilite : l'ancienne action 'paid' est un alias de 'completed'.
+    const action = rawAction === 'paid' ? 'completed' : rawAction;
+    const transferNumber = String(req.body?.transferNumber || '').trim().slice(0, 60);
+    const reason = String(req.body?.reason || '').trim().slice(0, 500);
+
+    if (!payoutId || !['sent', 'completed', 'rejected'].includes(action)) {
       return res.status(400).json({ success: false, message: 'Paramètres invalides.' });
+    }
+    if (action === 'sent' && transferNumber.length < 3) {
+      return res.status(400).json({ success: false, message: 'Numéro de transfert obligatoire (3 caractères minimum).' });
     }
 
     await db.runTransaction(async (t) => {
@@ -3058,15 +3111,23 @@ exports.adminPayoutAction = onRequest({ invoker: 'public', region: 'europe-west1
       const payoutSnap = await t.get(payoutRef);
       if (!payoutSnap.exists) throw new Error('Demande introuvable.');
       const payoutData = payoutSnap.data();
-      if (payoutData.status !== 'pending') throw new Error('Cette demande a déjà été traitée.');
+      const currentStatus = String(payoutData.status || 'pending').toLowerCase() === 'paid'
+        ? 'completed'
+        : String(payoutData.status || 'pending').toLowerCase();
+
+      // Transitions autorisees uniquement.
+      const allowedFrom = { sent: ['pending'], completed: ['sent'], rejected: ['pending', 'sent'] };
+      if (!allowedFrom[action].includes(currentStatus)) {
+        throw new Error(`Transition de retrait impossible depuis le statut « ${currentStatus} ».`);
+      }
 
       // M3 : vendorId obligatoire
       const vendorId = String(payoutData.vendorId || '');
       if (!vendorId) throw new Error('Demande sans vendorId — impossible de traiter.');
 
-      // Sérialiser le traitement d'un retrait avec le verrou de suppression
-      // du vendeur. Si la suppression est déjà engagée, aucune opération
-      // financière ne doit être créée après le contrôle des demandes ouvertes.
+      // Serialiser le traitement d'un retrait avec le verrou de suppression
+      // du vendeur. Si la suppression est deja engagee, aucune operation
+      // financiere ne doit etre creee apres le controle des demandes ouvertes.
       const vendorRef = db.collection('users').doc(vendorId);
       const vendorSnap = await t.get(vendorRef);
       if (!vendorSnap.exists || vendorSnap.data()?.role !== 'vendor') {
@@ -3076,8 +3137,10 @@ exports.adminPayoutAction = onRequest({ invoker: 'public', region: 'europe-west1
         throw new Error('Suppression du compte vendeur en cours : retrait temporairement bloqué.');
       }
 
-      if (action === 'paid') {
-        const amount = Number(payoutData.amount) || 0;
+      const amount = Number(payoutData.amount) || 0;
+      const method = String(payoutData.method || 'Wafacash');
+
+      if (action === 'sent') {
         if (amount <= 0) throw new Error('Montant invalide.');
 
         const walletRef = db.collection('wallets').doc(vendorId);
@@ -3086,13 +3149,15 @@ exports.adminPayoutAction = onRequest({ invoker: 'public', region: 'europe-west1
 
         const wallet = walletSnap.data();
         if ((Number(wallet.negativeBalance) || 0) < -0.0001) {
-          throw new Error('Paiement bloqué : le portefeuille vendeur présente un solde débiteur à régulariser.');
+          throw new Error('Envoi bloqué : le portefeuille vendeur présente un solde débiteur à régulariser.');
         }
         const available = Number(wallet.availableBalance) || 0;
         if (available < amount) {
           throw new Error(`Solde insuffisant : disponible ${available} MAD, demandé ${amount} MAD.`);
         }
 
+        // Option A : le wallet est debite au moment ou l'argent est depose
+        // a l'agence (status 'sent'), pas a la confirmation de retrait.
         t.update(walletRef, {
           availableBalance: FieldValue.increment(-amount),
           totalWithdrawn: FieldValue.increment(amount),
@@ -3100,9 +3165,10 @@ exports.adminPayoutAction = onRequest({ invoker: 'public', region: 'europe-west1
         });
 
         t.update(payoutRef, {
-          status: 'paid',
-          paidAt: FieldValue.serverTimestamp(),
-          paidBy: decoded.uid
+          status: 'sent',
+          transferNumber,
+          sentAt: FieldValue.serverTimestamp(),
+          sentBy: decoded.uid
         });
 
         const txRef = db.collection('wallet_transactions').doc();
@@ -3112,7 +3178,7 @@ exports.adminPayoutAction = onRequest({ invoker: 'public', region: 'europe-west1
           amount: -amount,
           status: 'released',
           payoutRequestId: payoutId,
-          description: `Retrait payé (admin) - ${payoutData.method || 'Wafacash'}`,
+          description: `Retrait envoyé à l'agence - ${method}`,
           createdAt: FieldValue.serverTimestamp(),
           releasedAt: FieldValue.serverTimestamp()
         });
@@ -3120,9 +3186,26 @@ exports.adminPayoutAction = onRequest({ invoker: 'public', region: 'europe-west1
         const notifRef = db.collection('notifications').doc();
         t.set(notifRef, {
           userId: vendorId,
-          type: 'payout_paid',
-          title: 'Retrait payé',
-          message: `Votre retrait de ${amount} MAD a été payé.`,
+          type: 'payout_sent',
+          title: 'Retrait envoyé',
+          message: `Votre retrait de ${amount} MAD a été envoyé. Numéro de transfert : ${transferNumber}. Présentez-vous à une agence avec votre CIN.`,
+          read: false,
+          createdAt: FieldValue.serverTimestamp(),
+          payoutId
+        });
+      } else if (action === 'completed') {
+        t.update(payoutRef, {
+          status: 'completed',
+          completedAt: FieldValue.serverTimestamp(),
+          completedBy: decoded.uid
+        });
+
+        const notifRef = db.collection('notifications').doc();
+        t.set(notifRef, {
+          userId: vendorId,
+          type: 'payout_completed',
+          title: 'Retrait retiré',
+          message: `Votre retrait de ${amount} MAD a été marqué comme retiré.`,
           read: false,
           createdAt: FieldValue.serverTimestamp(),
           payoutId
@@ -3130,6 +3213,7 @@ exports.adminPayoutAction = onRequest({ invoker: 'public', region: 'europe-west1
       } else {
         t.update(payoutRef, {
           status: 'rejected',
+          rejectionReason: reason || null,
           rejectedAt: FieldValue.serverTimestamp(),
           rejectedBy: decoded.uid
         });
@@ -3139,7 +3223,9 @@ exports.adminPayoutAction = onRequest({ invoker: 'public', region: 'europe-west1
           userId: vendorId,
           type: 'payout_rejected',
           title: 'Retrait rejeté',
-          message: `Votre demande de retrait de ${payoutData.amount} MAD a été rejetée.`,
+          message: reason
+            ? `Votre demande de retrait de ${amount} MAD a été rejetée. Motif : ${reason}`
+            : `Votre demande de retrait de ${amount} MAD a été rejetée.`,
           read: false,
           createdAt: FieldValue.serverTimestamp(),
           payoutId
@@ -3150,7 +3236,9 @@ exports.adminPayoutAction = onRequest({ invoker: 'public', region: 'europe-west1
     return res.status(200).json({ success: true });
   } catch (error) {
     console.error('[adminPayoutAction]', error);
-    return res.status(500).json({ success: false, message: error.message });
+    const message = error.message || 'Erreur serveur.';
+    const clientError = /introuvable|invalide|obligatoire|impossible|solde insuffisant|solde débiteur|suppression du compte/i.test(message);
+    return res.status(clientError ? 400 : 500).json({ success: false, message });
   }
 });
 

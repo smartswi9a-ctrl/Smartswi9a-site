@@ -396,17 +396,34 @@ function injectModals() {
                 <h2 style="font-family:var(--font-secondary);color:var(--gold);text-align:center;margin-bottom:1rem;">Demander un retrait</h2>
                 <p style="text-align:center;font-size:0.85rem;color:var(--text-muted);margin-bottom:1.2rem;">Solde disponible : <strong id="vWithdrawAvailable">0 MAD</strong><br>Minimum : <strong>${CONFIG.VENDOR.MIN_WITHDRAWAL} MAD</strong></p>
                 <div class="v-field">
+                    <label class="v-label">Prénom *</label>
+                    <input type="text" id="vWithdrawFirstName" class="v-input" maxlength="60" placeholder="Prénom (comme sur la CIN)" autocomplete="given-name">
+                </div>
+                <div class="v-field">
+                    <label class="v-label">Nom *</label>
+                    <input type="text" id="vWithdrawLastName" class="v-input" maxlength="60" placeholder="Nom (comme sur la CIN)" autocomplete="family-name">
+                </div>
+                <div class="v-field">
+                    <label class="v-label">CIN *</label>
+                    <input type="text" id="vWithdrawCin" class="v-input" maxlength="12" placeholder="Ex : AB123456" autocomplete="off">
+                    <span class="v-hint">Numéro de la carte d'identité nationale marocaine.</span>
+                </div>
+                <div class="v-field">
+                    <label class="v-label">Téléphone *</label>
+                    <input type="tel" id="vWithdrawAccount" class="v-input" placeholder="06XXXXXXXX" autocomplete="tel">
+                    <span class="v-hint" id="vWithdrawHint">Numéro de téléphone marocain (06XXXXXXXX ou 07XXXXXXXX).</span>
+                </div>
+                <div class="v-field">
                     <label class="v-label">Montant à retirer (MAD) *</label>
                     <input type="number" id="vWithdrawAmount" class="v-input" min="${CONFIG.VENDOR.MIN_WITHDRAWAL}" step="1" placeholder="${CONFIG.VENDOR.MIN_WITHDRAWAL}">
                 </div>
                 <div class="v-field">
-                    <label class="v-label">Méthode de réception *</label>
-                    <select id="vWithdrawMethod" class="v-input"><option value="Wafacash">Wafacash</option><option value="Cash Plus">Cash Plus</option><option value="Virement bancaire">Virement bancaire</option></select>
+                    <label class="v-label">Réseau de retrait *</label>
+                    <select id="vWithdrawMethod" class="v-input"><option value="Wafacash">Wafacash</option><option value="CashPlus">CashPlus</option></select>
+                    <span class="v-hint">Vous retirerez votre argent dans une agence du réseau choisi.</span>
                 </div>
-                <div class="v-field">
-                    <label class="v-label">Téléphone / RIB de réception *</label>
-                    <input type="text" id="vWithdrawAccount" class="v-input" placeholder="06XXXXXXXX ou RIB complet">
-                    <span class="v-hint" id="vWithdrawHint">06XXXXXXXX pour Wafacash/Cash Plus, 24 chiffres pour RIB.</span>
+                <div style="background:rgba(231,76,60,0.08);border:1px solid var(--danger);border-radius:var(--radius-sm);padding:0.75rem 0.9rem;margin:0.75rem 0;font-size:0.8rem;line-height:1.45;color:var(--text-muted);">
+                    ⚠️ Des frais de retrait seront déduits par l'agence Wafacash/CashPlus au moment du retrait. Renseignez-vous auprès de votre agence pour le montant exact. Le montant reçu en main sera inférieur au montant demandé.
                 </div>
                 <div id="vWithdrawError" style="color:var(--danger);font-size:0.85rem;min-height:1.2rem;text-align:center;margin:0.5rem 0;"></div>
                 <button type="button" id="vWithdrawSubmitBtn" class="v-btn v-btn-primary v-btn-block">Envoyer la demande</button>
@@ -529,9 +546,16 @@ function openWithdrawModal() {
     if (!modal) return;
     document.getElementById('vWithdrawAvailable').textContent = formatMAD(getVirtualAvailableBalance());
     document.getElementById('vWithdrawAmount').value = '';
-    document.getElementById('vWithdrawAccount').value = '';
-    document.getElementById('vWithdrawAccount').placeholder = '06XXXXXXXX ou RIB complet';
+    // Préremplissage depuis le profil vendeur (l'admin relève déjà ces infos).
+    const profileName = String(currentVendor?.name || '').trim();
+    const profilePhone = normalizeMoroccanPhone(currentVendor?.phone || '');
+    document.getElementById('vWithdrawFirstName').value = String(currentVendor?.firstName || profileName.split(' ')[0] || '').trim();
+    document.getElementById('vWithdrawLastName').value = String(currentVendor?.lastName || profileName.split(' ').slice(1).join(' ') || '').trim();
+    document.getElementById('vWithdrawCin').value = '';
+    document.getElementById('vWithdrawAccount').value = profilePhone;
+    document.getElementById('vWithdrawAccount').placeholder = '06XXXXXXXX';
     document.getElementById('vWithdrawError').textContent = '';
+    handleWithdrawMethodChange();
     modal.classList.add('open');
     document.body.style.overflow = 'hidden';
     setTimeout(() => document.getElementById('vWithdrawAmount')?.focus(), 100);
@@ -543,42 +567,56 @@ function closeWithdrawModal() {
     document.body.style.overflow = '';
 }
 
+function normalizeMoroccanPhone(value) {
+    const raw = String(value || '').replace(/[\s.-]/g, '');
+    if (/^\+212[67]\d{8}$/.test(raw)) return '0' + raw.slice(4);
+    return raw;
+}
+
+function isValidMoroccanCin(value) {
+    // CIN marocaine : 1 à 2 lettres suivies de 5 à 6 chiffres, ou 6 à 8 chiffres.
+    return /^(?:[A-Z]{1,2}\d{5,6}|\d{6,8})$/.test(String(value || '').trim().toUpperCase());
+}
+
 function handleWithdrawMethodChange() {
+    // Le numéro de téléphone de réception est le même quel que soit le reseau
+    // (Wafacash ou CashPlus) : seul le libelle d'aide change.
     const method = document.getElementById('vWithdrawMethod')?.value;
-    const input = document.getElementById('vWithdrawAccount');
     const hint = document.getElementById('vWithdrawHint');
-    if (!input || !hint) return;
-    if (method === 'Virement bancaire') {
-        input.placeholder = 'Ex: 007780000012345678901234';
-        hint.textContent = 'RIB marocain (24 chiffres).';
-    } else {
-        input.placeholder = '06XXXXXXXX';
-        hint.textContent = 'Numéro de téléphone marocain (06XXXXXXXX ou 07XXXXXXXX).';
-    }
+    if (!hint) return;
+    hint.textContent = method === 'CashPlus'
+        ? 'Numéro de téléphone marocain (06 ou 07). CashPlus vous contactera pour le retrait.'
+        : 'Numéro de téléphone marocain (06 ou 07). Présentez-vous en agence Wafacash avec votre CIN.';
 }
 
 async function submitWithdrawal() {
+    const firstNameEl = document.getElementById('vWithdrawFirstName');
+    const lastNameEl = document.getElementById('vWithdrawLastName');
+    const cinEl = document.getElementById('vWithdrawCin');
     const amountEl = document.getElementById('vWithdrawAmount');
     const methodEl = document.getElementById('vWithdrawMethod');
     const accountEl = document.getElementById('vWithdrawAccount');
     const errEl = document.getElementById('vWithdrawError');
     const btn = document.getElementById('vWithdrawSubmitBtn');
 
+    const firstName = (firstNameEl.value || '').trim();
+    const lastName = (lastNameEl.value || '').trim();
+    const cin = (cinEl.value || '').trim().toUpperCase();
     const amount = parseFloat(amountEl.value);
     const method = methodEl.value;
-    const account = (accountEl.value || '').trim();
+    const phone = normalizeMoroccanPhone(accountEl.value);
     const virtualAvailable = getVirtualAvailableBalance();
 
     errEl.textContent = '';
 
+    if (firstName.length < 2) { errEl.textContent = 'Prénom invalide (2 caractères minimum).'; return; }
+    if (lastName.length < 2) { errEl.textContent = 'Nom invalide (2 caractères minimum).'; return; }
+    if (!isValidMoroccanCin(cin)) { errEl.textContent = 'CIN invalide (ex : AB123456).'; return; }
+    if (!/^(?:\+212|0)[67]\d{8}$/.test(phone)) { errEl.textContent = 'Numéro de téléphone invalide (06XXXXXXXX ou 07XXXXXXXX).'; return; }
     if (getPendingWithdrawalTotal() > 0) { errEl.textContent = 'Vous avez déjà une demande en cours de traitement.'; return; }
     if (!Number.isFinite(amount) || amount < CONFIG.VENDOR.MIN_WITHDRAWAL) { errEl.textContent = `Minimum : ${CONFIG.VENDOR.MIN_WITHDRAWAL} MAD.`; return; }
     if (amount > virtualAvailable) { errEl.textContent = `Solde insuffisant (${formatMAD(virtualAvailable)} disponibles).`; return; }
-    if (method === 'Virement bancaire') {
-        if (!/^\d{24}$/.test(account)) { errEl.textContent = 'RIB invalide (24 chiffres attendus).'; return; }
-    } else {
-        if (!/^(?:\+212|0)[67]\d{8}$/.test(account)) { errEl.textContent = 'Numéro de téléphone invalide (06XXXXXXXX ou 07XXXXXXXX).'; return; }
-    }
+    if (!['Wafacash', 'CashPlus'].includes(method)) { errEl.textContent = 'Réseau de retrait invalide.'; return; }
 
     btn.disabled = true;
     btn.textContent = '...';
@@ -594,7 +632,11 @@ async function submitWithdrawal() {
             body: JSON.stringify({
                 amount,
                 method,
-                account,
+                account: phone,
+                phone,
+                firstName,
+                lastName,
+                cin,
                 vendorName: currentVendor.vendorInfo?.shopName || currentVendor.name || 'Vendeur'
             })
         });
@@ -604,8 +646,10 @@ async function submitWithdrawal() {
             throw new Error(result.message || "Erreur lors de la demande de retrait.");
         }
 
-        showToast('Demande de retrait envoyée ! Traitement sous 3 jours ouvrés.');
+        showToast('Demande de retrait envoyée ! Vous serez notifié dès que le transfert sera envoyé à l\'agence.');
         closeWithdrawModal();
+        btn.disabled = false;
+        btn.textContent = 'Envoyer la demande';
         await loadWithdrawals();
         await renderWallet(document.getElementById('vTabContent'));
     } catch (e) {
@@ -1681,6 +1725,13 @@ async function renderStock(container) {
     document.getElementById('vPickupRequestBtn')?.addEventListener('click', openPickupModal);
 }
 
+/* Statuts de retrait : 'paid' (ancien) est aliasé en 'completed'. */
+function normalizePayoutStatus(status) {
+    const st = String(status || 'pending').trim().toLowerCase();
+    if (st === 'paid') return 'completed';
+    return st;
+}
+
 async function renderWallet(container) {
     if (!cachedWithdrawals.length) await loadWithdrawals();
     await loadWalletTransactions();
@@ -1700,14 +1751,33 @@ async function renderWallet(container) {
     else if (hasPendingRequest) reason = "Demande de retrait en cours de traitement.";
     else if (getVirtualAvailableBalance() < CONFIG.VENDOR.MIN_WITHDRAWAL) reason = tr('vendor.wallet.withdrawLockedMin', "Solde insuffisant (minimum : {min}).").replace('{min}', minWithdrawal);
 
+    const WITHDRAWAL_BADGE = {
+        pending:   `<span style="background:var(--warning-bg);color:var(--warning);padding:0.15rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;">${escapeHTML(tr('payout.pending', 'En attente'))}</span>`,
+        sent:      `<span style="background:rgba(52,152,219,0.15);color:#2f86c9;padding:0.15rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;">${escapeHTML(tr('payout.sent', 'Envoyé — à retirer en agence'))}</span>`,
+        completed: `<span style="background:var(--success-bg);color:var(--success);padding:0.15rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;">${escapeHTML(tr('payout.completed', 'Retiré'))}</span>`,
+        rejected:  `<span style="background:var(--danger-bg);color:var(--danger);padding:0.15rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;">${escapeHTML(tr('payout.rejected', 'Rejeté'))}</span>`,
+        cancelled: `<span style="background:var(--bg-surface);color:var(--text-muted);padding:0.15rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;">${escapeHTML(tr('payout.cancelled', 'Annulé'))}</span>`
+    };
     const withdrawalRows = cachedWithdrawals.length ? cachedWithdrawals.map(w => {
-        const st = w.status || 'pending';
-        const statusBadge = st === 'paid' ? `<span style="background:var(--success-bg);color:var(--success);padding:0.15rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;">${escapeHTML(tr('payout.paid', 'Payé'))}</span>`
-            : st === 'rejected' ? `<span style="background:var(--danger-bg);color:var(--danger);padding:0.15rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;">${escapeHTML(tr('payout.rejected', 'Rejeté'))}</span>`
-            : st === 'cancelled' ? `<span style="background:var(--bg-surface);color:var(--text-muted);padding:0.15rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;">${escapeHTML(tr('payout.cancelled', 'Annulé'))}</span>`
-            : `<span style="background:var(--warning-bg);color:var(--warning);padding:0.15rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;">${escapeHTML(tr('payout.pending', 'En attente'))}</span>`;
+        // Rétro-compatibilité : l'ancien statut 'paid' est lu comme 'completed'.
+        const st = normalizePayoutStatus(w.status);
+        const statusBadge = WITHDRAWAL_BADGE[st] || WITHDRAWAL_BADGE.pending;
         const date = w.requestedAt?.toDate?.()?.toLocaleDateString?.('fr-FR') || '—';
-        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:0.7rem 0;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:0.5rem;"><div><strong>${formatMAD(w.amount)}</strong> · ${escapeHTML(w.method || '—')} · ${date}</div><div>${statusBadge}</div></div>`;
+        let sentBlock = '';
+        if (st === 'sent') {
+            const transferNumber = escapeHTML(String(w.transferNumber || '').trim() || '—');
+            sentBlock = `
+                <div style="flex-basis:100%;margin-top:0.5rem;background:rgba(52,152,219,0.08);border:1px solid rgba(52,152,219,0.45);border-radius:var(--radius-sm);padding:0.7rem 0.9rem;font-size:0.8rem;line-height:1.5;color:var(--text-muted);">
+                    <div style="font-size:0.9rem;color:var(--text);margin-bottom:0.3rem;">Numéro de transfert : <strong style="letter-spacing:0.05em;">${transferNumber}</strong></div>
+                    Présentez-vous à une agence avec votre CIN et ce numéro. Les frais de retrait seront déduits par l'agence.
+                </div>`;
+        } else if (st === 'rejected' && w.rejectionReason) {
+            sentBlock = `
+                <div style="flex-basis:100%;margin-top:0.5rem;background:rgba(231,76,60,0.08);border:1px solid rgba(231,76,60,0.45);border-radius:var(--radius-sm);padding:0.7rem 0.9rem;font-size:0.8rem;line-height:1.5;color:var(--text-muted);">
+                    Motif : ${escapeHTML(String(w.rejectionReason))}
+                </div>`;
+        }
+        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:0.7rem 0;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:0.5rem;"><div><strong>${formatMAD(w.amount)}</strong> · ${escapeHTML(w.method || '—')} · ${date}</div><div>${statusBadge}</div></div>${sentBlock}`;
     }).join('') : `<p style="color:var(--text-muted);font-size:0.85rem;text-align:center;">${tr('vendor.wallet.noWithdrawals', 'Aucune demande de retrait pour le moment.')}</p>`;
 
     const transactionRows = cachedWalletTransactions.length ? cachedWalletTransactions.map(tx => {
