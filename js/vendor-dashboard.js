@@ -873,7 +873,9 @@ async function submitProduct() {
             newImagePath = `vendors/${currentUserUid}/products/${ts}_${safeName}`;
             uploadedPaths.push(newImagePath);
             const storageRef = ref(storage, newImagePath);
-            await uploadBytes(storageRef, file);
+            // Metadata explicite : certains navigateurs mobiles laissent File.type vide
+            // et le SDK enverrait application/octet-stream, refuse par storage.rules.
+            await uploadBytes(storageRef, file, { contentType: file.type || 'image/jpeg' });
             newImageUrl = await getDownloadURL(storageRef);
         }
 
@@ -888,7 +890,7 @@ async function submitProduct() {
             const path = `vendors/${currentUserUid}/products/gallery/${ts}_${safeName}`;
             uploadedPaths.push(path);
             const galleryRef = ref(storage, path);
-            await uploadBytes(galleryRef, image);
+            await uploadBytes(galleryRef, image, { contentType: image.type || 'image/jpeg' });
             gallery.push(await getDownloadURL(galleryRef));
         }
 

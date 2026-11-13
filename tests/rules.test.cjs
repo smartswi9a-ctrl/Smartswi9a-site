@@ -204,6 +204,19 @@ async function main() {
     await assertSucceeds(uploadBytes(ref(vendorStorage, "vendors/vendorA/products/test.png"), new Uint8Array([1, 2, 3]), { contentType: "image/png" }));
     await assertFails(uploadBytes(ref(oldVendorStorage, "vendors/vendorOld/products/test.png"), new Uint8Array([1, 2, 3]), { contentType: "image/png" }));
 
+    // Galerie secondaire : chemin reel produit par vendor-dashboard.js
+    // (vendors/{uid}/products/gallery/{ts}_{nom}). Doit matcher {allPaths=**}.
+    await assertSucceeds(uploadBytes(ref(vendorStorage, "vendors/vendorA/products/gallery/1700000000000_photo.png"), new Uint8Array([1, 2, 3]), { contentType: "image/png" }));
+    await assertFails(uploadBytes(ref(oldVendorStorage, "vendors/vendorOld/products/gallery/1700000000000_photo.png"), new Uint8Array([1, 2, 3]), { contentType: "image/png" }));
+
+    // Le wildcard elargi ne doit pas ouvrir la galerie a un autre vendeur :
+    // vendorB (approved, contrat OK) ne peut pas ecrire dans le dossier de vendorA.
+    const vendorBStorage = env.authenticatedContext("vendorB").storage();
+    await assertFails(uploadBytes(ref(vendorBStorage, "vendors/vendorA/products/gallery/1700000000001_evil.png"), new Uint8Array([1, 2, 3]), { contentType: "image/png" }));
+
+    // Type non-image refuse meme si le chemin est valide.
+    await assertFails(uploadBytes(ref(vendorStorage, "vendors/vendorA/products/gallery/1700000000002_notimage.txt"), new Uint8Array([1, 2, 3]), { contentType: "text/plain" }));
+
     console.log("PASS: Firestore and Storage authorization scenarios");
   } finally {
     await env.cleanup();

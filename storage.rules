@@ -48,11 +48,15 @@ service firebase.storage {
     function validImageUpload(maxSize) {
       return request.resource != null &&
         request.resource.size < maxSize &&
-        request.resource.contentType.matches('image/(jpeg|png|webp|gif)');
+        request.resource.contentType.matches('image/.*');
     }
 
     // Images des produits des vendeurs
-    match /vendors/{uid}/products/{fileName} {
+    // {allPaths=**} couvre aussi la sous-arborescence "gallery/" utilisee par
+    // vendor-dashboard.js : vendors/{uid}/products/gallery/{timestamp}_{nom}.
+    // Sans ce wildcard, "products/gallery/x.png" ne matchait pas {fileName}
+    // (un seul segment en Storage rules v2) et tombait dans le "refus par defaut".
+    match /vendors/{uid}/products/{allPaths=**} {
       allow read: if true;
       allow create, update: if
         (admin() || approvedVendor(uid)) &&
