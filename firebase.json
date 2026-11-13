@@ -133,6 +133,13 @@
         }
       },
       {
+        "source": "/api/adminManageWallet",
+        "function": {
+          "functionId": "adminManageWallet",
+          "region": "europe-west1"
+        }
+      },
+      {
         "source": "/api/adminPayoutAction",
         "function": {
           "functionId": "adminPayoutAction",
