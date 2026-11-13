@@ -6,6 +6,8 @@ Version : 1.0.0
 
 ---
 
+> **[À COMPLÉTER : Entité légale]** — Raison sociale, RC, ICE, adresse du siège social et hébergeur à compléter avant publication.
+
 ## Article 1 — Objet et cadre légal
 
 La présente Politique de Confidentialité décrit la manière dont **Smart Swika** (ci-après « la Plateforme ») collecte, utilise, conserve et protège les données à caractère personnel de ses utilisateurs (acheteurs et vendeurs).

@@ -6,6 +6,8 @@ Version : 1.0.0
 
 ---
 
+> **[À COMPLÉTER : Entité légale]** — Raison sociale, RC, ICE, adresse du siège social et hébergeur à compléter avant publication.
+
 ## Article 1 — Objet
 
 Les présentes Conditions Générales d'Utilisation (ci-après « CGU Acheteur ») régissent les relations entre **Smart Swika** (ci-après « la Plateforme ») et toute personne effectuant un achat sur le site (ci-après « l'Acheteur »).
@@ -62,7 +64,13 @@ Pour les produits commercialisés **sous la marque Smart Swika**, l'Acheteur bé
 
 Cette extension vise à offrir un temps de découverte adapté aux produits connectés et aux appareils électroniques de la marque.
 
-### 3.5 Tableau récapitulatif
+### 3.5 Décalage entre la garantie acheteur et la libération des fonds vendeurs
+
+La garantie de l'Acheteur court **à partir de la réception du colis**, tandis que les fonds du vendeur sont libérés **7 jours (ou 15 jours pour un produit Smart Swika) après la prise en charge du colis par le livreur**, c'est-à-dire dès l'expédition.
+
+Ces deux chronologies ne coïncident donc pas exactement : la libération des fonds vendeurs peut précéder la fin de la période de garantie de l'Acheteur. **Tout litige survenant après le paiement du vendeur entraîne la suspension du compte vendeur jusqu'à régularisation** (voir les CGU Vendeur, article 7).
+
+### 3.6 Tableau récapitulatif
 
 | Type de produit | Signalement | Essai | Garantie totale |
 | --- | --- | --- | --- |

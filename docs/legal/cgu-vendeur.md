@@ -6,6 +6,8 @@ Version : 1.0.0
 
 ---
 
+> **[À COMPLÉTER : Entité légale]** — Raison sociale, RC, ICE, adresse du siège social et hébergeur à compléter avant publication.
+
 ## Article 1 — Objet
 
 Les présentes Conditions Générales d'Utilisation (ci-après « CGU Vendeur ») définissent les conditions dans lesquelles un professionnel (ci-après « le Vendeur ») peut proposer et vendre ses produits sur la plateforme **Smart Swika** (ci-après « la Plateforme »).
@@ -86,6 +88,10 @@ Le portefeuille du Vendeur peut prendre l'un des trois états suivants :
 - **Actif** : les retraits sont autorisés.
 - **Gelé** : les retraits sont bloqués, notamment en cas de litige ouvert avec un acheteur. Les fonds restent conservés et intacts.
 - **Suspendu** : les retraits sont bloqués en raison d'un **solde négatif**.
+
+### 7.0 Décalage avec la garantie acheteur
+
+Les fonds sont libérés 7 jours (15 jours pour un produit Smart Swika) **à compter de la prise en charge du colis**, alors que la garantie de l'Acheteur court **à compter de la réception**. La libération peut donc précéder la fin de la période de garantie. Un litige déclaré après paiement est traité selon la clause 7.1 ci-dessous.
 
 ### 7.1 Clause de suspension pour solde négatif
 

@@ -5,6 +5,8 @@ Version : 1.0.0 — 13 novembre 2026
 
 ---
 
+> **[À COMPLÉTER : Entité légale]** — Raison sociale, RC, ICE, adresse du siège social et hébergeur à compléter avant publication.
+
 ## Entre les soussignés
 
 **SMART SWIKA**, plateforme de commerce en ligne (ci-après « la Plateforme »),
@@ -57,6 +59,8 @@ Les gains demeurent bloqués pendant une période de garantie courant **à compt
 
 - **7 (sept) jours** pour les produits vendus par le Vendeur ;
 - **15 (quinze) jours** pour les produits sous marque Smart Swika.
+
+La libération des fonds peut précéder la fin de la période de garantie de l'Acheteur, celle-ci débutant à la réception du colis. Tout litige postérieur au paiement est réglé selon l'article 7.2 (gel des fonds) et l'article 7.3 (suspension).
 
 ### 5.3 Retrait
 
