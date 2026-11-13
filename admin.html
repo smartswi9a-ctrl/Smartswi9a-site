@@ -435,6 +435,7 @@
             <button data-tab="coupons">🎟️ Codes Promo</button>
             <button data-tab="finances">💰 Comptabilité</button>
             <button data-tab="wallets">💸 Retraits</button>
+            <button data-tab="disputes">⚖️ Litiges / Retours</button>
             <button data-tab="tools">🛠️ Outils</button>
         </div>
 
@@ -495,6 +496,13 @@
                     <div style="display:flex;align-items:center;gap:0.4rem;color:var(--text);font-size:0.9rem; margin-top:1.5rem;">
                         <input type="checkbox" id="pIsNew" style="width:auto;margin:0;">
                         <label for="pIsNew" style="margin:0;cursor:pointer;">🆕 Nouveau Produit</label>
+                    </div>
+                </div>
+
+                <div style="margin-top:1rem; padding:1rem; background:rgba(var(--gold-rgb), 0.05); border:1px solid var(--border-gold); border-radius:var(--radius-sm);">
+                    <div style="display:flex;align-items:center;gap:0.4rem;color:var(--text);font-size:0.9rem;">
+                        <input type="checkbox" id="pIsSmartSwika" style="width:auto;margin:0;">
+                        <label for="pIsSmartSwika" style="margin:0;cursor:pointer;font-weight:600;">🏷️ Vendu par Smart Swika <span style="font-weight:400;color:var(--text-muted);">(garantie 15 jours au lieu de 7)</span></label>
                     </div>
                 </div>
 
@@ -962,6 +970,21 @@
                 <input type="text" id="payoutSearchAdmin" placeholder="🔍 Rechercher par boutique ou téléphone...">
             </div>
             <div id="payoutsList"><div class="admin-loading">⏳ Chargement des demandes...</div></div>
+        </div>
+
+        <div class="admin-content" id="tab-disputes">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.8rem;margin-bottom:1rem;">
+                <h3 style="font-family:var(--font-secondary);color:var(--gold);margin:0;">⚖️ Litiges / Retours</h3>
+                <button class="admin-btn-secondary" id="refreshDisputesBtn">🔄 Rafraîchir</button>
+            </div>
+            <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1rem;">
+                Commandes au statut « problème » ou retournées. « Déclarer le vendeur en tort » enregistre les frais de retour
+                (justificatif <code>order_return_fees</code> traité par le serveur, débit idempotent) puis suspend le portefeuille du vendeur.
+            </p>
+            <div class="admin-search-bar">
+                <input type="text" id="disputeSearchAdmin" placeholder="🔍 Rechercher une commande, un client, un vendeur...">
+            </div>
+            <div id="adminDisputesList"><div class="admin-loading">⏳ Chargement...</div></div>
         </div>
 
         <div class="admin-content" id="tab-tools">
