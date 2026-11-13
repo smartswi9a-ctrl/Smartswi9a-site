@@ -1,0 +1,12 @@
+# Normalisation des fins de ligne du dépôt
+* text=auto eol=lf
+
+# Les règles Firestore sont stockées en CRLF (ne jamais les réécrire en LF)
+*.rules text eol=crlf
+
+# Binaires : aucune conversion
+*.png binary
+*.jpg binary
+*.webp binary
+*.ico binary
+*.woff2 binary

@@ -363,7 +363,15 @@ function renderForm(user) {
   const selectedCity = getSelectedCity();
   const cityValue = selectedCity ? getCityName(selectedCity) : "";
 
-  return ` <div class="cart-page-form"> <h3 class="cart-page-form-title">${t("cartCheckoutInfo")}</h3> <div class="cart-page-field"> <label>${t("accountNamePlaceholder")} *</label> <input type="text" id="cartName" value="${escapeHTML( user?.name || "" )}" autocomplete="name"> </div> <div class="cart-page-field"> <label>${t("accountPhonePlaceholder")} *</label> <input type="tel" id="cartPhone" value="${escapeHTML( user?.phone || "" )}" autocomplete="tel" inputmode="tel" placeholder="06XXXXXXXX ou 07XXXXXXXX"> </div> <div class="cart-page-field"> <label>${t("cartAddressPlaceholder")} *</label> <textarea id="cartAddress" rows="2" autocomplete="street-address"></textarea> </div> <div class="cart-page-field"> <label>${t("accountEmailPlaceholder")}</label> <input type="email" id="cartEmail" value="${escapeHTML( user?.email || "" )}" autocomplete="email"> </div> <div class="cart-page-field city-search-wrapper"> <label>${t("city")} *</label> <input type="text" id="cityFilterInput" placeholder="${t( "searchCity" )}" value="${escapeHTML(cityValue)}" autocomplete="off"> <div class="city-suggestions" id="citySuggestions"></div> </div> <div class="cart-page-field"> <label>Note de livraison (${ t("optional") || "optionnel" })</label> <textarea id="cartDeliveryNote" rows="2" placeholder="Ex: Sonner deux fois, 3ème étage, laisser chez le gardien..." maxlength="300"></textarea> </div> <div class="cart-page-trust"> <div>${t("trust1")}</div> <div>${t("trust2")}</div> <div>${t("trust3")}</div> <div>${t("trust4")}</div> </div> </div> `;
+  return ` <div class="cart-page-form"> <h3 class="cart-page-form-title">${t("cartCheckoutInfo")}</h3> <div class="cart-page-field"> <label>${t("accountNamePlaceholder")} *</label> <input type="text" id="cartName" value="${escapeHTML( user?.name || "" )}" autocomplete="name"> </div> <div class="cart-page-field"> <label>${t("accountPhonePlaceholder")} *</label> <input type="tel" id="cartPhone" value="${escapeHTML( user?.phone || "" )}" autocomplete="tel" inputmode="tel" placeholder="06XXXXXXXX ou 07XXXXXXXX"> </div> <div class="cart-page-field"> <label>${t("cartAddressPlaceholder")} *</label> <textarea id="cartAddress" rows="2" autocomplete="street-address"></textarea> </div> <div class="cart-page-field"> <label>${t("accountEmailPlaceholder")}</label> <input type="email" id="cartEmail" value="${escapeHTML( user?.email || "" )}" autocomplete="email"> </div> <div class="cart-page-field city-search-wrapper"> <label>${t("city")} *</label> <input type="text" id="cityFilterInput" placeholder="${t( "searchCity" )}" value="${escapeHTML(cityValue)}" autocomplete="off"> <div class="city-suggestions" id="citySuggestions"></div> </div> <div class="cart-page-field"> <label>Note de livraison (${ t("optional") || "optionnel" })</label> <textarea id="cartDeliveryNote" rows="2" placeholder="Ex: Sonner deux fois, 3ème étage, laisser chez le gardien..." maxlength="300"></textarea> </div> 
+    <div class="legal-consent" id="cartLegalConsent" data-legal-consent="acheteur">
+        <input type="checkbox" id="acceptCguAcheteur" name="acceptCguAcheteur" required>
+        <label for="acceptCguAcheteur">
+            J'accepte les <a href="/cgu-acheteur.html" target="_blank" rel="noopener noreferrer">CGU Acheteur</a>
+            et je reconnais avoir pris connaissance des conditions de commande, de livraison et de retour.
+        </label>
+    </div>
+ <div class="cart-page-trust"> <div>${t("trust1")}</div> <div>${t("trust2")}</div> <div>${t("trust3")}</div> <div>${t("trust4")}</div> </div> </div> `;
 }
 
 /* ============================================================ SUGGESTIONS ============================================================ */
@@ -728,6 +736,22 @@ async function handleCheckoutFromPage() {
 
   if (!cityId) {
     showToast(t("selectCityRequired"));
+    return;
+  }
+
+  /* CART_CONSENT_REQUIRED : acceptation obligatoire des CGU Acheteur. */
+  const consentEl = document.getElementById("acceptCguAcheteur");
+  if (!consentEl || !consentEl.checked) {
+    const box = document.getElementById("cartLegalConsent");
+    if (box) {
+      box.classList.add("legal-consent--invalid");
+      setTimeout(() => box.classList.remove("legal-consent--invalid"), 1200);
+      box.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+    if (consentEl) consentEl.focus({ preventScroll: true });
+    showToast(
+      "Vous devez accepter les CGU Acheteur pour passer commande."
+    );
     return;
   }
 
