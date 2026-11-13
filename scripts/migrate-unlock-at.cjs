@@ -71,6 +71,10 @@ const TOLERANCE_MS = 60 * 1000; // 1 minute : evite les reecritures pour un arro
 const BATCH_SIZE = 500;
 const MAX_SAMPLES = 3;
 const SMART_SWIKA_VENDOR_ID = 'smartswi9a';
+// Identifiant de collection volontairement inoffensif : une lecture sur une
+// collection inexistante ne cree rien. Attention, les noms de la forme
+// __xxx__ sont RESERVES par Firestore et provoquent un INVALID_ARGUMENT.
+const DIAGNOSTIC_PING_COLLECTION = 'diagnostic_ping';
 
 const argv = new Set(process.argv.slice(2));
 const DRY_RUN = argv.has('--dry-run');
@@ -682,14 +686,16 @@ async function runDiagnose() {
   console.log('');
   let pingOk = false;
   try {
-    const pingSnap = await db.collection('__diagnostic_ping__').limit(1).get();
+    const pingSnap = await db.collection(DIAGNOSTIC_PING_COLLECTION).limit(1).get();
     pingOk = true;
     console.log('  appel de test Firestore       : OK (reponse recue, ' + pingSnap.size + ' document(s))');
   } catch (err) {
     console.log('  appel de test Firestore       : ECHEC');
     console.log('    ' + (err && err.message ? err.message : err));
     console.log('');
-    console.log('  Diagnostic interrompu : la connexion Firestore ne repond pas.');
+    console.log('  Diagnostic interrompu.');
+    console.log('  Verifiez la valeur de GOOGLE_APPLICATION_CREDENTIALS et les droits IAM du');
+    console.log('  service account (roles/datastore.user ou roles/datastore.owner).');
     return;
   }
 
