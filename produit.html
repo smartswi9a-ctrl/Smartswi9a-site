@@ -55,6 +55,12 @@
     <link rel="stylesheet" href="/css/style-patches.1bd4b588.css">
     <script src="/translations.js"></script>
 
+    <!-- Clés i18n complémentaires (product-detail, guide des tailles, avis).
+         DOIT être chargé APRÈS /translations.js : le fichier fait un Object.assign
+         sur window.translations.
+         Sans ce script, t("productDimensionsTitle") etc. renvoient la clé brute. -->
+    <script src="/js/translations-livo.js"></script>
+
     <style>
         @media screen and (max-width: 900px) {
             #navbar .nav-links { display: none !important; }
