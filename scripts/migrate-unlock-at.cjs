@@ -27,16 +27,21 @@
  * (products ou vendorId === 'smartswi9a'), avec merge: true.
  *
  * USAGE
- *   node scripts/migrate-unlock-at.cjs --dry-run
- *   node scripts/migrate-unlock-at.cjs
- *   node scripts/migrate-unlock-at.cjs --force-fallback-date
- *   node scripts/migrate-unlock-at.cjs --only-products
- *   node scripts/migrate-unlock-at.cjs --only-transactions
+ *   node scripts/migrate-unlock-at.cjs                  # SIMULATION (defaut)
+ *   node scripts/migrate-unlock-at.cjs --apply          # ECRITURE REELLE
+ *   node scripts/migrate-unlock-at.cjs --apply --force-fallback-date
+ *   node scripts/migrate-unlock-at.cjs --apply --only-products
+ *   node scripts/migrate-unlock-at.cjs --apply --only-transactions
  *   node scripts/migrate-unlock-at.cjs --diagnose
  *
+ * SECURITE
+ *   Le mode par defaut est la SIMULATION (aucune ecriture). Aucune ecriture
+ *   n'est possible sans le drapeau explicite --apply.
+ *
  * OPTIONS
- *   --dry-run              Simulation : compteurs + 3 exemples avant/apres,
- *                          aucune ecriture.
+ *   --apply                ECRITURE REELLE. Sans ce drapeau, le script reste
+ *                          en simulation (compteurs + 3 exemples avant/apres).
+ *   --dry-run              Force la simulation (redondant, garde pour compat).
  *   --force-fallback-date  Autorise l'ecriture d'un unlockAt pour les
  *                          transactions dont la commande n'a pas de
  *                          trackingStartedAt, en utilisant createdAt de la
@@ -77,7 +82,10 @@ const SMART_SWIKA_VENDOR_ID = 'smartswi9a';
 const DIAGNOSTIC_PING_COLLECTION = 'diagnostic_ping';
 
 const argv = new Set(process.argv.slice(2));
-const DRY_RUN = argv.has('--dry-run');
+// F-06 : la simulation est le mode PAR DEFAUT. Une ecriture reelle exige
+// le drapeau explicite --apply. --dry-run reste accepte (force la simulation).
+const APPLY = argv.has('--apply');
+const DRY_RUN = !APPLY || argv.has('--dry-run');
 const FORCE_FALLBACK_DATE = argv.has('--force-fallback-date');
 const ONLY_PRODUCTS = argv.has('--only-products');
 const ONLY_TRANSACTIONS = argv.has('--only-transactions');
@@ -94,12 +102,15 @@ function printHelp() {
   console.log('');
   console.log('migrate-unlock-at.cjs - migration des unlockAt (wallet_transactions)');
   console.log('');
-  console.log('  node scripts/migrate-unlock-at.cjs --dry-run   # simulation');
-  console.log('  node scripts/migrate-unlock-at.cjs             # ecriture reelle');
-  console.log('  node scripts/migrate-unlock-at.cjs --diagnose # diagnostic seul');
+  console.log('  node scripts/migrate-unlock-at.cjs             # SIMULATION (defaut)');
+  console.log('  node scripts/migrate-unlock-at.cjs --apply     # ECRITURE REELLE');
+  console.log('  node scripts/migrate-unlock-at.cjs --diagnose  # diagnostic seul');
+  console.log('');
+  console.log('  Sans --apply, le script ne fait AUCUNE ecriture (simulation).');
   console.log('');
   console.log('Options :');
-  console.log('  --dry-run              Aucune ecriture, seulement le rapport.');
+  console.log('  --apply                ECRITURE REELLE. Obligatoire pour ecrire.');
+  console.log('  --dry-run              Force la simulation (redondant avec le defaut).');
   console.log('  --force-fallback-date  Ecrit un unlockAt meme sans trackingStartedAt');
   console.log('                         (ancre = createdAt de la transaction). DANGEREUX.');
   console.log('  --only-products        Traite uniquement products.');
@@ -874,6 +885,22 @@ async function runDiagnose() {
 async function main() {
   printHeader('migrate-unlock-at - projet ' + PROJECT_ID);
   console.log('  mode                : ' + (DRY_RUN ? 'SIMULATION (aucune ecriture)' : 'ECRITURE REELLE'));
+
+  if (!DRY_RUN) {
+    console.log('');
+    console.log('  ############################################################');
+    console.log('  #  ATTENTION : MODE ECRITURE REELLE (--apply) DETECTE         #');
+    console.log('  #  Des documents Firestore vont etre MODIFIES en production. #');
+    console.log('  #  Cible : ' + PROJECT_ID);
+    console.log('  #  Lancez d\'abord sans --apply pour verifier le rapport.     #');
+    console.log('  ############################################################');
+    console.log('');
+  } else {
+    console.log('');
+    console.log('  [SIMULATION] Mode par defaut. Aucune ecriture ne sera effectuee.');
+    console.log('  [SIMULATION] Pour appliquer reellement : ajoutez --apply.');
+    console.log('');
+  }
   console.log('  ancre               : trackingStartedAt (jamais la date de commande)');
   console.log('  regle               : 15 j si un article isSmartSwika, sinon 7 j');
   console.log('  collection cible    : wallet_transactions (type=sale)');
@@ -924,11 +951,11 @@ async function main() {
   if (DRY_RUN) {
     console.log('');
     console.log('  [SIMULATION] Aucune ecriture effectuee.');
-    console.log('  Relancez sans --dry-run pour appliquer les changements.');
+    console.log('  Pour appliquer reellement : relancez avec --apply.');
   } else {
     console.log('');
     console.log('  ECRITURE TERMINEE.');
-    console.log('  Relancez avec --dry-run pour verifier que le rapport est vide.');
+    console.log('  Relancez sans --apply pour verifier que le rapport est vide.');
   }
 }
 
@@ -938,6 +965,20 @@ async function main() {
 if (SHOW_HELP) {
   printHelp();
   process.exit(0);
+}
+
+// F-06 : signale les drapeaux inconnus pour eviter une ecriture par erreur
+// de frappe (ex. --aply au lieu de --apply laisserait le script en simulation).
+const KNOWN_FLAGS = new Set([
+  '--apply', '--dry-run', '--force-fallback-date',
+  '--only-products', '--only-transactions', '--diagnose', '--help', '-h'
+]);
+const unknownFlags = process.argv.slice(2).filter(a => a.startsWith('-') && !KNOWN_FLAGS.has(a));
+if (unknownFlags.length > 0) {
+  console.error('');
+  console.error('Drapeau(s) inconnu(s) : ' + unknownFlags.join(' '));
+  console.error('Aucune ecriture ne sera effectuee. Voir --help.');
+  process.exit(2);
 }
 
 const runner = DIAGNOSE ? runDiagnose : main;
