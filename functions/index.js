@@ -3303,6 +3303,9 @@ exports.releaseDueFunds = onRequest({ invoker: 'public', region: 'europe-west1',
           if (vendorSnap.data()?.vendorInfo?.status === 'deletion_pending') {
             throw new Error('Suppression du compte vendeur en cours');
           }
+          if (normalizeWalletStatus(vendorSnap.data()) === WALLET_STATUS.FROZEN) {
+            throw new Error('Portefeuille gelé : libération des fonds impossible tant que le litige est en cours.');
+          }
           if (!walletSnap.exists) throw new Error('Wallet introuvable');
 
           // Relire chaque transaction dans la transaction Firestore : deux

@@ -13,3 +13,9 @@ ui-debug.log
 .DS_Store
 *.local.json
 Thumbs.db
+
+# Clés de service et artefacts sensibles (audit F-05)
+firebase-admin-key*.json
+*serviceAccount*.json
+tmpdoc/
+*.bak

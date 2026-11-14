@@ -271,7 +271,7 @@ export async function registerVendorWithFirebase(vendorData, password) {
     const city = (vendorData.city || "").trim();
     if (city.length < 2 || city.length > 80) throw new Error("Ville invalide.");
     const iceCin = (vendorData.iceCin || "").trim().toUpperCase();
-    if (!(/^\d{15}$/.test(iceCin) || /^[A-Z]{1,2}\d{5,6}$/.test(iceCin) || /^\d{6,8}$/.test(iceCin))) {
+    if (!(/^\d{15}$/.test(iceCin) || /^[A-Z]{1,3}\d{4,8}$/.test(iceCin))) {
         throw new Error("ICE ou CIN invalide.");
     }
     if (!["dropoff", "fulfillment"].includes(vendorData.shippingMethod)) throw new Error("Mode de livraison invalide.");
