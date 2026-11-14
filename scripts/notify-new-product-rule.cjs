@@ -22,6 +22,8 @@
 
 "use strict";
 
+const fs = require("fs");
+const path = require("path");
 const admin = require("firebase-admin");
 
 const args = process.argv.slice(2);
@@ -35,9 +37,196 @@ const NOTIFICATION_TITLE = "Rappel : produits neufs uniquement";
 const NOTIFICATION_MESSAGE =
     "Rappel : seuls les produits neufs sont autorisés sur Smart Swika. Les produits d'occasion sont interdits.";
 
+// Préfixe d'un private_key_id connu comme compromis : toute credential qui
+// commence par ce préfixe doit être refusée.
+const KNOWN_COMPROMISED_PRIVATE_KEY_PREFIX = "b11ac7658f";
+
 function log(...a) {
     console.log(...a);
 }
+
+/* ------------------------------------------------------------------ */
+/* Diagnostic d'erreur détaillé                                        */
+/* ------------------------------------------------------------------ */
+
+function printError(err, indent) {
+    const pad = indent || "";
+    const nextPad = pad + "  ";
+
+    if (err === undefined || err === null) {
+        console.error(pad + "[ERREUR] valeur d'erreur vide (null/undefined)");
+        return;
+    }
+    if (typeof err !== "object") {
+        console.error(pad + "[ERREUR] " + String(err));
+        return;
+    }
+
+    let printedField = false;
+    const field = (label, value) => {
+        if (value === undefined || value === null || value === "") return;
+        printedField = true;
+        console.error(nextPad + label + " : " + String(value));
+    };
+
+    console.error(pad + "[ERREUR]");
+
+    field("name", err.name);
+    field("message", err.message);
+    field("code", err.code);
+    field("status", err.status);
+    field("details", err.details);
+    field("reason", err.reason);
+    field("path", err.path);
+    field("syscall", err.syscall);
+    field("errno", err.errno);
+
+    if (err.errorInfo) {
+        field("errorInfo", JSON.stringify(err.errorInfo));
+    }
+
+    if (Array.isArray(err.errors) && err.errors.length > 0) {
+        printedField = true;
+        console.error(nextPad + "errors[] (" + err.errors.length + ") :");
+        err.errors.forEach((e, i) => {
+            if (e && typeof e === "object") {
+                console.error(nextPad + "  [" + i + "] " +
+                    (e.code || e.status || e.reason ? (e.code || e.status || e.reason) + " — " : "") +
+                    (e.message || JSON.stringify(e)));
+                if (e.details) console.error(nextPad + "      details : " + JSON.stringify(e.details));
+            } else {
+                console.error(nextPad + "  [" + i + "] " + String(e));
+            }
+        });
+    }
+
+    if (Array.isArray(err.requireStack) && err.requireStack.length > 0) {
+        printedField = true;
+        console.error(nextPad + "requireStack[] :");
+        err.requireStack.forEach((p) => console.error(nextPad + "  - " + p));
+    }
+
+    if (err.stack) {
+        printedField = true;
+        console.error(nextPad + "stack (20 premières lignes) :");
+        String(err.stack)
+            .split("\n")
+            .slice(0, 20)
+            .forEach((l) => console.error(nextPad + "  " + l));
+    }
+
+    // Cause chaînée (Node >= 16)
+    if (err.cause) {
+        printedField = true;
+        console.error(nextPad + "-- cause --");
+        printError(err.cause, nextPad);
+    }
+
+    // Fallback : aucune information utile extraite
+    if (!printedField) {
+        console.error(nextPad + "Aucun champ standard exploitable — dump complet :");
+        console.dir(err, { depth: 3 });
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* Pré-vol credentials                                                 */
+/* ------------------------------------------------------------------ */
+
+function preflightCredentials() {
+    const rawPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+
+    if (!rawPath) {
+        log("");
+        log("[INFO] GOOGLE_APPLICATION_CREDENTIALS non défini.");
+        log("       Tentative avec applicationDefault().");
+        return null;
+    }
+
+    log("");
+    log("[CREDENTIALS] GOOGLE_APPLICATION_CREDENTIALS = " + rawPath);
+
+    const resolved = path.resolve(rawPath);
+
+    if (!fs.existsSync(resolved)) {
+        throw new Error(
+            "Fichier de credentials introuvable : " + resolved +
+            " (chemin résolu depuis GOOGLE_APPLICATION_CREDENTIALS)"
+        );
+    }
+
+    let raw;
+    try {
+        raw = fs.readFileSync(resolved, "utf8");
+    } catch (e) {
+        throw new Error("Impossible de lire le fichier de credentials " + resolved +
+            " : " + (e && e.message ? e.message : String(e)));
+    }
+
+    let sa;
+    try {
+        sa = JSON.parse(raw);
+    } catch (e) {
+        throw new Error("Fichier de credentials invalide (JSON.parse) " + resolved +
+            " : " + (e && e.message ? e.message : String(e)));
+    }
+
+    if (!sa || typeof sa !== "object") {
+        throw new Error("Fichier de credentials : contenu non-objet après parsing.");
+    }
+
+    if (sa.type !== "service_account") {
+        throw new Error(
+            'type attendu "service_account", reçu "' + String(sa.type) + '".'
+        );
+    }
+
+    const required = ["project_id", "private_key", "client_email", "private_key_id"];
+    const missing = required.filter((k) => !sa[k]);
+    if (missing.length > 0) {
+        throw new Error("Champs requis manquants dans le service account : " + missing.join(", "));
+    }
+
+    // --- Détection de clé compromise (comparaison correcte) ---
+    const privateKeyId = String(sa.private_key_id);
+    const pkPrefix = privateKeyId.slice(0, 12); // uniquement pour l'affichage
+
+    log("[CREDENTIALS] project_id     : " + sa.project_id);
+    log("[CREDENTIALS] client_email   : " + sa.client_email);
+    log("[CREDENTIALS] private_key_id : " + pkPrefix + "…");
+
+    if (privateKeyId.startsWith(KNOWN_COMPROMISED_PRIVATE_KEY_PREFIX)) {
+        throw new Error(
+            "Clé de service account compromise détectée (private_key_id commence par " +
+            KNOWN_COMPROMISED_PRIVATE_KEY_PREFIX + "). " +
+            "Révoquez cette clé dans Google Cloud Console et générez-en une nouvelle avant de relancer."
+        );
+    }
+
+    return sa;
+}
+
+/* ------------------------------------------------------------------ */
+/* Handlers globaux                                                    */
+/* ------------------------------------------------------------------ */
+
+process.on("unhandledRejection", (reason) => {
+    console.error("");
+    console.error("[ERREUR FATALE] Promesse rejetée non gérée :");
+    printError(reason, "  ");
+    process.exitCode = 1;
+});
+
+process.on("uncaughtException", (err) => {
+    console.error("");
+    console.error("[ERREUR FATALE] Exception non capturée :");
+    printError(err, "  ");
+    process.exitCode = 1;
+});
+
+/* ------------------------------------------------------------------ */
+/* Main                                                                */
+/* ------------------------------------------------------------------ */
 
 async function main() {
     log("=====================================================");
@@ -45,27 +234,39 @@ async function main() {
     log(" Mode : " + (APPLY ? "APPLY (écriture réelle)" : "DRY-RUN (aucune écriture)"));
     log("=====================================================");
 
-    /* ---------- Garde-fou credentials ---------- */
-    if (!process.env.GOOGLE_APPLICATION_CREDENTIALS && !process.env.FIREBASE_CONFIG) {
-        log("");
-        log("[ATTENTION] Aucune credential explicite détectée.");
-        log("  Définissez GOOGLE_APPLICATION_CREDENTIALS=/chemin/serviceAccount.json");
-        log("  (ou une identité Google par défaut valide).");
-        log("  Tentative d'initialisation avec applicationDefault()...");
+    /* ---------- Pré-vol credentials ---------- */
+    let serviceAccount = null;
+    try {
+        serviceAccount = preflightCredentials();
+    } catch (err) {
+        console.error("");
+        console.error("[ERREUR FATALE] Pré-vol credentials échoué :");
+        printError(err, "  ");
+        process.exitCode = 1;
+        return;
     }
 
+    /* ---------- Initialisation firebase-admin ---------- */
     try {
         if (admin.apps.length === 0) {
-            admin.initializeApp({
-                credential: admin.credential.applicationDefault()
-            });
+            if (serviceAccount) {
+                admin.initializeApp({
+                    credential: admin.credential.cert(serviceAccount),
+                    projectId: serviceAccount.project_id
+                });
+            } else {
+                admin.initializeApp({
+                    credential: admin.credential.applicationDefault()
+                });
+            }
         }
+        log("[INIT] firebase-admin initialisé.");
     } catch (err) {
         console.error("");
         console.error("[ERREUR FATALE] Impossible d'initialiser firebase-admin :");
-        console.error("  " + (err && err.message ? err.message : err));
-        console.error("  Aucune credential valide. Arrêt.");
-        process.exit(1);
+        printError(err, "  ");
+        process.exitCode = 1;
+        return;
     }
 
     const db = admin.firestore();
@@ -80,8 +281,9 @@ async function main() {
     } catch (err) {
         console.error("");
         console.error("[ERREUR FATALE] Lecture Firestore impossible :");
-        console.error("  " + (err && err.message ? err.message : err));
-        process.exit(1);
+        printError(err, "  ");
+        process.exitCode = 1;
+        return;
     }
 
     const vendors = [];
@@ -153,9 +355,10 @@ async function main() {
         } catch (err) {
             console.error("");
             console.error("[ERREUR FATALE] Échec du batch n°" + batchCount + " :");
-            console.error("  " + (err && err.message ? err.message : err));
+            printError(err, "  ");
             console.error("  Notifications créées avant l'échec : " + created);
-            process.exit(1);
+            process.exitCode = 1;
+            return;
         }
 
         created += slice.length;
@@ -170,6 +373,7 @@ async function main() {
 
 main().catch((err) => {
     console.error("");
-    console.error("[ERREUR FATALE] " + (err && err.message ? err.message : err));
-    process.exit(1);
+    console.error("[ERREUR FATALE] Exception remontée depuis main() :");
+    printError(err, "  ");
+    process.exitCode = 1;
 });
