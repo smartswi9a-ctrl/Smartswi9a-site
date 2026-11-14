@@ -62,17 +62,51 @@ Le montant minimum de retrait est fixé à **200 MAD**. Une seule demande de ret
 
 ---
 
-## Article 5 — Frais de retrait
+## Article 5 — Retrait des fonds
 
-Les frais de retrait sont **à la charge du Vendeur**, déduits du montant demandé :
+Le Vendeur peut demander le retrait de ses fonds disponibles depuis son espace vendeur, sous réserve que le solde soit positif, que la période de blocage applicable (article 4) soit écoulée et qu'une seule demande de retrait soit en cours de traitement à la fois.
 
-| Canal de retrait | Frais par transaction |
-| --- | --- |
-| **Wafacash** | **10 MAD** |
-| **Cash Plus** | **10 MAD** |
-| Virement bancaire | 0 MAD |
+### 5.1 Canaux de retrait disponibles
 
-Le montant net versé au Vendeur correspond au montant demandé diminué des frais applicables. Le détail (montant brut, frais, net) est enregistré sur chaque demande de retrait.
+Les retraits sont effectués **exclusivement** par l'un des deux canaux suivants :
+
+| Canal de retrait |
+| --- |
+| **Wafacash** |
+| **Cash Plus** |
+
+Aucun autre canal n'est proposé : **aucun virement bancaire et aucune communication de RIB ne sont acceptés** par la Plateforme.
+
+### 5.2 Informations requises du Vendeur
+
+Pour chaque demande de retrait, le Vendeur fournit les informations suivantes, qui doivent être exactes et correspondre à sa pièce d'identité :
+
+- **Nom** ;
+- **Prénom** ;
+- **Numéro de CIN** (carte d'identité nationale) ;
+- **Numéro de téléphone**.
+
+Ces informations sont utilisées uniquement pour permettre le versement du montant demandé auprès de l'agence choisie. Toute information erronée peut entraîner le rejet de la demande.
+
+### 5.3 Traitement de la demande et versement
+
+La demande de retrait est traitée **manuellement** par l'administration de Smart Swika.
+
+L'administration dépose, **auprès d'une agence Wafacash ou Cash Plus**, le **montant exact demandé par le Vendeur**, dans un délai indicatif de **48 (quarante-huit) heures ouvrées** à compter de la validation de la demande.
+
+Après le dépôt, le Vendeur reçoit dans son espace vendeur (dashboard) un **numéro de transfert**. Il se présente à l'agence désignée, **muni de sa CIN**, pour retirer les fonds.
+
+### 5.4 Frais de retrait
+
+**Smart Swika ne prélève aucun frais de retrait.** Aucun frais fixe, forfaitaire ou de service n'est déduit du montant demandé : la commission de 7 % prévue à l'article 3 est déjà appliquée en amont, et le montant demandé par le Vendeur est intégralement déposé auprès de l'agence.
+
+**Les frais de l'agence de transfert sont à la charge du Vendeur.** Wafacash et Cash Plus appliquent des **frais variables**, dont le montant est déterminé et **déduit par l'agence elle-même au moment de la remise des fonds**. Ces frais ne sont ni calculés, ni prélevés, ni contrôlés par Smart Swika.
+
+En conséquence, **le montant effectivement reçu par le Vendeur à l'agence est inférieur au montant demandé**. Le Vendeur reconnaît et accepte que cet écart corresponde aux frais de l'agence et qu'il ne constitue pas un prélèvement de la Plateforme.
+
+### 5.5 Caractère temporaire du processus
+
+Le processus décrit au présent article est **temporairement manuel**. Il a vocation à être **automatisé** ultérieurement. Le Vendeur est informé de cette évolution par une notification sur la Plateforme. Les modalités essentielles (canaux disponibles et prise en charge des frais d'agence par le Vendeur) demeurent inchangées.
 
 ---
 
@@ -116,6 +150,48 @@ Le Vendeur s'engage à :
 - accepter les modalités de retour et de garantie décrites aux présentes.
 
 ---
+## Article 8 bis — Qualité et état des produits
+
+Le Vendeur ne peut mettre en vente sur la Plateforme que des produits **neufs, jamais utilisés**, destinés à la première mise en service par l'Acheteur.
+
+### 8 bis.1 Produits neufs et jamais utilisés
+
+Tout produit proposé doit être **neuf** et **n'avoir jamais été utilisé**, ni par le Vendeur, ni par un tiers, ni avoir fait l'objet d'un usage de démonstration en dehors de son emballage scellé.
+
+Les produits d'occasion, reconditionnés, repris, issus de retours clients ou de déstockage sont **interdits** à la vente sur la Plateforme, sauf application de l'article 8 bis.5.
+
+### 8 bis.2 Emballage d'origine obligatoire
+
+Chaque produit doit être livré dans son **emballage d'origine, scellé et complet** : boîte du fabricant, accessoires, notices, garanties et documents de conformité.
+
+Un produit dont l'emballage d'origine est ouvert, endommagé, remplacé ou absent ne peut être vendu comme neuf. Le Vendeur garantit que l'état annoncé correspond à l'état effectivement livré.
+
+### 8 bis.3 Interdiction des images et descriptions trompeuses
+
+Il est **strictement interdit** d'utiliser des photographies, visuels, vidéos ou descriptions qui ne correspondent pas exactement au produit réellement expédié.
+
+Sont notamment interdits : l'usage d'images de produits d'un autre modèle ou d'une autre gamme, la retouche trompeuse, l'omission de défauts, et toute présentation susceptible d'induire l'Acheteur en erreur sur l'état, la nature ou l'origine du produit.
+
+### 8 bis.4 Sanctions : suspension immédiate et gel des fonds
+
+Tout manquement aux articles 8 bis.1 à 8 bis.3 constitue un **manquement grave** aux présentes CGU.
+
+Smart Swika peut, sans préavis et sans indemnité :
+
+- **suspendre immédiatement** le compte du Vendeur et retirer les annonces concernées ;
+- **geler l'intégralité des fonds** du portefeuille du Vendeur jusqu'à la résolution du litige, conformément à l'article 7 ;
+- engager la responsabilité du Vendeur pour tout préjudice causé à l'Acheteur ou à la Plateforme.
+
+Le gel des fonds n'emporte ni confiscation ni déduction : il conserve les fonds intacts jusqu'à la décision. Les sommes dues au titre des remboursements ou des frais de retour demeurent toutefois prélevées dans les conditions prévues aux présentes.
+
+### 8 bis.5 Remise en vente de produits retournés — statut « reconditionné »
+
+Un produit retourné par un Acheteur **ne peut en aucun cas être remis en vente comme produit neuf**.
+
+Sa remise en vente n'est possible qu'avec l'**accord préalable et écrit de Smart Swika**, et uniquement sous la mention explicite **« reconditionné »**, accompagnée d'une description exacte de son état et des éventuels défauts constatés.
+
+Toute remise en vente d'un produit retourné sans cet accord, ou sous une mention « neuf », constitue un manquement grave sanctionné dans les conditions de l'article 8 bis.4.
+
 
 ## Article 9 — Responsabilité
 

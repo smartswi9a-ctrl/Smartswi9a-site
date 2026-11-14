@@ -103,6 +103,20 @@ Lorsque le retour résulte d'un refus de réception par l'Acheteur ou d'un motif
 
 L'Acheteur est informé des modalités pratiques de retour (adresse de dépôt ou enlèvement) par le service client. Le remboursement ou l'avoir intervient après réception et vérification du produit retourné.
 
+### 4.4 Circuit de remboursement
+
+Le remboursement de l'Acheteur est effectué **par le même circuit que celui du règlement de la commande** : il transite par le Vendeur et par la Plateforme, selon les modalités communiquées par le service client.
+
+**Aucun frais fixe n'est prélevé à l'Acheteur au titre du remboursement.** Le montant remboursé correspond au prix effectivement réglé pour le produit concerné, à l'exclusion des frais de livraison sauf disposition contraire.
+
+Lorsque le retour est reconnu défectueux ou non conforme, les frais de retour sont supportés par le Vendeur conformément à l'article 4.2 ; ils ne sont en aucun cas déduits du remboursement dû à l'Acheteur.
+
+### 4.5 Produits neufs
+
+Les produits proposés sur la Plateforme sont **neufs et jamais utilisés**, conformément aux CGU Vendeur et au Contrat Vendeur.
+
+Si l'Acheteur constate qu'un produit livré n'est pas neuf, a déjà été utilisé, ou ne correspond pas à sa description, il peut le signaler dans les délais de l'article 3. Ce signalement est traité comme un défaut de conformité et ouvre droit au retour et au remboursement dans les conditions des présentes.
+
 ---
 
 ## Article 5 — Obligations de l'Acheteur
