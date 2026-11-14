@@ -574,8 +574,8 @@ function normalizeMoroccanPhone(value) {
 }
 
 function isValidMoroccanCin(value) {
-    // CIN marocaine : 1 à 2 lettres suivies de 5 à 6 chiffres, ou 6 à 8 chiffres.
-    return /^(?:[A-Z]{1,2}\d{5,6}|\d{6,8})$/.test(String(value || '').trim().toUpperCase());
+    // CIN marocaine : 1 à 3 lettres suivies de 4 à 8 chiffres (même règle que functions/index.js).
+    return /^[A-Z]{1,3}\d{4,8}$/.test(String(value || '').trim().toUpperCase());
 }
 
 function handleWithdrawMethodChange() {

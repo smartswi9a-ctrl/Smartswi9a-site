@@ -3242,6 +3242,16 @@ function renderVendorsList(vendors) {
         const contractSignedAt = toDate(v.vendorInfo?.contractSignedAt)?.toLocaleString('fr-FR') || '—';
         const delayCount = Number(v.vendorInfo?.delayCount) || 0;
 
+        const walletStatus = String(v.wallet_status || 'active').toLowerCase();
+        const walletBadgeBase = 'padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;';
+        const WALLET_BADGE = {
+            active: `<span style="background:var(--success-bg);color:var(--success);${walletBadgeBase}">Wallet actif</span>`,
+            frozen: `<span style="background:rgba(52,152,219,0.15);color:#2f86c9;${walletBadgeBase}">Wallet gelé</span>`,
+            suspended: `<span style="background:var(--warning-bg);color:var(--warning);${walletBadgeBase}">Wallet suspendu</span>`,
+            debt: `<span style="background:var(--danger-bg);color:var(--danger);${walletBadgeBase}">Wallet débiteur</span>`
+        };
+        const walletBadge = WALLET_BADGE[walletStatus] || WALLET_BADGE.active;
+
         let statusBadge = '';
         if (status === 'pending') statusBadge = `<span style="background:var(--warning-bg);color:var(--warning);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">En attente</span>`;
         else if (status === 'approved') statusBadge = `<span style="background:var(--success-bg);color:var(--success);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">Approuvé</span>`;
@@ -3280,12 +3290,21 @@ function renderVendorsList(vendors) {
             actionsHtml += `<button class="admin-btn-icon admin-btn-danger" data-action="vendor-delete" data-id="${v.id}">Supprimer le compte</button>`;
         }
 
+        /* Gestion du portefeuille (freeze / unfreeze). */
+        if (status !== 'deletion_pending' && status !== 'pending') {
+            if (walletStatus === 'frozen') {
+                actionsHtml += `<button class="admin-btn-icon" data-action="wallet-unfreeze" data-id="${v.id}" data-shop="${shopName}">🔓 Débloquer le portefeuille</button>`;
+            } else {
+                actionsHtml += `<button class="admin-btn-icon admin-btn-danger" data-action="wallet-freeze" data-id="${v.id}" data-shop="${shopName}">🔒 Geler le portefeuille</button>`;
+            }
+        }
+
         html += `
             <div class="admin-list-item" style="flex-direction:column;align-items:stretch;padding:1rem;">
                 <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">
                     <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;">
                         <strong style="color:var(--gold);font-size:1rem;">${shopName}</strong>
-                        ${statusBadge}${contractBadge}${delayBadge}
+                        ${statusBadge}${contractBadge}${delayBadge}${walletBadge}
                     </div>
                     <div style="font-size:0.8rem;color:var(--text-dim);">Inscrit le ${createdAt}</div>
                 </div>
@@ -3319,6 +3338,12 @@ function renderVendorsList(vendors) {
     });
     container.querySelectorAll('[data-action="vendor-delete"]').forEach(btn => {
         btn.addEventListener('click', () => handleVendorAction(btn.dataset.id, 'deleted'));
+    });
+    container.querySelectorAll('[data-action="wallet-freeze"]').forEach(btn => {
+        btn.addEventListener('click', () => handleWalletAction(btn.dataset.id, 'freeze', btn.dataset.shop));
+    });
+    container.querySelectorAll('[data-action="wallet-unfreeze"]').forEach(btn => {
+        btn.addEventListener('click', () => handleWalletAction(btn.dataset.id, 'unfreeze', btn.dataset.shop));
     });
     container.querySelectorAll('.vendor-shipping-method').forEach(select => {
         select.addEventListener('change', async () => {
@@ -3389,6 +3414,63 @@ async function handleVendorAction(vendorId, newStatus) {
         showToast(e.message || 'Erreur');
     }
 
+}
+
+/**
+ * Gèle ou débloque le portefeuille d'un vendeur.
+ * Backend : POST /api/adminManageWallet { action: 'freeze' | 'unfreeze', vendorId }
+ */
+async function handleWalletAction(vendorId, action, shopName) {
+    if (!vendorId || !['freeze', 'unfreeze'].includes(action)) return;
+    const label = shopName || ('vendeur ' + String(vendorId).slice(0, 8) + '...');
+    const isFreeze = action === 'freeze';
+    const confirmed = await confirmAction(
+        isFreeze
+            ? `Geler le portefeuille de ${label} ? Les fonds ne pourront plus être libérés tant que le gel est actif.`
+            : `Débloquer le portefeuille de ${label} ? Les fonds pourront de nouveau être libérés.`,
+        {
+            title: isFreeze ? 'Geler le portefeuille' : 'Débloquer le portefeuille',
+            confirmText: isFreeze ? 'Geler' : 'Débloquer',
+            cancelText: 'Annuler',
+            variant: isFreeze ? 'danger' : 'primary'
+        }
+    );
+    if (!confirmed) return;
+
+    try {
+        const adminUser = auth.currentUser;
+        if (!adminUser) throw new Error('Session administrateur expirée. Reconnectez-vous.');
+        const idToken = await adminUser.getIdToken(true);
+        const response = await fetch('/api/adminManageWallet', {
+            method: 'POST',
+            cache: 'no-store',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + idToken,
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({ vendorId, action })
+        });
+        const responseText = await response.text();
+        let result = {};
+        try { result = responseText ? JSON.parse(responseText) : {}; }
+        catch (_) { result = { message: responseText.slice(0, 300) }; }
+        if (!response.ok || !result.success) {
+            const statusHint = response.status === 404
+                ? ' La fonction adminManageWallet est absente ou pas encore déployée dans europe-west1.'
+                : response.status === 403
+                    ? ' Vérifiez le rôle administrateur du compte connecté.'
+                    : response.status === 401
+                        ? ' La session administrateur a expiré : reconnectez-vous.'
+                        : '';
+            throw new Error((result.message || `Action portefeuille impossible (HTTP ${response.status}).`) + statusHint);
+        }
+        showToast(isFreeze ? 'Portefeuille gelé.' : 'Portefeuille débloqué.');
+        await loadVendors();
+    } catch (e) {
+        console.error('[admin] handleWalletAction :', e);
+        showToast(e.message || 'Erreur');
+    }
 }
 
 /* ============================================================
@@ -4422,7 +4504,7 @@ function attachAllRemainingEvents() {
             document.querySelectorAll('[data-payout-filter]').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             const f = btn.dataset.payoutFilter;
-            renderPayoutsList(f === 'all' ? cachedPayouts : cachedPayouts.filter(p => (p.status || 'pending') === f));
+            renderPayoutsList(f === 'all' ? cachedPayouts : cachedPayouts.filter(p => normalizePayoutStatusAdmin(p.status || 'pending') === normalizePayoutStatusAdmin(f)));
         });
     });
 

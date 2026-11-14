@@ -131,8 +131,8 @@ function isValidIceCin(v) {
     if (typeof v !== "string") return false;
     const t = v.trim().toUpperCase();
     if (/^\d{15}$/.test(t)) return true;
-    if (/^[A-Z]{1,2}\d{5,6}$/.test(t)) return true;
-    if (/^\d{6,8}$/.test(t)) return true;
+    // CIN aligné sur functions/index.js : 1 à 3 lettres puis 4 à 8 chiffres.
+    if (/^[A-Z]{1,3}\d{4,8}$/.test(t)) return true;
     return false;
 }
 
