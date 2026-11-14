@@ -24,7 +24,8 @@
 
 const fs = require("fs");
 const path = require("path");
-const admin = require("firebase-admin");
+const { initializeApp, cert, getApps, applicationDefault } = require('firebase-admin/app');
+const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 
 const args = process.argv.slice(2);
 const APPLY = args.includes("--apply");
@@ -248,15 +249,15 @@ async function main() {
 
     /* ---------- Initialisation firebase-admin ---------- */
     try {
-        if (admin.apps.length === 0) {
+        if (getApps().length === 0) {
             if (serviceAccount) {
-                admin.initializeApp({
-                    credential: admin.credential.cert(serviceAccount),
+                initializeApp({
+                    credential: cert(serviceAccount),
                     projectId: serviceAccount.project_id
                 });
             } else {
-                admin.initializeApp({
-                    credential: admin.credential.applicationDefault()
+                initializeApp({
+                    credential: applicationDefault()
                 });
             }
         }
@@ -269,7 +270,7 @@ async function main() {
         return;
     }
 
-    const db = admin.firestore();
+    const db = getFirestore();
 
     /* ---------- Récupération des vendeurs ---------- */
     log("");
@@ -346,7 +347,7 @@ async function main() {
                 title: NOTIFICATION_TITLE,
                 message: NOTIFICATION_MESSAGE,
                 read: false,
-                createdAt: admin.firestore.FieldValue.serverTimestamp()
+                createdAt: FieldValue.serverTimestamp()
             });
         });
 
