@@ -765,6 +765,35 @@ export async function updateOrderStatus(orderId, newStatus) {
                 throw new Error(`Transition de commande interdite : ${previousStatus} → ${normalizedStatus}.`);
             }
 
+            /* GARDE ENTREPOT (PR 2/6) ---------------------------------------
+               Une commande 100 % entrepot doit passer par l'onglet
+               "Preparation Commandes" : c'est ce flux qui decremente
+               stock_warehouse dans la meme transaction. Un passage direct
+               confirmed -> shipping depuis la fiche commande creerait un
+               "phantom shipment" (colis Livo cree sans decrement de stock).
+               Les commandes mixtes restent autorisees ici : leur stock
+               entrepot n'est pas encore gere (gap documente, PR 3).        */
+            if (normalizedStatus === ORDER_STATUS.SHIPPING) {
+                const prepItems = Array.isArray(order.items) ? order.items : [];
+                let allWarehouse = order.delivery_mode === 'smartswika_warehouse';
+                if (!order.delivery_mode && prepItems.length > 0) {
+                    const prepSnaps = await Promise.all(
+                        prepItems.map(i => transaction.get(doc(db, "products", String(i.productId))))
+                    );
+                    allWarehouse = prepSnaps.length > 0 && prepSnaps.every(
+                        s => s.exists() && s.data().delivery_mode === 'smartswika_warehouse'
+                    );
+                }
+                if (allWarehouse) {
+                    throw new Error('Commande entrepôt : utilisez l\'onglet "Préparation Commandes".');
+                }
+                const anyWarehousePrep = prepItems.some(i => i.delivery_mode === 'smartswika_warehouse');
+                if (anyWarehousePrep) {
+                    // Cas mixte : on laisse passer mais on trace le trou fonctionnel.
+                    console.warn('[updateOrderStatus] Commande mixte : stock_warehouse non décrémenté pour les articles entrepôt (gap PR 3).', order.id);
+                }
+            }
+
             let productSnaps = [];
             let productRefs = [];
 
@@ -1257,6 +1286,29 @@ export async function renderAdminOrders(containerId = 'ordersList') {
             ? `<span style="background:#3498db;color:#fff;font-size:0.65rem;padding:0.15rem 0.4rem;border-radius:30px;margin-left:0.3rem;font-weight:700;">${vendorCount} vendeur${vendorCount > 1 ? 's' : ''}</span>`
             : '';
 
+        // Badge « Mode » : champ order.delivery_mode s'il existe, sinon deduit du
+        // delivery_mode des articles deja charges. 100% entrepot / mixte / 100% dropoff.
+        let modeBadge = '';
+        {
+            const modeItems = Array.isArray(order.items) ? order.items : [];
+            const orderMode = order.delivery_mode;
+            const isWarehouseItem = (item) => {
+                if (orderMode === 'smartswika_warehouse') return true;
+                if (orderMode === 'dropoff') return false;
+                return item.delivery_mode === 'smartswika_warehouse';
+            };
+            const warehouseFlags = modeItems.map(isWarehouseItem);
+            const allWarehouse = warehouseFlags.length > 0 && warehouseFlags.every(Boolean);
+            const anyWarehouse = warehouseFlags.some(Boolean);
+            if (allWarehouse) {
+                modeBadge = `<span style="background:rgba(212,175,55,0.15);color:var(--gold);font-size:0.65rem;padding:0.15rem 0.4rem;border-radius:30px;margin-left:0.3rem;font-weight:700;">🏬 Entrepôt</span>`;
+            } else if (anyWarehouse) {
+                modeBadge = `<span style="background:rgba(230,126,34,0.18);color:#b35c00;font-size:0.65rem;padding:0.15rem 0.4rem;border-radius:30px;margin-left:0.3rem;font-weight:700;">⚠️ Mixte</span>`;
+            } else {
+                modeBadge = `<span style="background:var(--bg-surface);color:var(--text-muted);font-size:0.65rem;padding:0.15rem 0.4rem;border-radius:30px;margin-left:0.3rem;font-weight:700;">🚚 Dropoff</span>`;
+            }
+        }
+
         const trackingId = order.livoTracking || order.speedafTracking;
         const labelUrl = order.livoLabelUrl || order.speedafLabelUrl;
 
@@ -1278,7 +1330,7 @@ export async function renderAdminOrders(containerId = 'ordersList') {
             <div class="admin-order-item" style="flex-direction:column;align-items:stretch;padding:0.8rem;border-bottom:1px solid var(--border);${isTest ? 'border-left:4px solid #dc3545;background:rgba(220,53,69,0.03);' : ''}">
                 <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.6rem;">
                     <div>
-                        <strong style="color:var(--gold);">#${orderIdShort}</strong>${testBadge}${vendorBadge} ${emoji} - ${date}<br>
+                        <strong style="color:var(--gold);">#${orderIdShort}</strong>${testBadge}${vendorBadge}${modeBadge} ${emoji} - ${date}<br>
                         <small>${escapeHTML(order.deliveryAddress?.name || '—')} - ${escapeHTML(order.deliveryAddress?.phone || '')} - ${escapeHTML(cityDisplay)}</small><br>
                         <small><strong>${itemsSummary}</strong></small><br>
                         <small>${itemCount} ${t('items')} - ${order.total || 0} ${t('currency')} - ${stockBadge}</small>
