@@ -972,6 +972,14 @@ function consolidateStockItems(items) {
 }
 
 async function deductStockInTransaction(transaction, order, productSnaps, productRefs) {
+    // Une commande 100 % warehouse ne decremente rien ici : son stock est gere
+    // exclusivement par l'onglet "Preparation Commandes" (markOrderAsPrepared),
+    // sinon on décrémenterait deux fois le stock entrepôt.
+    const allWarehouse = order.items.length > 0 && productSnaps.every(snap =>
+        snap.exists() && snap.data().delivery_mode === 'smartswika_warehouse'
+    );
+    if (allWarehouse) return;
+
     productSnaps.forEach((snap, i) => {
         const productId = productRefs[i].id;
         if (!snap.exists()) throw new Error(`Produit ${productId} introuvable`);
@@ -1004,6 +1012,15 @@ async function deductStockInTransaction(transaction, order, productSnaps, produc
             updateData.variants = variants;
             updateData.stock = variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
         } else updateData.stock = simpleStock;
+        // Gap B (PR 3/6) : decrement partiel du stock entrepot pour les
+        // commandes mixtes. Les commandes 100 % warehouse sont sorties plus haut.
+        if (pData.delivery_mode === 'smartswika_warehouse') {
+            const currentWarehouse = Number(pData.stock_warehouse) || 0;
+            if (!Number.isFinite(currentWarehouse) || currentWarehouse < totalQty) {
+                throw new Error(`Stock entrepôt insuffisant pour ${pData.nameFr || productId}`);
+            }
+            updateData.stock_warehouse = currentWarehouse - totalQty;
+        }
         transaction.update(productRefs[i], updateData);
     });
 }
@@ -1040,6 +1057,13 @@ async function restoreStockInTransaction(transaction, order, productSnaps, produ
             updateData.variants = variants;
             updateData.stock = variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
         } else updateData.stock = simpleStock;
+        // Restauration symetrique du stock entrepot (Gap B, PR 3/6).
+        // Cas-limite : si le vendeur change delivery_mode entre la commande et
+        // l'annulation, la restauration peut ne pas être symétrique (rare,
+        // acceptable, documenté PR 3.5).
+        if (pData.delivery_mode === 'smartswika_warehouse') {
+            updateData.stock_warehouse = (Number(pData.stock_warehouse) || 0) + totalQty;
+        }
         transaction.update(productRefs[i], updateData);
     });
 }
@@ -1144,6 +1168,39 @@ export async function updatePaymentStatus(orderId, newStatus) {
 /* ============================================================
    ADMIN : RENDRE LES COMMANDES
    ============================================================ */
+/* ============================================================
+   DELIVERY_MODE DES PRODUITS (badge Mode admin — Gap A, PR 3/6)
+   Les items de commande ne portent pas encore delivery_mode (voir
+   TODO PR 3.5). On derive donc le mode depuis les produits, avec un
+   cache de 30 s base sur une promesse partagee : deux rendus
+   concurrents declenchent un seul fetch.
+   ============================================================ */
+let productDeliveryModesPromise = null;
+let productDeliveryModesLoadedAt = 0;
+const PRODUCT_DELIVERY_MODES_TTL_MS = 30000;
+
+async function loadProductDeliveryModes() {
+    const now = Date.now();
+    if (productDeliveryModesPromise && (now - productDeliveryModesLoadedAt) < PRODUCT_DELIVERY_MODES_TTL_MS) {
+        return productDeliveryModesPromise;
+    }
+    productDeliveryModesLoadedAt = now;
+    productDeliveryModesPromise = (async () => {
+        const map = new Map();
+        try {
+            const snap = await getDocs(query(collection(db, "products"), limit(1000)));
+            snap.forEach(d => {
+                const mode = d.data().delivery_mode === 'smartswika_warehouse' ? 'smartswika_warehouse' : 'dropoff';
+                map.set(d.id, mode);
+            });
+        } catch (e) {
+            console.warn('[orders] Lecture delivery_mode produits impossible :', e);
+        }
+        return map;
+    })();
+    return productDeliveryModesPromise;
+}
+
 export async function renderAdminOrders(containerId = 'ordersList') {
     const container = document.getElementById(containerId);
     if (!container) return;
@@ -1181,6 +1238,11 @@ export async function renderAdminOrders(containerId = 'ordersList') {
             console.warn('Chargement justificatifs retour impossible :', order.id, error);
         }
     }));
+
+    // TODO PR 3.5 : ajouter delivery_mode aux items dans functions/index.js
+    // (createCustomerOrder, validatedItems) pour supprimer ce fetch et rendre
+    // le badge instantané. Coût actuel : 1 lecture products par rendu admin (cache 30 s).
+    const productDeliveryModes = await loadProductDeliveryModes();
 
     let html = `<div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
         <button id="refreshAdminOrdersBtn" class="admin-btn-secondary" style="font-size:0.8rem;">Rafraîchir</button>
@@ -1295,7 +1357,9 @@ export async function renderAdminOrders(containerId = 'ordersList') {
             const isWarehouseItem = (item) => {
                 if (orderMode === 'smartswika_warehouse') return true;
                 if (orderMode === 'dropoff') return false;
-                return item.delivery_mode === 'smartswika_warehouse';
+                // Les items ne portent pas encore delivery_mode (cf. TODO PR 3.5) :
+                // on derive donc le mode depuis le produit (cache 30 s).
+                return productDeliveryModes.get(String(item.productId)) === 'smartswika_warehouse';
             };
             const warehouseFlags = modeItems.map(isWarehouseItem);
             const allWarehouse = warehouseFlags.length > 0 && warehouseFlags.every(Boolean);
