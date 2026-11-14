@@ -214,7 +214,21 @@ export const CONFIG = {
         WEBHOOK_LIVO_SECRET: '__MIGRATED_TO_WORKER_ENV__',
         WEBHOOK_RETRY_ATTEMPTS: 3, WEBHOOK_RETRY_DELAY_MS: 5000
     },
-    FULFILLMENT_BATCH_PREFIX: 'FUL-', FULFILLMENT_LABEL_PREFIX: 'SSW-FUL-'
+    FULFILLMENT_BATCH_PREFIX: 'FUL-', FULFILLMENT_LABEL_PREFIX: 'SSW-FUL-',
+
+    /* ============================================================
+       LIVRAISON - PRODUIT GÉNÉRIQUE LIVO
+       Une seule fiche produit est utilisée côté Livo pour TOUTES les
+       commandes. Le SKU réel part dans `refr` et le nom réel dans
+       `comment`. Le champ Firestore `livo_product_id` n'est plus lu.
+       ============================================================ */
+    LIVO_GENERIC_PRODUCT_ID: 'prszhtm45355',
+    SMART_SWIKA_WAREHOUSE: {
+        name: 'Entrepôt Smart Swika',
+        address: 'À compléter',
+        city: 'À compléter',
+        phone: 'À compléter'
+    }
 };
 
 export const CURRENCY_SUFFIX = { fr: 'MAD', ar: 'درهم', en: 'MAD' };

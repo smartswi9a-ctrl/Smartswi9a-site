@@ -410,25 +410,38 @@ export async function sendToLivoAPI(order, options = {}) {
 
         const cityName = addr.cityFr || addr.city || 'Casablanca';
 
-        const itemsWithLivoIds = [];
+        // ------------------------------------------------------------
+        // PRODUIT GÉNÉRIQUE LIVO
+        // Toutes les commandes sont expédiées sous une fiche produit
+        // unique (CONFIG.LIVO_GENERIC_PRODUCT_ID). L'identité réelle de
+        // l'article voyage dans `refr` (SKU) et `comment` (nom réel) :
+        // plus aucune commande ne peut être bloquée par l'absence d'un
+        // `livo_product_id` sur la fiche produit Firestore.
+        // ------------------------------------------------------------
+        const genericProductId = String(CONFIG.LIVO_GENERIC_PRODUCT_ID || '').trim();
+        if (!genericProductId) {
+            throw new Error('CONFIG.LIVO_GENERIC_PRODUCT_ID manquant : expédition Livo impossible.');
+        }
+
+        const itemsForLivo = [];
+        const itemLabels = [];
         for (const item of (order.items || [])) {
             const productSnap = await getDoc(doc(db, 'products', String(item.productId)));
-            if (!productSnap.exists()) {
-                throw new Error(`Produit ${item.productId} introuvable en base.`);
-            }
-            const productData = productSnap.data();
-            const livoProductId = productData.livo_product_id;
-            if (!livoProductId) {
-                throw new Error(
-                    `Produit "${productData.nameFr || item.name}" sans livo_product_id. ` +
-                    `Créer le produit dans Livo UI puis renseigner le champ 'livo_product_id' dans Firestore.`
-                );
-            }
-            itemsWithLivoIds.push({
-                product_id: livoProductId,
-                quantity: Number(item.quantity) || 1,
-                refr: item.sku || String(item.productId)
+            const productData = productSnap.exists() ? productSnap.data() : {};
+            const realName = productData.nameFr || item.name || String(item.productId);
+            const quantity = Math.max(1, Math.min(99, Number(item.quantity) || 1));
+            const sku = String(item.sku || productData.sku || item.productId);
+
+            itemsForLivo.push({
+                product_id: genericProductId,
+                quantity: quantity,
+                refr: sku
             });
+            itemLabels.push(`${realName} x${quantity} (${sku})`);
+        }
+
+        if (itemsForLivo.length === 0) {
+            throw new Error('Commande sans article : expédition Livo impossible.');
         }
 
         const payload = {
@@ -439,10 +452,12 @@ export async function sendToLivoAPI(order, options = {}) {
                 city: String(cityName).slice(0, 100),
                 address: String(addr.address || 'Casablanca').slice(0, 500)
             },
-            products: itemsWithLivoIds,
+            products: itemsForLivo,
             desired_date: formatLivoDate(new Date()),
             openable: false,
-            comment: 'Commande Smartswika',
+            // Le nom réel des articles remplace le libellé générique :
+            // l'entrepôt doit pouvoir identifier le colis sans SKU Livo.
+            comment: `Smartswika - ${itemLabels.join(' | ')}`.slice(0, 200),
             status: 'pending',
             client_order_id: String(order.id).slice(0, 8).toUpperCase()
         };
