@@ -11,7 +11,7 @@ import {
 import {
     collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
     query, where, writeBatch, Timestamp, serverTimestamp, getCountFromServer,
-    orderBy, limit, startAfter, increment, addDoc, deleteField
+    orderBy, limit, startAfter, increment, addDoc, deleteField, runTransaction
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import {
@@ -91,7 +91,7 @@ const COUPON_TYPES = {
 function formatMAD(n) {
     const num = Number(n) || 0;
     return new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2, useGrouping: true })
-        .format(num).replace(/\u202f|\u00a0/g, ' ') + ' MAD';
+        .format(num).replace(/\u202f| /g, ' ') + ' MAD';
 }
 
 function safeDate(d) {
@@ -329,6 +329,7 @@ function initAdmin() {
             else if (tab === 'blog') loadBlogPosts();
             else if (tab === 'products') { await loadProducts(); await loadStats(); }
             else if (tab === 'orders') await loadOrders();
+            else if (tab === 'preparation') await loadWarehousePrep();
             else if (tab === 'livo') await loadLivoTab();
             else if (tab === 'coupons') await loadCoupons();
             else if (tab === 'finances') await loadFinancesTab();
@@ -434,6 +435,210 @@ async function loadOrders() {
     await renderAdminOrders('adminOrdersList');
     syncOrderStatusFilterUI();
     applyOrderStatusFilter();
+}
+
+/* ============================================================
+   PRÉPARATION COMMANDES — ENTREPÔT SMART SWIKA
+   Onglet dédié : commandes 100 % entrepôt en pending/confirmed.
+   « Marquer comme préparé » passe en shipping ET décrémente
+   stock_warehouse dans la même transaction Firestore.
+   ============================================================ */
+let cachedWarehousePrepOrders = [];
+let _prepLoading = false;
+
+const DELIVERY_MODE_LABELS = {
+    dropoff: { label: 'Dropoff', emoji: '🚚', color: 'var(--text-muted)', bg: 'var(--bg-surface)' },
+    smartswika_warehouse: { label: 'Entrepôt', emoji: '🏬', color: 'var(--gold)', bg: 'rgba(212,175,55,0.15)' }
+};
+
+function getOrderDeliveryModeBadge(mode) {
+    const key = mode === 'smartswika_warehouse' ? 'smartswika_warehouse' : 'dropoff';
+    const conf = DELIVERY_MODE_LABELS[key];
+    return `<span style="background:${conf.bg};color:${conf.color};padding:0.15rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;white-space:nowrap;">${conf.emoji} ${conf.label}</span>`;
+}
+
+async function loadWarehousePrep() {
+    const container = document.getElementById('adminWarehousePrepList');
+    if (!container || _prepLoading) return;
+    _prepLoading = true;
+    container.innerHTML = `<div class="admin-loading">⏳ Chargement de la préparation...</div>`;
+
+    try {
+        // 1) Produits stockés à l'entrepôt : source de vérité du filtre.
+        const productsSnap = await getDocs(query(collection(db, "products"), limit(1000)));
+        const warehouseProductIds = new Set();
+        productsSnap.forEach(d => {
+            if (d.data().delivery_mode === 'smartswika_warehouse') warehouseProductIds.add(d.id);
+        });
+
+        // 2) Commandes en attente ou confirmées.
+        const ordersSnap = await getDocs(query(
+            collection(db, "orders"),
+            where("status", "in", ["pending", "confirmed"]),
+            limit(300)
+        ));
+        const orders = ordersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+        // 3) Ne garder que les commandes dont TOUS les produits vivent à l'entrepôt.
+        cachedWarehousePrepOrders = orders.filter(order => {
+            const items = Array.isArray(order.items) ? order.items : [];
+            if (!items.length) return false;
+            return items.every(item => warehouseProductIds.has(String(item.productId)));
+        }).sort((a, b) => {
+            const ta = toDate(a.createdAt)?.getTime?.() || 0;
+            const tb = toDate(b.createdAt)?.getTime?.() || 0;
+            return ta - tb;
+        });
+
+        renderWarehousePrepList();
+    } catch (e) {
+        console.error('[admin] loadWarehousePrep :', e);
+        container.innerHTML = `<div class="admin-empty" style="color:var(--danger);">Erreur de chargement.</div>`;
+    } finally {
+        _prepLoading = false;
+    }
+}
+
+function renderWarehousePrepList() {
+    const container = document.getElementById('adminWarehousePrepList');
+    if (!container) return;
+
+    if (!cachedWarehousePrepOrders.length) {
+        container.innerHTML = `<div class="admin-empty">Aucune commande entrepôt à préparer.</div>`;
+        return;
+    }
+
+    container.innerHTML = cachedWarehousePrepOrders.map(order => {
+        const status = normalizeOrderStatus(order.status);
+        const date = formatDateTime(order.createdAt);
+        const items = Array.isArray(order.items) ? order.items : [];
+        const itemsHtml = items.map(item => {
+            const variant = item.variant
+                ? ` (${escapeHTML([item.variant.size, item.variant.color].filter(Boolean).join('-'))})`
+                : '';
+            return `<div style="font-size:0.8rem;color:var(--text-muted);">${escapeHTML(item.name || 'Produit')}${variant} × ${Number(item.quantity) || 0}</div>`;
+        }).join('');
+        const cityDisplay = getCityName({
+            name: order.deliveryAddress?.cityAr || order.deliveryAddress?.city,
+            nameFr: order.deliveryAddress?.cityFr,
+            nameAr: order.deliveryAddress?.cityAr
+        });
+
+        return `<div class="admin-list-item" style="flex-direction:column;align-items:stretch;padding:1rem;">
+            <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">
+                <div>
+                    <strong style="color:var(--gold);">#${escapeHTML(order.id.slice(0, 8).toUpperCase())}</strong>
+                    <span style="margin-left:0.5rem;font-size:0.85rem;color:var(--text-muted);">${escapeHTML(date)}</span>
+                    ${getOrderDeliveryModeBadge('smartswika_warehouse')}
+                </div>
+                <div style="font-weight:700;">${Number(order.total) || 0} MAD</div>
+            </div>
+            <div style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.35rem;">
+                ${escapeHTML(order.deliveryAddress?.name || '—')} · ${escapeHTML(order.deliveryAddress?.phone || '')} · ${escapeHTML(cityDisplay)}
+            </div>
+            <div style="margin-bottom:0.5rem;">${itemsHtml}</div>
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;flex-wrap:wrap;border-top:1px dashed var(--border);padding-top:0.5rem;">
+                <span style="font-size:0.78rem;color:var(--text-muted);">Statut : ${escapeHTML(status)}</span>
+                <button class="admin-btn-primary" data-prep-order-id="${escapeHTML(order.id)}" style="font-size:0.78rem;padding:0.4rem 0.9rem;">Marquer comme préparé</button>
+            </div>
+        </div>`;
+    }).join('');
+
+    container.querySelectorAll('[data-prep-order-id]').forEach(btn => {
+        btn.addEventListener('click', () => markOrderAsPrepared(btn.dataset.prepOrderId, btn));
+    });
+}
+
+/**
+ * Passe la commande à `shipping` ET décrémente stock_warehouse de chaque produit
+ * dans une seule transaction Firestore.
+ *
+ * NB (brief PR 2/6) : `stock` (stock commercial global) n'est PAS synchronisé ici.
+ * TODO PR ultérieure : vérifier que stock est décrémenté au checkout (risque d'oversell sinon).
+ */
+async function markOrderAsPrepared(orderId, btn) {
+    if (!orderId) return;
+    const ok = await confirmAction(
+        "Passer cette commande en livraison et décrémenter le stock entrepôt ?",
+        { title: 'Préparation', confirmText: 'Marquer préparé', cancelText: 'Annuler' }
+    );
+    if (!ok) return;
+
+    const originalLabel = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = '...'; }
+
+    try {
+        const orderRef = doc(db, "orders", orderId);
+
+        await runTransaction(db, async (transaction) => {
+            const orderSnap = await transaction.get(orderRef);
+            if (!orderSnap.exists()) throw new Error('Commande introuvable.');
+            const order = orderSnap.data();
+
+            const status = normalizeOrderStatus(order.status);
+            if (!['pending', 'confirmed'].includes(status)) {
+                throw new Error("Cette commande n'est plus en attente de préparation.");
+            }
+
+            const items = Array.isArray(order.items) ? order.items : [];
+            if (!items.length) throw new Error('Commande sans article.');
+
+            // Agrège les quantités par produit (plusieurs lignes possibles).
+            const qtyByProduct = new Map();
+            for (const item of items) {
+                if (!item?.productId) continue;
+                const pid = String(item.productId);
+                qtyByProduct.set(pid, (qtyByProduct.get(pid) || 0) + (Number(item.quantity) || 0));
+            }
+
+            // Toutes les lectures AVANT toute écriture (exigence Firestore).
+            const productRefs = [];
+            const productSnaps = [];
+            for (const pid of qtyByProduct.keys()) {
+                const productRef = doc(db, "products", pid);
+                productRefs.push(productRef);
+                productSnaps.push(await transaction.get(productRef));
+            }
+
+            // Vérifie que tous les produits sont bien stockés à l'entrepôt.
+            productSnaps.forEach((snap, index) => {
+                if (!snap.exists()) throw new Error(`Produit ${productRefs[index].id} introuvable.`);
+                if (snap.data().delivery_mode !== 'smartswika_warehouse') {
+                    throw new Error(`Produit ${productRefs[index].id} n'est pas stocké à l'entrepôt Smart Swika.`);
+                }
+            });
+
+            // Décrément du stock entrepôt uniquement (brief strict : pas de synchro `stock`).
+            productSnaps.forEach((snap, index) => {
+                const data = snap.data();
+                const pid = productRefs[index].id;
+                const qty = qtyByProduct.get(pid) || 0;
+                const current = Number(data.stock_warehouse) || 0;
+                if (current < qty) {
+                    throw new Error(`Stock entrepôt insuffisant pour "${data.nameFr || pid}" (${current} disponible, ${qty} demandé).`);
+                }
+                transaction.update(productRefs[index], {
+                    stock_warehouse: current - qty,
+                    updatedAt: serverTimestamp()
+                });
+            });
+
+            transaction.update(orderRef, {
+                status: 'shipping',
+                preparedAt: serverTimestamp(),
+                stock_warehouse_deducted: true,
+                updatedAt: serverTimestamp()
+            });
+        });
+
+        showToast('Commande préparée et passée en livraison.');
+        document.dispatchEvent(new CustomEvent('order-stock-changed'));
+        await loadWarehousePrep();
+    } catch (e) {
+        console.error('[admin] markOrderAsPrepared :', e);
+        showToast('Erreur : ' + (e.message || 'inconnue'), 5000);
+        if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
+    }
 }
 
 async function loadReviews() {
@@ -4255,18 +4460,18 @@ function renderDisputesList(disputes) {
         const refundAmount = Number(order.refundAmount ?? order.total ?? 0) || 0;
 
         const statusBadge = status === 'returned'
-            ? '<span style="background:var(--danger-bg);color:var(--danger);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">\u21a9\ufe0f Retourn\u00e9e</span>'
-            : '<span style="background:var(--warning-bg);color:var(--warning);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">\u26a0\ufe0f Probl\u00e8me</span>';
+            ? '<span style="background:var(--danger-bg);color:var(--danger);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">\u21a9\ufe0f Retournée</span>'
+            : '<span style="background:var(--warning-bg);color:var(--warning);padding:0.2rem 0.6rem;border-radius:30px;font-size:0.75rem;font-weight:700;">\u26a0\ufe0f Problème</span>';
 
         const vendors = getDisputeVendors(order);
 
         let vendorsHtml = '';
         if (vendors.length === 0) {
-            vendorsHtml = '<div style="font-size:0.85rem;color:var(--text-muted);">Aucun vendeur identifi\u00e9 sur cette commande.</div>';
+            vendorsHtml = '<div style="font-size:0.85rem;color:var(--text-muted);">Aucun vendeur identifié sur cette commande.</div>';
         } else {
             vendorsHtml = vendors.map(v => {
                 const canDebit = v.returnIndexes.length > 0 && v.returnedQty > 0 && status === 'returned';
-                const disabledAttr = canDebit ? '' : 'disabled title="N\u00e9cessite une commande retourn\u00e9e avec des articles retourn\u00e9s pour ce vendeur"';
+                const disabledAttr = canDebit ? '' : 'disabled title="Nécessite une commande retournée avec des articles retournés pour ce vendeur"';
                 const disabledStyle = canDebit ? '' : 'opacity:0.5;cursor:not-allowed;';
                 const firstIndex = v.returnIndexes.length ? v.returnIndexes[0] : 0;
                 return `
@@ -4274,7 +4479,7 @@ function renderDisputesList(disputes) {
             <div style="font-size:0.85rem;">
               <strong>${escapeHTML(v.vendorName)}</strong>
               <code style="font-size:0.7rem;opacity:0.7;">${escapeHTML(v.vendorId)}</code>
-              ${v.returnedQty > 0 ? `<span style="color:var(--text-muted);"> \u00b7 ${v.returnedQty} article(s) retourn\u00e9(s)</span>` : ''}
+              ${v.returnedQty > 0 ? `<span style="color:var(--text-muted);"> · ${v.returnedQty} article(s) retourné(s)</span>` : ''}
             </div>
             <button class="admin-btn-icon admin-btn-danger"
                     data-action="dispute-blame"
@@ -4284,7 +4489,7 @@ function renderDisputesList(disputes) {
                     data-return-index="${firstIndex}"
                     data-returned-qty="${v.returnedQty}"
                     ${disabledAttr}
-                    style="${disabledStyle}">D\u00e9clarer le vendeur en tort</button>
+                    style="${disabledStyle}">Déclarer le vendeur en tort</button>
           </div>
         `;
             }).join('');
@@ -4300,9 +4505,9 @@ function renderDisputesList(disputes) {
           <div style="font-size:0.8rem;color:var(--text-dim);">${createdAt}</div>
         </div>
         <div style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.6rem;">
-          \ud83d\udc64 ${customer}${phone ? ' \u00b7 <code>' + phone + '</code>' : ''} \u00b7 \ud83d\udcb0 ${formatMAD(refundAmount)}
+          \ud83d\udc64 ${customer}${phone ? ' · <code>' + phone + '</code>' : ''} · \ud83d\udcb0 ${formatMAD(refundAmount)}
         </div>
-        <div style="font-size:0.8rem;color:var(--text-dim);margin-bottom:0.3rem;">Vendeurs concern\u00e9s :</div>
+        <div style="font-size:0.8rem;color:var(--text-dim);margin-bottom:0.3rem;">Vendeurs concernés :</div>
         ${vendorsHtml}
       </div>
     `;
@@ -4347,9 +4552,9 @@ async function handleDisputeBlame(dataset) {
 
     const defaultAmount = Math.max(0, Number(CONFIG.VENDOR?.RETURN_FEE_LIVO) || 20) * Math.max(1, returnedQty);
     const feePrompt = await promptAction(
-        'D\u00e9clarer le vendeur en tort',
-        'Frais de retour \u00e0 d\u00e9biter \u00e0 ' + vendorName + '. ' +
-        'Le justificatif de frais sera cr\u00e9\u00e9 puis le portefeuille du vendeur suspendu.',
+        'Déclarer le vendeur en tort',
+        'Frais de retour à débiter à ' + vendorName + '. ' +
+        'Le justificatif de frais sera créé puis le portefeuille du vendeur suspendu.',
         {
             label: 'Frais de retour (MAD)',
             placeholder: String(defaultAmount),
@@ -4370,15 +4575,15 @@ async function handleDisputeBlame(dataset) {
     }
 
     const confirmed = await confirmAction(
-        'Confirmer la d\u00e9claration de tort de ' + vendorName + ' pour un montant de ' + formatMAD(amount) + ' ? ' +
-        'Le justificatif de frais de retour sera cr\u00e9\u00e9 puis le portefeuille du vendeur suspendu.',
-        { title: 'D\u00e9clarer le vendeur en tort', confirmText: 'Confirmer', cancelText: 'Annuler', variant: 'danger' }
+        'Confirmer la déclaration de tort de ' + vendorName + ' pour un montant de ' + formatMAD(amount) + ' ? ' +
+        'Le justificatif de frais de retour sera créé puis le portefeuille du vendeur suspendu.',
+        { title: 'Déclarer le vendeur en tort', confirmText: 'Confirmer', cancelText: 'Annuler', variant: 'danger' }
     );
     if (!confirmed) return;
 
     try {
         const adminUser = auth.currentUser;
-        if (!adminUser) throw new Error('Session administrateur expir\u00e9e. Reconnectez-vous.');
+        if (!adminUser) throw new Error('Session administrateur expirée. Reconnectez-vous.');
         const idToken = await adminUser.getIdToken(true);
 
         /* --- 1. Justificatif de frais de retour --- */
@@ -4412,7 +4617,7 @@ async function handleDisputeBlame(dataset) {
             body: JSON.stringify({
                 vendorId,
                 action: 'suspend',
-                reason: 'Litige commande #' + (order?.orderNumber || orderId) + ' : vendeur d\u00e9clar\u00e9 en tort. Frais de retour : ' + formatMAD(amount) + '.'
+                reason: 'Litige commande #' + (order?.orderNumber || orderId) + ' : vendeur déclaré en tort. Frais de retour : ' + formatMAD(amount) + '.'
             })
         });
         const walletText = await walletRes.text();
@@ -4423,7 +4628,7 @@ async function handleDisputeBlame(dataset) {
             throw new Error(walletJson.message || ('Suspension du portefeuille impossible (HTTP ' + walletRes.status + ').'));
         }
 
-        showToast('Frais de retour enregistr\u00e9s et portefeuille suspendu.');
+        showToast('Frais de retour enregistrés et portefeuille suspendu.');
         await loadDisputes();
     } catch (e) {
         console.error('[admin] handleDisputeBlame :', e);
@@ -4470,6 +4675,9 @@ function attachAllRemainingEvents() {
         orderStatusFilter = e.target.value === 'all' ? null : e.target.value;
         applyOrderStatusFilter();
     });
+
+    /* Préparation entrepôt. */
+    document.getElementById('refreshWarehousePrepBtn')?.addEventListener('click', loadWarehousePrep);
 
     /* Clients. */
     document.getElementById('userSearchAdmin')?.addEventListener('input', filterUsersList);

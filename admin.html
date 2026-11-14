@@ -428,6 +428,7 @@
             <button class="active" data-tab="dashboard">📊 Tableau de bord</button>
             <button data-tab="products">📦 Produits</button>
             <button data-tab="orders">📋 Commandes</button>
+            <button data-tab="preparation">🏬 Préparation Commandes</button>
             <button data-tab="vendors">🏪 Vendeurs</button>
             <button data-tab="livo">🚚 Livo</button>
             <button data-tab="users">👥 Clients</button>
@@ -612,6 +613,18 @@
             </div>
             <div id="orderStatusFilterIndicator" style="display:none;"></div>
             <div id="adminOrdersList"><div class="admin-loading">⏳ Chargement...</div></div>
+        </div>
+
+        <div class="admin-content" id="tab-preparation">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.8rem;margin-bottom:1rem;">
+                <h3 style="font-family:var(--font-secondary);color:var(--gold);margin:0;">🏬 Préparation Commandes</h3>
+                <button class="admin-btn-secondary" id="refreshWarehousePrepBtn">🔄 Rafraîchir</button>
+            </div>
+            <div style="background:rgba(212,175,55,0.08);border:1px solid var(--border-gold);border-radius:var(--radius-sm);padding:0.8rem 1rem;margin-bottom:1rem;font-size:0.85rem;line-height:1.6;color:var(--text-muted);">
+                Commandes dont <strong>tous les produits</strong> sont stockés à l'entrepôt Smart Swika, en statut <strong>pending</strong> ou <strong>confirmed</strong>.
+                « Marquer comme préparé » passe la commande en <strong>livraison</strong> et décrémente le <code>stock_warehouse</code> de chaque produit (transaction Firestore).
+            </div>
+            <div id="adminWarehousePrepList"><div class="admin-loading">⏳ Chargement...</div></div>
         </div>
 
         <div class="admin-content" id="tab-vendors">

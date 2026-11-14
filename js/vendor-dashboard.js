@@ -444,6 +444,18 @@ function injectModals() {
                     <div class="v-field"><label class="v-label">Prix de vente (MAD) *</label><input type="number" id="vProdPrice" class="v-input" min="1" step="0.5"></div>
                     <div class="v-field"><label class="v-label">Ancien prix (MAD)</label><input type="number" id="vProdOldPrice" class="v-input" min="0" step="0.5"></div>
                 </div>
+                <div class="v-field">
+                    <label class="v-label" for="vProdDeliveryMode">Mode de livraison *</label>
+                    <select id="vProdDeliveryMode" class="v-input">
+                        <option value="dropoff" selected>J'expédie moi-même (Livo vient chercher chez moi)</option>
+                        <option value="smartswika_warehouse">J'envoie mon stock à l'entrepôt Smart Swika</option>
+                    </select>
+                    <div id="vProdWarehouseInfo" style="display:none;margin-top:0.6rem;padding:0.8rem 0.9rem;border:1px solid var(--border-gold);border-radius:var(--radius-sm);background:rgba(212,175,55,0.08);font-size:0.82rem;line-height:1.55;">
+                        <strong>Entrepôt Smart Swika</strong>
+                        <div id="vProdWarehouseAddress" style="margin-top:0.3rem;color:var(--text-muted);"></div>
+                        <div style="margin-top:0.5rem;font-weight:600;">Vous devez envoyer votre stock à cette adresse. Smart Swika préparera les colis.</div>
+                    </div>
+                </div>
                 <div class="v-field"><label class="v-label">Stock total *</label><input type="number" id="vProdStock" class="v-input" min="0" value="1"></div>
                 <h3 class="v-card-title">Tailles et couleurs</h3>
                 <div class="v-field"><label class="v-label">Tailles (séparées par des virgules)</label><input type="text" id="vProdSizes" class="v-input" placeholder="S, M, L, XL"></div>
@@ -785,6 +797,25 @@ function linesFromProductField(id) {
     return String(document.getElementById(id)?.value || '').split('\n').map(value => value.trim()).filter(Boolean);
 }
 
+function getProductDeliveryMode() {
+    const el = document.getElementById('vProdDeliveryMode');
+    return el && el.value === 'smartswika_warehouse' ? 'smartswika_warehouse' : 'dropoff';
+}
+
+function updateWarehouseInfoVisibility() {
+    const info = document.getElementById('vProdWarehouseInfo');
+    if (!info) return;
+    const isWarehouse = getProductDeliveryMode() === 'smartswika_warehouse';
+    info.style.display = isWarehouse ? 'block' : 'none';
+    if (!isWarehouse) return;
+    const warehouse = CONFIG.SMART_SWIKA_WAREHOUSE || {};
+    const parts = [warehouse.name, warehouse.address, warehouse.city, warehouse.phone ? 'Tél : ' + warehouse.phone : '']
+        .map(part => String(part || '').trim())
+        .filter(Boolean);
+    const addressEl = document.getElementById('vProdWarehouseAddress');
+    if (addressEl) addressEl.textContent = parts.join(' · ');
+}
+
 function openProductModal(product = null) {
     const modal = document.getElementById('vProductModal');
     if (!modal) return;
@@ -803,6 +834,11 @@ function openProductModal(product = null) {
     document.getElementById('vProdPrice').value = product ? (product.price || '') : '';
     document.getElementById('vProdOldPrice').value = product ? (product.oldPrice || '') : '';
     document.getElementById('vProdStock').value = product ? (product.stock ?? '1') : '1';
+    const deliveryModeEl = document.getElementById('vProdDeliveryMode');
+    if (deliveryModeEl) {
+        deliveryModeEl.value = product?.delivery_mode === 'smartswika_warehouse' ? 'smartswika_warehouse' : 'dropoff';
+    }
+    updateWarehouseInfoVisibility();
     document.getElementById('vProdDescFr').value = product ? (product.descFr || '') : '';
     document.getElementById('vProdDescAr').value = product ? (product.descAr || '') : '';
     document.getElementById('vProdDescEn').value = product ? (product.descEn || '') : '';
@@ -957,6 +993,7 @@ async function submitProduct() {
         const featuresFr = linesFromProductField('vProdFeaturesFr');
         const featuresAr = linesFromProductField('vProdFeaturesAr');
         const featuresEn = linesFromProductField('vProdFeaturesEn');
+        const deliveryMode = getProductDeliveryMode();
 
         btn.textContent = 'Enregistrement...';
         const vendorName = (currentVendor?.vendorInfo?.shopName || currentVendor?.name || 'Vendeur').slice(0, 60);
@@ -974,6 +1011,7 @@ async function submitProduct() {
                 JSON.stringify(oldData.sizes || []) === JSON.stringify(sizes) &&
                 JSON.stringify(oldData.colors || []) === JSON.stringify(colors) &&
                 JSON.stringify(oldData.dimensions || {}) === JSON.stringify(dimensions) &&
+                (oldData.delivery_mode === 'smartswika_warehouse' ? 'smartswika_warehouse' : 'dropoff') === deliveryMode &&
                 !!oldData.hasSizeGuide === document.getElementById('vProdSizeGuide').checked &&
                 (!file || newImageUrl === oldData.img) && galleryFiles.length === 0;
 
@@ -986,6 +1024,7 @@ async function submitProduct() {
                     nameFr, nameAr: nameAr || nameFr, nameEn: nameEn || nameFr,
                     category, price, basePrice: price, oldPrice, descFr, descAr, descEn,
                     featuresFr, featuresAr, featuresEn, dimensions, variants, sizes, colors,
+                    delivery_mode: deliveryMode,
                     hasSizeGuide: document.getElementById('vProdSizeGuide').checked,
                     img: newImageUrl || oldData.img || '', gallery, stock,
                     vendorName, status: PRODUCT_STATUS.PENDING_ADMIN_APPROVAL, updatedAt: serverTimestamp()
@@ -1000,6 +1039,7 @@ async function submitProduct() {
                 nameFr, nameAr: nameAr || nameFr, nameEn: nameEn || nameFr, slug,
                 sku: `VND-${String(ts).slice(-6)}`, category, basePrice: price, price,
                 oldPrice, purchasePrice: 0, stock,
+                delivery_mode: deliveryMode,
                 isNew: false, hasSizeGuide: document.getElementById('vProdSizeGuide').checked, dimensions,
                 variants, sizes, colors, descFr, descAr, descEn, featuresFr, featuresAr, featuresEn,
                 img: newImageUrl, gallery, vendorId: currentUserUid, vendorName,
@@ -1382,6 +1422,9 @@ async function renderProducts(container) {
         const price = formatMAD(p.price);
         const stock = Number(p.stock) || 0;
         const status = p.status || PRODUCT_STATUS.PENDING_ADMIN_APPROVAL;
+        const deliveryBadge = p.delivery_mode === 'smartswika_warehouse'
+            ? `<span style="display:inline-block;margin-right:0.35rem;background:rgba(212,175,55,0.15);color:var(--gold);padding:0.1rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;">🏬 Entrepôt Smart Swika</span>`
+            : `<span style="display:inline-block;margin-right:0.35rem;background:var(--bg-surface);color:var(--text-muted);padding:0.1rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;">🚚 Dropoff</span>`;
         let statusBadge = '';
         let rejectionHtml = '';
 
@@ -1395,7 +1438,7 @@ async function renderProducts(container) {
         return `
             <div class="v-product-item">
                 ${image ? `<img src="${image}" alt="${name}" loading="lazy" class="v-product-img">` : `<div class="v-product-img" style="display:flex;align-items:center;justify-content:center;font-size:1.5rem;">📦</div>`}
-                <div class="v-product-info"><div class="v-product-name">${name}</div><div class="v-product-meta">${price} · Stock : ${stock}</div><div style="margin-top:0.3rem;">${statusBadge}</div>${rejectionHtml}</div>
+                <div class="v-product-info"><div class="v-product-name">${name}</div><div class="v-product-meta">${price} · Stock : ${stock}</div><div style="margin-top:0.3rem;">${deliveryBadge}${statusBadge}</div>${rejectionHtml}</div>
                 <div class="v-product-actions">
                     <button type="button" class="v-btn v-btn-secondary" data-edit-product="${escapeHTML(p.id)}" style="padding:0.4rem 0.8rem;font-size:0.8rem;" title="Éditer">Éditer</button>
                     <button type="button" class="v-btn v-btn-secondary" data-delete-product="${escapeHTML(p.id)}" style="padding:0.4rem 0.8rem;font-size:0.8rem;" title="Supprimer">Supprimer</button>
@@ -1923,6 +1966,7 @@ function attachModalListeners() {
     document.getElementById('closeProductModal')?.addEventListener('click', closeProductModal);
     document.getElementById('vProductModal')?.addEventListener('click', (e) => { if (e.target.id === 'vProductModal') closeProductModal(); });
     document.getElementById('vProdSubmitBtn')?.addEventListener('click', submitProduct);
+    document.getElementById('vProdDeliveryMode')?.addEventListener('change', updateWarehouseInfoVisibility);
     document.getElementById('vProdGenerateVariants')?.addEventListener('click', () => {
         const error = document.getElementById('vProdError');
         error.textContent = renderVendorVariantRows() ? '' : 'Réduisez le nombre de combinaisons (100 maximum).';
