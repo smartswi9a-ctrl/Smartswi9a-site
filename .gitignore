@@ -19,3 +19,6 @@ firebase-admin-key*.json
 *serviceAccount*.json
 tmpdoc/
 *.bak
+
+# Scripts locaux a usage unique (ne jamais committer)
+_rotate-secret.cjs
