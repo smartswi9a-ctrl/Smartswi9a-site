@@ -12,11 +12,13 @@ import {
 import { db, auth } from "./firebase.js";
 import {
     CONFIG, ORDER_STATUS, normalizeOrderStatus, NOTIFICATION_TYPES,
-    mapLivoStatusToSmart
+    mapLivoStatusToSmart,
+    ORDER_STATUS_ORDER, ORDER_DEPRECATED_STATUSES
 } from "./config.js";
 import {
     t, escapeHTML, formatDateTime,
     getOrderStatusEmoji,
+    getOrderStatusLabelKey,
     getOrderTimelineSteps,
     isOrderCancellable, getTimeRemainingForCancellation, formatTimeRemaining,
     toDate, getCityName, getLang,
@@ -755,8 +757,23 @@ export async function updateOrderStatus(orderId, newStatus) {
             // et déclencher un crédit vendeur sans expédition réelle.
             const allowedTransitions = {
                 [ORDER_STATUS.PENDING]: [ORDER_STATUS.CONFIRMED, ORDER_STATUS.CANCELLED],
-                [ORDER_STATUS.CONFIRMED]: [ORDER_STATUS.SHIPPING, ORDER_STATUS.CANCELLED],
-                [ORDER_STATUS.SHIPPING]: [ORDER_STATUS.DELIVERED, ORDER_STATUS.CANCELLED],
+                [ORDER_STATUS.CONFIRMED]: [
+                    ORDER_STATUS.PREPARING,          /* mode entrepot */
+                    ORDER_STATUS.PICKUP_REQUESTED,   /* dropoff */
+                    ORDER_STATUS.SHIPPING,           /* LEGACY : ancien flux direct */
+                    ORDER_STATUS.CANCELLED
+                ],
+                [ORDER_STATUS.PREPARING]: [ORDER_STATUS.PREPARED, ORDER_STATUS.CANCELLED],
+                [ORDER_STATUS.PREPARED]: [ORDER_STATUS.PICKUP_REQUESTED, ORDER_STATUS.CANCELLED],
+                [ORDER_STATUS.PICKUP_REQUESTED]: [ORDER_STATUS.PICKED_UP, ORDER_STATUS.CANCELLED],
+                [ORDER_STATUS.PICKED_UP]: [ORDER_STATUS.IN_TRANSIT, ORDER_STATUS.RETURNED],
+                [ORDER_STATUS.IN_TRANSIT]: [ORDER_STATUS.DELIVERED, ORDER_STATUS.RETURNED],
+                [ORDER_STATUS.SHIPPING]: [
+                    ORDER_STATUS.PICKED_UP,
+                    ORDER_STATUS.IN_TRANSIT,
+                    ORDER_STATUS.DELIVERED,
+                    ORDER_STATUS.CANCELLED
+                ],
                 [ORDER_STATUS.DELIVERED]: [],
                 [ORDER_STATUS.RETURNED]: [],
                 [ORDER_STATUS.CANCELLED]: []
@@ -773,7 +790,16 @@ export async function updateOrderStatus(orderId, newStatus) {
                "phantom shipment" (colis Livo cree sans decrement de stock).
                Les commandes mixtes restent autorisees ici : leur stock
                entrepot n'est pas encore gere (gap documente, PR 3).        */
-            if (normalizedStatus === ORDER_STATUS.SHIPPING) {
+            /* La garde ne doit s'appliquer QUE depuis `confirmed` : c'est le
+               seul cas ou la commande saute la phase de preparation entrepot.
+               Si on la laissait active sur picked_up / in_transit, une commande
+               warehouse resterait bloquee a pickup_requested pour toujours.
+               Les etapes preparing -> prepared -> pickup_requested -> picked_up
+               -> in_transit doivent pouvoir s'enchainer librement. */
+            if ((normalizedStatus === ORDER_STATUS.SHIPPING ||
+                 normalizedStatus === ORDER_STATUS.PICKED_UP ||
+                 normalizedStatus === ORDER_STATUS.IN_TRANSIT) &&
+                previousStatus === ORDER_STATUS.CONFIRMED) {
                 const prepItems = Array.isArray(order.items) ? order.items : [];
                 let allWarehouse = order.delivery_mode === 'smartswika_warehouse';
                 if (!order.delivery_mode && prepItems.length > 0) {
@@ -785,7 +811,7 @@ export async function updateOrderStatus(orderId, newStatus) {
                     );
                 }
                 if (allWarehouse) {
-                    throw new Error('Commande entrepôt : utilisez l\'onglet "Préparation Commandes".');
+                    throw new Error('Commande entrepôt : utilisez l\'onglet "Préparation Commandes" (statut preparing → prepared).');
                 }
                 const anyWarehousePrep = prepItems.some(i => i.delivery_mode === 'smartswika_warehouse');
                 if (anyWarehousePrep) {
@@ -1404,12 +1430,12 @@ export async function renderAdminOrders(containerId = 'ordersList') {
                 ${renderReturnFeePanel(order)}
                 <div style="display:flex;gap:0.4rem;flex-wrap:wrap;align-items:center; margin-top:0.5rem;">
                     <select class="status-select" data-order-id="${order.id}" data-field="status" style="padding:0.3rem 0.6rem;border-radius:30px;border:1px solid var(--border);background:var(--bg-surface);color:var(--text);">
-                        <option value="pending" ${status === 'pending' ? 'selected' : ''}>${t('orderStatusPending')}</option>
-                        <option value="confirmed" ${status === 'confirmed' ? 'selected' : ''}>${t('orderStatusConfirmed')}</option>
-                        <option value="shipping" ${status === 'shipping' ? 'selected' : ''}>${t('orderStatusShipping')}</option>
-                        <option value="delivered" ${status === 'delivered' ? 'selected' : ''}>${t('orderStatusDelivered')}</option>
-                        <option value="returned" ${status === 'returned' ? 'selected' : ''}>${t('orderStatusReturned')}</option>
-                        <option value="cancelled" ${status === 'cancelled' ? 'selected' : ''}>${t('orderStatusCancelled')}</option>
+                        ${ORDER_STATUS_ORDER.map(st => {
+                            /* Statut deprecie (shipping) : affiche uniquement si la
+                               commande y est reellement, pour la retro-compatibilite. */
+                            if (ORDER_DEPRECATED_STATUSES.includes(st) && st !== status) return '';
+                            return `<option value="${st}" ${status === st ? 'selected' : ''}>${getOrderStatusEmoji(st)} ${t(getOrderStatusLabelKey(st))}</option>`;
+                        }).join('')}
                     </select>
                     ${paymentBtnHtml}
                     ${trackingId ? `<button class="admin-btn-secondary" data-action="admin:sync-livo" data-id="${order.id}" style="font-size:0.75rem; padding:0.3rem 0.6rem;">Sync Livo</button>` : ''}

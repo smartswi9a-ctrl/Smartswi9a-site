@@ -2231,10 +2231,16 @@ function renderLivoList() {
         let statusBadge = '';
         if (status === 'pending') statusBadge = 'À expédier';
         else if (status === 'confirmed') statusBadge = 'Confirmée';
+        else if (status === 'preparing') statusBadge = 'En préparation';
+        else if (status === 'prepared') statusBadge = 'Prête à expédier';
+        else if (status === 'pickup_requested') statusBadge = 'Attente ramassage';
+        else if (status === 'picked_up') statusBadge = 'Récupéré';
+        else if (status === 'in_transit') statusBadge = 'En cours';
         else if (status === 'shipping') statusBadge = 'En cours';
         else if (status === 'delivered') statusBadge = 'Livré';
         else if (status === 'returned') statusBadge = 'Retourné';
         else if (status === 'cancelled') statusBadge = 'Annulé';
+        else statusBadge = status || '—';
 
         const trackingId = order.livoTracking || order.speedafTracking;
         const trackingHtml = trackingId
@@ -2550,6 +2556,11 @@ async function requestGroupedPickup() {
 const ORDER_STATUS_FILTER_LABELS = {
     pending: 'Commandes en attente',
     confirmed: 'Commandes confirmees',
+    preparing: 'Commandes en preparation',
+    prepared: 'Commandes pretes a expedier',
+    pickup_requested: 'Commandes en attente de ramassage',
+    picked_up: 'Colis recuperes par Livo',
+    in_transit: 'Commandes en cours de livraison',
     shipping: 'Commandes en livraison',
     delivered: 'Commandes livrees',
     returned: 'Commandes retournees',

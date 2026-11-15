@@ -61,10 +61,37 @@ export const CONFIG = {
     SESSION: { IDLE_TIMEOUT: 30 * 60 * 1000, ABANDONED_CART_DELAY: 30 * 60 * 1000 },
     ORDERS: {
         CANCELLABLE_HOURS: 4,
-        STATUS: { PENDING: 'pending', CONFIRMED: 'confirmed', SHIPPING: 'shipping', DELIVERED: 'delivered', RETURNED: 'returned', CANCELLED: 'cancelled' },
+        /* Workflow de livraison enrichi (PR 8.1).
+           SHIPPING est DÉPRÉCIÉ : conservé pour les commandes legacy et pour
+           functions/index.js (trackingStartedAt posé dessus — TODO PR 8.2),
+           mais plus jamais produit par l'UI. */
+        STATUS: {
+            PENDING:          'pending',
+            CONFIRMED:        'confirmed',
+            PREPARING:        'preparing',
+            PREPARED:         'prepared',
+            PICKUP_REQUESTED: 'pickup_requested',
+            PICKED_UP:        'picked_up',
+            IN_TRANSIT:       'in_transit',
+            SHIPPING:         'shipping',
+            DELIVERED:        'delivered',
+            RETURNED:         'returned',
+            CANCELLED:        'cancelled'
+        },
+        /* Statuts terminaux : aucune transition sortante. */
+        TERMINAL_STATUSES: ['delivered', 'returned', 'cancelled'],
+        /* Statuts legacy lisibles mais plus proposés dans l'UI. */
+        DEPRECATED_STATUSES: ['shipping'],
+        /* Ordre canonique du workflow (affichage / tri). */
+        STATUS_ORDER: [
+            'pending', 'confirmed', 'preparing', 'prepared',
+            'pickup_requested', 'picked_up', 'in_transit',
+            'shipping', 'delivered', 'returned', 'cancelled'
+        ],
         LEGACY_STATUS: { VALIDATED: 'validated', RECEIVED: 'received' },
         PAYMENT: { UNPAID: 'unpaid', PAID: 'paid' },
-        RETURNABLE_FROM: ['confirmed', 'shipping', 'delivered'],
+        RETURNABLE_FROM: ['confirmed', 'preparing', 'prepared', 'pickup_requested',
+                          'picked_up', 'in_transit', 'shipping', 'delivered'],
         EMAIL_ON_STATUS: {}
     },
     REVIEWS: { MAX_PHOTOS: 5, MAX_FEATURED: 3, STATUS: { PENDING: 'pending', APPROVED: 'approved', REJECTED: 'rejected' } },
@@ -236,6 +263,9 @@ export const ROLES = { USER: 'user', ADMIN: 'admin', VENDOR: 'vendor' };
 
 export const ORDER_STATUS = CONFIG.ORDERS.STATUS;
 export const ORDER_LEGACY_STATUS = CONFIG.ORDERS.LEGACY_STATUS;
+export const ORDER_TERMINAL_STATUSES = CONFIG.ORDERS.TERMINAL_STATUSES;
+export const ORDER_DEPRECATED_STATUSES = CONFIG.ORDERS.DEPRECATED_STATUSES;
+export const ORDER_STATUS_ORDER = CONFIG.ORDERS.STATUS_ORDER;
 export const PAYMENT_STATUS = CONFIG.ORDERS.PAYMENT;
 export const REVIEW_STATUS = CONFIG.REVIEWS.STATUS;
 export const NOTIFICATION_TYPES = CONFIG.NOTIFICATIONS.TYPES;

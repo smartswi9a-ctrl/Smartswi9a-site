@@ -295,6 +295,11 @@ export function getOrderStatusColor(status) {
   const colors = {
     [ORDER_STATUS.PENDING]: "#e67e22",
     [ORDER_STATUS.CONFIRMED]: "#3498db",
+    [ORDER_STATUS.PREPARING]: "#8e44ad",
+    [ORDER_STATUS.PREPARED]: "#16a085",
+    [ORDER_STATUS.PICKUP_REQUESTED]: "#f39c12",
+    [ORDER_STATUS.PICKED_UP]: "#2980b9",
+    [ORDER_STATUS.IN_TRANSIT]: "#d35400",
     [ORDER_STATUS.SHIPPING]: "#d35400",
     [ORDER_STATUS.DELIVERED]: "#2ecc71",
     [ORDER_STATUS.RETURNED]: "#9b59b6",
@@ -304,18 +309,7 @@ export function getOrderStatusColor(status) {
 }
 
 export function getOrderStatusLabel(status) {
-  const normalized = normalizeOrderStatus(status);
-  const labels = {
-    [ORDER_STATUS.PENDING]: "orderStatusPending",
-    [ORDER_STATUS.CONFIRMED]: "orderStatusConfirmed",
-    [ORDER_STATUS.SHIPPING]: "orderStatusShipping",
-    [ORDER_STATUS.DELIVERED]: "orderStatusDelivered",
-    [ORDER_STATUS.RETURNED]: "orderStatusReturned",
-    [ORDER_STATUS.CANCELLED]: "orderStatusCancelled",
-  };
-  const key = labels[normalized];
-  if (!key) return t("orderStatusUnknown");
-  return t(key);
+  return t(getOrderStatusLabelKey(status));
 }
 
 export function getOrderTimelineSteps(status) {
@@ -323,8 +317,10 @@ export function getOrderTimelineSteps(status) {
   const steps = [
     { id: "pending", label: "timelinePending", emoji: "⏳" },
     { id: "confirmed", label: "timelineConfirmed", emoji: "✅" },
-    { id: "shipping", label: "timelineShipping", emoji: "🚚" },
-    { id: "delivered", label: "timelineDelivered", emoji: "📦" },
+    { id: "prepared", label: "timelinePrepared", emoji: "📦" },
+    { id: "picked_up", label: "timelinePickedUp", emoji: "🤝" },
+    { id: "in_transit", label: "timelineInTransit", emoji: "🛣️" },
+    { id: "delivered", label: "timelineDelivered", emoji: "✔️" },
   ];
   if (normalized === ORDER_STATUS.RETURNED) {
     steps.push({ id: "returned", label: "timelineReturned", emoji: "↩️" });
@@ -332,9 +328,14 @@ export function getOrderTimelineSteps(status) {
   const statusIndex = {
     [ORDER_STATUS.PENDING]: 0,
     [ORDER_STATUS.CONFIRMED]: 1,
-    [ORDER_STATUS.SHIPPING]: 2,
-    [ORDER_STATUS.DELIVERED]: 3,
-    [ORDER_STATUS.RETURNED]: 4,
+    [ORDER_STATUS.PREPARING]: 1,
+    [ORDER_STATUS.PREPARED]: 2,
+    [ORDER_STATUS.PICKUP_REQUESTED]: 3,
+    [ORDER_STATUS.PICKED_UP]: 3,
+    [ORDER_STATUS.IN_TRANSIT]: 4,
+    [ORDER_STATUS.SHIPPING]: 4,
+    [ORDER_STATUS.DELIVERED]: 5,
+    [ORDER_STATUS.RETURNED]: 6,
   };
   const currentIndex = statusIndex[normalized] ?? -1;
   return steps.map((step, idx) => ({
