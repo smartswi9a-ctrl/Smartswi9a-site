@@ -295,3 +295,197 @@ Sur le poste de travail : consigner la date de rotation dans un journal interne
 - ❌ Faire un `deploy` **global** pour cette opération.
 - ❌ Laisser la rotation dans un état intermédiaire plus de 48 h (les
   versions ne vivent que 7 jours).
+
+---
+
+## Rotation du secret côté Worker Cloudflare (LIVO_API_KEY)
+
+> **Périmètre** : ce chapitre concerne la clé API **sortante** utilisée par le
+> Worker Cloudflare `livo-proxy` (`cloudflare/workers/livo-proxy.js`) pour
+> appeler l'API Livo (`https://rest.livo.ma`).
+>
+> ⚠️ **Ne pas confondre** avec `LIVO_WEBHOOK_SECRET` traité aux sections 1 à 5 :
+> ce sont **deux secrets distincts**, sur **deux plateformes distinctes**,
+> avec **deux procédures distinctes**.
+>
+> 🔐 **Ce fichier ne contient AUCUNE clé réelle.** Les valeurs sont toujours
+> remplacées par des placeholders du type `<COLLER_LA_CLE_ICI>`. La clé de
+> production ne transite jamais par Git, ni par un chat, ni par un ticket.
+
+**Nom exact de la variable d'environnement : `LIVO_API_KEY`**
+
+Vérifié dans le code source du Worker :
+
+```js
+// cloudflare/workers/livo-proxy.js
+if (!env.LIVO_API_KEY) {                      // ligne 268 — garde : secret absent
+  ...
+}
+
+Authorization: `Bearer ${env.LIVO_API_KEY}`,   // ligne 281
+```
+
+- ✅ `LIVO_API_KEY`
+- ❌ `API_KEY` — n'existe pas dans le code. Un secret nommé `API_KEY` serait
+  **silencieusement ignoré** et le Worker continuerait d'échouer en croyant
+  la clé absente.
+
+### 1. QUAND déclencher une rotation
+
+| Déclencheur | Criticité | Type de rotation |
+|---|---|---|
+| Compromission suspectée : clé collée dans un chat, un commit, un screenshot, un log, un ticket support, ou tout canal non chiffré | 🔴 Critique | **IMMÉDIATE** |
+| Départ d'un collaborateur ayant eu accès à la clé | 🔴 Critique | **IMMÉDIATE** |
+| Rotation périodique (hygiène de sécurité) | 🟡 Normale | **PLANIFIÉE** — tous les **90 jours** |
+| Erreurs `401` répétées sur le Worker `livo-proxy` | 🟠 À qualifier | **RÉACTIVE** — **vérifier les logs Cloudflare d'abord**, la clé n'est peut-être pas en cause |
+| Changement de compte Livo (migration, renouvellement) | 🟠 Anticipée | **ANTICIPÉE** — avant la bascule, pas après |
+
+> 💡 En cas de `401` massifs sans fuite connue : consulter les logs du Worker
+> **avant** de tourner la clé. Une rotation réflexe sur une panne réseau
+> ajoute de l'incertitude sans corriger la cause.
+
+### 2. COMMENT faire la rotation (procédure pas à pas)
+
+**Étape 1 — Générer une nouvelle clé dans Livo UI**
+
+Livo UI → **Paramètres → Votre clé API** → **« Générer nouvelle clé API »**.
+
+> ⚠️ Cette action **révoque l'ancienne clé immédiatement**. La nouvelle clé
+> s'affiche **UNE SEULE FOIS** : la copier dans la foulée (gestionnaire de
+> mots de passe), sinon il faudra recommencer la génération.
+
+**Étape 2 — Copier la nouvelle clé**
+
+Copier depuis Livo UI. Ne pas la coller dans un fichier, un chat ou un ticket.
+
+**Étape 3 — Écrire le secret sur le Worker `livo-proxy`**
+
+Dans **PowerShell**, depuis le dossier `cloudflare/workers/` :
+
+```powershell
+npx wrangler secret put LIVO_API_KEY --name livo-proxy
+```
+
+Quand `wrangler` affiche `Enter a secret value`, **coller la clé**.
+Elle n'apparaît **pas** à l'écran (ni en clair, ni en étoiles) : c'est normal,
+c'est le comportement attendu.
+
+**Étape 4 — ⚠️ Pourquoi `--name livo-proxy` est OBLIGATOIRE**
+
+`cloudflare/workers/wrangler.toml` déclare :
+
+```toml
+name = "smart-swi9a-api"
+main = "smart-swi9a-api.js"
+```
+
+Donc un `wrangler secret put` lancé **sans `--name`** depuis
+`cloudflare/workers/` écrit la clé dans le Worker **`smart-swi9a-api`**, qui ne
+lit **jamais** `LIVO_API_KEY`.
+
+Conséquences :
+
+- Wrangler affiche `✅ Success` → on croit avoir réussi ;
+- `livo-proxy` n'a **pas** reçu la clé → **`401` silencieux** côté Livo ;
+- un secret inutile pollue `smart-swi9a-api`.
+
+> **Règle absolue : toujours passer `--name livo-proxy` explicitement.**
+> Corollaire : ne jamais lancer `wrangler deploy` depuis `cloudflare/workers/`
+> en pensant déployer `livo-proxy` — cela déploie `smart-swi9a-api`.
+
+**Étape 5 — Vérifier que le secret est bien sur le bon Worker**
+
+```powershell
+npx wrangler secret list --name livo-proxy
+```
+
+Attendu : `LIVO_API_KEY` présent dans la liste.
+
+Contrôle croisé — `LIVO_API_KEY` ne doit **pas** figurer ici :
+
+```powershell
+npx wrangler secret list --name smart-swi9a-api
+```
+
+S'il y figure à la suite d'une manipulation erronée, le supprimer :
+
+```powershell
+npx wrangler secret delete LIVO_API_KEY --name smart-swi9a-api
+```
+
+> Wrangler ne réaffiche **jamais** la valeur d'un secret : seuls le nom et la
+> date de modification sont visibles.
+
+**Étape 6 — Tester de bout en bout depuis l'admin**
+
+Depuis `smartswika.ma/admin.html` : **créer une commande de test**, puis
+vérifier qu'elle **arrive bien dans Livo UI**.
+
+- Commande visible côté Livo → rotation réussie.
+- `401` / erreur « clé invalide » → revenir à l'étape 3 (mauvais Worker ou
+  clé non collée).
+
+Tests complémentaires utiles (routes publiques du Worker, sans Firebase) :
+
+```powershell
+curl.exe -s https://<domaine-du-worker>/health
+curl.exe -s https://<domaine-du-worker>/cities
+```
+
+Attendu : `200` et `service: "livo-proxy"` pour `/health`, liste de villes non
+vide pour `/cities`.
+
+**Étape 7 — Clore la rotation**
+
+- [ ] Ancienne clé révoquée (fait automatiquement à l'étape 1).
+- [ ] `wrangler secret list --name livo-proxy` → `LIVO_API_KEY` présent.
+- [ ] Commande de test visible dans Livo UI.
+- [ ] Presse-papiers purgé, onglet Livo UI fermé.
+- [ ] `git status --short` → rien d'inattendu.
+
+### 3. EN CAS DE SECRET FUITÉ (procédure d'urgence)
+
+**Déclencheur** : clé exposée dans un chat, un commit, un screenshot, un log,
+un ticket support, ou tout canal non chiffré.
+→ **Considérer la clé comme publique dès la seconde de l'exposition.**
+
+1. **Rotation IMMÉDIATE** via Livo UI — dérouler la **section 2** sans délai.
+   C'est l'action qui protège réellement : tant que l'ancienne clé est active,
+   elle est utilisable par n'importe qui.
+2. **Vérifier les logs Cloudflare du Worker `livo-proxy`** sur les dernières
+   **24 h** : recherche d'un usage anormal (pics d'appels, origines
+   inattendues, rafales de `401`).
+3. **Vérifier les commandes créées dans Livo UI** sur les dernières **24 h** :
+   détecter toute création non sollicitée (colis, enlèvements, commandes).
+4. **Si usage malveillant avéré** : contacter le **support Livo** et
+   **suspendre temporairement le Worker** (route désactivée) le temps de
+   contenir l'incident.
+5. **Noter dans le journal de bord** : **date**, **canal de fuite**, **actions
+   menées**, portée de l'exposition. **Jamais** la valeur de la clé.
+
+> ⚠️ **Ne JAMAIS coller la clé dans un chat, un commit, un fichier de config,
+> ou un ticket.** Toujours passer par `wrangler secret put` en local, jamais
+> par copier-coller vers un tiers.
+>
+> ⚠️ Un message supprimé n'est pas un secret récupéré : il n'existe pas de
+> « suppression » fiable d'un message ou d'un commit déjà diffusé. Seule la
+> **révocation côté émetteur** (Livo UI) protège réellement.
+
+### 4. Où est stockée la clé de secours ?
+
+- La clé de production vit **UNIQUEMENT** dans le **Cloudflare Worker Secret**
+  (stockage chiffré par Cloudflare, non lisible après écriture, non exposé par
+  `wrangler secret list`).
+- **Ce fichier ne contient AUCUNE clé réelle.** C'est de la **documentation**,
+  pas un coffre-fort. Toute valeur y figurant serait de toute façon gravée dans
+  l'historique Git.
+- L'administrateur peut sauvegarder la clé dans un **gestionnaire de secrets**
+  (1Password, Bitwarden, KeePass), avec accès restreint et journalisé.
+
+| Emplacement | Contient la clé ? | Rôle |
+|---|---|---|
+| Cloudflare Worker Secret (`livo-proxy`) | ✅ **Oui — source de vérité** | Utilisée à l'exécution |
+| Gestionnaire de secrets (1Password, Bitwarden, KeePass) | ✅ Oui — sauvegarde | Récupération / continuité |
+| Ce fichier `docs/runbooks/ROTATION-SECRET-LIVO.md` | ❌ **Jamais** | Documentation |
+| Dépôt Git / historique | ❌ **Jamais** | Code seulement |
+| Chat, ticket, e-mail, screenshot | ❌ **Jamais** | — |
