@@ -357,7 +357,13 @@ async function check(name, fn) {
   });
 
   /* T8 ------------------------------------------------------------- */
-  await check('T8 : legacy shipping -> in_transit : updated:true (transition autorisee)', async () => {
+  /* PR 8.6 (D2) : le legacy 'shipping' est desormais remappe a la lecture vers
+     'in_transit' par normalizeOrderStatus(). Ce scenario verifie donc le
+     RATTRAPAGE LEGACY de bout en bout : la commande est stockee en 'shipping',
+     Livo dit 'in progress' (= in_transit) : le sync ne doit RIEN changer au
+     statut (deja in_transit par remappage) mais doit tracer les extras.
+     Sans D2, currentStatus resterait 'shipping' et le sync ecrirait le statut. */
+  await check('T8 : legacy shipping + Livo "in progress" -> updated:true, statut in_transit (D2)', async () => {
     const store = {
       o_t8: { status: 'shipping', livoTracking: 'TRK-T8', items: [] },
     };
@@ -365,84 +371,116 @@ async function check(name, fn) {
     const { api, livoState } = loadOrders(config, store, writes);
     livoState.livoOrder = { status: 'in progress' };
 
+    // D2 : le remappage doit etre actif AVANT le sync.
+    assert.strictEqual(config.normalizeOrderStatus('shipping'), 'in_transit',
+      'D2 : normalizeOrderStatus(shipping) doit valoir in_transit');
+
     const res = await api.syncLivoStatus('o_t8');
 
-    assert.strictEqual(res.success, true, 'success attendu sur transition legacy autorisee');
-    assert.strictEqual(res.updated, true, 'shipping -> in_transit doit etre applique');
-    assert.strictEqual(res.newStatus, 'in_transit', 'nouveau statut attendu');
+    /* Branche 3 de syncLivoStatus (statut Smart inchange) : l'ordre est stocke
+       en 'shipping', mais normalizeOrderStatus() le lit deja comme 'in_transit'.
+       Livo annoncant 'in progress' (=> in_transit), il n'y a DONC aucun
+       changement de statut a appliquer. C'est bien la preuve que D2 est actif :
+       sans le remappage, currentStatus vaudrait 'shipping' et la branche 5
+       declencherait une ecriture de statut. */
+    assert.strictEqual(res.success, true, 'success attendu sur rattrapage legacy');
+    assert.strictEqual(res.updated, false,
+      'deja in_transit apres remappage D2 : aucun changement a appliquer');
+    assert.strictEqual(res.currentStatus, 'in progress', 'currentStatus = statut Livo brut');
+    assert.strictEqual(res.terminal, undefined, 'non terminal');
 
     const statusWrite = writes.find((w) => 'status' in w.data);
-    assert.ok(statusWrite, 'le statut doit avoir ete ecrit');
-    assert.strictEqual(statusWrite.data.status, 'in_transit', 'statut ecrit = in_transit');
+    assert.strictEqual(statusWrite, undefined,
+      'D2 : aucun changement de statut (shipping est deja lu comme in_transit)');
 
     const extrasWrite = writes.find((w) => 'livoStatusRaw' in w.data);
-    assert.ok(extrasWrite, 'les extras doivent aussi etre ecrits sur la branche updated');
+    assert.ok(extrasWrite, 'les extras doivent etre ecrits meme sans changement de statut');
     assert.strictEqual(extrasWrite.data.livoStatusRaw, 'in progress', 'livoStatusRaw ecrit');
+  });
 
-    // normalizeOrderStatus n'a pas remappe le legacy : il est bien reste 'shipping'
-    // avant la mise a jour (sinon le cas ne testerait pas la transition visée).
-    assert.strictEqual(config.normalizeOrderStatus('shipping'), 'shipping',
-      'shipping reste un statut legacy distinct (retrait prevu en 8.6)');
+  /* T8bis ---------------------------------------------------------- */
+  /* D2, test unitaire du remappage (ne depend d'aucun stub Firestore). */
+  await check('T8bis : normalizeOrderStatus remappe shipping -> in_transit (D2 unitaire)', async () => {
+    const norm = config.normalizeOrderStatus;
+    assert.strictEqual(norm('shipping'), 'in_transit', 'shipping -> in_transit');
+    // Les remappages historiques restent intacts.
+    assert.strictEqual(norm('validated'), 'confirmed', 'validated -> confirmed inchange');
+    assert.strictEqual(norm('received'), 'delivered', 'received -> delivered inchange');
+    // Les statuts courants ne sont pas touches.
+    ['pending', 'confirmed', 'preparing', 'prepared', 'pickup_requested',
+     'picked_up', 'in_transit', 'delivered', 'returned', 'cancelled'].forEach((st) => {
+      assert.strictEqual(norm(st), st, 'le statut courant ' + st + ' ne doit pas etre remappe');
+    });
+    // Les valeurs falsy retombent sur pending (comportement d'origine).
+    assert.strictEqual(norm(''), 'pending', 'chaine vide -> pending');
+    assert.strictEqual(norm(null), 'pending', 'null -> pending');
+    assert.strictEqual(norm(undefined), 'pending', 'undefined -> pending');
   });
 
   /* T9 ------------------------------------------------------------- */
-  await check('T9 : confirmed + "in progress" -> transitionBlocked:true, extras ecrits', async () => {
-    const store = { o_t9: { status: 'confirmed', livoTracking: 'TRK-T9' } };
+  /* PR 8.6 (D1) : confirmed -> in_transit est desormais AUTORISE. Ce scenario
+     est l'exigence metier directe de la dette 8.6 : une commande confirmed dont
+     Livo dit 'in progress' ne doit plus echouer a chaque sync. */
+  await check('T9 : confirmed + "in progress" -> updated:true, statut in_transit (D1)', async () => {
+    const store = { o_t9: { status: 'confirmed', livoTracking: 'TRK-T9', items: [] } };
     const writes = [];
     const { api, livoState } = loadOrders(config, store, writes);
     livoState.livoOrder = { status: 'in progress' };
 
     const res = await api.syncLivoStatus('o_t9');
 
-    assert.strictEqual(res.success, true,
-      'une transition bloquee est un cas nominal, pas une erreur technique');
-    assert.strictEqual(res.updated, false, 'la commande ne doit pas bouger');
-    assert.strictEqual(res.transitionBlocked, true, 'transitionBlocked:true attendu');
+    assert.strictEqual(res.success, true, 'success attendu (recu : ' + JSON.stringify(res) + ')');
+    assert.strictEqual(res.updated, true, 'confirmed -> in_transit doit etre applique');
+    assert.strictEqual(res.newStatus, 'in_transit', 'nouveau statut attendu');
     assert.strictEqual(res.currentStatus, 'in progress', 'currentStatus = statut Livo brut');
-    assert.strictEqual(res.targetStatus, 'in_transit', 'targetStatus attendu');
-    assert.match(res.reason, /confirmed/,
-      'la raison doit nommer le statut courant (recu : ' + res.reason + ')');
-    assert.match(res.reason, /in_transit/,
-      'la raison doit nommer le statut cible (recu : ' + res.reason + ')');
+    assert.ok(!res.transitionBlocked, 'transitionBlocked ne doit plus etre pose sur ce cas');
 
-    assert.strictEqual(writes.length, 1,
-      'les extras doivent etre ecrits malgre le blocage de transition');
-    assert.strictEqual(writes[0].data.livoStatusRaw, 'in progress', 'livoStatusRaw ecrit');
-    assert.ok(!('status' in writes[0].data), 'aucun ecrasement du statut Smart');
-    assert.strictEqual(store.o_t9.status, 'confirmed', 'statut Firestore inchange');
+    const statusWrite = writes.find((w) => 'status' in w.data);
+    assert.ok(statusWrite, 'le statut doit avoir ete ecrit');
+    assert.strictEqual(statusWrite.data.status, 'in_transit', 'statut ecrit = in_transit');
+
+    const extrasWrite = writes.find((w) => 'livoStatusRaw' in w.data);
+    assert.ok(extrasWrite, 'les extras doivent etre ecrits (ecriture tracee)');
+    assert.strictEqual(extrasWrite.data.livoStatusRaw, 'in progress', 'livoStatusRaw ecrit');
   });
-
   /* T9bis ---------------------------------------------------------- */
   /* Contrat reel de updateOrderStatus : la fonction NE LEVE JAMAIS. Son corps
-     est encapsule dans un try/catch (js/orders.js:1066-1069) et renvoie
-     { success: false, error }. On asserte donc le RESULTAT, pas une exception
-     (c'etait l'erreur de la premiere version de ce test). */
-  await check('T9bis : apres hissage, updateOrderStatus refuse toujours les memes transitions', async () => {
+     est encapsule dans un try/catch et renvoie { success: false, error }.
+     On asserte donc le RESULTAT, pas une exception.
+
+     PR 8.6 : le cas confirmed -> in_transit est desormais ACCEPTE (D1). Les
+     refus restants doivent venir des vrais invariants metier : statuts
+     terminaux, garde anti-credit, et eligibilite entrepot pour le dropoff. */
+  await check('T9bis : confirmed->in_transit accepte (D1), refus terminaux/anti-credit conserves', async () => {
     const writes = [];
 
-    /* confirmed -> in_transit : REFUSE (workflow metier, reporte en 8.6) */
+    /* 1) confirmed -> in_transit : DESORMAIS AUTORISE (D1, dette 8.6 close) */
     const s1 = { o_a: { status: 'confirmed', items: [] } };
     const a1 = loadOrders(config, s1, writes).api;
     const r1 = await a1.updateOrderStatus('o_a', 'in_transit');
-    assert.strictEqual(r1.success, false, 'confirmed -> in_transit doit etre refuse');
-    assert.match(String(r1.error), /interdite/i,
-      'le refus doit venir de la garde de transition (recu : ' + r1.error + ')');
-    assert.match(String(r1.error), /in_transit/,
-      'le refus doit nommer le statut cible (recu : ' + r1.error + ')');
-    assert.strictEqual(s1.o_a.status, 'confirmed', 'statut inchange apres refus');
-    assert.strictEqual(writes.length, 0, 'un refus ne doit rien ecrire');
+    assert.strictEqual(r1.success, true,
+      'confirmed -> in_transit doit etre autorise (recu : ' + JSON.stringify(r1) + ')');
+    const w1 = writes.filter((w) => w.id === 'o_a' && 'status' in w.data);
+    assert.ok(w1.length >= 1, 'la mise a jour confirmed -> in_transit doit etre ecrite');
+    assert.strictEqual(w1[0].data.status, 'in_transit', 'statut ecrit = in_transit');
 
-    /* shipping -> in_transit : AUTORISE (legacy) */
+    /* 2) shipping -> in_transit : la cle ALLOWED_TRANSITIONS[shipping] contient
+       toujours IN_TRANSIT (legacy conserve). MAIS updateOrderStatus normalise
+       d'abord previousStatus : une ligne stockee en 'shipping' est lue
+       'in_transit', donc la transition demandee devient in_transit -> in_transit,
+       refusee comme no-op. Comportement ATTENDU post-D2 : le legacy est deja
+       considere in_transit a la lecture, il n'y a rien a re-ecrire. */
     const s2 = { o_b: { status: 'shipping', items: [] } };
     const a2 = loadOrders(config, s2, writes).api;
     const r2 = await a2.updateOrderStatus('o_b', 'in_transit');
-    assert.strictEqual(r2.success, true,
-      'shipping -> in_transit doit rester autorise (recu : ' + JSON.stringify(r2) + ')');
-    const w2 = writes.filter((w) => w.id === 'o_b' && 'status' in w.data);
-    assert.ok(w2.length >= 1, 'la mise a jour shipping -> in_transit doit etre ecrite');
-    assert.strictEqual(w2[0].data.status, 'in_transit', 'statut ecrit = in_transit');
+    assert.strictEqual(r2.success, false,
+      'post-D2 : shipping est deja lu in_transit, in_transit -> in_transit est refuse');
+    assert.match(String(r2.error), /interdite/i,
+      'refus attendu par la garde de transition (recu : ' + r2.error + ')');
+    assert.strictEqual(writes.filter((w) => w.id === 'o_b' && 'status' in w.data).length, 0,
+      'aucune ecriture de statut sur une ligne legacy deja in_transit');
 
-    /* delivered -> in_transit : REFUSE (delivered est terminal) */
+    /* 3) delivered -> in_transit : REFUSE (delivered est terminal) */
     const s3 = { o_c: { status: 'delivered', items: [] } };
     const a3 = loadOrders(config, s3, writes).api;
     const r3 = await a3.updateOrderStatus('o_c', 'in_transit');
@@ -450,8 +488,10 @@ async function check(name, fn) {
     assert.match(String(r3.error), /interdite/i,
       'delivered est terminal : aucune transition sortante (recu : ' + r3.error + ')');
     assert.strictEqual(s3.o_c.status, 'delivered', 'statut inchange apres refus');
+    assert.strictEqual(writes.filter((w) => w.id === 'o_c' && 'status' in w.data).length, 0,
+      'un refus ne doit rien ecrire');
 
-    /* pending -> delivered : REFUSE (garde anti-credit sans expedition) */
+    /* 4) pending -> delivered : REFUSE (garde anti-credit vendeur) */
     const s4 = { o_d: { status: 'pending', items: [] } };
     const a4 = loadOrders(config, s4, writes).api;
     const r4 = await a4.updateOrderStatus('o_d', 'delivered');
@@ -459,9 +499,9 @@ async function check(name, fn) {
       'pending -> delivered doit rester refuse (anti-credit vendeur)');
     assert.strictEqual(s4.o_d.status, 'pending', 'statut inchange apres refus');
 
-    /* confirmed -> pickup_requested : reste DANS la table des transitions.
-       Un refus doit venir de la garde d'eligibilite entrepot (PR 8.4), jamais
-       de ALLOWED_TRANSITIONS. On asserte l'invariant, pas l'issue. */
+    /* 5) confirmed -> pickup_requested : reste DANS la table des transitions.
+       Un refus doit venir de la garde d eligibilite entrepot (PR 8.4), jamais
+       de ALLOWED_TRANSITIONS. On asserte l invariant, pas l issue. */
     const s5 = { o_e: { status: 'confirmed', items: [], paymentStatus: 'unpaid' } };
     const a5 = loadOrders(config, s5, writes).api;
     const r5 = await a5.updateOrderStatus('o_e', 'pickup_requested');
@@ -474,7 +514,6 @@ async function check(name, fn) {
       assert.strictEqual(s5.o_e.status, 'confirmed', 'statut inchange si refus');
     }
   });
-
 
   /* T10 ------------------------------------------------------------ */
   await check('T10 : LIVO_SYNCABLE_STATUSES contient shipping+in_transit, exclut pending+preparing', async () => {
