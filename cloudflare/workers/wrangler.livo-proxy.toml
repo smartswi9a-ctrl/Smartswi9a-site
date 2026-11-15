@@ -1,0 +1,54 @@
+# ============================================================
+# Worker Cloudflare : livo-proxy (PR 8.5)
+#
+# Pourquoi ce fichier existe
+# --------------------------
+# Le fichier voisin `wrangler.toml` declare `name = "smart-swi9a-api"`.
+# Deployer livo-proxy depuis ce repertoire sans `--config` explicite revenait
+# a cibler smart-swi9a-api, ou a echouer : c'est le deploiement croise que ce
+# fichier supprime. Toujours passer `--config wrangler.livo-proxy.toml`.
+# ============================================================
+
+name = "livo-proxy"
+main = "livo-proxy.js"
+
+# Identique au wrangler.toml existant : le Worker tourne aujourd'hui avec
+# cette date. La modifier change le runtime au prochain deploiement - ce
+# n'est pas le role d'une PR d'hygiene. Modernisation = PR dediee, avec tests.
+compatibility_date = "2025-01-01"
+
+# ------------------------------------------------------------------
+# SECRETS - JAMAIS DANS CE FICHIER
+# ------------------------------------------------------------------
+# livo-proxy.js lit trois secrets qui doivent rester poses par
+# `wrangler secret put` (voir docs/runbooks/ROTATION-SECRET-LIVO.md) :
+#   LIVO_API_KEY      (env.LIVO_API_KEY,       lignes 268 et 281)
+#   LIVO_CLIENT_ID    (env.LIVO_CLIENT_ID,     ligne 559)
+#   LIVO_ADMIN_UIDS   (env.LIVO_ADMIN_UIDS,    ligne 129)
+#
+# Les quatre autres variables lues par le Worker ont un repli sur :
+#   ALLOWED_ORIGINS      -> "" (CORS ferme, fail-closed)
+#   LIVO_VENDOR_UIDS     -> "" (aucun vendeur autorise)
+#   LIVO_API_BASE_URL    -> constante https://rest.livo.ma (ligne 11)
+#   LIVO_CUSTOMER_ID     -> repli de LIVO_CLIENT_ID
+# Pour les surcharger sans secret, ajouter une section [vars] ci-dessous.
+#
+# (LIVO_VENDOR_UIDS n'etant pas configure en production, aucun vendeur n'est
+#  actuellement autorise a appeler le proxy. Constat anterieur a la PR 8.5,
+#  suivi en dette 8.6, non corrige ici.)
+
+# [vars]
+# ALLOWED_ORIGINS = "https://smartswika.ma,https://www.smartswika.ma"
+
+# ------------------------------------------------------------------
+# EXPOSITION
+# ------------------------------------------------------------------
+# Etat constate avant cette PR : https://livo-proxy.smartswi9a.workers.dev
+# repond (OPTIONS -> 204). workers_dev = true fige donc l'existant a
+# l'identique ; le passer a false couperait un acces actuellement actif.
+#
+# TODO: migrer le front vers un domaine de zone (js/config.js:155
+#       PROXY_WORKER_URL) puis passer workers_dev=false pour beneficier
+#       WAF / rate limiting / bot management - PR dediee.
+workers_dev = true
+preview_urls = false

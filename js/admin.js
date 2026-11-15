@@ -16,7 +16,7 @@ import {
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import {
     ROLES, ORDER_STATUS, CATEGORY_GROUPS, CONFIG, normalizeOrderStatus,
-    normalizeCategory, getCategoryById,
+    normalizeCategory, getCategoryById, LIVO_SYNCABLE_STATUSES,
     VENDOR_STATUS, CONTRACT_STATUS
 } from "./config.js";
 import {
@@ -2276,7 +2276,7 @@ function renderLivoList() {
             ? `<a href="${escapeHTML(labelUrl)}" target="_blank" class="admin-btn-primary" style="padding:0.4rem 0.8rem; font-size:0.75rem; text-decoration:none; margin-left:0.3rem;">Étiquette</a>`
             : '';
 
-        const syncBtn = trackingId && ['shipping', 'confirmed'].includes(status)
+        const syncBtn = trackingId && LIVO_SYNCABLE_STATUSES.includes(status)
             ? `<button class="admin-btn-secondary" data-sync-id="${order.id}" style="padding:0.4rem 0.8rem; font-size:0.75rem; margin-left:0.3rem;">Sync</button>`
             : '';
 
@@ -2296,6 +2296,12 @@ function renderLivoList() {
                 if (res.updated) {
                     showToast(`Statut mis à jour : ${res.newStatus}`);
                     await loadLivoTab();
+                } else if (res.raw) {
+                    showToast(`Statut Livo ${res.currentStatus} enregistré (traçage seul)`);
+                } else if (res.terminal) {
+                    showToast('Commande déjà livrée/annulée — non modifiée');
+                } else if (res.transitionBlocked) {
+                    showToast(`Statut Livo ${res.currentStatus} enregistré (transition ${res.targetStatus} non autorisée)`);
                 } else {
                     showToast(`Statut Livo : ${res.currentStatus}`);
                 }
@@ -2317,7 +2323,7 @@ async function handleSyncAllLivo() {
 
     const ordersToSync = livoOrdersCache.filter(o => {
         const trackingId = o.livoTracking || o.speedafTracking;
-        return trackingId && ['shipping', 'confirmed'].includes(normalizeOrderStatus(o.status));
+        return trackingId && LIVO_SYNCABLE_STATUSES.includes(normalizeOrderStatus(o.status));
     });
 
     if (ordersToSync.length === 0) {
@@ -2338,7 +2344,8 @@ async function handleSyncAllLivo() {
     for (const order of ordersToSync) {
         try {
             const res = await syncLivoStatus(order.id);
-            if (res.success && res.updated) updatedCount++;
+            if (!res.success) errorCount++;
+            else if (res.updated) updatedCount++;
         } catch (e) { errorCount++; }
     }
 

@@ -576,3 +576,162 @@ async function runRetry(fetchImpl, retries = 3, delay = 1000) {
   console.error(error);
   process.exit(1);
 });
+
+/* ------------------------------------------------------------------ */
+/* 6ter. Parite CLIENT <-> SERVEUR du mapping Livo (PR 8.5, dette A)   */
+/* ------------------------------------------------------------------ */
+/*
+ * Le bloc 6bis verrouille serveur <-> simulateur. Il ne dit RIEN du client :
+ * js/config.js (LIVO_STATUS_MAP) et functions/index.js
+ * (LIVO_STATUS_TO_ORDER_STATUS) sont deux copies independantes du meme
+ * mapping, et c'est la divergence client/serveur qui produit les commandes
+ * bloquees en production (une commande vue "livree" cote serveur et
+ * "en transit" cote client, ou l'inverse).
+ *
+ * Ici on compare les DEUX sources de verite reelles, sans jamais modifier
+ * functions/index.js :
+ *   - LIVO_STATUS_MAP            : parse par TEXTE depuis js/config.js
+ *                                  (passer par un import ESM dans un .cjs
+ *                                  imposerait une transpilation) ;
+ *   - LIVO_STATUS_TO_ORDER_STATUS: evalue dans une sandbox vm depuis
+ *                                  functions/index.js, en y injectant
+ *                                  Object.freeze (l'objet reel est fige).
+ */
+(function assertClientServerMappingParity() {
+  const SRC_CLIENT = "js/config.js";
+  const SRC_SERVER = "functions/index.js";
+  const CLIENT_KEY = "LIVO_STATUS_MAP";
+  const SERVER_KEY = "LIVO_STATUS_TO_ORDER_STATUS";
+
+  /* Extrait le litteral `{ ... }` equilibre qui suit l'occurrence de `key`,
+     en ignorant chaines et commentaires (meme technique que 6bis). */
+  function extractObjectLiteral(text, key, sourceName) {
+    const keyAt = text.indexOf(key);
+    if (keyAt < 0) throw new Error(`${key} introuvable dans ${sourceName}`);
+    const open = text.indexOf("{", keyAt);
+    if (open < 0) throw new Error(`${key}: accolade ouvrante introuvable dans ${sourceName}`);
+
+    let depth = 0;
+    let quote = null;
+    let escaped = false;
+    for (let i = open; i < text.length; i++) {
+      const c = text[i];
+      if (quote) {
+        if (escaped) { escaped = false; continue; }
+        if (c === "\\") { escaped = true; continue; }
+        if (c === quote) quote = null;
+        continue;
+      }
+      if (c === '"' || c === "'" || c === "`") { quote = c; continue; }
+      if (c === "/" && text[i + 1] === "/") {
+        while (i < text.length && text[i] !== "\n") i++;
+        continue;
+      }
+      if (c === "/" && text[i + 1] === "*") {
+        i += 2;
+        while (i < text.length && !(text[i] === "*" && text[i + 1] === "/")) i++;
+        i++;
+        continue;
+      }
+      if (c === "{") depth++;
+      else if (c === "}") {
+        depth--;
+        if (depth === 0) return text.slice(open, i + 1);
+      }
+    }
+    throw new Error(`${key}: accolade fermante introuvable dans ${sourceName}`);
+  }
+
+  /* --- client : parsing TEXTE de js/config.js ---------------------------
+     Les valeurs y sont ecrites `ORDER_STATUS.CONFIRMED`, pas `'confirmed'` :
+     un simple extracteur de paires cle/valeur-string renverrait des valeurs
+     vides. On resout donc l'enum ORDER_STATUS depuis le meme fichier. */
+  function readClientMap(configSrc) {
+    /* ORDER_STATUS n'est pas un litteral sur place : c'est un alias
+       (`export const ORDER_STATUS = CONFIG.ORDERS.STATUS`). La source de
+       verite est donc CONFIG.ORDERS.STATUS. On extrait ce litteral ET on
+       evalue LIVO_STATUS_MAP tel quel, dans un contexte ou ORDER_STATUS est
+       deja resolu : le mapping teste est donc celui du fichier, sans
+       re-ecriture intermediaire. */
+    const statusLiteral = extractObjectLiteral(configSrc, "STATUS:", SRC_CLIENT);
+    const mapLiteral = extractObjectLiteral(configSrc, CLIENT_KEY, SRC_CLIENT);
+
+    const sandbox = { Object };
+    vm.createContext(sandbox);
+    vm.runInContext(
+      "const ORDER_STATUS = " + statusLiteral + ";\n" +
+      "this.__map = " + mapLiteral + ";",
+      sandbox
+    );
+
+    const map = sandbox.__map;
+    if (!map || typeof map !== "object") {
+      throw new Error(`${CLIENT_KEY}: le litteral extrait n'a pas produit d'objet`);
+    }
+    const count = Object.keys(map).length;
+    if (count === 0) throw new Error(`Aucune entree extraite de ${SRC_CLIENT} (${CLIENT_KEY})`);
+    return Object.assign({}, map);
+  }
+
+  /* --- serveur : evaluation du litteral dans une sandbox vm -------------
+     L'objet est `Object.freeze({...})` : on evalue donc le litteral source
+     lui-meme, dans un contexte ou Object existe, plutot que de le reecrire. */
+  function readServerMap(functionsSrc) {
+    const literal = extractObjectLiteral(functionsSrc, SERVER_KEY, SRC_SERVER);
+    const sandbox = { Object };
+    vm.createContext(sandbox);
+    vm.runInContext("this.__map = Object.freeze(" + literal + ");", sandbox);
+    const map = sandbox.__map;
+    if (!map || typeof map !== "object") {
+      throw new Error(`${SERVER_KEY}: le litteral extrait n'a pas produit d'objet`);
+    }
+    return Object.assign({}, map);
+  }
+
+  const client = readClientMap(read(SRC_CLIENT));
+  const server = readServerMap(read(SRC_SERVER));
+
+  const clientKeys = Object.keys(client).sort();
+  const serverKeys = Object.keys(server).sort();
+
+  // 1. Exactement 7 cles des deux cotes.
+  assert.equal(clientKeys.length, 7,
+    `Le mapping client doit comporter 7 cles (recu ${clientKeys.length} : ${clientKeys.join(", ")})`);
+  assert.equal(serverKeys.length, 7,
+    `Le mapping serveur doit comporter 7 cles (recu ${serverKeys.length} : ${serverKeys.join(", ")})`);
+
+  // 2. Les memes cles, exactement.
+  assert.deepStrictEqual(clientKeys, serverKeys,
+    `Divergence de cles Livo client/serveur. Client=${JSON.stringify(clientKeys)} ` +
+    `Serveur=${JSON.stringify(serverKeys)}`);
+
+  // 3. Les memes valeurs, exactement.
+  assert.deepStrictEqual(client, server,
+    `Divergence de valeurs Livo client/serveur. Client=${JSON.stringify(client)} ` +
+    `Serveur=${JSON.stringify(server)}`);
+
+  // 4. Les cles que le mapping ne doit JAMAIS produire, des deux cotes.
+  ["draft", "problem", "reported"].forEach((rawOnly) => {
+    assert.ok(!Object.prototype.hasOwnProperty.call(client, rawOnly),
+      `\`${rawOnly}\` ne doit pas exister dans ${CLIENT_KEY} (livoStatusRaw seul).`);
+    assert.ok(!Object.prototype.hasOwnProperty.call(server, rawOnly),
+      `\`${rawOnly}\` ne doit pas exister dans ${SERVER_KEY} (livoStatusRaw seul).`);
+  });
+
+  // 5. `shipping` ne doit sortir d'aucune valeur du mapping client : c'est un
+  //    statut legacy qui ne doit plus etre PRODUIT, seulement lu.
+  const clientValues = Object.values(client);
+  assert.ok(!clientValues.includes("shipping"),
+    "`shipping` est legacy : aucune valeur de " + CLIENT_KEY + " ne doit produire ce statut.");
+
+  // 6. Symetrie de la garde cote serveur.
+  const serverValues = Object.values(server);
+  assert.ok(!serverValues.includes("shipping"),
+    "`shipping` est legacy : aucune valeur de " + SERVER_KEY + " ne doit produire ce statut.");
+
+  console.log(
+    "PASS: parite mapping Livo client (js/config.js) <-> serveur (functions/index.js) : " +
+    clientKeys.length + " cles, valeurs identiques, draft/problem/reported absents, shipping non produit."
+  );
+})();
+

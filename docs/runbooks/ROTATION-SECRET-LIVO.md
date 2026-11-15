@@ -363,40 +363,49 @@ Copier depuis Livo UI. Ne pas la coller dans un fichier, un chat ou un ticket.
 Dans **PowerShell**, depuis le dossier `cloudflare/workers/` :
 
 ```powershell
-npx wrangler secret put LIVO_API_KEY --name livo-proxy
+cd cloudflare/workers
+npx wrangler secret put LIVO_API_KEY --config wrangler.livo-proxy.toml
 ```
 
 Quand `wrangler` affiche `Enter a secret value`, **coller la clé**.
 Elle n'apparaît **pas** à l'écran (ni en clair, ni en étoiles) : c'est normal,
 c'est le comportement attendu.
 
-**Étape 4 — ⚠️ Pourquoi `--name livo-proxy` est OBLIGATOIRE**
+**Étape 4 — ⚠️ Pourquoi `--config wrangler.livo-proxy.toml` est OBLIGATOIRE**
 
-`cloudflare/workers/wrangler.toml` déclare :
+> ⚠️ **SANS `--config`, wrangler lit `wrangler.toml` et cible `smart-swi9a-api`.**
+>
+> Ce n'est pas une hypothèse : `cloudflare/workers/wrangler.toml` déclare
+> `name = "smart-swi9a-api"`. Toute commande `wrangler` lancée depuis
+> `cloudflare/workers/` **sans `--config`** écrit ou déploie sur
+> **`smart-swi9a-api`**, qui ne lit **jamais** `LIVO_API_KEY`.
 
-```toml
-name = "smart-swi9a-api"
-main = "smart-swi9a-api.js"
+Les quatre commandes de ce runbook sont donc **toutes** préfixées par `--config` :
+
+```powershell
+cd cloudflare/workers
+npx wrangler deploy            --config wrangler.livo-proxy.toml
+npx wrangler secret put LIVO_API_KEY    --config wrangler.livo-proxy.toml
+npx wrangler secret put LIVO_CLIENT_ID  --config wrangler.livo-proxy.toml
+npx wrangler secret put LIVO_ADMIN_UIDS --config wrangler.livo-proxy.toml
 ```
 
-Donc un `wrangler secret put` lancé **sans `--name`** depuis
-`cloudflare/workers/` écrit la clé dans le Worker **`smart-swi9a-api`**, qui ne
-lit **jamais** `LIVO_API_KEY`.
+`cloudflare/workers/wrangler.livo-proxy.toml` est le fichier de configuration
+**dédié** au Worker `livo-proxy` (introduit par la PR 8.5). Il déclare
+`name = "livo-proxy"` et `main = "livo-proxy.js"`.
 
-Conséquences :
-
-- Wrangler affiche `✅ Success` → on croit avoir réussi ;
-- `livo-proxy` n'a **pas** reçu la clé → **`401` silencieux** côté Livo ;
-- un secret inutile pollue `smart-swi9a-api`.
-
-> **Règle absolue : toujours passer `--name livo-proxy` explicitement.**
+> **Règle absolue : toujours passer `--config wrangler.livo-proxy.toml`.**
 > Corollaire : ne jamais lancer `wrangler deploy` depuis `cloudflare/workers/`
 > en pensant déployer `livo-proxy` — cela déploie `smart-swi9a-api`.
+
+Les secrets déclarés en production pour ce Worker sont exactement trois :
+`LIVO_API_KEY`, `LIVO_CLIENT_ID`, `LIVO_ADMIN_UIDS`. **Ils ne doivent jamais
+apparaître dans le `.toml`** — uniquement via `wrangler secret put`.
 
 **Étape 5 — Vérifier que le secret est bien sur le bon Worker**
 
 ```powershell
-npx wrangler secret list --name livo-proxy
+npx wrangler secret list --config wrangler.livo-proxy.toml
 ```
 
 Attendu : `LIVO_API_KEY` présent dans la liste.
@@ -404,13 +413,13 @@ Attendu : `LIVO_API_KEY` présent dans la liste.
 Contrôle croisé — `LIVO_API_KEY` ne doit **pas** figurer ici :
 
 ```powershell
-npx wrangler secret list --name smart-swi9a-api
+npx wrangler secret list --config wrangler.toml
 ```
 
 S'il y figure à la suite d'une manipulation erronée, le supprimer :
 
 ```powershell
-npx wrangler secret delete LIVO_API_KEY --name smart-swi9a-api
+npx wrangler secret delete LIVO_API_KEY --config wrangler.toml
 ```
 
 > Wrangler ne réaffiche **jamais** la valeur d'un secret : seuls le nom et la
@@ -438,7 +447,7 @@ vide pour `/cities`.
 **Étape 7 — Clore la rotation**
 
 - [ ] Ancienne clé révoquée (fait automatiquement à l'étape 1).
-- [ ] `wrangler secret list --name livo-proxy` → `LIVO_API_KEY` présent.
+- [ ] `wrangler secret list --config wrangler.livo-proxy.toml` → `LIVO_API_KEY` présent.
 - [ ] Commande de test visible dans Livo UI.
 - [ ] Presse-papiers purgé, onglet Livo UI fermé.
 - [ ] `git status --short` → rien d'inattendu.
