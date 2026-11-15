@@ -30,6 +30,12 @@ import {
 } from "./orders.js";
 import { renderAdminReviews } from "./reviews.js";
 import { showToast, confirmAction, promptAction } from "./ui-core.js";
+import {
+    filterGroupedPickupCandidates, evaluateGroupedPickupOrder,
+    createGroupedPickupContext, showGroupedPickupConfirm,
+    countGroupedPickupArticles, invalidateGroupedPickupCache,
+    GROUPED_PICKUP_CONTEXT_TTL_MS
+} from "./grouped-pickup.js";
 
 /* Ramassage groupé Livo (PR 7) — le Worker /create-pickup existe déjà côté
    cloudflare/workers/livo-proxy.js. Aucune clé API côté navigateur. */
@@ -633,11 +639,24 @@ async function markOrderAsPrepared(orderId, btn) {
             // entrepot doit encore passer par le ramassage Livo
             // (pickup_requested) avant d'etre expediee : sauter cette etape
             // cassait la timeline client et le filtre admin.
+            //
+            // PR 8.4 : on pose groupedPickupEligible ici : c'est la voie
+            // entrepot. Sans cette attestation, la garde de updateOrderStatus
+            // refuserait la transition prepared -> pickup_requested alors que
+            // la commande vient d'etre verifiee 100 % entrepot (tous les
+            // produits sont en smartswika_warehouse, cf. boucle ci-dessus).
+            // Ne jamais ecraser une attestation existante : si le champ est
+            // deja true, on ne le retouche pas.
             transaction.update(orderRef, {
                 status: ORDER_STATUS.PREPARED,
                 preparedAt: serverTimestamp(),
                 stock_warehouse_deducted: true,
-                updatedAt: serverTimestamp()
+                updatedAt: serverTimestamp(),
+                ...(order.groupedPickupEligible === true ? {} : {
+                    groupedPickupEligible: true,
+                    groupedPickupEligibleAt: serverTimestamp(),
+                    groupedPickupEligibleSource: 'mark_order_as_prepared'
+                })
             });
         });
 
@@ -2427,49 +2446,73 @@ async function handleConfirmPickup() {
    déjà en place : aucune clé API côté navigateur.
    ============================================================ */
 
-/* Filtre client-side : statut confirmed ET pas encore de ramassage. */
-async function getGroupedPickupCandidates() {
+/* ============================================================
+   PR 8.4 — FILTRAGE PAR delivery_mode
+   Avant cette PR, seuls `status === 'confirmed'` et `!livoPickupId`
+   etaient verifies : les commandes drop-off (colis chez le vendeur)
+   et multi-vendeurs etaient proposees au ramassage entrepot, donc
+   Livo venait chercher des colis qui n'etaient pas sur place.
+   Le predicat est desormais centralise dans js/grouped-pickup.js
+   (evaluateGroupedPickupOrder) : compteur, bouton, modale et garde
+   de transition updateOrderStatus partagent la meme regle.
+   ============================================================ */
+
+/* Filtre client-side du ramassage groupe (predicat PR 8.4).
+   Ne garde que les commandes 100 % entrepot, payees/compatibles COD,
+   issues d'un unique vendeur approuve en mode fulfillment, et 100 %
+   smartswika_warehouse cote produits.
+   @param {{bypassCache?: boolean}} [options]
+   @returns {Promise<Array<{order: object, evaluation: object}>>} */
+async function getGroupedPickupCandidateEntries(options = {}) {
     const snap = await getDocs(query(
         collection(db, 'orders'),
-        where('status', '==', 'confirmed')
+        where('status', '==', 'confirmed'),
+        limit(300)
     ));
-    return snap.docs
-        .map(d => ({ id: d.id, ...d.data() }))
-        .filter(order => !order.livoPickupId);
+    const orders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    return filterGroupedPickupCandidates(orders, options);
+}
+
+/* Retro-compat : liste des commandes candidates (sans l'evaluation). */
+async function getGroupedPickupCandidates(options = {}) {
+    const entries = await getGroupedPickupCandidateEntries(options);
+    return entries.map(entry => entry.order);
 }
 
 /* Structure canonique (functions/index.js createCustomerOrder) :
    order.items[] = { productId, quantity, ... }. Le champ `products`
-   n'existe pas sur les commandes — on garde un fallback defensif. */
+   n'existe pas sur les commandes — on garde un fallback defensif.
+   Delegue a js/grouped-pickup.js pour une seule source de verite. */
 function countOrderArticles(order) {
-    if (!order) return 0;
-    const lines = Array.isArray(order.items) ? order.items
-        : (Array.isArray(order.products) ? order.products : []);
-    return lines.reduce((sum, line) => {
-        const qty = Math.floor(Number(line?.quantity));
-        return sum + (Number.isFinite(qty) && qty > 0 ? qty : 0);
-    }, 0);
+    return countGroupedPickupArticles(order);
 }
 
-/* Compteur « X colis en attente » + activation du bouton. */
+/* Compteur « X colis en attente » + activation du bouton.
+   Le compteur travaille sur le cache TTL du contexte de lot : il est
+   purement informatif. La decision de ramassage (requestGroupedPickup)
+   recalcule toujours en bypassCache pour ne jamais envoyer Livo sur un
+   etat perime (cf. risque residuel documente dans grouped-pickup.js). */
 async function refreshGroupedPickupCounter() {
     const counterEl = _getId('groupedPickupCounter');
     const btn = _getId('groupedPickupBtn');
     try {
-        const candidates = await getGroupedPickupCandidates();
-        const totalArticles = candidates.reduce((sum, o) => sum + countOrderArticles(o), 0);
+        const entries = await getGroupedPickupCandidateEntries();
+        const totalArticles = entries.reduce((sum, entry) => sum + entry.evaluation.articles, 0);
         if (counterEl) {
-            counterEl.textContent = totalArticles > 0
-                ? `${totalArticles} colis en attente de ramassage`
-                : 'Aucun colis en attente de ramassage';
+            if (entries.length === 0) {
+                counterEl.textContent = 'Aucun colis en attente de ramassage';
+            } else {
+                const ordersLabel = entries.length > 1 ? 'commandes' : 'commande';
+                counterEl.textContent = `${totalArticles} colis en attente · ${entries.length} ${ordersLabel}`;
+            }
         }
-        if (btn) btn.disabled = !(candidates.length > 0 && totalArticles > 0);
-        return { candidates, totalArticles };
+        if (btn) btn.disabled = !(entries.length > 0 && totalArticles > 0);
+        return { candidates: entries.map(e => e.order), entries, totalArticles };
     } catch (e) {
         console.error('[admin] refreshGroupedPickupCounter :', e);
         if (counterEl) counterEl.textContent = 'Compteur indisponible';
         if (btn) btn.disabled = true;
-        return { candidates: [], totalArticles: 0 };
+        return { candidates: [], entries: [], totalArticles: 0 };
     }
 }
 
@@ -2496,29 +2539,35 @@ async function markOrdersPickupRequested(orderIds) {
     return applied;
 }
 
-/* Crée UN ramassage Livo pour toutes les commandes candidates. */
+/* Crée UN ramassage Livo pour toutes les commandes candidates (PR 8.4).
+   Le recalcul se fait TOUJOURS en bypassCache : c'est le seul endroit ou
+   une decision irreversible est prise (creation d'un ramassage chez Livo).
+   Le cache TTL ne sert qu'au compteur d'affichage. */
 async function requestGroupedPickup() {
     const btn = _getId('groupedPickupBtn');
-    const originalLabel = btn?.textContent || '🚚 Demander un ramassage groupé';
+    const originalLabel = btn?.textContent || '\u{1F69A} Demander un ramassage groupé';
 
     try {
-        const candidates = await getGroupedPickupCandidates();
-        if (candidates.length === 0) {
-            showToast('Aucune commande confirmée à ramasser.');
+        // 1) Recalcul sans cache : etat Firestore frais, fail-closed.
+        const entries = await getGroupedPickupCandidateEntries({ bypassCache: true });
+
+        if (entries.length === 0) {
+            showToast('Aucune commande 100 % entrepôt éligible au ramassage.', 5000);
             await refreshGroupedPickupCounter();
             return;
         }
 
-        const totalArticles = candidates.reduce((sum, o) => sum + countOrderArticles(o), 0);
+        const totalArticles = entries.reduce((sum, entry) => sum + entry.evaluation.articles, 0);
         if (totalArticles < 1) {
-            showToast('Aucun article à ramasser dans les commandes confirmées.');
+            showToast('Aucun article à ramasser dans les commandes éligibles.');
             await refreshGroupedPickupCounter();
             return;
         }
 
-        const ok = await confirmAction(
-            `Créer un ramassage groupé pour ${candidates.length} commande(s) (${totalArticles} article(s)) ?`
-        );
+        // 2) Confirmation NOMINATIVE : la liste des commandes remplace le
+        //    simple compte. confirmAction() ne peut pas rendre de HTML
+        //    (escapeHTML sur tout le message, ui-core.js:207).
+        const ok = await showGroupedPickupConfirm(entries, { totalArticles });
         if (!ok) return;
 
         if (btn) { btn.disabled = true; btn.textContent = 'Envoi…'; }
@@ -2536,7 +2585,7 @@ async function requestGroupedPickup() {
             },
             body: JSON.stringify({
                 products: [{ product_id: GROUPED_PICKUP_PRODUCT_ID, quantity: totalArticles }],
-                comment: `Ramassage groupé : ${candidates.length} commande(s) - détails dans Firestore`
+                comment: `Ramassage groupé : ${entries.length} commande(s) - détails dans Firestore`
             })
         });
 
@@ -2559,21 +2608,35 @@ async function requestGroupedPickup() {
             data?.pickup_id;
         if (!pickupId) throw new Error('Réponse Livo sans identifiant de ramassage.');
 
+        // 3) groupedPickupEligible : ATTESTATION D'ELIGIBILITE posee par la
+        //    premiere des deux actions qui rend la commande ramassable.
+        //    - markOrderAsPrepared  (voie entrepot : pending/confirmed -> prepared)
+        //    - requestGroupedPickup (voie directe : confirmed -> pickup_requested)
+        //    Sans cette attestation, la garde de updateOrderStatus refuserait
+        //    la transition qui suit, alors que le predicat vient de valider
+        //    la commande. Le ramassage Livo existerait avec 0 commande passee
+        //    en pickup_requested : exactement le bug PR 8.2.
+        //    merge:true, et on n'ecrase jamais une attestation existante.
         const batch = writeBatch(db);
-        candidates.forEach(order => {
-            batch.update(doc(db, 'orders', order.id), {
-                livoPickupId: pickupId
-            });
+        entries.forEach(({ order }) => {
+            const patch = { livoPickupId: pickupId };
+            if (order.groupedPickupEligible !== true) {
+                patch.groupedPickupEligible = true;
+                patch.groupedPickupEligibleAt = serverTimestamp();
+                patch.groupedPickupEligibleSource = 'request_grouped_pickup';
+            }
+            batch.update(doc(db, 'orders', order.id), patch);
         });
         await batch.commit();
 
-        // `pickup_requested` existe bien dans ORDER_STATUS (config.js) : le
-        // statut est pose a la source pour que la timeline client et le filtre
-        // admin refletent l'etape de ramassage.
-        const movedToPickup = await markOrdersPickupRequested(candidates.map(o => o.id));
+        // 4) Transition de statut (non bloquante : le colis existe deja chez Livo).
+        const movedToPickup = await markOrdersPickupRequested(entries.map(({ order }) => order.id));
+
+        // Le cache doit etre invalide : la liste des candidates vient de changer.
+        invalidateGroupedPickupCache();
 
         resetAdminOrdersCache();
-        showToast(`Ramassage ${pickupId} créé pour ${candidates.length} commande(s) — ${totalArticles} colis. ${movedToPickup} commande(s) en attente de ramassage.`, 5000);
+        showToast(`Ramassage ${pickupId} créé pour ${entries.length} commande(s) — ${totalArticles} colis. ${movedToPickup} commande(s) en attente de ramassage.`, 5000);
         await renderAdminOrders('adminOrdersList');
         await refreshGroupedPickupCounter();
     } catch (e) {

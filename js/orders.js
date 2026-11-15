@@ -28,6 +28,11 @@ import {
 } from "./utils.js";
 import { getCurrentUser } from "./auth.js";
 import { showToast, confirmAction } from "./ui-core.js";
+import {
+    evaluateGroupedPickupOrder,
+    getOrderVendorIds as groupedPickupVendorIds,
+    getOrderProductIds as groupedPickupProductIds
+} from "./grouped-pickup.js";
 import { cancelOrder, loadUserOrders } from "./cart.js";
 
 /* ============================================================
@@ -783,6 +788,56 @@ export async function updateOrderStatus(orderId, newStatus) {
                 throw new Error(`Transition de commande interdite : ${previousStatus} → ${normalizedStatus}.`);
             }
 
+            /* GARDE RAMASSAGE GROUPE (PR 8.4) ------------------------------
+               confirmed -> pickup_requested ne doit concerner QUE des
+               commandes 100 % entrepot. Ce chemin saute la preparation
+               entrepot (markOrderAsPrepared), donc il doit etre aussi
+               strict que le predicat du ramassage groupe : produits
+               smartswika_warehouse, vendeur unique approuve en mode
+               fulfillment, paymentStatus compatible COD.
+               Sans cette garde, une commande drop-off pouvait basculer en
+               pickup_requested : Livo attendait un colis qui n'etait pas
+               dans l'entrepot.
+
+               L'attestation groupedPickupEligible est posee par les deux
+               seuls chemins legitimes qui ont deja fait ce controle :
+                 - markOrderAsPrepared  (transaction de preparation)
+                 - requestGroupedPickup (creation du ramassage Livo)
+               Si elle est absente, on reevalue le predicat sur place : une
+               commande renseignee a la main par un admin doit pouvoir
+               avancer si elle est reellement eligible.
+               Fail-closed : toute erreur de lecture produit/vendeur rejette.
+            ---------------------------------------------------------------- */
+            if (normalizedStatus === ORDER_STATUS.PICKUP_REQUESTED &&
+                previousStatus === ORDER_STATUS.CONFIRMED &&
+                order.groupedPickupEligible !== true) {
+                const vendorIds = groupedPickupVendorIds(order);
+                const productIds = groupedPickupProductIds(order);
+                const vendors = new Map();
+                const products = new Map();
+                for (const vendorId of vendorIds) {
+                    const snap = await transaction.get(doc(db, "users", String(vendorId)));
+                    vendors.set(vendorId, {
+                        exists: snap.exists(),
+                        vendorInfo: snap.exists() ? (snap.data().vendorInfo || {}) : {}
+                    });
+                }
+                for (const productId of productIds) {
+                    const snap = await transaction.get(doc(db, "products", String(productId)));
+                    products.set(productId, {
+                        exists: snap.exists(),
+                        delivery_mode: snap.exists() ? snap.data().delivery_mode : null
+                    });
+                }
+                const evaluation = evaluateGroupedPickupOrder(order, { vendors, products });
+                if (!evaluation || evaluation.eligible !== true) {
+                    const reason = (evaluation && evaluation.reasons && evaluation.reasons[0]) || 'eligibilite non verifiable';
+                    throw new Error(`Ramassage entrepôt refusé : ${reason}. Utilisez l'onglet "Préparation Commandes" ou corrigez le mode de livraison.`);
+                }
+                // Attestation posee pour les gardes suivantes (idempotent).
+                order.groupedPickupEligible = true;
+            }
+
             /* GARDE ENTREPOT (PR 2/6) ---------------------------------------
                Une commande 100 % entrepot doit passer par l'onglet
                "Preparation Commandes" : c'est ce flux qui decremente
@@ -866,6 +921,15 @@ export async function updateOrderStatus(orderId, newStatus) {
                 stockDeducted: order.stockDeducted,
                 couponRestored: order.couponRestored || false
             };
+
+            /* PR 8.4 : persiste l'attestation si la garde ci-dessus vient de
+               la calculer (jamais d'ecrasement : le champ n'est ecrit que
+               s'il manquait, et uniquement a true). */
+            if (order.groupedPickupEligible === true && !orderSnap.data().groupedPickupEligible) {
+                updatePayload.groupedPickupEligible = true;
+                updatePayload.groupedPickupEligibleAt = Timestamp.now();
+                updatePayload.groupedPickupEligibleSource = 'update_order_status_guard';
+            }
 
             if (normalizedStatus === ORDER_STATUS.DELIVERED) {
                 updatePayload.paymentStatus = 'paid';
