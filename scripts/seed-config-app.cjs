@@ -1,18 +1,60 @@
 'use strict';
 
-const path = require('path');
-const admin = require(path.join(__dirname, '..', 'functions', 'node_modules', 'firebase-admin'));
+/*
+ * seed-config-app.cjs
+ *
+ * Ecrit config/app.contractVersion dans Firestore (projet smartswi9a-31063).
+ *
+ * USAGE
+ *   node scripts/seed-config-app.cjs --help
+ *   node scripts/seed-config-app.cjs --dry-run   # SIMULATION
+ *   node scripts/seed-config-app.cjs             # ECRITURE
+ *
+ * PREREQUIS
+ *   firebase-admin (API modulaire) resolvable depuis la racine du depot.
+ *   Credentials : GOOGLE_APPLICATION_CREDENTIALS ou
+ *   gcloud auth application-default login.
+ *
+ * HISTORIQUE
+ *   La version precedente chargeait firebase-admin via
+ *   `path.join(__dirname, '..', 'functions', 'node_modules', 'firebase-admin')`,
+ *   chemin qui n'existe pas (MODULE_NOT_FOUND), puis utilisait
+ *   `admin.credential.applicationDefault()`, namespace supprime dans
+ *   firebase-admin v14 (TypeError). Les deux sont corriges ici par la
+ *   migration vers l'API modulaire, alignee sur
+ *   scripts/backfill-shipping-to-in-transit.cjs.
+ */
+
+const { initializeApp, applicationDefault } = require('firebase-admin/app');
+const { getFirestore } = require('firebase-admin/firestore');
 
 const EXPECTED_CONTRACT_VERSION = '1.5.0';
 const PROJECT_ID = 'smartswi9a-31063';
 const DRY_RUN = process.argv.includes('--dry-run');
+const HELP = process.argv.includes('--help') || process.argv.includes('-h');
 
-admin.initializeApp({
+/* --help court-circuite AVANT toute initialisation Firebase : aucune
+   credentials n'est lue, aucun appel reseau n'est fait, exit 0. */
+if (HELP) {
+  console.log('');
+  console.log('seed-config-app.cjs - ecrit config/app.contractVersion');
+  console.log('');
+  console.log('  node scripts/seed-config-app.cjs --help     # cette aide');
+  console.log('  node scripts/seed-config-app.cjs --dry-run  # SIMULATION');
+  console.log('  node scripts/seed-config-app.cjs            # ECRITURE REELLE');
+  console.log('');
+  console.log('Valeur cible : contractVersion = ' + EXPECTED_CONTRACT_VERSION);
+  console.log('Projet       : ' + PROJECT_ID);
+  console.log('');
+  process.exit(0);
+}
+
+const app = initializeApp({
   projectId: PROJECT_ID,
-  credential: admin.credential.applicationDefault(),
+  credential: applicationDefault(),
 });
 
-const db = admin.firestore();
+const db = getFirestore(app);
 
 function describe(v) {
   return v === undefined ? '(absent)' : JSON.stringify(v);
