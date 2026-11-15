@@ -301,6 +301,29 @@ async function callLivo(request, env, endpoint, method = "GET", payload) {
   const retryAfter = response.headers.get("Retry-After");
   if (retryAfter) passthrough["Retry-After"] = retryAfter;
 
+  // Resilience 401/403 massifs (PR 8.3) : un 401/403 renvoye par Livo ne
+  // provient pas de la requete appelante mais de NOS identifiants (cle API
+  // revoquee, expiree, ou LIVO_CLIENT_ID pointe sur un autre compte).
+  // Relayer tel quel ferait croire a un probleme de session cote client, et
+  // pousserait chaque tentative suivante a marteler Livo avec des
+  // identifiants deja invalides. On sort donc un 503 explicite qui oriente
+  // vers la procedure de rotation, AVANT de propager le corps Livo.
+  if (response.status === 401 || response.status === 403) {
+    console.error(
+      "[livo-proxy] Livo a refuse nos identifiants (" + response.status + ") sur " +
+      method + " " + endpoint + ". Rotation des secrets requise. " +
+      "Voir docs/runbooks/ROTATION-SECRET-LIVO.md"
+    );
+    return json({
+      error: "Service Livo indisponible : authentification serveur refusee par Livo.",
+      message:
+        "Les identifiants Livo du serveur sont refuses (HTTP " + response.status + "). " +
+        "Aucune nouvelle tentative ne sera faite. Voir docs/runbooks/ROTATION-SECRET-LIVO.md",
+      code: "LIVO_CREDENTIALS_REJECTED",
+      upstream_status: response.status,
+    }, 503, headers);
+  }
+
   return new Response(body, {
     status: response.status,
     headers: passthrough,
@@ -538,15 +561,43 @@ export default {
 
       // Identification d'appel : uniquement issue du jeton verifie (jamais d'un header client).
       const vendorUid = String(callerUid || "").trim();
-      if (clientId && /\s/.test(clientId)) {
-        return json({ error: "Configuration serveur invalide (LIVO_CLIENT_ID)." }, 500, headers);
+
+      // Garde-fou FAIL-FAST (PR 8.3) : `client_id` est REQUIS par AddPickupRequest.
+      // Avant ce controle, l'injection etait conditionnelle
+      // (`...(clientId ? { client_id: clientId } : {})`) : un LIVO_CLIENT_ID vide
+      // ou compose d'espaces produisait un payload SANS client_id, que Livo
+      // rejetait en 422 sans que la cause (un secret manquant) soit lisible.
+      // On refuse desormais la requete AVANT l'appel Livo, avec la cause nommee.
+      if (!clientId) {
+        console.error(
+          "[livo-proxy] LIVO_CLIENT_ID (ou repli LIVO_CUSTOMER_ID) est absent ou vide. " +
+          "Ramassage annule avant appel Livo. Voir docs/runbooks/ROTATION-SECRET-LIVO.md"
+        );
+        return json({
+          error: "Configuration serveur incomplete : le secret LIVO_CLIENT_ID n'est pas defini.",
+        }, 500, headers);
       }
-      if (clientId && clientId.length > 128) {
-        return json({ error: "Configuration serveur invalide (LIVO_CLIENT_ID)." }, 500, headers);
+      if (/\s/.test(clientId)) {
+        console.error(
+          "[livo-proxy] LIVO_CLIENT_ID contient un espace (secret corrompu). " +
+          "Voir docs/runbooks/ROTATION-SECRET-LIVO.md"
+        );
+        return json({
+          error: "Configuration serveur invalide : LIVO_CLIENT_ID contient un espace.",
+        }, 500, headers);
+      }
+      if (clientId.length > 128) {
+        console.error(
+          "[livo-proxy] LIVO_CLIENT_ID trop long (" + clientId.length + " caracteres, max 128). " +
+          "Voir docs/runbooks/ROTATION-SECRET-LIVO.md"
+        );
+        return json({
+          error: "Configuration serveur invalide : LIVO_CLIENT_ID est trop long.",
+        }, 500, headers);
       }
 
       pickupPayload = {
-        ...(clientId ? { client_id: clientId } : {}),
+        client_id: clientId,
         ...(items.length ? { items } : {}),
         ...(products.length ? { products } : {}),
         ...(pickupDate ? { desired_date: pickupDate } : {}),

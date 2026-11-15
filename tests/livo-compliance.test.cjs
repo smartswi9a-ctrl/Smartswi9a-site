@@ -285,6 +285,120 @@ async function runRetry(fetchImpl, retries = 3, delay = 1000) {
 });
 
 /* ------------------------------------------------------------------ */
+/* 6bis. Verrou : le mapping du sandbox sim == mapping de production    */
+/* ------------------------------------------------------------------ */
+/*
+ * Le simulateur (tests/livo-webhook-sim.test.cjs) embarque une COPIE du
+ * mapping LIVO_STATUS_TO_ORDER_STATUS dans son sandbox vm, parce qu'il
+ * n'execute que le handler extrait (pas le module functions/index.js
+ * entier). Sans ce verrou, modifier functions/index.js sans mettre a jour
+ * la copie rendrait la suite sim verte sur un mapping qui n'existe plus
+ * en production : les tests ne prouveraient plus rien.
+ *
+ * On extrait les deux objets par brace-matching (meme technique que
+ * extractHandler) et on compare. Toute divergence casse ici.
+ */
+(function assertMappingParity() {
+  const SRC_FN = "functions/index.js";
+  const SRC_SIM = "tests/livo-webhook-sim.test.cjs";
+  const KEY = "LIVO_STATUS_TO_ORDER_STATUS";
+
+  /* Extrait l'objet litteral qui suit `<KEY>: {` jusqu'a l'accolade fermante
+     equilibree, en ignorant chaines et commentaires. */
+  function extractObject(text, sourceName) {
+    // Deux formes coexistent : `const KEY = Object.freeze({ ... })` dans
+    // functions/index.js et `KEY: { ... }` dans le sandbox du simulateur.
+    const keyAt = text.indexOf(KEY);
+    if (keyAt < 0) throw new Error(`${KEY} introuvable dans ${sourceName}`);
+    // On saute `= Object.freeze(` / `:` jusqu'a la premiere accolade ouvrante.
+    const open = text.indexOf("{", keyAt);
+    if (open < 0) throw new Error(`${KEY}: accolade ouvrante introuvable dans ${sourceName}`);
+
+    let depth = 0;
+    let quote = null;
+    let escaped = false;
+    for (let i = open; i < text.length; i++) {
+      const c = text[i];
+      if (quote) {
+        if (escaped) { escaped = false; continue; }
+        if (c === "\\") { escaped = true; continue; }
+        if (c === quote) quote = null;
+        continue;
+      }
+      if (c === '"' || c === "'" || c === "`") { quote = c; continue; }
+      if (c === "/" && text[i + 1] === "/") {
+        while (i < text.length && text[i] !== "\n") i++;
+        continue;
+      }
+      if (c === "/" && text[i + 1] === "*") {
+        i += 2;
+        while (i < text.length && !(text[i] === "*" && text[i + 1] === "/")) i++;
+        i++;
+        continue;
+      }
+      if (c === "{") depth++;
+      else if (c === "}") {
+        depth--;
+        if (depth === 0) return text.slice(open, i + 1);
+      }
+    }
+    throw new Error(`${KEY}: accolade fermante introuvable dans ${sourceName}`);
+  }
+
+  /* `pending: 'confirmed'`, `'awaiting pickup': 'pickup_requested'` -> paire. */
+  function parseObject(literal, sourceName) {
+    const result = {};
+    const pairRe = /(?:(['"])([^'"]+)\1|([A-Za-z_$][\w$]*))\s*:\s*(['"])([^'"]*)\4/g;
+    let m;
+    while ((m = pairRe.exec(literal)) !== null) {
+      const key = m[2] !== undefined ? m[2] : m[3];
+      result[key] = m[5];
+    }
+    const count = Object.keys(result).length;
+    if (count === 0) throw new Error(`Aucune entree extraite de ${sourceName} (${KEY})`);
+    return result;
+  }
+
+  const fnSrc = read(SRC_FN);
+  const simSrc = read(SRC_SIM);
+
+  const prod = parseObject(extractObject(fnSrc, SRC_FN), SRC_FN);
+  const sim = parseObject(extractObject(simSrc, SRC_SIM), SRC_SIM);
+
+  try {
+    assert.deepStrictEqual(
+      sim,
+      prod,
+      `Le mapping ${KEY} du simulateur (${SRC_SIM}) a diverge de la production (${SRC_FN}). ` +
+        `Production=${JSON.stringify(prod)} / Simulateur=${JSON.stringify(sim)}`
+    );
+  } catch (error) {
+    console.error("ECHEC: " + error.message);
+    process.exit(1);
+  }
+
+  // Garde-fous de contenu : le webhook ne doit plus produire de statut legacy
+  // ni de statut d'entree, et doit couvrir le nouveau workflow.
+  const targets = Object.values(prod);
+  assert.ok(!targets.includes("shipping"),
+    "`shipping` est deprecie : le webhook ne doit plus jamais le produire.");
+  assert.ok(!targets.includes("pending"),
+    "`pending` est un statut d'entree : le webhook ne doit pas y ramener une commande.");
+  ["confirmed", "pickup_requested", "picked_up", "in_transit", "delivered", "cancelled"]
+    .forEach((required) => {
+      assert.ok(targets.includes(required),
+        `Le mapping du webhook doit produire \`${required}\`.`);
+    });
+  // draft / problem / reported : livoStatusRaw seul, jamais de statut principal.
+  ["draft", "problem", "reported"].forEach((rawOnly) => {
+    assert.ok(!Object.prototype.hasOwnProperty.call(prod, rawOnly),
+      `\`${rawOnly}\` doit rester hors du mapping (livoStatusRaw seul).`);
+  });
+
+  console.log("PASS: mapping LIVO_STATUS_TO_ORDER_STATUS identique entre functions/index.js et le simulateur.");
+})();
+
+/* ------------------------------------------------------------------ */
 /* 7. Webhook : Authorization: Bearer obligatoire (exigence stricte)   */
 /*    Spec complete : docs/api/api-entrepot-livo.json, section         */
 /*    "Webhooks > Securiser votre endpoint" :                          */
