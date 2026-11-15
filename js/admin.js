@@ -30,6 +30,11 @@ import {
 import { renderAdminReviews } from "./reviews.js";
 import { showToast, confirmAction, promptAction } from "./ui-core.js";
 
+/* Ramassage groupé Livo (PR 7) — le Worker /create-pickup existe déjà côté
+   cloudflare/workers/livo-proxy.js. Aucune clé API côté navigateur. */
+const LIVO_PICKUP_ENDPOINT = '/create-pickup';
+const GROUPED_PICKUP_PRODUCT_ID = 'prszhtm45355';
+
 /* ============================================================
    ÉTAT LOCAL
    ============================================================ */
@@ -328,7 +333,7 @@ function initAdmin() {
             if (tab === 'tools') loadCollectionsStatus();
             else if (tab === 'blog') loadBlogPosts();
             else if (tab === 'products') { await loadProducts(); await loadStats(); }
-            else if (tab === 'orders') await loadOrders();
+            else if (tab === 'orders') { await loadOrders(); await refreshGroupedPickupCounter(); }
             else if (tab === 'preparation') await loadWarehousePrep();
             else if (tab === 'livo') await loadLivoTab();
             else if (tab === 'coupons') await loadCoupons();
@@ -2396,6 +2401,146 @@ async function handleConfirmPickup() {
         showToast('Erreur : ' + (e?.message || 'échec'));
     } finally {
         if (btn) { btn.disabled = false; btn.textContent = 'Envoyer la demande'; }
+    }
+}
+
+/* ============================================================
+   PR 7 — RAMASSAGE GROUPÉ LIVO
+   Un seul ramassage Livo pour toutes les commandes confirmées qui
+   n'en ont pas encore. Évite un ramassage par commande.
+   Le Worker /create-pickup (cloudflare/workers/livo-proxy.js) est
+   déjà en place : aucune clé API côté navigateur.
+   ============================================================ */
+
+/* Filtre client-side : statut confirmed ET pas encore de ramassage. */
+async function getGroupedPickupCandidates() {
+    const snap = await getDocs(query(
+        collection(db, 'orders'),
+        where('status', '==', 'confirmed')
+    ));
+    return snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(order => !order.livoPickupId);
+}
+
+/* Structure canonique (functions/index.js createCustomerOrder) :
+   order.items[] = { productId, quantity, ... }. Le champ `products`
+   n'existe pas sur les commandes — on garde un fallback defensif. */
+function countOrderArticles(order) {
+    if (!order) return 0;
+    const lines = Array.isArray(order.items) ? order.items
+        : (Array.isArray(order.products) ? order.products : []);
+    return lines.reduce((sum, line) => {
+        const qty = Math.floor(Number(line?.quantity));
+        return sum + (Number.isFinite(qty) && qty > 0 ? qty : 0);
+    }, 0);
+}
+
+/* Compteur « X colis en attente » + activation du bouton. */
+async function refreshGroupedPickupCounter() {
+    const counterEl = _getId('groupedPickupCounter');
+    const btn = _getId('groupedPickupBtn');
+    try {
+        const candidates = await getGroupedPickupCandidates();
+        const totalArticles = candidates.reduce((sum, o) => sum + countOrderArticles(o), 0);
+        if (counterEl) {
+            counterEl.textContent = totalArticles > 0
+                ? `${totalArticles} colis en attente de ramassage`
+                : 'Aucun colis en attente de ramassage';
+        }
+        if (btn) btn.disabled = !(candidates.length > 0 && totalArticles > 0);
+        return { candidates, totalArticles };
+    } catch (e) {
+        console.error('[admin] refreshGroupedPickupCounter :', e);
+        if (counterEl) counterEl.textContent = 'Compteur indisponible';
+        if (btn) btn.disabled = true;
+        return { candidates: [], totalArticles: 0 };
+    }
+}
+
+/* Crée UN ramassage Livo pour toutes les commandes candidates. */
+async function requestGroupedPickup() {
+    const btn = _getId('groupedPickupBtn');
+    const originalLabel = btn?.textContent || '🚚 Demander un ramassage groupé';
+
+    try {
+        const candidates = await getGroupedPickupCandidates();
+        if (candidates.length === 0) {
+            showToast('Aucune commande confirmée à ramasser.');
+            await refreshGroupedPickupCounter();
+            return;
+        }
+
+        const totalArticles = candidates.reduce((sum, o) => sum + countOrderArticles(o), 0);
+        if (totalArticles < 1) {
+            showToast('Aucun article à ramasser dans les commandes confirmées.');
+            await refreshGroupedPickupCounter();
+            return;
+        }
+
+        const ok = await confirmAction(
+            `Créer un ramassage groupé pour ${candidates.length} commande(s) (${totalArticles} article(s)) ?`
+        );
+        if (!ok) return;
+
+        if (btn) { btn.disabled = true; btn.textContent = 'Envoi…'; }
+
+        const user = auth.currentUser;
+        if (!user) throw new Error('Session administrateur introuvable.');
+        const token = await user.getIdToken();
+
+        const response = await fetch(`${CONFIG.LOGISTICS.PROXY_WORKER_URL}${LIVO_PICKUP_ENDPOINT}`, {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                products: [{ product_id: GROUPED_PICKUP_PRODUCT_ID, quantity: totalArticles }],
+                comment: `Ramassage groupé : ${candidates.length} commande(s) - détails dans Firestore`
+            })
+        });
+
+        const raw = await response.text();
+        let data = null;
+        try {
+            data = raw ? JSON.parse(raw) : null;
+        } catch (e) {
+            console.warn('[admin] Réponse /create-pickup non-JSON :', raw.slice(0, 300));
+        }
+
+        if (!response.ok) {
+            const msg = data?.error || data?.message || `Erreur ${response.status}`;
+            throw new Error(String(msg));
+        }
+
+        const pickupId =
+            data?.data?.data?._id || data?.data?.data?.pickup_id ||
+            data?.data?._id || data?.data?.pickup_id ||
+            data?.pickup_id;
+        if (!pickupId) throw new Error('Réponse Livo sans identifiant de ramassage.');
+
+        const batch = writeBatch(db);
+        candidates.forEach(order => {
+            batch.update(doc(db, 'orders', order.id), {
+                livoPickupId: pickupId
+                // Pas de changement de statut : 'pickup_requested' n'existe pas
+                // dans ORDER_STATUS. Le filtre livoPickupId suffit anti-doublon.
+            });
+        });
+        await batch.commit();
+
+        resetAdminOrdersCache();
+        showToast(`Ramassage ${pickupId} créé pour ${candidates.length} commande(s) — ${totalArticles} colis.`, 5000);
+        await renderAdminOrders('adminOrdersList');
+        await refreshGroupedPickupCounter();
+    } catch (e) {
+        console.error('[admin] requestGroupedPickup :', e);
+        showToast(`Ramassage impossible : ${e?.message || 'échec'}`, 5000);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
+        await refreshGroupedPickupCounter();
     }
 }
 
@@ -4752,6 +4897,10 @@ function attachAllRemainingEvents() {
     const confirmPickupBtn = _getId('confirmPickupBtn');
     if (confirmPickupBtn) confirmPickupBtn.addEventListener('click', handleConfirmPickup);
 
+    /* PR 7 — ramassage groupé Livo (onglet Commandes). */
+    const groupedPickupBtn = _getId('groupedPickupBtn');
+    if (groupedPickupBtn) groupedPickupBtn.addEventListener('click', requestGroupedPickup);
+
     /* Compatibilité : onglet "speedaf" dans admin.html actuel. */
     const speedafTabBtn = document.querySelector('.admin-tabs > button[data-tab="speedaf"]');
     if (speedafTabBtn) {
@@ -4803,6 +4952,9 @@ function attachAllRemainingEvents() {
 
     attachBlogFormEvents();
     attachCouponFormEvents();
+
+    /* PR 7 — compteur de ramassage groupé (appelé après auth admin). */
+    refreshGroupedPickupCounter();
 }
 
 /* ============================================================

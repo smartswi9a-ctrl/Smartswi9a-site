@@ -598,7 +598,11 @@
         <div class="admin-content" id="tab-orders">
             <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.8rem;margin-bottom:1rem;">
                 <h3 style="font-family:var(--font-secondary);color:var(--gold);margin:0;">📋 Commandes</h3>
-                <button class="admin-btn-secondary" id="exportOrdersCSVBtn">📥 Exporter CSV</button>
+                <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;">
+                    <span id="groupedPickupCounter" style="font-size:0.85rem;color:var(--text-muted);">⏳ Chargement…</span>
+                    <button class="admin-btn-primary" id="groupedPickupBtn" disabled>🚚 Demander un ramassage groupé</button>
+                    <button class="admin-btn-secondary" id="exportOrdersCSVBtn">📥 Exporter CSV</button>
+                </div>
             </div>
             <div class="admin-search-bar">
                 <select id="orderStatusFilter">
