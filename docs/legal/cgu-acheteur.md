@@ -2,7 +2,7 @@
 
 **Smart Swika** — Plateforme de commerce en ligne
 Dernière mise à jour : 13 novembre 2026
-Version : 1.0.0
+Version : 1.1.0
 
 ---
 
@@ -44,6 +44,24 @@ La livraison est assurée par notre partenaire logistique **Livo**, dans les vil
 En cas d'absence de l'Acheteur lors du passage du livreur, plusieurs tentatives de contact peuvent être effectuées. Un colis non réceptionné peut être retourné au vendeur.
 
 L'Acheteur peut, pour certains produits, demander l'ouverture du colis avant paiement : cette option est indiquée dans la fiche produit le cas échéant.
+
+### 2.5 Origine du colis : vendeur ou entrepôt Smart Swika
+
+Les produits commandés sur la Plateforme peuvent être expédiés selon deux origines différentes, sans que l'Acheteur ait à effectuer de choix :
+
+| Origine du colis | Principe |
+| --- | --- |
+| **Expédition directe (Dropoff)** | Le produit est préparé et conditionné par le vendeur lui-même. Le transporteur **Livo** vient chercher le colis chez le vendeur, puis le livre à l'Acheteur. |
+| **Entrepôt Smart Swika** | Le vendeur achemine son stock à l'entrepôt Smart Swika. La Plateforme réceptionne, stocke et **prépare le colis** avant sa remise au transporteur Livo, qui le livre à l'Acheteur. |
+
+**Cette différence d'origine est purement logistique et n'a aucune incidence pour l'Acheteur.** Quelle que soit l'origine du colis :
+
+- les **délais de livraison** indicatifs communiqués lors de la commande demeurent applicables ;
+- le **prix payé**, les **frais de livraison** et le **paiement à la livraison** restent identiques ;
+- les **droits de l'Acheteur** demeurent inchangés : délais de signalement et de garantie (article 3), politique de retour (article 4) et produit neuf (article 4.5) ;
+- le **transporteur Livo** reste l'interlocuteur unique pour la remise du colis, et le **service client Smart Swika** pour toute réclamation.
+
+L'Acheteur n'a donc aucune démarche à effectuer et aucune information supplémentaire à fournir selon que le colis provient du vendeur ou de l'entrepôt Smart Swika.
 
 ---
 
@@ -169,4 +187,4 @@ Pour toute question ou réclamation : **service client Smart Swika**.
 
 ---
 
-*Document généré pour Smart Swika. Version 1.0.0 — 13 novembre 2026.*
+*Document généré pour Smart Swika. Version 1.1.0 — 13 novembre 2026.*

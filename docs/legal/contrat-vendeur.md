@@ -1,7 +1,7 @@
 # Contrat de Partenariat Vendeur
 
 **SMART SWIKA**
-Version : 1.0.0 — 13 novembre 2026
+Version : 1.1.0 — 13 novembre 2026
 
 ---
 
@@ -46,9 +46,50 @@ Cette commission est fixée par le serveur au moment de la signature électroniq
 
 ---
 
-## Article 4 — Expédition
+## Article 4 — Modes de livraison et responsabilité du stock
 
-Le Vendeur choisit le dépôt en agence (drop-off) ou la logistique Smart Swika (fulfillment). Les délais de dépôt applicables sont communiqués lors de l'inscription. Tout retard répété peut entraîner une suspension.
+### 4.1 Choix du mode de livraison
+
+Le Vendeur choisit, pour chaque produit et depuis son espace vendeur, l'un des deux modes de livraison proposés par la Plateforme :
+
+| Mode de livraison | Identifiant technique | Principe |
+| --- | --- | --- |
+| **Expédition directe (Dropoff)** | `dropoff` | Le Vendeur prépare et conditionne lui-même le colis ; **Livo vient le chercher chez lui** à l'adresse de collecte renseignée. |
+| **Entrepôt Smart Swika** | `smartswika_warehouse` | Le Vendeur achemine son stock à l'entrepôt Smart Swika, qui réceptionne, stocke et **prépare le colis** pour son compte. |
+
+Le mode retenu est attaché à chaque commande. Il ne peut être modifié pour un produit dont une commande est en cours. Les deux modes peuvent coexister au sein d'un même catalogue.
+
+### 4.2 Expédition directe (Dropoff)
+
+Dans ce mode, le Vendeur assume seul la préparation, le conditionnement, l'étiquetage et la remise effective du colis au transporteur Livo. Il garantit l'exactitude du contenu (produit, accessoires, notices, garanties) et l'état neuf du produit. Tout retard répété ou colis non conforme peut entraîner la suspension du compte.
+
+### 4.3 Entrepôt Smart Swika — acheminement du stock
+
+Le Vendeur qui opte pour ce mode doit **expédier son stock à l'adresse de l'entrepôt Smart Swika** communiquée par la Plateforme :
+
+> **Adresse de l'entrepôt Smart Swika**
+> Nom : Entrepôt Smart Swika
+> Adresse : [À COMPLÉTER — adresse exacte de l'entrepôt à confirmer]
+> Ville : [À COMPLÉTER]
+> Téléphone : [À COMPLÉTER]
+
+Les frais d'acheminement du stock vers l'entrepôt sont à la charge du Vendeur, qui supporte également les risques du transport jusqu'à la réception effective par l'entrepôt.
+
+### 4.4 Responsabilité du stock
+
+Le Vendeur demeure seul responsable du stock **jusqu'à sa réception effective par l'entrepôt**. À cette réception, un inventaire contradictoire est établi et enregistré par la Plateforme ; il fait foi entre les parties.
+
+À compter de la réception, et pendant toute la durée du stockage :
+
+- Smart Swika conserve le stock **en bon père de famille**, sous sa responsabilité ;
+- les pertes, vols ou détériorations imputables à la Plateforme sont indemnisés au Vendeur **au prix de vente de référence**, dans la limite de la quantité réceptionnée ;
+- les produits non admis (périssables, dangereux, d'occasion ou reconditionnés non autorisés par écrit) sont refusés à la réception et renvoyés aux frais du Vendeur.
+
+La Plateforme ne répond en aucun cas du stock antérieurement à sa réception effective, ni des produits qui lui ont été adressés contrairement aux présentes.
+
+### 4.5 Retrait du stock et droit de rétention
+
+Le Vendeur peut demander le retour de son stock en entrepôt, sous réserve du règlement de tout solde négatif, de la clôture des commandes et litiges en cours, et de la prise en charge des frais de transport. La Plateforme dispose d'un **droit de rétention** sur le stock en entrepôt tant qu'un solde négatif subsiste (article 7.3).
 
 ---
 
@@ -188,4 +229,4 @@ En signant, le Vendeur reconnaît avoir lu et compris l'intégralité du présen
 
 ---
 
-*Document généré pour Smart Swika. Version 1.0.0 — 13 novembre 2026.*
+*Document généré pour Smart Swika. Version 1.1.0 — 13 novembre 2026.*

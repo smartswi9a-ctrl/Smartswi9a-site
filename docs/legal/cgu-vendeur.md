@@ -2,7 +2,7 @@
 
 **Smart Swika** — Plateforme de commerce en ligne
 Dernière mise à jour : 13 novembre 2026
-Version : 1.0.0
+Version : 1.1.0
 
 ---
 
@@ -142,6 +142,66 @@ Durant la suspension, le Vendeur ne peut effectuer aucun retrait et son accès v
 
 ## Article 8 — Obligations du Vendeur
 
+### 8.0 Modes de livraison : Dropoff et Entrepôt Smart Swika
+
+Le Vendeur choisit, pour chaque produit et depuis son espace vendeur, l'un des deux modes de livraison proposés par la Plateforme :
+
+| Mode de livraison | Identifiant technique | Principe |
+| --- | --- | --- |
+| **Expédition directe (Dropoff)** | `dropoff` | Le Vendeur prépare lui-même le colis et le conditionne dans un emballage scellé fermé. **Livo vient le chercher chez lui** à l'adresse de collecte renseignée par le Vendeur. |
+| **Entrepôt Smart Swika** | `smartswika_warehouse` | Le Vendeur envoie tout ou partie de son stock à l'entrepôt Smart Swika. La Plateforme réceptionne, stocke, contrôle et **prépare le colis** pour le compte du Vendeur. |
+
+Le mode de livraison retenu est enregistré avec la commande. Sa modification n'est possible que pour les produits dont aucune commande n'est en cours.
+
+#### 8.0.1 Processus Cumulable
+
+Les deux modes de livraison peuvent être utilisés simultanément pour des produits différents. Le mode de livraison retenu pour un produit n'exonère pas le Vendeur de ses obligations de conformité prévues aux articles 8 et 8 bis.
+
+#### 8.0.2 Expédition directe (Dropoff)
+
+Dans le mode Expédition directe (Dropoff), le Vendeur est seul responsable :
+
+- de la conformité, de la qualité et de l'état neuf du produit expédié ;
+- de l'exactitude du contenu du colis (produit, accessoires, notices, garanties) ;
+- de la qualité du conditionnement et de la conformité de l'étiquetage ;
+- de la remise effective du colis au transporteur Livo, à l'adresse et dans le créneau de collecte renseignés.
+
+Tout colis remis non conforme, incomplet ou endommagé, ainsi que tout retard répété, peut entraîner la suspension du compte dans les conditions de l'article 7.
+
+#### 8.0.3 Entrepôt Smart Swika
+
+Dans le mode Entrepôt Smart Swika, le Vendeur doit **expédier son stock à l'adresse de l'entrepôt Smart Swika** :
+
+> **Adresse de l'entrepôt Smart Swika**
+> Nom : Entrepôt Smart Swika
+> Adresse : [À COMPLÉTER — adresse exacte de l'entrepôt à confirmer]
+> Ville : [À COMPLÉTER]
+> Téléphone : [À COMPLÉTER]
+
+Cette adresse est communiquée par la Plateforme au Vendeur lors du choix de ce mode de livraison. Elle peut être mise à jour par la Plateforme, avec information préalable du Vendeur dans son espace vendeur.
+
+Le Vendeur prend en charge les frais d'acheminement de son stock à l'entrepôt, ainsi que les risques du transport jusqu'à la réception effective par l'entrepôt.
+
+#### 8.0.4 Responsabilité du stock
+
+Dès réception à l'entrepôt, un inventaire contradictoire est réalisé et enregistré par la Plateforme. Le Vendeur est seul responsable du stock jusqu'à sa réception effective par l'entrepôt Smart Swika. À compter de cette réception :
+
+- Smart Swika conserve le stock sous sa responsabilité, en bon père de famille ;
+- les pertes, vols ou détériorations constatés pendant le stockage et imputables à la Plateforme sont remboursés au Vendeur **au prix de vente de référence**, dans la limite de la quantité effectivement réceptionnée ;
+- les produits périssables, dangereux, les produits d'occasion ou reconditionnés non expressément autorisés par écrit par Smart Swika sont **refusés à la réception** et renvoyés aux frais du Vendeur.
+
+En cas de divergence entre l'inventaire enregistré et l'inventaire contradictoire, seul cet inventaire contradictoire fait foi.
+
+#### 8.0.5 Retraits du stock en entrepôt
+
+Le Vendeur peut demander le retrait ou le retour de son stock en entrepôt, sous réserve :
+
+- du règlement de tout solde négatif ;
+- de la clôture des commandes en cours et des litiges ouverts ;
+- de la prise en charge des frais de transport aller et retour.
+
+La Plateforme conserve également un droit de rétention sur le stock en entrepôt en cas de solde négatif, dans les conditions de l'article 7.
+
 Le Vendeur s'engage à :
 - ne proposer que des produits conformes à leur description et à la réglementation marocaine en vigueur ;
 - respecter les délais d'expédition ou de dépôt qui lui sont applicables ;
@@ -222,4 +282,4 @@ Les présentes CGU sont régies par le **droit marocain**. Tout litige relève d
 
 ---
 
-*Document généré pour Smart Swika. Version 1.0.0 — 13 novembre 2026.*
+*Document généré pour Smart Swika. Version 1.1.0 — 13 novembre 2026.*
