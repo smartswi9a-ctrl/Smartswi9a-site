@@ -21,11 +21,12 @@ import {
 } from "./config.js";
 import {
     escapeHTML, slugify, getStoragePathFromUrl, isStorageUrl,
-    getSignupMethodLabel, getSignupMethodEmoji, toDate, t, getCityName
+    getSignupMethodLabel, getSignupMethodEmoji, toDate, t, getCityName,
+    formatLivoDate, isLivoPickupDateValid, parseLivoDate
 } from "./utils.js";
 import {
     renderAdminOrders, resetAdminOrdersCache,
-    syncLivoStatus, createLivoPickup
+    syncLivoStatus, createLivoPickup, updateOrderStatus
 } from "./orders.js";
 import { renderAdminReviews } from "./reviews.js";
 import { showToast, confirmAction, promptAction } from "./ui-core.js";
@@ -628,15 +629,19 @@ async function markOrderAsPrepared(orderId, btn) {
                 });
             });
 
+            // PR 8.2 : on s'arrete a `prepared`, pas `shipping`. Une commande
+            // entrepot doit encore passer par le ramassage Livo
+            // (pickup_requested) avant d'etre expediee : sauter cette etape
+            // cassait la timeline client et le filtre admin.
             transaction.update(orderRef, {
-                status: 'shipping',
+                status: ORDER_STATUS.PREPARED,
                 preparedAt: serverTimestamp(),
                 stock_warehouse_deducted: true,
                 updatedAt: serverTimestamp()
             });
         });
 
-        showToast('Commande préparée et passée en livraison.');
+        showToast('Commande préparée. En attente du ramassage Livo.');
         document.dispatchEvent(new CustomEvent('order-stock-changed'));
         await loadWarehousePrep();
     } catch (e) {
@@ -2326,20 +2331,24 @@ async function handleSyncAllLivo() {
 }
 
 async function handleConfirmPickup() {
-    const dateVal = _getId('pickupDate')?.value;
+    // <input type="date"> renvoie AAAA-MM-JJ, or le Worker n'accepte que le
+    // format Livo JJ/MM/AAAA (AddPickupRequest.desired_date). On convertit AVANT
+    // l'envoi, sinon Livo repond 400 "La date de ramassage doit etre au format
+    // JJ/MM/AAAA" et le bouton Ramassage echoue systematiquement.
+    const dateVal = formatLivoDate(_getId('pickupDate')?.value);
     const packages = parseInt(_getId('pickupPackages')?.value) || 1;
     const weight = parseFloat(_getId('pickupWeight')?.value) || 1;
     const note = (_getId('pickupNote')?.value || '').trim();
 
     if (!dateVal) { showToast('Sélectionnez une date'); return; }
 
-    const selectedDate = new Date(dateVal);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    if (selectedDate < today) {
-        showToast('La date de ramassage ne peut pas être dans le passé');
+    if (!isLivoPickupDateValid(dateVal)) {
+        showToast('La date de ramassage doit être au format JJ/MM/AAAA et non passée');
         return;
     }
+
+    const selectedDate = parseLivoDate(dateVal);
+    if (!selectedDate) { showToast('Date de ramassage invalide'); return; }
 
     const btn = _getId('confirmPickupBtn');
     if (btn) { btn.disabled = true; btn.textContent = 'Envoi...'; }
@@ -2464,6 +2473,29 @@ async function refreshGroupedPickupCounter() {
     }
 }
 
+/**
+ * Passe les commandes ramassees en `pickup_requested` (PR 8.2).
+ * `pickup_requested` existe bien dans ORDER_STATUS (config.js) : sans cette
+ * transition, la timeline client saute l'etape et le filtre admin
+ * "Commandes en attente de ramassage" reste vide.
+ * Non bloquant : le ramassage existe deja chez Livo, un echec de statut ne
+ * doit pas annuler l'operation cote transporteur.
+ * @param {string[]} orderIds
+ */
+async function markOrdersPickupRequested(orderIds) {
+    let applied = 0;
+    for (const id of orderIds) {
+        try {
+            const res = await updateOrderStatus(id, ORDER_STATUS.PICKUP_REQUESTED);
+            if (res?.success) applied++;
+            else console.warn('[admin] pickup_requested refuse pour', id, res?.error);
+        } catch (e) {
+            console.warn('[admin] pickup_requested echoue pour', id, e?.message || e);
+        }
+    }
+    return applied;
+}
+
 /* Crée UN ramassage Livo pour toutes les commandes candidates. */
 async function requestGroupedPickup() {
     const btn = _getId('groupedPickupBtn');
@@ -2531,14 +2563,17 @@ async function requestGroupedPickup() {
         candidates.forEach(order => {
             batch.update(doc(db, 'orders', order.id), {
                 livoPickupId: pickupId
-                // Pas de changement de statut : 'pickup_requested' n'existe pas
-                // dans ORDER_STATUS. Le filtre livoPickupId suffit anti-doublon.
             });
         });
         await batch.commit();
 
+        // `pickup_requested` existe bien dans ORDER_STATUS (config.js) : le
+        // statut est pose a la source pour que la timeline client et le filtre
+        // admin refletent l'etape de ramassage.
+        const movedToPickup = await markOrdersPickupRequested(candidates.map(o => o.id));
+
         resetAdminOrdersCache();
-        showToast(`Ramassage ${pickupId} créé pour ${candidates.length} commande(s) — ${totalArticles} colis.`, 5000);
+        showToast(`Ramassage ${pickupId} créé pour ${candidates.length} commande(s) — ${totalArticles} colis. ${movedToPickup} commande(s) en attente de ramassage.`, 5000);
         await renderAdminOrders('adminOrdersList');
         await refreshGroupedPickupCounter();
     } catch (e) {

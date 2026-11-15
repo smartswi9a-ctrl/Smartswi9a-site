@@ -142,9 +142,17 @@ function applyLanguageDirection() {
 }
 
 function translateStatus(status) {
+    // PR 8.2 : le workflow enrichi (PR 8.1) ajoute preparing / prepared /
+    // pickup_requested / picked_up / in_transit. Sans ces entrees, le vendeur
+    // voyait le code brut anglais dans son tableau de commandes.
     const map = {
         'pending': tr('orderStatusPending', 'En attente'),
         'confirmed': tr('orderStatusConfirmed', 'Confirmée'),
+        'preparing': tr('orderStatusPreparing', 'En préparation'),
+        'prepared': tr('orderStatusPrepared', 'Prête à expédier'),
+        'pickup_requested': tr('orderStatusPickupRequested', 'En attente de ramassage'),
+        'picked_up': tr('orderStatusPickedUp', 'Colis récupéré'),
+        'in_transit': tr('orderStatusInTransit', 'En cours de livraison'),
         'shipping': tr('orderStatusShipping', 'En livraison'),
         'delivered': tr('orderStatusDelivered', 'Livrée'),
         'returned': tr('orderStatusReturned', 'Retournée'),
@@ -1509,8 +1517,12 @@ async function renderOrders(container) {
             actionHtml = `<span style="font-size:0.75rem;color:var(--text-muted);">Suivi de cette commande géré par l’administration (commande multi-vendeurs).</span>`;
         } else if (status === 'pending') {
             actionHtml = `<button class="v-btn v-btn-primary" data-action="advance-order" data-id="${o.id}" data-next="confirmed" style="padding:0.3rem 0.6rem;font-size:0.75rem;">Confirmer</button>`;
-        } else if (status === 'confirmed') {
-            actionHtml = `<button class="v-btn v-btn-primary" data-action="advance-order" data-id="${o.id}" data-next="shipping" style="padding:0.3rem 0.6rem;font-size:0.75rem;">Expédier</button>`;
+        } else {
+            // PR 8.2 : le vendeur ne pilote plus l'expedition. Les transitions
+            // post-confirmation (stock_warehouse, trackingStartedAt, credit
+            // vendeur) sont gerees par l'admin et le webhook Livo. Un
+            // updateDoc direct ecrivait shipping sans aucune de ces garanties.
+            actionHtml = `<span style="font-size:0.75rem;color:var(--text-muted);">🔒 ${tr('vendor.orders.readonly', 'Suivi géré par Smart Swika')}</span>`;
         }
 
         return `
@@ -1532,10 +1544,17 @@ async function renderOrders(container) {
 
     container.innerHTML = `<div style="display:flex;flex-direction:column;gap:0.8rem;">${rows}</div>${ordersHasMore ? `<div style="text-align:center;margin-top:1rem;"><button id="loadMoreOrdersBtn" class="v-btn v-btn-secondary">Charger plus</button></div>` : ''}`;
 
+    // PR 8.2 : le bouton "Expédier" a ete retire. Le handler est conserve
+    // uniquement pour l'action restante "Confirmer" (pending -> confirmed),
+    // qui reste dans le perimetre du vendeur.
     container.querySelectorAll('[data-action="advance-order"]').forEach(btn => {
         btn.addEventListener('click', async () => {
             const orderId = btn.dataset.id;
             const nextStatus = btn.dataset.next;
+            if (!['confirmed'].includes(nextStatus)) {
+                showToast('Action non autorisee : suivi geree par Smart Swika.');
+                return;
+            }
             btn.disabled = true;
             btn.textContent = '...';
             try {
