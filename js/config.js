@@ -460,17 +460,30 @@ export const LANGUAGES = ['fr', 'ar', 'en'];
 export const DEFAULT_LANGUAGE = 'fr';
 
 export const LIVO_STATUS_MAP = {
-    'draft':             ORDER_STATUS.PENDING,
-    'pending':           ORDER_STATUS.PENDING,
-    'in progress':       ORDER_STATUS.SHIPPING,
+    'pending':           ORDER_STATUS.CONFIRMED,
+    'programmed':        ORDER_STATUS.CONFIRMED,
+    'awaiting pickup':   ORDER_STATUS.PICKUP_REQUESTED,
+    'awaiting transfer': ORDER_STATUS.PICKED_UP,
+    'in progress':       ORDER_STATUS.IN_TRANSIT,
     'fulfilled':         ORDER_STATUS.DELIVERED,
-    'problem':           ORDER_STATUS.SHIPPING,
-    'cancelled':         ORDER_STATUS.CANCELLED,
-    'awaiting transfer': ORDER_STATUS.SHIPPING,
-    'awaiting pickup':   ORDER_STATUS.CONFIRMED,
-    'reported':          ORDER_STATUS.SHIPPING,
-    'programmed':        ORDER_STATUS.CONFIRMED
+    'cancelled':         ORDER_STATUS.CANCELLED
 };
+
+/* Statuts pour lesquels une synchronisation Livo a un sens (bouton Sync admin,
+   auto-sync client, « Tout synchroniser »). Source unique : ne plus dupliquer
+   la liste dans orders.js / admin.js.
+   - SHIPPING : conserve pour les commandes legacy encore dans cet etat
+     (normalizeOrderStatus ne le remappe pas). Retrait prevu en 8.6.
+   - PENDING et PREPARING volontairement ABSENTS : le webhook serveur rattrape
+     ces cas ; ne pas elargir en 8.5 (scope creep). */
+export const LIVO_SYNCABLE_STATUSES = [
+    ORDER_STATUS.CONFIRMED,
+    ORDER_STATUS.PREPARED,
+    ORDER_STATUS.PICKUP_REQUESTED,
+    ORDER_STATUS.PICKED_UP,
+    ORDER_STATUS.IN_TRANSIT,
+    ORDER_STATUS.SHIPPING
+];
 
 export const LIVO_RETURN_STATUS_MAP = {
     'returned-pending':   { status: 'returned', phase: 'pending' },
@@ -480,11 +493,15 @@ export const LIVO_RETURN_STATUS_MAP = {
 };
 
 export function mapLivoStatusToSmart(livoStatus) {
-    if (!livoStatus) return { status: ORDER_STATUS.PENDING, unknown: false };
+    /* Retourne le statut Smart Swika correspondant, ou null si le statut Livo
+       n'a pas d'equivalent metier. `draft`, `problem` et `reported` sont
+       volontairement hors mapping : ils ne doivent ecrire que `livoStatusRaw`.
+       Retourner null (et non une valeur par defaut) force l'appelant a traiter
+       explicitement le cas -- c'est le contrat aligne sur le serveur
+       (functions/index.js, LIVO_STATUS_TO_ORDER_STATUS). */
+    if (!livoStatus) return null;
     const key = String(livoStatus).toLowerCase().trim();
-    const mapped = LIVO_STATUS_MAP[key];
-    if (mapped) return { status: mapped, unknown: false };
-    return { status: ORDER_STATUS.SHIPPING, unknown: true };
+    return LIVO_STATUS_MAP[key] || null;
 }
 
 export const CATEGORY_GROUPS = [

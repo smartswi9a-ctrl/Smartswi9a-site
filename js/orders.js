@@ -571,6 +571,37 @@ export async function cancelLivoShipment(livoOrderId) {
 }
 
 /* ============================================================
+   TRANSITIONS DE STATUT AUTORISEES (table unique)
+   ------------------------------------------------------------
+   Source unique de verite du cycle metier. Utilisee par
+   updateOrderStatus (garde transactionnelle) ET par
+   syncLivoStatus (pre-test, afin de tracer sans lever).
+   ============================================================ */
+const ALLOWED_TRANSITIONS = {
+    [ORDER_STATUS.PENDING]: [ORDER_STATUS.CONFIRMED, ORDER_STATUS.CANCELLED],
+    [ORDER_STATUS.CONFIRMED]: [
+        ORDER_STATUS.PREPARING,          /* mode entrepot */
+        ORDER_STATUS.PICKUP_REQUESTED,   /* dropoff */
+        ORDER_STATUS.SHIPPING,           /* LEGACY : ancien flux direct */
+        ORDER_STATUS.CANCELLED
+    ],
+    [ORDER_STATUS.PREPARING]: [ORDER_STATUS.PREPARED, ORDER_STATUS.CANCELLED],
+    [ORDER_STATUS.PREPARED]: [ORDER_STATUS.PICKUP_REQUESTED, ORDER_STATUS.CANCELLED],
+    [ORDER_STATUS.PICKUP_REQUESTED]: [ORDER_STATUS.PICKED_UP, ORDER_STATUS.CANCELLED],
+    [ORDER_STATUS.PICKED_UP]: [ORDER_STATUS.IN_TRANSIT, ORDER_STATUS.RETURNED],
+    [ORDER_STATUS.IN_TRANSIT]: [ORDER_STATUS.DELIVERED, ORDER_STATUS.RETURNED],
+    [ORDER_STATUS.SHIPPING]: [
+        ORDER_STATUS.PICKED_UP,
+        ORDER_STATUS.IN_TRANSIT,
+        ORDER_STATUS.DELIVERED,
+        ORDER_STATUS.CANCELLED
+    ],
+    [ORDER_STATUS.DELIVERED]: [],
+    [ORDER_STATUS.RETURNED]: [],
+    [ORDER_STATUS.CANCELLED]: []
+};
+
+/* ============================================================
    LIVO - SYNC STATUS (via Worker proxy)
    ============================================================ */
 export async function syncLivoStatus(orderId) {
@@ -607,32 +638,64 @@ export async function syncLivoStatus(orderId) {
             return { success: true, updated: false, currentStatus: "unknown" };
         }
 
-        const mapped = mapLivoStatusToSmart(livoStatus);
-        const newStatus = mapped.status;
-
-        if (mapped.unknown) {
-            console.warn(`syncLivoStatus: statut Livo inconnu "${livoStatus}" pour ${orderId}`);
-        }
-
-        const currentStatus = normalizeOrderStatus(order.status);
-        if (currentStatus === newStatus) {
-            return { success: true, updated: false, currentStatus: livoStatus };
-        }
-
-        const updResult = await updateOrderStatus(orderId, newStatus);
-        if (!updResult.success) {
-            return { success: false, error: updResult.error || 'Erreur updateOrderStatus' };
-        }
-
+        /* Extras construits AVANT toutes les gardes (A2) : livoStatusRaw,
+           livoProblem et livoReturnStatus doivent etre persistes dans TOUTES
+           les branches, y compris quand le statut Smart ne bouge pas. */
         const extras = { livoStatusRaw: livoStatus };
         if (livoStatus === 'problem') extras.livoProblem = true;
         else if (order.livoProblem) extras.livoProblem = false;
-
         if (livoOrder.return_status) extras.livoReturnStatus = livoOrder.return_status;
 
-        try { await updateDoc(orderRef, extras); } catch (e) { /* ignore */ }
+        const writeExtras = async () => {
+            try { await updateDoc(orderRef, extras); } catch (e) { /* ignore */ }
+        };
 
-        return { success: true, updated: true, newStatus, currentStatus: livoStatus };
+        const mapped = mapLivoStatusToSmart(livoStatus);
+        const currentStatus = normalizeOrderStatus(order.status);
+
+        // Branche 1 : aucun equivalent metier (draft / problem / reported / inconnu).
+        if (!mapped) {
+            console.warn(`syncLivoStatus: statut Livo sans equivalent "${livoStatus}" pour ${orderId}`);
+            await writeExtras();
+            return { success: true, updated: false, raw: true, currentStatus: livoStatus };
+        }
+
+        // Branche 2 : commande deja terminale -> statut Smart non touche.
+        if ([ORDER_STATUS.DELIVERED, ORDER_STATUS.RETURNED, ORDER_STATUS.CANCELLED].includes(currentStatus)) {
+            await writeExtras();
+            return { success: true, updated: false, terminal: true, currentStatus: livoStatus };
+        }
+
+        // Branche 3 : statut Smart inchange -> on trace quand meme.
+        if (currentStatus === mapped) {
+            await writeExtras();
+            return { success: true, updated: false, currentStatus: livoStatus };
+        }
+
+        // Branche 4 : transition non autorisee (gamma-1). Pre-test via
+        // ALLOWED_TRANSITIONS pour NE PAS provoquer le throw transactionnel.
+        const allowed = ALLOWED_TRANSITIONS[currentStatus] || [];
+        if (!allowed.includes(mapped)) {
+            await writeExtras();
+            return {
+                success: true,
+                updated: false,
+                transitionBlocked: true,
+                currentStatus: livoStatus,
+                targetStatus: mapped,
+                reason: `${currentStatus} → ${mapped} non autorisée`
+            };
+        }
+
+        // Branche 5 : updateOrderStatus doit reussir.
+        const updResult = await updateOrderStatus(orderId, mapped);
+        if (!updResult.success) {
+            // Branche 6 : vrai incident technique -> pas d'extras ecrits.
+            return { success: false, error: updResult.error || 'Erreur updateOrderStatus' };
+        }
+
+        await writeExtras();
+        return { success: true, updated: true, newStatus: mapped, currentStatus: livoStatus };
 
     } catch (error) {
         console.error('syncLivoStatus:', error);
@@ -761,30 +824,9 @@ export async function updateOrderStatus(orderId, newStatus) {
             // N'autoriser que le cycle métier prévu. Sans cette vérification,
             // une commande pending pourrait être marquée livrée directement
             // et déclencher un crédit vendeur sans expédition réelle.
-            const allowedTransitions = {
-                [ORDER_STATUS.PENDING]: [ORDER_STATUS.CONFIRMED, ORDER_STATUS.CANCELLED],
-                [ORDER_STATUS.CONFIRMED]: [
-                    ORDER_STATUS.PREPARING,          /* mode entrepot */
-                    ORDER_STATUS.PICKUP_REQUESTED,   /* dropoff */
-                    ORDER_STATUS.SHIPPING,           /* LEGACY : ancien flux direct */
-                    ORDER_STATUS.CANCELLED
-                ],
-                [ORDER_STATUS.PREPARING]: [ORDER_STATUS.PREPARED, ORDER_STATUS.CANCELLED],
-                [ORDER_STATUS.PREPARED]: [ORDER_STATUS.PICKUP_REQUESTED, ORDER_STATUS.CANCELLED],
-                [ORDER_STATUS.PICKUP_REQUESTED]: [ORDER_STATUS.PICKED_UP, ORDER_STATUS.CANCELLED],
-                [ORDER_STATUS.PICKED_UP]: [ORDER_STATUS.IN_TRANSIT, ORDER_STATUS.RETURNED],
-                [ORDER_STATUS.IN_TRANSIT]: [ORDER_STATUS.DELIVERED, ORDER_STATUS.RETURNED],
-                [ORDER_STATUS.SHIPPING]: [
-                    ORDER_STATUS.PICKED_UP,
-                    ORDER_STATUS.IN_TRANSIT,
-                    ORDER_STATUS.DELIVERED,
-                    ORDER_STATUS.CANCELLED
-                ],
-                [ORDER_STATUS.DELIVERED]: [],
-                [ORDER_STATUS.RETURNED]: [],
-                [ORDER_STATUS.CANCELLED]: []
-            };
-            if (!(allowedTransitions[previousStatus] || []).includes(normalizedStatus)) {
+            // Table hissée au niveau module (ALLOWED_TRANSITIONS) : partagée
+            // avec syncLivoStatus pour pré-tester sans lever.
+            if (!(ALLOWED_TRANSITIONS[previousStatus] || []).includes(normalizedStatus)) {
                 throw new Error(`Transition de commande interdite : ${previousStatus} → ${normalizedStatus}.`);
             }
 
@@ -1629,6 +1671,12 @@ export async function renderAdminOrders(containerId = 'ordersList') {
                     showToast(`Statut mis à jour : ${res.newStatus}`);
                     adminOrdersCache = [];
                     await renderAdminOrders(containerId);
+                } else if (res.raw) {
+                    showToast(`Statut Livo ${res.currentStatus} enregistré (traçage seul)`);
+                } else if (res.terminal) {
+                    showToast('Commande déjà livrée/annulée — non modifiée');
+                } else if (res.transitionBlocked) {
+                    showToast(`Statut Livo ${res.currentStatus} enregistré (transition ${res.targetStatus} non autorisée)`);
                 } else {
                     showToast(`Statut Livo : ${res.currentStatus}`);
                 }
@@ -2001,7 +2049,7 @@ export async function autoSyncActiveOrders(orders, onComplete = null) {
         const status = normalizeOrderStatus(order.status);
         const trackingId = order.livoTracking || order.speedafTracking;
         const hasTracking = !!trackingId;
-        const isActive = ['confirmed', 'shipping'].includes(status);
+        const isActive = LIVO_SYNCABLE_STATUSES.includes(status);
         if (!hasTracking || !isActive) return false;
 
         const key = AUTO_SYNC_STORAGE_PREFIX + order.id;
