@@ -3753,7 +3753,7 @@ function renderVendorsList(vendors) {
             actionsHtml = `<button class="admin-btn-approve" data-action="vendor-approve" data-id="${v.id}" ${approveDisabled} style="${approveStyle}">Réactiver</button>`;
         }
         if (status !== 'deletion_pending') {
-            actionsHtml += `<button class="admin-btn-icon admin-btn-danger" data-action="vendor-delete" data-id="${v.id}">Supprimer le compte</button>`;
+            actionsHtml += `<button class="admin-btn-icon admin-btn-danger" data-action="vendor-delete" data-id="${v.id}" data-shop="${shopName}">Supprimer le compte</button>`;
         }
 
         /* Gestion du portefeuille (freeze / unfreeze). */
@@ -3803,7 +3803,7 @@ function renderVendorsList(vendors) {
         btn.addEventListener('click', () => handleVendorAction(btn.dataset.id, VENDOR_STATUS.SUSPENDED));
     });
     container.querySelectorAll('[data-action="vendor-delete"]').forEach(btn => {
-        btn.addEventListener('click', () => handleVendorAction(btn.dataset.id, 'deleted'));
+        btn.addEventListener('click', () => handleVendorAction(btn.dataset.id, 'deleted', btn.dataset.shop));
     });
     container.querySelectorAll('[data-action="wallet-freeze"]').forEach(btn => {
         btn.addEventListener('click', () => handleWalletAction(btn.dataset.id, 'freeze', btn.dataset.shop));
@@ -3833,15 +3833,51 @@ function renderVendorsList(vendors) {
     });
 }
 
-async function handleVendorAction(vendorId, newStatus) {
+async function handleVendorAction(vendorId, newStatus, shopName) {
     const labels = { approved: 'approuver', rejected: 'rejeter', suspended: 'suspendre', deleted: 'supprimer définitivement' };
-    const confirmed = await confirmAction(`Voulez-vous vraiment ${labels[newStatus]} ce vendeur ?${newStatus === 'deleted' ? ' Ses produits seront supprimés ; les commandes, contrats et écritures financières seront conservés pour audit.' : ''}`, {
-        title: newStatus === 'deleted' ? 'Suppression du compte vendeur' : 'Confirmation',
-        confirmText: newStatus === 'deleted' ? 'Supprimer' : 'Oui',
-        cancelText: 'Annuler',
-        variant: newStatus === 'approved' ? 'primary' : 'danger'
-    });
-    if (!confirmed) return;
+    if (newStatus === 'deleted') {
+        /* Suppression définitive : le profil users/{id} porte contractVersion et
+           contractSignedAt, qui sont detruits avec lui. Le hash de contrat archive
+           dans contracts/ survit (sous-collection séparée). Le texte de confirmation
+           doit donc dire exactement ce qui est détruit et ce qui est conservé. */
+        const shopLabel = shopName || ('vendeur ' + String(vendorId).slice(0, 8) + '...');
+        const garde = await promptAction(
+            'Suppression définitive du compte vendeur',
+            'Vous allez supprimer ' + shopLabel + '.\n\n' +
+            'Ses produits et son profil (contrat, ICE/CIN, historique des statuts) seront détruits définitivement. ' +
+            'Les commandes, écritures financières et le hash de contrat dans contracts/ seront conservés pour audit. ' +
+            'Cette action est irréversible.\n\n' +
+            'Pour confirmer, saisissez le nom de la boutique.',
+            {
+                label: 'Nom de la boutique',
+                placeholder: shopLabel,
+                confirmText: 'Supprimer définitivement',
+                cancelText: 'Annuler',
+                variant: 'danger',
+                required: true,
+                maxLength: 120
+            }
+        );
+        if (!garde || !garde.confirmed) return;
+
+        /* Garde-fou : la saisie doit correspondre au nom de boutique affiche.
+           Comparaison insensible à la casse et aux espaces de bordure, pour ne pas
+           buter sur une majuscule ou une espace invisible. */
+        const attendu = String(shopLabel).trim().toLowerCase();
+        const saisi = String(garde.value || '').trim().toLowerCase();
+        if (saisi !== attendu) {
+            showToast('Nom de boutique incorrect : suppression annulée.');
+            return;
+        }
+    } else {
+        const confirmed = await confirmAction(`Voulez-vous vraiment ${labels[newStatus]} ce vendeur ?`, {
+            title: 'Confirmation',
+            confirmText: 'Oui',
+            cancelText: 'Annuler',
+            variant: newStatus === 'approved' ? 'primary' : 'danger'
+        });
+        if (!confirmed) return;
+    }
 
     try {
         const adminUser = auth.currentUser;
