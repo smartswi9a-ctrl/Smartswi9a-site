@@ -21,6 +21,7 @@ import {
     getOrderStatusLabelKey,
     getOrderTimelineSteps,
     isOrderCancellable, getTimeRemainingForCancellation, formatTimeRemaining,
+    getOrderDeletability,
     toDate, getCityName, getLang,
     cleanMoroccanPhone, formatLivoDate,
     fetchWithRetryResponse
@@ -1402,6 +1403,10 @@ export async function renderAdminOrders(containerId = 'ordersList') {
         const trackingId = order.livoTracking || order.speedafTracking;
         const labelUrl = order.livoLabelUrl || order.speedafLabelUrl;
 
+        // Suppression réservée aux brouillons annulés sans mouvement : afficher
+        // un bouton qui échouera systématiquement est pire que ne pas l'afficher.
+        const deletion = getOrderDeletability(order);
+
         let livoHtml = '';
         if (trackingId) {
             livoHtml = `<div style="margin-top:0.5rem; padding:0.5rem; background:rgba(165,123,46,0.05); border:1px solid var(--border-gold); border-radius:var(--radius-sm); font-size:0.8rem;">
@@ -1439,7 +1444,9 @@ export async function renderAdminOrders(containerId = 'ordersList') {
                     </select>
                     ${paymentBtnHtml}
                     ${trackingId ? `<button class="admin-btn-secondary" data-action="admin:sync-livo" data-id="${order.id}" style="font-size:0.75rem; padding:0.3rem 0.6rem;">Sync Livo</button>` : ''}
-                    <button class="btn-danger" data-action="admin:delete-order" data-id="${order.id}" style="padding:0.3rem 0.8rem;border-radius:30px;background:var(--danger);color:white;border:none;cursor:pointer;margin-left:auto;">Supprimer</button>
+                    ${deletion.deletable
+                        ? `<button class="btn-danger" data-action="admin:delete-order" data-id="${order.id}" style="padding:0.3rem 0.8rem;border-radius:30px;background:var(--danger);color:white;border:none;cursor:pointer;margin-left:auto;">Supprimer</button>`
+                        : `<span title="${escapeHTML(deletion.reason || '')}" style="font-size:0.72rem;color:var(--text-muted);margin-left:auto;cursor:help;">🔒 Conservation comptable</span>`}
                 </div>
             </div>
         `;

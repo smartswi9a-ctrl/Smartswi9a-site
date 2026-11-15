@@ -107,6 +107,7 @@
       "vendor.products.empty.desc":
         "Publiez votre premier produit pour commencer à vendre.",
       "vendor.orders.empty.title": "Aucune commande pour le moment",
+      "vendor.orders.readonly": "Suivi géré par Smart Swika",
       "vendor.orders.empty.desc":
         "Vos commandes apparaîtront ici dès que vos produits seront vendus.",
       "vendor.stock.empty.title": "Aucun stock Fulfillment",
@@ -826,6 +827,7 @@
       "vendor.products.empty.title": "لا توجد منتجات",
       "vendor.products.empty.desc": "انشر منتجك الأول لبدء البيع.",
       "vendor.orders.empty.title": "لا توجد طلبات حالياً",
+      "vendor.orders.readonly": "المتابعة يديرها سمارت سوييكا",
       "vendor.orders.empty.desc": "ستظهر طلباتك هنا بمجرد بيع منتجاتك.",
       "vendor.stock.empty.title": "لا يوجد مخزون Fulfillment",
       "vendor.stock.empty.desc": "أرسل منتجاتك إلى Livo لنتولى التوصيل.",
@@ -2089,6 +2091,7 @@
       "vendor.products.empty.desc":
         "Publish your first product to start selling.",
       "vendor.orders.empty.title": "No orders yet",
+      "vendor.orders.readonly": "Tracking managed by Smart Swika",
       "vendor.orders.empty.desc":
         "Your orders will appear here as soon as your products are sold.",
       "vendor.stock.empty.title": "No fulfillment stock",

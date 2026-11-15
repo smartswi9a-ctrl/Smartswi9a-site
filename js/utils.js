@@ -381,6 +381,35 @@ export function isOrderCancellable(order) {
   return hoursElapsed < CONFIG.ORDERS.CANCELLABLE_HOURS;
 }
 
+
+/**
+ * Éligibilité à la suppression définitive d'une commande.
+ * Miroir exact de la garde serveur de deleteOrderCompletely (orders.js) :
+ * une commande annulée reste non supprimable dès qu'un mouvement de stock
+ * ou financier a eu lieu. La suppression est un nettoyage de brouillon,
+ * jamais une gomme comptable.
+ * @param {object} order
+ * @returns {{deletable: boolean, reason: (string|null)}}
+ */
+export function getOrderDeletability(order) {
+  if (!order) return { deletable: false, reason: "Commande introuvable" };
+  const status = normalizeOrderStatus(order.status);
+  if (status !== ORDER_STATUS.CANCELLED) {
+    return { deletable: false, reason: "Seules les commandes annulées sont supprimables" };
+  }
+  if (order.stockDeducted === true) {
+    return { deletable: false, reason: "Stock déjà déduit : historique à conserver" };
+  }
+  if (Array.isArray(order.returns) && order.returns.length > 0) {
+    return { deletable: false, reason: "Retour enregistré sur cette commande" };
+  }
+  if (Object.keys(order.vendorCredits || {}).length > 0 ||
+      Object.keys(order.vendorDebits || {}).length > 0) {
+    return { deletable: false, reason: "Mouvement financier vendeur existant" };
+  }
+  return { deletable: true, reason: null };
+}
+
 export function getTimeRemainingForCancellation(order) {
   if (!order) return null;
   const status = normalizeOrderStatus(order.status);
@@ -597,6 +626,20 @@ export function parseLivoDate(str) {
   if (isNaN(date.getTime())) return null;
   if (date.getDate() !== day || date.getMonth() !== month - 1) return null;
   return date;
+}
+/**
+ * Valide une date de ramassage saisie côté admin.
+ * Accepte le format Livo JJ/MM/AAAA et refuse toute date passée.
+ * S'appuie sur parseLivoDate (pas de regex dupliquée : 31/02 est rejeté).
+ * @param {string} value - date au format JJ/MM/AAAA
+ * @returns {boolean}
+ */
+export function isLivoPickupDateValid(value) {
+  const date = parseLivoDate(value);
+  if (!date) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return date.getTime() >= today.getTime();
 }
 
 /* ============================================================ HELPERS LIVO - TÉLÉPHONE ============================================================ Livo n'accepte que les téléphones mobiles marocains (06/07). Format préféré : 0XXXXXXXXX (10 chiffres). Accepte aussi +212XXXXXXXXX, 212XXXXXXXXX, ou 9 chiffres 6/7. ============================================================ */
