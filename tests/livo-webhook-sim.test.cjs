@@ -88,13 +88,22 @@ function extractHandler() {
 /* Firestore en memoire                                               */
 /* ------------------------------------------------------------------ */
 
-function createStubDb(seedOrders) {
+function createStubDb(seedOrders, seedProducts) {
   const state = {
     events: new Map(),   // collection livo_webhook_events : id -> data
     orders: new Map(),   // collection orders : id -> data
-    calls: { where: 0, transaction: 0, updates: 0, creates: 0 }
+    products: new Map(), // collection products : id -> data
+    calls: { where: 0, transaction: 0, updates: 0, creates: 0, productUpdates: 0 }
   };
   for (const [id, data] of Object.entries(seedOrders || {})) state.orders.set(id, { ...data });
+  for (const [id, data] of Object.entries(seedProducts || {})) state.products.set(id, { ...data });
+
+  const storeFor = (kind) => {
+    if (kind === 'events') return state.events;
+    if (kind === 'orders') return state.orders;
+    if (kind === 'products') return state.products;
+    throw new Error('kind inconnu: ' + kind);
+  };
 
   const makeRef = (kind, id) => ({
     id,
@@ -103,16 +112,30 @@ function createStubDb(seedOrders) {
   });
 
   const makeSnapshot = (kind, id) => {
-    const store = kind === 'events' ? state.events : state.orders;
+    const store = storeFor(kind);
     const exists = store.has(id);
     const data = store.get(id);
     return { exists, id, data: () => (exists ? { ...data } : undefined), ref: makeRef(kind, id) };
   };
 
+  // Applique un patch en respectant les sentinelles FieldValue.increment().
+  const applyPatch = (store, id, patch) => {
+    const current = { ...(store.get(id) || {}) };
+    for (const [key, value] of Object.entries(patch)) {
+      if (value && typeof value === 'object' && value.__increment !== undefined) {
+        const base = Number(current[key]) || 0;
+        current[key] = base + value.__increment;
+      } else {
+        current[key] = value;
+      }
+    }
+    store.set(id, current);
+  };
+
   const db = {
     collection(name) {
-      const kind = name === COLLECTION ? 'events' : 'orders';
-      assert.ok(kind === 'events' || name === 'orders', 'collection inattendue: ' + name);
+      const kind = name === COLLECTION ? 'events' : name;
+      assert.ok(['events', 'orders', 'products'].includes(kind), 'collection inattendue: ' + name);
       return {
         doc: (id) => makeRef(kind, id),
         where(field, op, value) {
@@ -136,7 +159,8 @@ function createStubDb(seedOrders) {
       state.calls.transaction++;
       const tx = {
         async get(ref) {
-          return ref.__kind === 'events' ? makeSnapshot('events', ref.id) : makeSnapshot('orders', ref.id);
+          assert.ok(['events', 'orders', 'products'].includes(ref.__kind), 'get sur kind ' + ref.__kind);
+          return makeSnapshot(ref.__kind, ref.id);
         },
         create(ref, data) {
           assert.strictEqual(ref.__kind, 'events');
@@ -145,10 +169,11 @@ function createStubDb(seedOrders) {
           state.calls.creates++;
         },
         update(ref, data) {
-          assert.strictEqual(ref.__kind, 'orders');
-          assert.ok(state.orders.has(ref.id), 'update sur une commande inexistante');
-          state.orders.set(ref.id, { ...state.orders.get(ref.id), ...data });
-          state.calls.updates++;
+          assert.ok(['orders', 'products'].includes(ref.__kind), 'update sur kind ' + ref.__kind);
+          assert.ok(storeFor(ref.__kind).has(ref.id), 'update sur ' + ref.__kind + ' inexistant: ' + ref.id);
+          applyPatch(storeFor(ref.__kind), ref.id, data);
+          if (ref.__kind === 'products') state.calls.productUpdates++;
+          else state.calls.updates++;
         }
       };
       return fn(tx);
@@ -189,8 +214,8 @@ function makeReq({ method = 'POST', headers = {}, rawBody = null }) {
 
 const handlerSrc = extractHandler();
 
-function buildHandler({ secret = SECRET, nowSeconds = Math.floor(Date.now() / 1000), seedOrders } = {}) {
-  const stub = createStubDb(seedOrders);
+function buildHandler({ secret = SECRET, nowSeconds = Math.floor(Date.now() / 1000), seedOrders, seedProducts } = {}) {
+  const stub = createStubDb(seedOrders, seedProducts);
   const sandbox = {
     module: { exports: {} },
     exports: {},
@@ -221,7 +246,10 @@ function buildHandler({ secret = SECRET, nowSeconds = Math.floor(Date.now() / 10
       fulfilled: 'delivered',
       cancelled: 'cancelled'
     },
-    FieldValue: { serverTimestamp: () => ({ __serverTimestamp: true }) },
+    FieldValue: {
+      serverTimestamp: () => ({ __serverTimestamp: true }),
+      increment: (n) => ({ __increment: n })
+    },
     timingSafeTextEqual(left, right) {
       const a = Buffer.from(String(left || ''), 'utf8');
       const b = Buffer.from(String(right || ''), 'utf8');
@@ -563,6 +591,134 @@ function statusEvent(status = 'in progress') {
     assert.ok(!produced.includes('pending'), 'pending ne doit plus etre une cible du webhook');
     assert.ok(produced.includes('in_transit') && produced.includes('pickup_requested') && produced.includes('picked_up'),
       'les statuts du nouveau workflow doivent etre presents: ' + produced.join(','));
+  });
+
+  /* ================================================================ */
+  /* T2 : restitution stock_warehouse - 6 cas                        */
+  /* ================================================================ */
+
+  const PROD_WAREHOUSE = { p_wh: { id: 'p_wh', nameFr: 'Produit entrepot', delivery_mode: 'smartswika_warehouse', stock_warehouse: 10, stock: 50 } };
+  const PROD_NORMAL    = { p_norm: { id: 'p_norm', nameFr: 'Produit normal', stock: 50 } };
+  const PROD_BOTH      = { ...PROD_WAREHOUSE, ...PROD_NORMAL };
+
+  function returnEvent(trackingId, returnStatus, id) {
+    return { id, event: 'order.return_status_changed',
+             data: { _id: trackingId, return_status: returnStatus } };
+  }
+
+  /* Cas 1 : commande 100 % entrepot, returned-warehouse -> restitution, statut intouche */
+  await check('T2-1 : warehouse-deducted=true + returned-warehouse -> +1 stock, statut intouche', async () => {
+    const seed = { c1: { id: 'c1', status: 'delivered', livoTracking: 'TRK-C1',
+                         stock_warehouse_deducted: true, stockDeducted: false,
+                         items: [{ productId: 'p_wh', quantity: 2 }] } };
+    const { handler, stub } = buildHandler({ seedOrders: seed, seedProducts: PROD_WAREHOUSE });
+    const res = await deliver({ handler, event: returnEvent('TRK-C1', 'returned-warehouse', 'ev-c1'),
+                                eventId: 'ev-c1' });
+    assert.strictEqual(res._status, 200);
+    assert.strictEqual(res._body.applied, true);
+    const order = stub.state.orders.get('c1');
+    assert.strictEqual(stub.state.products.get('p_wh').stock_warehouse, 12, 'stock_warehouse 10 -> 12');
+    assert.strictEqual(stub.state.products.get('p_wh').stock, 50, 'stock commercial INTOUCHE');
+    assert.strictEqual(order.livoReturnStatus, 'returned-warehouse');
+    assert.strictEqual(order.status, 'delivered', 'statut principal INTOUCHE par warehouse seul');
+    assert.strictEqual(order.stockRestituted, true, 'idempotence scellee');
+  });
+
+  /* Cas 2 : warehouse puis fully, 2 event_ids -> UN SEUL increment, status=returned au 2e */
+  await check('T2-2 : warehouse PUIS fully (2 event_ids) -> UN SEUL increment', async () => {
+    const seed = { c2: { id: 'c2', status: 'delivered', livoTracking: 'TRK-C2',
+                         stock_warehouse_deducted: true,
+                         items: [{ productId: 'p_wh', quantity: 3 }] } };
+    const { handler, stub } = buildHandler({ seedOrders: seed, seedProducts: PROD_WAREHOUSE });
+
+    const first = await deliver({ handler, event: returnEvent('TRK-C2', 'returned-warehouse', 'ev-c2a'),
+                                  eventId: 'ev-c2a' });
+    assert.strictEqual(first._status, 200);
+    assert.strictEqual(stub.state.products.get('p_wh').stock_warehouse, 13, '10 + 3');
+    assert.strictEqual(stub.state.orders.get('c2').status, 'delivered', 'encore delivered au 1er');
+
+    const second = await deliver({ handler, event: returnEvent('TRK-C2', 'returned-fully', 'ev-c2b'),
+                                   eventId: 'ev-c2b' });
+    assert.strictEqual(second._status, 200);
+    assert.strictEqual(second._body.duplicate, false, 'event_id different => pas duplicate');
+    assert.strictEqual(second._body.applied, true);
+    assert.strictEqual(stub.state.products.get('p_wh').stock_warehouse, 13,
+      'PAS de second increment (idempotence par commande)');
+    assert.strictEqual(stub.state.calls.productUpdates, 1, 'un seul update produit au total');
+    const order = stub.state.orders.get('c2');
+    assert.strictEqual(order.status, 'returned', 'le 2e evenement pose le statut returned');
+    assert.strictEqual(order.livoReturnStatus, 'returned-fully', 'livoReturnStatus mis a jour');
+    assert.strictEqual(order.stockRestituted, true);
+  });
+
+  /* Cas 3 : returned-fully seul, flags=true -> restitution + status=returned */
+  await check('T2-3 : returned-fully seul, flags=true -> restitution + status=returned', async () => {
+    const seed = { c3: { id: 'c3', status: 'delivered', livoTracking: 'TRK-C3',
+                         stockDeducted: true,
+                         items: [{ productId: 'p_wh', quantity: 4 }] } };
+    const { handler, stub } = buildHandler({ seedOrders: seed, seedProducts: PROD_WAREHOUSE });
+    const res = await deliver({ handler, event: returnEvent('TRK-C3', 'returned-fully', 'ev-c3'),
+                                eventId: 'ev-c3' });
+    assert.strictEqual(res._status, 200);
+    assert.strictEqual(res._body.applied, true);
+    assert.strictEqual(stub.state.products.get('p_wh').stock_warehouse, 14, '10 + 4');
+    const order = stub.state.orders.get('c3');
+    assert.strictEqual(order.status, 'returned');
+    assert.strictEqual(order.livoReturnStatus, 'returned-fully');
+  });
+
+  /* Cas 4 : returned-fully seul, flags ABSENTS -> aucune restitution, status=returned */
+  await check('T2-4 : returned-fully seul, flags absents -> ZERO increment, status=returned', async () => {
+    const seed = { c4: { id: 'c4', status: 'shipping', livoTracking: 'TRK-C4',
+                         items: [{ productId: 'p_wh', quantity: 5 }] } };
+    const { handler, stub } = buildHandler({ seedOrders: seed, seedProducts: PROD_WAREHOUSE });
+    const res = await deliver({ handler, event: returnEvent('TRK-C4', 'returned-fully', 'ev-c4'),
+                                eventId: 'ev-c4' });
+    assert.strictEqual(res._status, 200);
+    assert.strictEqual(res._body.applied, true, 'le retour est traite meme sans restitution');
+    assert.strictEqual(stub.state.products.get('p_wh').stock_warehouse, 10, 'AUCUN increment');
+    assert.strictEqual(stub.state.calls.productUpdates, 0, 'aucun update produit');
+    const order = stub.state.orders.get('c4');
+    assert.strictEqual(order.status, 'returned', 'transition metier independante du stock');
+    assert.strictEqual(order.livoReturnStatus, 'returned-fully');
+    // Semantique validee : stockRestituted = "evenement traite", PAS "stock incremente".
+    assert.strictEqual(order.stockRestituted, true, 'idempotence scellee meme sans restitution');
+  });
+
+  /* Cas 5 : commande mixte -> seul le produit warehouse est restitue */
+  await check('T2-5 : commande mixte -> seul le produit smartswika_warehouse est restitue', async () => {
+    const seed = { c5: { id: 'c5', status: 'delivered', livoTracking: 'TRK-C5',
+                         stockDeducted: true,
+                         items: [{ productId: 'p_wh', quantity: 2 },
+                                 { productId: 'p_norm', quantity: 7 }] } };
+    const { handler, stub } = buildHandler({ seedOrders: seed, seedProducts: PROD_BOTH });
+    const res = await deliver({ handler, event: returnEvent('TRK-C5', 'returned-warehouse', 'ev-c5'),
+                                eventId: 'ev-c5' });
+    assert.strictEqual(res._status, 200);
+    assert.strictEqual(stub.state.products.get('p_wh').stock_warehouse, 12, 'warehouse 10 -> 12');
+    assert.strictEqual(stub.state.products.get('p_norm').stock, 50, 'produit normal INTOUCHE (stock)');
+    assert.strictEqual(stub.state.products.get('p_norm').stock_warehouse, undefined,
+      'produit normal : aucun champ stock_warehouse cree');
+    assert.strictEqual(stub.state.products.get('p_wh').stock, 50, 'stock commercial du produit wh INTOUCHE');
+    assert.strictEqual(stub.state.calls.productUpdates, 1, 'un seul produit mis a jour');
+  });
+
+  /* Cas 6 : returned-pending / returned-started -> livoReturnStatus seul */
+  await check('T2-6 : returned-pending puis returned-started -> aucun increment, statut intouche', async () => {
+    const seed = { c6: { id: 'c6', status: 'in_transit', livoTracking: 'TRK-C6',
+                         stock_warehouse_deducted: true,
+                         items: [{ productId: 'p_wh', quantity: 2 }] } };
+    const { handler, stub } = buildHandler({ seedOrders: seed, seedProducts: PROD_WAREHOUSE });
+
+    for (const [status, evId] of [['returned-pending', 'ev-c6a'], ['returned-started', 'ev-c6b']]) {
+      const res = await deliver({ handler, event: returnEvent('TRK-C6', status, evId), eventId: evId });
+      assert.strictEqual(res._status, 200, status);
+      assert.strictEqual(res._body.applied, true, status);
+      assert.strictEqual(stub.state.orders.get('c6').livoReturnStatus, status);
+      assert.strictEqual(stub.state.orders.get('c6').status, 'in_transit', 'statut intouche (' + status + ')');
+    }
+    assert.strictEqual(stub.state.products.get('p_wh').stock_warehouse, 10, 'aucun increment');
+    assert.strictEqual(stub.state.calls.productUpdates, 0, 'aucun update produit');
   });
 
   /* 16. fulfilled sans ancre : le webhook applique `delivered` mais ne pose PAS

@@ -164,6 +164,13 @@ Sur `returned-warehouse` et `returned-fully` :
 > un deuxième événement de retour avec un `id` différent. Sans
 > `stockRestituted`, le stock serait incrémenté deux fois.
 
+**Sémantique de `stockRestituted: true`** — « événement retour **traité**,
+idempotence scellée ». Ce flag ne signifie **PAS** « du stock a été incrémenté » :
+il est posé même lorsque aucun incrément n'a lieu (flags de décrément absents, aucun
+produit stocké à l'entrepôt, `returned-fully` sur commande déjà annulée). Sa seule
+fonction est d'empêcher qu'un événement ultérieur, porteur d'un `event_id` distinct,
+ne retraite la restitution.
+
 ---
 
 ## 6. Configuration des secrets

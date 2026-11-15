@@ -844,11 +844,95 @@ exports.livoWebhook = onRequest({
 
         tx.update(matchedOrderRef, statusPatch);
       } else if (canApplyReturn) {
-        tx.update(matchedOrderRef, {
+        const orderData = orderSnap.data();
+
+        // ---- Restitution de la poche entrepot (PR 8.3) --------------------
+        // Deux sources de decrement coexistent dans l'application :
+        //   b. `stock_warehouse_deducted: true` -> commande 100 % entrepot,
+        //      decrementee par markOrderAsPrepared (js/admin.js:639).
+        //   b'. `stockDeducted: true` -> commande mixte, decrement partiel de
+        //      stock_warehouse fait par deductStockInTransaction (js/orders.js).
+        // `stockDeducted` seul est INSUFFISANT : une commande 100 % entrepot ne
+        // passe jamais par deductStockInTransaction et n'a donc jamais ce flag.
+        const warehouseDeducted = orderData.stock_warehouse_deducted === true ||
+          orderData.stockDeducted === true;
+        const isFullReturn = returnStatus === 'returned-fully';
+        // Un retour "fully" est une transition METIER : il pose `returned` meme
+        // sans restitution de stock. `delivered -> returned` est le chemin normal
+        // d'un retour, on n'applique donc PAS la garde terminale ici (elle ne
+        // protege que `status` pilote par order.status_changed).
+        // Seuls `cancelled` et un `returned` deja pose sont proteges : ecraser
+        // une annulation par un retour serait une inversion de sens.
+        const canSetReturnedStatus = isFullReturn && !['cancelled', 'returned'].includes(orderStatus);
+
+        // Un retour ANNONCÉ (returned-pending, returned-started) n'est pas un
+        // retour RECU : le colis n'est pas encore a l'entrepot, donc rien a
+        // restituer. Seuls returned-warehouse et returned-fully declenchent une
+        // restitution.
+        const isRestitutableReturn = returnStatus === 'returned-warehouse' || isFullReturn;
+
+        // La restitution n'a lieu que si rien n'a deja ete restitue POUR CETTE
+        // COMMANDE. L'idempotence par event_id ne suffit pas : deux evenements
+        // distincts (returned-warehouse puis returned-fully) doivent produire
+        // un seul increment.
+        const shouldRestitute = isRestitutableReturn && !orderData.stockRestituted;
+
+        const returnPatch = {
           livoReturnStatus: returnStatus,
           livoSyncedAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp()
-        });
+        };
+        if (canSetReturnedStatus) returnPatch.status = 'returned';
+
+        if (shouldRestitute) {
+          // Agregation des quantites par produit (plusieurs lignes possibles).
+          const qtyByProduct = new Map();
+          for (const item of (Array.isArray(orderData.items) ? orderData.items : [])) {
+            const pid = item && item.productId != null ? String(item.productId) : '';
+            const qty = Math.floor(Number(item && item.quantity));
+            if (!pid || !Number.isFinite(qty) || qty < 1) continue;
+            qtyByProduct.set(pid, (qtyByProduct.get(pid) || 0) + qty);
+          }
+
+          // Toutes les lectures AVANT toute ecriture (exigence Firestore).
+          const productRefs = [];
+          const productSnaps = [];
+          if (warehouseDeducted) {
+            for (const pid of qtyByProduct.keys()) {
+              const productRef = db.collection('products').doc(pid);
+              productRefs.push(productRef);
+              productSnaps.push(await tx.get(productRef));
+            }
+          }
+
+          productSnaps.forEach((snap, index) => {
+            if (!snap.exists) {
+              console.warn('[livoWebhook] Produit introuvable pour restitution:', productRefs[index].id);
+              return;
+            }
+            const pData = snap.data() || {};
+            // (a) Seuls les produits stockes a l'entrepot ont une poche
+            // stock_warehouse. Les produits normaux ne sont JAMAIS touches.
+            if (pData.delivery_mode !== 'smartswika_warehouse') return;
+            const qty = qtyByProduct.get(productRefs[index].id) || 0;
+            if (qty < 1) return;
+            // On ne restitue QUE stock_warehouse : ni stock, ni variants, ni
+            // salesCount. Ce n'est pas une annulation commerciale mais une
+            // restitution logistique de la poche entrepot.
+            tx.update(productRefs[index], { stock_warehouse: FieldValue.increment(qty) });
+          });
+        }
+
+        // SEMANTIQUE DE stockRestituted (ne pas se tromper) :
+        // ce flag signifie "evenement de retour TRAITE, idempotence scellee pour
+        // cette commande". Il NE signifie PAS "du stock a ete incremente" :
+        // il est aussi pose quand les flags de decrement sont absents, ou quand
+        // aucun produit n'est stocke a l'entrepot, ou sur returned-fully sans
+        // restitution. Sa seule fonction est d'empecher un second traitement
+        // (restitution) par un evenement ulterieur portant un event_id distinct.
+        returnPatch.stockRestituted = true;
+
+        tx.update(matchedOrderRef, returnPatch);
       }
 
       return { duplicate: false, applied: shouldWriteRaw || canApplyReturn };
