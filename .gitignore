@@ -22,3 +22,6 @@ tmpdoc/
 
 # Scripts locaux a usage unique (ne jamais committer)
 _rotate-secret.cjs
+
+# Copie locale de travail (config / brouillons) — ne jamais committer
+_cfg.txt
