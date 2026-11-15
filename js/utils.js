@@ -277,13 +277,36 @@ export function toDate(value) {
 }
 
 /* ============================================================ COMMANDES - Statuts (Clients) ============================================================ */
+export function getOrderStatusLabelKey(status) {
+  const normalized = normalizeOrderStatus(status);
+  const labels = {
+    [ORDER_STATUS.PENDING]: "orderStatusPending",
+    [ORDER_STATUS.CONFIRMED]: "orderStatusConfirmed",
+    [ORDER_STATUS.PREPARING]: "orderStatusPreparing",
+    [ORDER_STATUS.PREPARED]: "orderStatusPrepared",
+    [ORDER_STATUS.PICKUP_REQUESTED]: "orderStatusPickupRequested",
+    [ORDER_STATUS.PICKED_UP]: "orderStatusPickedUp",
+    [ORDER_STATUS.IN_TRANSIT]: "orderStatusInTransit",
+    [ORDER_STATUS.SHIPPING]: "orderStatusShipping",
+    [ORDER_STATUS.DELIVERED]: "orderStatusDelivered",
+    [ORDER_STATUS.RETURNED]: "orderStatusReturned",
+    [ORDER_STATUS.CANCELLED]: "orderStatusCancelled",
+  };
+  return labels[normalized] || "orderStatusUnknown";
+}
+
 export function getOrderStatusEmoji(status) {
   const normalized = normalizeOrderStatus(status);
   const emojis = {
     [ORDER_STATUS.PENDING]: "⏳",
     [ORDER_STATUS.CONFIRMED]: "✅",
+    [ORDER_STATUS.PREPARING]: "🧩",
+    [ORDER_STATUS.PREPARED]: "📦",
+    [ORDER_STATUS.PICKUP_REQUESTED]: "🚚",
+    [ORDER_STATUS.PICKED_UP]: "🤝",
+    [ORDER_STATUS.IN_TRANSIT]: "🛣️",
     [ORDER_STATUS.SHIPPING]: "🚚",
-    [ORDER_STATUS.DELIVERED]: "📦",
+    [ORDER_STATUS.DELIVERED]: "✔️",
     [ORDER_STATUS.RETURNED]: "↩️",
     [ORDER_STATUS.CANCELLED]: "❌",
   };
