@@ -321,7 +321,11 @@ export const LEDGER_CATEGORY = {
     SPEEDAF_FEE: 'livo_fee'
 };
 
-export const STATUS_MIGRATION_MAP = { 'validated': 'confirmed', 'received': 'delivered' };
+/* PR 8.6 (dette 8.6/8.5) : le statut legacy 'shipping' est remappe a la lecture
+   vers 'in_transit'. Consequences : une commande encore en 'shipping' est
+   traitee comme 'in_transit' (transition, affichage, sync) et un premier sync
+   Livo la fera passer a 'in_transit' (rattrapage legacy volontaire). */
+export const STATUS_MIGRATION_MAP = { 'validated': 'confirmed', 'received': 'delivered', 'shipping': 'in_transit' };
 export function normalizeOrderStatus(status) {
     if (!status) return ORDER_STATUS.PENDING;
     return STATUS_MIGRATION_MAP[status] || status;
