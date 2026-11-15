@@ -430,10 +430,21 @@ async function main() {
   return writeErrors.length > 0 ? 1 : 0;
 }
 
-main()
-  .then((code) => process.exit(code))
-  .catch((err) => {
-    console.error('Erreur :', err && err.message ? err.message : err);
-    process.exit(1);
-  });
+/* ============================================================
+   EXPORTS / BOOTSTRAP
+   ------------------------------------------------------------
+   Pattern Node standard : le script s'execute seul quand il est lance
+   directement (node scripts/...), et expose main/parseArgs quand il est
+   require() par les tests. Aucun stripping de source cote tests.
+   ============================================================ */
+if (require.main === module) {
+  main()
+    .then((code) => process.exit(code))
+    .catch((err) => {
+      console.error('Erreur :', err && err.message ? err.message : err);
+      process.exit(1);
+    });
+} else {
+  module.exports = { main, parseArgs };
+}
 
