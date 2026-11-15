@@ -583,6 +583,7 @@ const ALLOWED_TRANSITIONS = {
         ORDER_STATUS.PREPARING,          /* mode entrepot */
         ORDER_STATUS.PICKUP_REQUESTED,   /* dropoff */
         ORDER_STATUS.SHIPPING,           /* LEGACY : ancien flux direct */
+        ORDER_STATUS.IN_TRANSIT,         /* PR 8.6 : sync Livo direct (confirmed -> in progress) */
         ORDER_STATUS.CANCELLED
     ],
     [ORDER_STATUS.PREPARING]: [ORDER_STATUS.PREPARED, ORDER_STATUS.CANCELLED],
