@@ -690,17 +690,26 @@ exports.getLivoFees = onRequest({ invoker: 'public', region: 'europe-west1', cor
 /* ============================================================
    CF : livoWebhook (Livo event receiver)
    ============================================================ */
+// Mapping Livo -> statut Smart Swika (PR 8.3).
+// `shipping` est DEPRECIE : il n'est plus jamais produit ici (legacy en lecture seule).
+// Seuls les statuts porteurs d'un vrai changement de workflow sont mappes.
+// `draft`, `problem` et `reported` sont volontairement ABSENTS : ces evenements
+// n'ecrivent que `livoStatusRaw` et ne touchent JAMAIS le statut principal.
+//   - draft   : brouillon cote Livo, n'a aucun sens dans notre cycle (pending ->
+//               confirmed -> preparing -> prepared -> pickup_requested -> picked_up
+//               -> in_transit -> delivered). Le mapper retrograderait une commande
+//               deja avancee, sans retour possible (aucune transition arriere).
+//   - problem : incident transport, il ne doit pas ecraser un `in_transit` ou un
+//               `delivered` ; l'incident est trace dans `livoStatusRaw`.
+//   - reported: signalement, meme raisonnement.
 const LIVO_STATUS_TO_ORDER_STATUS = Object.freeze({
-  draft: 'pending',
-  pending: 'pending',
-  'in progress': 'shipping',
+  pending: 'confirmed',
+  programmed: 'confirmed',
+  'awaiting pickup': 'pickup_requested',
+  'awaiting transfer': 'picked_up',
+  'in progress': 'in_transit',
   fulfilled: 'delivered',
-  problem: 'shipping',
-  cancelled: 'cancelled',
-  'awaiting transfer': 'shipping',
-  'awaiting pickup': 'confirmed',
-  reported: 'shipping',
-  programmed: 'confirmed'
+  cancelled: 'cancelled'
 });
 
 function timingSafeTextEqual(left, right) {
@@ -790,8 +799,15 @@ exports.livoWebhook = onRequest({
       let orderSnap = null;
       if (matchedOrderRef) orderSnap = await tx.get(matchedOrderRef);
 
-      const canApplyStatus = !!(orderSnap?.exists && mappedStatus &&
-        !['delivered', 'returned', 'cancelled'].includes(String(orderSnap.data().status || '').toLowerCase()));
+      // `livoStatusRaw` est ecrit des qu'une commande est correlee et que l'evenement
+      // porte un statut : c'est notre source de verite d'audit, meme quand le statut
+      // principal ne bouge pas (draft, problem, reported, ou commande terminale).
+      const shouldWriteRaw = !!(orderSnap?.exists && eventType === 'order.status_changed' && livoStatus);
+      const orderStatus = String(orderSnap?.data()?.status || '').toLowerCase();
+      const isTerminal = ['delivered', 'returned', 'cancelled'].includes(orderStatus);
+      // Le statut principal ne change que si le mapping produit une cible
+      // ET que la commande n'est pas dans un etat terminal (jamais d'ecrasement).
+      const canApplyStatus = !!(shouldWriteRaw && mappedStatus && !isTerminal);
       const canApplyReturn = !!(orderSnap?.exists && eventType === 'order.return_status_changed' && returnStatus);
 
       tx.create(eventRef, {
@@ -800,31 +816,30 @@ exports.livoWebhook = onRequest({
         resourceId: resourceId || null,
         livoStatus: livoStatus || null,
         returnStatus: returnStatus || null,
-        processing: canApplyStatus || canApplyReturn ? 'applied' : (matchedOrderRef ? 'ignored' : 'unmatched'),
+        processing: shouldWriteRaw || canApplyReturn ? 'applied' : (matchedOrderRef ? 'ignored' : 'unmatched'),
         receivedAt: FieldValue.serverTimestamp()
       });
 
-      if (canApplyStatus) {
+      if (shouldWriteRaw) {
         const statusPatch = {
-          status: mappedStatus,
           livoStatusRaw: livoStatus,
           livoSyncedAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp()
         };
+        if (canApplyStatus) statusPatch.status = mappedStatus;
 
-        // Chrono garantie : l'ancre est la prise en charge du colis par Livo.
-        // La spec (components.schemas.Order.properties.status) liste `pending`
-        // et `in progress` comme statuts d'une commande creee / prise en charge.
-        // On ancre donc des le premier etat de tracking connu : `pending` (colis
-        // enregistre chez Livo) puis `in progress` (colis en circulation).
-        // Ecrit une seule fois : un retour en arriere puis un nouveau passage
-        // en `pending`/`in progress` ne doit jamais repousser la date de deblocage.
-        const TRACKING_START_STATUSES = ['pending', 'in progress'];
-        if (TRACKING_START_STATUSES.includes(livoStatus) && !orderSnap.data().trackingStartedAt) {
+        // Chrono garanti : l'ancre est la PRISE EN CHARGE du colis, c'est-a-dire le
+        // passage en `in progress` chez Livo (colis en circulation). `pending`
+        // (commande enregistree) et `pickup_requested` (ramassage demande) ne sont
+        // PAS des prises en charge : ils ne posent pas l'ancre.
+        // Deux garde-fous cumules :
+        //   - `!isTerminal` : une commande livree/retournee/annulee ne recoit jamais
+        //     d'ancre, meme si un `in progress` tardif arrive apres coup.
+        //   - `!trackingStartedAt` : ecrite une seule fois, un rejeu
+        //     `in progress` -> `in progress` ne repousse jamais la date de deblocage.
+        if (canApplyStatus && livoStatus === 'in progress' && !orderSnap.data().trackingStartedAt) {
           statusPatch.trackingStartedAt = FieldValue.serverTimestamp();
-          statusPatch.trackingStartedFrom = livoStatus === 'pending'
-            ? 'livo_webhook_pending'
-            : 'livo_webhook';
+          statusPatch.trackingStartedFrom = 'livo_webhook';
         }
 
         tx.update(matchedOrderRef, statusPatch);
@@ -836,7 +851,7 @@ exports.livoWebhook = onRequest({
         });
       }
 
-      return { duplicate: false, applied: canApplyStatus || canApplyReturn };
+      return { duplicate: false, applied: shouldWriteRaw || canApplyReturn };
     });
 
     return res.status(200).json({ success: true, ...outcome });

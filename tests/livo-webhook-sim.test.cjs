@@ -208,10 +208,18 @@ function buildHandler({ secret = SECRET, nowSeconds = Math.floor(Date.now() / 10
       'pickup.created', 'pickup.status_changed',
       'return.created', 'return.status_changed', 'message.created', 'ping'
     ]),
+    // Doit rester STRICTEMENT synchrone avec LIVO_STATUS_TO_ORDER_STATUS de
+    // functions/index.js (verrouille par tests/livo-compliance.test.cjs).
+    // `draft`, `problem` et `reported` sont absents : ces evenements n'ecrivent
+    // que livoStatusRaw et ne touchent jamais le statut principal.
     LIVO_STATUS_TO_ORDER_STATUS: {
-      draft: 'pending', pending: 'pending', 'in progress': 'shipping', fulfilled: 'delivered',
-      problem: 'shipping', cancelled: 'cancelled', 'awaiting transfer': 'shipping',
-      'awaiting pickup': 'confirmed', reported: 'shipping', programmed: 'confirmed'
+      pending: 'confirmed',
+      programmed: 'confirmed',
+      'awaiting pickup': 'pickup_requested',
+      'awaiting transfer': 'picked_up',
+      'in progress': 'in_transit',
+      fulfilled: 'delivered',
+      cancelled: 'cancelled'
     },
     FieldValue: { serverTimestamp: () => ({ __serverTimestamp: true }) },
     timingSafeTextEqual(left, right) {
@@ -317,7 +325,7 @@ function statusEvent(status = 'in progress') {
   });
 
   /* 3. Nominal : order.status_changed applique le statut */
-  await check('order.status_changed "in progress" -> 200 applied et commande en shipping', async () => {
+  await check('order.status_changed "in progress" -> 200 applied et commande en in_transit', async () => {
     const { handler, stub } = buildHandler({ seedOrders: ORDER_SEED });
     const res = await deliver({ handler, event: statusEvent('in progress'), eventId: 'evt_sim_3' });
     assert.strictEqual(res._status, 200, 'status ' + res._status + ' ' + JSON.stringify(res._body));
@@ -325,7 +333,8 @@ function statusEvent(status = 'in progress') {
     assert.strictEqual(res._body.applied, true, 'applied attendu true');
     assert.strictEqual(res._body.duplicate, false);
     const order = stub.state.orders.get('cmd_sim_001');
-    assert.strictEqual(order.status, 'shipping', 'statut commande: ' + order.status);
+    // `shipping` est deprecie : PR 8.3 produit `in_transit`.
+    assert.strictEqual(order.status, 'in_transit', 'statut commande: ' + order.status);
     assert.strictEqual(order.livoStatusRaw, 'in progress');
     assert.ok(stub.state.events.has('evt_sim_3'), 'evenement journalise');
     assert.strictEqual(stub.state.events.get('evt_sim_3').processing, 'applied');
@@ -348,15 +357,20 @@ function statusEvent(status = 'in progress') {
   });
 
   /* 5. Statut terminal : delivered ne doit plus etre ecrase */
-  await check('commande deja delivered : nouvel evenement ignore et commande intacte', async () => {
+  await check('commande deja delivered : statut terminal preserve, livoStatusRaw ecrit', async () => {
     const seed = { cmd_sim_005: { id: 'cmd_sim_005', status: 'delivered', livoTracking: 'LIVO-TRK-0005' } };
     const { handler, stub } = buildHandler({ seedOrders: seed });
     const evt = { id: 'evt_sim_5', event: 'order.status_changed', data: { _id: 'LIVO-TRK-0005', status: 'in progress' } };
     const res = await deliver({ handler, event: evt, eventId: 'evt_sim_5' });
     assert.strictEqual(res._status, 200);
-    assert.strictEqual(res._body.applied, false, 'applied doit etre false');
-    assert.strictEqual(stub.state.orders.get('cmd_sim_005').status, 'delivered', 'statut terminal preserve');
-    assert.strictEqual(stub.state.events.get('evt_sim_5').processing, 'ignored');
+    // Le statut principal ne bouge JAMAIS depuis un etat terminal, mais l'audit
+    // brut doit etre enregistre : applied reflete l'ecriture de livoStatusRaw.
+    assert.strictEqual(res._body.applied, true, 'applied reflete l ecriture de livoStatusRaw');
+    const order = stub.state.orders.get('cmd_sim_005');
+    assert.strictEqual(order.status, 'delivered', 'statut terminal preserve');
+    assert.strictEqual(order.livoStatusRaw, 'in progress', 'livoStatusRaw trace l evenement');
+    assert.strictEqual(order.trackingStartedAt, undefined, 'aucune ancre sur commande terminale');
+    assert.strictEqual(stub.state.events.get('evt_sim_5').processing, 'applied');
   });
 
   /* 6. Tracking inconnu -> unmatched */
@@ -442,35 +456,113 @@ function statusEvent(status = 'in progress') {
     assert.strictEqual(res._status, 405);
   });
 
-  /* 14. pending : le chrono demarre des le premier statut de tracking Livo */
-  await check('order.status_changed "pending" -> trackingStartedAt pose (ancre chrono)', async () => {
+  /* 14. T4 : `pending` ne pose PAS l'ancre (commande enregistree, pas prise en charge) */
+  await check('T4 : "pending" -> confirmed, reconnu, mais AUCUNE ancre trackingStartedAt', async () => {
     const { handler, stub } = buildHandler({ seedOrders: ORDER_SEED });
     const res = await deliver({ handler, event: statusEvent('pending'), eventId: 'evt_sim_14' });
     assert.strictEqual(res._status, 200, 'status ' + res._status);
     assert.strictEqual(res._body.applied, true, 'applied attendu true');
     const order = stub.state.orders.get('cmd_sim_001');
-    assert.strictEqual(order.status, 'pending', 'statut commande: ' + order.status);
+    assert.strictEqual(order.status, 'confirmed', 'statut commande: ' + order.status);
     assert.strictEqual(order.livoStatusRaw, 'pending');
-    assert.ok(order.trackingStartedAt, 'trackingStartedAt doit etre pose');
-    assert.deepStrictEqual(order.trackingStartedAt, { __serverTimestamp: true });
-    assert.strictEqual(order.trackingStartedFrom, 'livo_webhook_pending');
+    assert.strictEqual(order.trackingStartedAt, undefined, 'pas d ancre sur pending');
+    assert.strictEqual(order.trackingStartedFrom, undefined, 'pas d origine sur pending');
   });
 
-  /* 15. pending puis in progress : l'ancre ne doit jamais etre repoussee */
-  await check('pending puis "in progress" -> trackingStartedAt non ecrase ni repousse', async () => {
+  /* 14b. T4 bis : `awaiting pickup` -> pickup_requested SANS ancre */
+  await check('T4 bis : "awaiting pickup" -> pickup_requested sans ancre', async () => {
     const { handler, stub } = buildHandler({ seedOrders: ORDER_SEED });
-    const first = await deliver({ handler, event: statusEvent('pending'), eventId: 'evt_sim_15a' });
+    const res = await deliver({ handler, event: statusEvent('awaiting pickup'), eventId: 'evt_sim_14b' });
+    assert.strictEqual(res._status, 200, 'status ' + res._status);
+    assert.strictEqual(res._body.applied, true);
+    const order = stub.state.orders.get('cmd_sim_001');
+    assert.strictEqual(order.status, 'pickup_requested');
+    assert.strictEqual(order.livoStatusRaw, 'awaiting pickup');
+    assert.strictEqual(order.trackingStartedAt, undefined, 'aucune ancre sur pickup_requested');
+  });
+
+  /* 15. T3 : `in_transit` -> `in_transit` ne repousse pas l'ancre */
+  await check('T3 : ancre posee une seule fois sur "in progress", non repoussee ensuite', async () => {
+    const { handler, stub } = buildHandler({ seedOrders: ORDER_SEED });
+    const first = await deliver({ handler, event: statusEvent('in progress'), eventId: 'evt_sim_15a' });
     assert.strictEqual(first._status, 200);
     const anchorAfterFirst = stub.state.orders.get('cmd_sim_001').trackingStartedAt;
-    assert.ok(anchorAfterFirst, 'ancre posee sur pending');
-    const fromAfterFirst = stub.state.orders.get('cmd_sim_001').trackingStartedFrom;
+    assert.deepStrictEqual(anchorAfterFirst, { __serverTimestamp: true }, 'ancre posee sur in progress');
+    assert.strictEqual(stub.state.orders.get('cmd_sim_001').trackingStartedFrom, 'livo_webhook');
 
+    const updatesBefore = stub.state.calls.updates;
+    // Second event distinct (event_id different) avec le MEME statut Livo.
     const second = await deliver({ handler, event: statusEvent('in progress'), eventId: 'evt_sim_15b' });
     assert.strictEqual(second._status, 200);
+    assert.strictEqual(second._body.duplicate, false, 'event_id different => pas un duplicate');
     const order = stub.state.orders.get('cmd_sim_001');
-    assert.strictEqual(order.status, 'shipping', 'statut commande: ' + order.status);
-    assert.deepStrictEqual(order.trackingStartedAt, anchorAfterFirst, 'ancre inchangee');
-    assert.strictEqual(order.trackingStartedFrom, fromAfterFirst, 'origine inchangee');
+    assert.strictEqual(order.status, 'in_transit');
+    assert.deepStrictEqual(order.trackingStartedAt, anchorAfterFirst, 'ancre identique (pas repoussee)');
+    assert.strictEqual(order.trackingStartedFrom, 'livo_webhook');
+    // L'ancre n'est pas reecrite : la cle doit etre absente du patch.
+    assert.strictEqual(stub.state.calls.updates, updatesBefore + 1, 'un seul update (livoStatusRaw)');
+  });
+
+  /* 15b. T5 : reconciliation - le Worker a echoue, le webhook rattrape */
+  await check('T5 : commande prepared (Worker a echoue) + "awaiting pickup" -> pickup_requested', async () => {
+    // Scenario reel : create-pickup est parti, Livo a bien pris le ramassage mais la
+    // reponse n'est jamais revenue -> la commande est restee en `prepared`.
+    const seed = { cmd_sim_015b: { id: 'cmd_sim_015b', status: 'prepared', livoTracking: 'LIVO-TRK-0015' } };
+    const { handler, stub } = buildHandler({ seedOrders: seed });
+    const evt = { id: 'evt_sim_15c', event: 'order.status_changed',
+                  data: { _id: 'LIVO-TRK-0015', status: 'awaiting pickup' } };
+    const res = await deliver({ handler, event: evt, eventId: 'evt_sim_15c' });
+    assert.strictEqual(res._status, 200, 'status ' + res._status);
+    assert.strictEqual(res._body.applied, true, 'le webhook doit rattraper l etat');
+    const order = stub.state.orders.get('cmd_sim_015b');
+    assert.strictEqual(order.status, 'pickup_requested', 'statut rattrape: ' + order.status);
+    assert.strictEqual(order.livoStatusRaw, 'awaiting pickup');
+    assert.strictEqual(order.trackingStartedAt, undefined, 'pas d ancre sur pickup_requested');
+  });
+
+  /* 15c. `problem` : livoStatusRaw seul, le statut principal ne bouge pas */
+  await check('"problem" -> livoStatusRaw ecrit, statut principal in_transit preserve', async () => {
+    const seed = { cmd_sim_015d: { id: 'cmd_sim_015d', status: 'in_transit',
+                                   livoTracking: 'LIVO-TRK-0016', trackingStartedAt: { __serverTimestamp: true } } };
+    const { handler, stub } = buildHandler({ seedOrders: seed });
+    const evt = { id: 'evt_sim_15d', event: 'order.status_changed',
+                  data: { _id: 'LIVO-TRK-0016', status: 'problem' } };
+    const res = await deliver({ handler, event: evt, eventId: 'evt_sim_15d' });
+    assert.strictEqual(res._status, 200);
+    assert.strictEqual(res._body.applied, true, 'applied: livoStatusRaw est ecrit');
+    const order = stub.state.orders.get('cmd_sim_015d');
+    assert.strictEqual(order.status, 'in_transit', 'statut principal JAMAIS ecrase par problem');
+    assert.strictEqual(order.livoStatusRaw, 'problem', 'l incident est trace brut');
+  });
+
+  /* 15d. `draft` et `reported` : hors mapping, aucune retrogradation possible */
+  await check('"draft" et "reported" -> livoStatusRaw seul, aucune retrogradation', async () => {
+    const seed = { cmd_sim_015e: { id: 'cmd_sim_015e', status: 'picked_up', livoTracking: 'LIVO-TRK-0017' } };
+    const { handler, stub } = buildHandler({ seedOrders: seed });
+
+    const draft = await deliver({ handler, event: {
+      id: 'evt_sim_15e', event: 'order.status_changed',
+      data: { _id: 'LIVO-TRK-0017', status: 'draft' } }, eventId: 'evt_sim_15e' });
+    assert.strictEqual(draft._status, 200);
+    assert.strictEqual(stub.state.orders.get('cmd_sim_015e').status, 'picked_up', 'draft ne retrograde pas');
+    assert.strictEqual(stub.state.orders.get('cmd_sim_015e').livoStatusRaw, 'draft');
+
+    const reported = await deliver({ handler, event: {
+      id: 'evt_sim_15f', event: 'order.status_changed',
+      data: { _id: 'LIVO-TRK-0017', status: 'reported' } }, eventId: 'evt_sim_15f' });
+    assert.strictEqual(reported._status, 200);
+    assert.strictEqual(stub.state.orders.get('cmd_sim_015e').status, 'picked_up', 'reported ne retrograde pas');
+    assert.strictEqual(stub.state.orders.get('cmd_sim_015e').livoStatusRaw, 'reported');
+  });
+
+  /* 15e. `shipping` n'est plus JAMAIS produit */
+  await check('aucun statut Livo ne produit plus "shipping"', async () => {
+    const mapped = buildHandler({ seedOrders: ORDER_SEED }).sandbox.LIVO_STATUS_TO_ORDER_STATUS;
+    const produced = Object.values(mapped);
+    assert.ok(!produced.includes('shipping'), 'shipping ne doit plus figurer dans le mapping: ' + produced.join(','));
+    assert.ok(!produced.includes('pending'), 'pending ne doit plus etre une cible du webhook');
+    assert.ok(produced.includes('in_transit') && produced.includes('pickup_requested') && produced.includes('picked_up'),
+      'les statuts du nouveau workflow doivent etre presents: ' + produced.join(','));
   });
 
   /* 16. fulfilled sans ancre : le webhook applique `delivered` mais ne pose PAS
