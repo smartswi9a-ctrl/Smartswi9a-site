@@ -26,18 +26,68 @@ expliquant pourquoi `SHIPPING` est conservé (lignes legacy).
 
 **Vérification** : `node --check js/orders.js` → OK.
 
-## C3 — `normalizeCityKey` : normalisation incohérente client/serveur
+## C3 — Rapprochement des villes : doublons Firestore
 
-**Cause** : le serveur (`functions/index.js`, `normalizeCityKey`) réduit tout
-caractère non alphanumérique à une espace (`m'diq` → `m diq`), alors que
-`villes.json` utilise des clés collées (`mdq`). `syncLivoCitiesFromApi` compare
-`existingByKey.get(c.city)` : sans correspondance, il **crée un doublon** au lieu
-de mettre à jour. Firestore accumule alors deux documents pour la même ville
-(ancien prix 30 DH, nouveau 45 DH) et `utils.js` choisit selon l'`id`.
+**Cause** : `syncLivoCitiesFromApi` comparait les libellés Livo à l'existant
+avec une **égalité stricte** sur `normalizeCityKey`. Or Livo fait varier ses
+libellés d'une synchronisation à l'autre :
 
-**Correctif** : ⏳ non appliqué — nécessite un accès Firestore authentifié pour
-mesurer l'ampleur des doublons avant toute écriture. **À traiter en priorité**
-(impact direct sur les prix affichés).
+| Livo renvoie | Document historique | Résultat |
+|---|---|---|
+| `sidi sliman` | `sidi slimane` | pas de match → **doublon créé** |
+| `ajdir al hoceima` | `ajdir` | pas de match → **doublon créé** |
+| `bni bouayach al hoceima` | `bni bouayach` | pas de match → **doublon créé** |
+
+Deux documents coexistaient alors pour la même ville (`cities/19`
+« Sidi Slimane » à 30 DH et `cities/city_sidi_sliman` à 45 DH).
+`utils.js` retenant le premier par `id`, c'est **l'ancien tarif** qui
+s'affichait → sous-facturation de 15 DH.
+
+**Correctif** (`functions/index.js`), trois passes du plus strict au plus
+permissif :
+
+1. clé exacte normalisée (comportement d'origine) ;
+2. clé « agressive » : tout sauf `[a-z0-9]` supprimé ;
+3. préfixe borné : l'une préfixe de l'autre, chacune ≥ 8 caractères et
+   rapport de longueur ≥ 0,75 — pour ne **pas** fusionner des villes
+   réellement distinctes (`bir jdid` / `bir rami`, `ksar el kebir` /
+   `ksar sghir`, `oued jdida` / `oued laou`).
+
+Helpers hissés au niveau module (`looseCityKey`, `findExistingCity`,
+`MIN_CITY_PREFIX = 8`) pour être testables sans Firestore.
+
+**Vérification** : `tests/livo-city-matching.test.cjs` — **8/8 PASS**.
+M2/M3/M4 couvrent les trois cas réels, M8 vérifie qu'un préfixe trop court
+ne fusionne pas.
+
+## C3-bis — Le sync SUPPRIMAIT des documents référencés par des commandes
+
+**Cause** : le bloc « suppression des villes obsolètes » supprimait tout
+document dont la clé n'était pas **exactement** dans la grille Livo, y compris
+les documents **historiques** (`lahraouiyine`, etc.).
+
+Or `createCustomerOrder` valide la commande via
+`db.collection('cities').doc(String(delivery.cityId))`. Si ce document a été
+supprimé, **la commande est refusée**.
+
+**Correctif** : la suppression ne vise plus que les documents **créés par
+Livo** (`data.source === 'livo'`) et **non appariés** (`matchedRefs`). Les
+documents historiques sont conservés — mis à jour au prix Livo s'ils
+correspondent à une ville desservie, laissés tels quels sinon.
+
+> Point le plus sensible du lot : sans ce correctif, un clic sur
+> « Synchroniser les villes » pouvait rendre des commandes existantes
+> invalides.
+
+## Piège : apostrophes dans les commentaires de `functions/index.js`
+
+Le test `livo-webhook-sim.test.cjs` extrait `resolveCreditUnlockBase` par
+**comptage d'accolades et de quotes** (parseur naïf ignorant les commentaires).
+Une apostrophe isolée dans un commentaire (`d'une`, `l'existant`, `s'ils`)
+ouvrait une fausse chaîne et décalait l'extraction → `exports is not defined`.
+
+Les commentaires de `functions/index.js` évitent désormais les apostrophes.
+**À respecter** pour toute future modification de ce fichier.
 
 ## C5 — `orders.js` : `updateOrderStatus` pouvait retourner `undefined`
 
