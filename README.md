@@ -1,91 +1,107 @@
-Corrections authentification vendeur — Smartswika
+# Smartswika — boutique e-commerce
 
-Cette archive contient uniquement les fichiers complets concernés par l'inscription et la connexion vendeur, la signature du contrat, les règles Firestore et le chemin du dashboard.
+Site statique (Firebase Hosting) + Cloud Functions + Workers Cloudflare.
+Livraison assurée par **Livo** (`rest.livo.ma`).
 
+Boutique : <https://smartswika.ma> · Projet Firebase : `smartswi9a-31063`
 
-Fichiers à remplacer à la racine du site
+---
 
+## Architecture
 
-firebase.json
-
-firestore.rules
-
-vendor-login.html
-
-vendor/dashboard.html (le dossier Vendor/ a été renommé en minuscules vendor/)
-
-js/vendor-signup.js
-
-js/vendor-dashboard.js
-
-functions/index.js
-
-functions/package.json
-
-
-Le lien « Espace vendeur » est déjà présent dans le index.html du ZIP d'origine : aucun remplacement de ce fichier n'est nécessaire.
-
-
-Corrections principales
-
-
-L'inscription permet à un profil acheteur existant de déposer une demande vendeur en attente, sans lui permettre de s'approuver lui-même.
-
-Le mot de passe vendeur indépendant reste stocké uniquement sous forme de hash bcrypt dans vendorCredentials/{uid}.
-
-La connexion vendeur accepte le mot de passe vendeur ou le mot de passe Firebase de l'acheteur, mais délivre un jeton seulement si le profil est approuvé et le contrat accepté.
-
-La connexion vendeur applique une limitation persistante des tentatives : 8 échecs maximum par adresse/IP sur 15 minutes.
-
-La signature du contrat peut être créée par son propriétaire, mais le navigateur ne peut plus modifier directement vendorInfo.contractStatus. Une Cloud Function vérifie le document et met à jour le profil.
-
-Le chemin est uniformisé en vendor/dashboard.html, sensible à la casse sur l'hébergement.
-
-functions/ est exclu de l'hébergement statique.
-
-
-Déploiement Firebase
-
-Le site statique est hébergé sur Cloudflare Pages. Ne pas déployer Firebase Hosting pour cette mise à jour.
-
-Depuis le dossier racine du dépôt Firebase :
-
-```bash
-cd functions
-npm install
-cd ..
-firebase deploy --only functions,firestore:rules,storage --project smartswi9a-31063
+```
+Navigateur
+   │
+   ├── Firebase Hosting (HTML/CSS/JS statiques, à la racine)
+   │      └── js/app.js est le SEUL point d'entrée chargé sur toutes les pages
+   │
+   ├── Firestore  (products, orders, users, cities, reviews, wallet…)
+   ├── Firebase Storage (images produits, avis, blog)
+   │
+   ├── Worker Cloudflare `smart-swi9a-api`
+   │      └── proxy /api/* → Cloud Functions (whitelist de 15 fonctions)
+   │
+   └── Worker Cloudflare `livo-proxy`  +  Cloud Function `livoWebhook`
+          └── pont vers l'API Livo (sortant / entrant)
 ```
 
-Cette commande déploie uniquement les Cloud Functions, les règles Firestore et les règles Storage. Elle ne déploie pas le site statique et ne modifie pas les données Firestore.
+**19 Cloud Functions** (`europe-west1`, `nodejs22`, 256 Mo) — voir `functions/index.js`.
 
-Vérifier dans la console Firebase que l'authentification e-mail/mot de passe est activée. Le déploiement des fonctions peut demander des autorisations IAM, les API Google nécessaires et une facturation active (plan Blaze).
+---
 
+## Structure du dépôt
 
-Tests à effectuer avant production
+| Chemin | Contenu |
+|---|---|
+| `*.html` | Pages du site (racine = racine publiée) |
+| `js/` | Modules ES (app, admin, orders, cart, products, reviews…) |
+| `functions/index.js` | Toutes les Cloud Functions + helpers |
+| `cloudflare/workers/` | `livo-proxy.js`, `smart-swi9a-api.js`, `worker-ip.js` |
+| `firestore.rules`, `storage.rules` | Règles de sécurité |
+| `firestore.indexes.json` | Index composites |
+| `tests/` | Suites de non-régression (aucune dépendance réseau) |
+| `scripts/` | Outils locaux (migration, backfill, sitemap, audit Livo) |
+| `docs/` | Documentation (API Livo, runbooks, dettes, journal d'audit) |
 
+---
 
-Inscription avec un nouvel e-mail : création du profil pending, mot de passe vendeur défini, contrat enregistré.
+## Documentation
 
-Inscription avec un e-mail acheteur existant : le mot de passe acheteur est vérifié et l'UID acheteur est conservé.
+| Document | Objet |
+|---|---|
+| **`docs/livo/`** | **Spec OpenAPI Livo (246 Ko) + grille tarifaire live (404 villes)** |
+| `docs/livo/README.md` | Index du dossier Livo, contraintes API, politiques de prix |
+| `docs/AUDIT-CORRECTIONS-2026-11-16.md` | Journal des 13 corrections (causes racines + validations) |
+| `docs/DETTES.md` | Dettes techniques ouvertes |
+| `docs/api/` | Spécifications OpenAPI Livo d'origine |
+| `docs/runbooks/` | Rotation des secrets, migration shipping, monitoring |
+| `docs/legal/` | CGU acheteur, CGU vendeur, contrat vendeur, confidentialité |
 
-Profil vendeur pending/rejected/suspended : aucun accès dashboard.
+---
 
-Profil approuvé avec contrat accepté : connexion avec les deux mots de passe.
+## Développement
 
-Acheteur ordinaire et administrateur : pas d'accès vendeur non autorisé.
+```powershell
+# Tests (aucune dépendance externe, aucun réseau)
+npm test
 
-Tentatives erronées répétées : blocage temporaire.
+# Déploiement
+firebase deploy --only hosting
+firebase deploy --only functions
+firebase deploy --only firestore:rules,firestore:indexes
 
-Signature et re-signature du contrat depuis l'inscription et depuis le dashboard.
+# Worker Cloudflare — TOUJOURS préciser --config
+cd cloudflare\workers
+npx wrangler deploy --config wrangler.worker-ip.toml
+```
 
-Vérifier le site sous https://smartswika.ma et https://www.smartswika.ma si les deux domaines sont utilisés.
+### Outils Livo
 
+```powershell
+node scripts/import-livo-fees.cjs             # rafraîchit docs/livo/fees-livo.json
+node scripts/rebuild-villes-from-livo.cjs     # reconstruit villes.json (404 villes)
+node scripts/audit-livo-fees.cjs              # compare Livo ↔ site
+```
 
-Limite importante : commandes
+---
 
-Les règles continuent de refuser la création directe de orders/{orderId} par le navigateur. C'est volontaire : le panier actuel est côté client et les montants/stock ne doivent pas être approuvés sans vérification serveur. Pour rétablir la validation de commande, il faut créer et tester un endpoint de commande qui valide le prix, le stock, les frais, les vendeurs et l'idempotence. Ne pas remplacer cette règle par allow create: if signedIn().
+## Règles à respecter
 
+1. **Aucun secret dans le dépôt.** Clés via `wrangler secret put` et Firebase Secret Manager.
+2. **`functions/index.js` : pas d'apostrophe dans les commentaires.** Le test
+   `livo-webhook-sim` extrait du code par comptage de quotes et ne sait pas
+   ignorer les commentaires ; une apostrophe seule décale l'extraction.
+3. **Ne jamais réécrire `js/admin.js` avec `Set-Content -Encoding UTF8`.**
+   Cela double-encode accents et emojis. Utiliser l'éditeur, ou
+   `ReadAllLines`/`WriteAllLines` avec `UTF8Encoding(false)`.
+4. **Branche `main` protégée** : PR obligatoire + check `static-and-rules`.
+5. **Aligner `villes.json` et Firestore sur Livo** après toute sync tarifaire.
 
-Cette archive a été contrôlée statiquement (syntaxe JavaScript et JSON). Elle n'a pas été déployée ni testée sur le projet Firebase réel ; exécuter les tests ci-dessus et idéalement Firebase Emulator avant la mise en production.
+---
 
+## État connu (2026-11-16)
+
+- **404 villes** desservies, prix Livo exacts, sans marge.
+- **Catalogue produits vide** : le site est en cours de construction.
+- Les sections « Avis » et « Témoignages » se masquent tant qu'il n'y a
+  aucun avis `featured`.

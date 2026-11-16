@@ -206,7 +206,15 @@ export async function initDynamicTestimonials() {
     );
   } catch (e) {
     console.error("[testimonials] Erreur init :", e);
-    /* En cas d'erreur, on laisse le conteneur avec le loader plutôt que de casser la page. */
+    /* CORRECTIF C12 : en cas d'erreur, on retire le loader et on masque la
+       section. Avant, le commentaire disait « on laisse le conteneur avec le
+       loader plutot que de casser la page » : le resultat visible etait un
+       « Chargement des avis... » qui ne disparaissait JAMAIS pour le visiteur,
+       ce qui laissait croire a une panne. Une section « Avis » absente est
+       normale quand la boutique est neuve ; un loader infini ne l'est pas. */
+    container.innerHTML = "";
+    const section = container.closest("section");
+    if (section) section.style.display = "none";
   } finally {
     _initInProgress = false;
   }

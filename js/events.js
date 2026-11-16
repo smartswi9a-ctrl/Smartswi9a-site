@@ -176,7 +176,11 @@ const eventHandlers = {
           .catch(() => {}),
         import("./testimonials.js")
           .then((m) => m.initDynamicTestimonials())
-          .catch(() => {}),
+          /* CORRECTIF C12 : ne jamais avaler l erreur en silence. Un
+             .catch(() => {}) masquait un catch interne qui laissait le
+             loader « Chargement des avis... » affiche indefiniment quand
+             la collection reviews est vide ou en erreur. */
+          .catch((e) => console.warn("[events] testimonials init failed:", e)),
       ]).catch((err) => console.warn("[events] Re-render home failed:", err));
     }
 

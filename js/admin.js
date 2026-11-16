@@ -566,7 +566,13 @@ function renderWarehousePrepList() {
  * dans une seule transaction Firestore.
  *
  * NB (brief PR 2/6) : `stock` (stock commercial global) n'est PAS synchronisé ici.
- * TODO PR ultérieure : vérifier que stock est décrémenté au checkout (risque d'oversell sinon).
+ *
+ * VERIFIE le 2026-11-16 (audit) : plus de risque d'oversell au checkout.
+ * `createCustomerOrder` (functions/index.js:3095 et :3105) pose
+ * `stockDeducted: true` ET applique les decrements produits dans la MEME
+ * transaction Firestore que la creation de la commande. Le stock est donc
+ * deja reserve/decroit des l'achat. L'ancien TODO « verifier que stock est
+ * decremente au checkout » etait obsolete.
  */
 async function markOrderAsPrepared(orderId, btn) {
     if (!orderId) return;
