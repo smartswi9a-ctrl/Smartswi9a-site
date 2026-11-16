@@ -1,8 +1,8 @@
 # Dettes techniques ouvertes - Smart Swi9a
 
-## Dette 8.11 - SHIPPING residuel (js/config.js + js/orders.js)
+## Dette 8.11 - RESOLUE le 2026-11-16 : SHIPPING residuel (js/config.js)
 
-**Etat** : gelee et documentee dans js/config.js (commentaire GELE 2026-11-16).
+**Etat** : RESOLUE. Le code orders.js creait deja IN_TRANSIT (la note "GELE" etait obsolete). Retrait de ORDER_STATUS.SHIPPING de LIVO_SYNCABLE_STATUSES applique.
 
 **Probleme** : ORDER_STATUS.SHIPPING est encore dans LIVO_SYNCABLE_STATUSES,
 et des setters actifs dans js/orders.js (L1017/1022/1023) creent encore ce statut.
