@@ -476,8 +476,9 @@ export const LIVO_STATUS_MAP = {
 /* Statuts pour lesquels une synchronisation Livo a un sens (bouton Sync admin,
    auto-sync client, « Tout synchroniser »). Source unique : ne plus dupliquer
    la liste dans orders.js / admin.js.
-   - SHIPPING : conserve pour les commandes legacy encore dans cet etat
-     (normalizeOrderStatus ne le remappe pas). GELE 2026-11-16 - NE PAS retirer avant 8.11 (orders.js setters L1017/1022/1023 creent encore des SHIPPING).
+   - SHIPPING a ete retire le 2026-11-16 (dette 8.11 resolue). Les setters orders.js
+     creent desormais IN_TRANSIT. Les commandes legacy en SHIPPING sont remappees
+     vers IN_TRANSIT par normalizeOrderStatus avant d'etre synchronisees.
    - PENDING et PREPARING volontairement ABSENTS : le webhook serveur rattrape
      ces cas ; ne pas elargir en 8.5 (scope creep). */
 export const LIVO_SYNCABLE_STATUSES = [
@@ -485,8 +486,7 @@ export const LIVO_SYNCABLE_STATUSES = [
     ORDER_STATUS.PREPARED,
     ORDER_STATUS.PICKUP_REQUESTED,
     ORDER_STATUS.PICKED_UP,
-    ORDER_STATUS.IN_TRANSIT,
-    ORDER_STATUS.SHIPPING
+    ORDER_STATUS.IN_TRANSIT
 ];
 
 export const LIVO_RETURN_STATUS_MAP = {
