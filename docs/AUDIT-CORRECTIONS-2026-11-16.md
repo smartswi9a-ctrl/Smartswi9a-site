@@ -171,7 +171,10 @@ Firestore `cities` → `/villes.json`), donc la correction devait aussi porter s
 
 **Correctifs appliqués (politique : prix exacts Livo, marge = 0) :**
 
-1. **`villes.json`** — `scripts/apply-livo-fees-to-villes.cjs --write` :
+1. **`villes.json`** — `scripts/rebuild-villes-from-livo.cjs --write`
+   (remplace l'ancien `apply-livo-fees-to-villes.cjs`, supprimé le 2026-11-16 :
+   il conservait les villes hors Livo à 30 DH, ce qui contredisait la décision
+   produit « uniquement les villes desservies par Livo ») :
    135 villes alignées sur la grille Livo officielle. Résultat après coup :
    **128 prix identiques, 0 écart, 0 sous-facturation**.
    Casablanca 30 → 20 DH, Rabat 30 → 35 DH, Safi 30 → 45 DH.
