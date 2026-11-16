@@ -24,9 +24,9 @@ de LIVO_SYNCABLE_STATUSES + tests de non-regression.
 Crash sync attrape par le caller, degradation a 10 URLs statiques + exit 1.
 
 **Migration testee puis rollbackee** : migration vers firebase-admin/app +
-firebase-admin/firestore expose un bug plus profond :
-applicationDefault() crash async dans google-auth-library via processTimers
-hors await chain -> unhandled rejection -> crash process.
+firebase-admin/firestore expose un bug plus profond : applicationDefault()
+crash async dans google-auth-library via processTimers hors await chain
+-> unhandled rejection -> crash process.
 
 **Fix complet** : migration v14 + gestion explicite erreur async
 (try/catch autour getFirestore() avec timeout ADC, ou check
