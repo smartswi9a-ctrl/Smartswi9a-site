@@ -17,9 +17,11 @@ de LIVO_SYNCABLE_STATUSES + tests de non-regression.
 
 ---
 
-## Dette 8.12 - generate-sitemap.cjs : migration + gestion erreur async
+## Dette 8.12 - RESOLUE le 2026-11-16 : generate-sitemap.cjs : migration + gestion erreur async
 
-**Etat** : rollback de la migration v14. Le fichier utilise encore l'API v9
+**Etat** : RESOLUE (PR #66). Migration v14 + gestion async ADC + timeout 10s appliquee.
+
+Ancien etat : rollback de la migration v14. Le fichier utilise encore l'API v9
 (admin.apps, admin.credential.*), supprimee en firebase-admin v14.
 Crash sync attrape par le caller, degradation a 10 URLs statiques + exit 1.
 
