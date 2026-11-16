@@ -46,3 +46,15 @@ Tests a couvrir : ADC present / service account present / aucun credentials.
 ---
 
 **Reference** : audit PowerShell complet du 2026-11-16 (tag v8.10.0).
+---
+
+## Cloudflare - Audit du 2026-11-16
+
+**Etat** : Audite et securise.
+
+- **SSL/TLS** : Mode Full (strict) active (correction appliquee).
+- **HSTS** : Active (max-age 6 mois, includeSubDomains, preload, nosniff).
+- **WAF Custom** : Regle active pour bloquer l'acces aux fichiers sensibles (/firebase.json, /.gitignore, /.github/, etc.).
+- **WAF Manage** : Plan gratuit. Le *Free Managed Ruleset* est actif par defaut. Les rulesets OWASP/Managed avances necessitent un plan payant (hors scope).
+- **DNS** : Tous les enregistrements (smartswika.ma, www, ideos) sont proxies.
+- **DNSSEC** : Desactive (optionnel, necessite configuration chez le registrar).
