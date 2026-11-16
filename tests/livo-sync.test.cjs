@@ -516,20 +516,24 @@ async function check(name, fn) {
   });
 
   /* T10 ------------------------------------------------------------ */
-  await check('T10 : LIVO_SYNCABLE_STATUSES contient shipping+in_transit, exclut pending+preparing', async () => {
-    assert.ok(LIVO_SYNCABLE_STATUSES.includes('shipping'),
-      'shipping doit rester syncable (legacy, retrait en 8.6)');
+  await check('T10 : LIVO_SYNCABLE_STATUSES exclut shipping, contient in_transit et les 4 autres', async () => {
+    // Dette 8.11 resolue le 2026-11-16 : SHIPPING a ete retire de la liste.
+    // Les setters de orders.js creent desormais IN_TRANSIT, et les commandes
+    // legacy en SHIPPING sont remappees vers IN_TRANSIT par normalizeOrderStatus
+    // avant d'etre synchronisees : elles restent donc couvertes.
+    assert.ok(!LIVO_SYNCABLE_STATUSES.includes('shipping'),
+      'shipping ne doit plus etre syncable (retire en 8.11, remappe vers in_transit)');
     assert.ok(LIVO_SYNCABLE_STATUSES.includes('in_transit'),
       'in_transit doit etre syncable');
     assert.ok(!LIVO_SYNCABLE_STATUSES.includes('pending'),
       'pending ne doit pas etre syncable (le webhook rattrape)');
     assert.ok(!LIVO_SYNCABLE_STATUSES.includes('preparing'),
       'preparing ne doit pas etre syncable (le webhook rattrape)');
-    // Completude : les 6 statuts attendus, ni plus ni moins.
+    // Completude : les 5 statuts attendus, ni plus ni moins.
     assert.deepStrictEqual(
       Array.from(LIVO_SYNCABLE_STATUSES).slice().sort(),
-      ['confirmed', 'in_transit', 'picked_up', 'pickup_requested', 'prepared', 'shipping'],
-      'LIVO_SYNCABLE_STATUSES doit contenir exactement les 6 statuts prevus'
+      ['confirmed', 'in_transit', 'picked_up', 'pickup_requested', 'prepared'],
+      'LIVO_SYNCABLE_STATUSES doit contenir exactement les 5 statuts prevus'
     );
   });
 

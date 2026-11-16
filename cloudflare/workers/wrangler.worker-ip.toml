@@ -1,0 +1,47 @@
+# ============================================================
+# Worker Cloudflare : worker-ip
+# ------------------------------------------------------------
+# Capture l'IP reelle de l'appelant (CF-Connecting-IP) pour la
+# signature legale des contrats (Loi 53-05).
+#
+# Cree suite a l'audit du 2026-11-16 : le Worker etait deploye en
+# production depuis le 2026-10-23 via l'editeur rapide du dashboard,
+# sans aucune source versionnee. Ce fichier rend le deploiement
+# reproductible.
+#
+# Deploiement :
+#   npx wrangler deploy --config wrangler.worker-ip.toml
+#
+# ATTENTION : ne jamais deployer depuis ce repertoire sans --config.
+# Il contient plusieurs Workers ; le wrangler.toml par defaut cible
+# `smart-swi9a-api`.
+# ============================================================
+
+name = "worker-ip"
+main = "worker-ip.js"
+
+# Conserve la date de compatibilite actuelle du Worker deploye.
+# La modifier change le runtime au prochain deploiement : PR dediee.
+compatibility_date = "2025-01-01"
+
+# ------------------------------------------------------------------
+# VARIABLES (non secretes)
+# ------------------------------------------------------------------
+# ALLOWED_ORIGINS : liste blanche CORS, separee par des virgules.
+# Si absente, le code retombe sur ses valeurs par defaut
+# (smartswika.ma + www + smartswi9a.top + localhost).
+#
+# [vars]
+# ALLOWED_ORIGINS = "https://smartswika.ma,https://www.smartswika.ma"
+
+# ------------------------------------------------------------------
+# EXPOSITION
+# ------------------------------------------------------------------
+# Etat constate avant l'audit : https://worker-ip.smartswi9a.workers.dev
+# repondait deja. On fige l'existant ; le passage a false couperait un
+# acces actuellement actif.
+#
+# TODO (securite) : migrer les appels vers un domaine de zone pour
+# beneficier du WAF / rate limiting, puis workers_dev = false.
+workers_dev = true
+preview_urls = false

@@ -30,3 +30,7 @@ audit-report/
 
 # Backups locaux (audits, edits manuels)
 *.bak-*
+
+# Configuration locale de l'editeur (VS Code)
+.vscode/
+*.code-workspace

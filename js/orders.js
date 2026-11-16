@@ -807,6 +807,9 @@ export async function updateOrderStatus(orderId, newStatus) {
         let orderForEmail = null;
         let emailStatus = null;
         let previousStatusFinal = null;
+        /* CORRECTIF C5 : porte le resultat d'un no-op (statut deja cible).
+           Reste null quand la transition a reellement lieu. */
+        let noopResult = null;
 
         await runTransaction(db, async (transaction) => {
             const orderSnap = await transaction.get(orderRef);
@@ -818,9 +821,16 @@ export async function updateOrderStatus(orderId, newStatus) {
             
             // GARDE-FOU (Audit 2026-11-16) : Empecher la double execution
             // (emails, appels Livo) si le statut est deja le bon.
+            // CORRECTIF C5 (2026-11-16) : on renvoie desormais un resultat
+            // structure au lieu d'un `return` nu. Avant, runTransaction se
+            // resolvait avec `undefined` et l'appelant qui testait
+            // `result.success` levait une TypeError. Le comportement metier est
+            // inchange (aucune ecriture, aucun email, aucun appel Livo) mais
+            // le contrat de retour redevient homogene.
             if (previousStatus === normalizedStatus) {
                 console.log("[updateOrderStatus] Statut deja " + normalizedStatus + " pour " + orderId + ", ignore.");
-                return; 
+                noopResult = { success: false, error: 'Transition de commande interdite : statut deja ' + normalizedStatus + '.', unchanged: true };
+                return;
             }
 
             previousStatusFinal = previousStatus;
@@ -934,7 +944,11 @@ export async function updateOrderStatus(orderId, newStatus) {
                 productSnaps = await Promise.all(productRefs.map(r => transaction.get(r)));
             }
 
-            if (normalizedStatus === ORDER_STATUS.CANCELLED && [ORDER_STATUS.PENDING, ORDER_STATUS.CONFIRMED, ORDER_STATUS.SHIPPING].includes(previousStatus) && order.stockDeducted === true) {
+            /* Dette 8.11 : SHIPPING est remappe vers IN_TRANSIT par normalizeOrderStatus,
+               mais la liste ci-dessous teste previousStatus AVANT tout remappage potentiel.
+               IN_TRANSIT doit donc y figurer explicitement, sinon une commande annulee
+               depuis in_transit ne restaure pas le stock (stock fantome). */
+            if (normalizedStatus === ORDER_STATUS.CANCELLED && [ORDER_STATUS.PENDING, ORDER_STATUS.CONFIRMED, ORDER_STATUS.SHIPPING, ORDER_STATUS.IN_TRANSIT].includes(previousStatus) && order.stockDeducted === true) {
                 productRefs = [...new Set(order.items.map(i => String(i.productId)))].map(productId => doc(db, "products", productId));
                 productSnaps = await Promise.all(productRefs.map(r => transaction.get(r)));
             }
@@ -950,7 +964,7 @@ export async function updateOrderStatus(orderId, newStatus) {
                 order.stockDeducted = true;
             }
 
-            if (normalizedStatus === ORDER_STATUS.CANCELLED && [ORDER_STATUS.PENDING, ORDER_STATUS.CONFIRMED, ORDER_STATUS.SHIPPING].includes(previousStatus) && order.stockDeducted === true) {
+            if (normalizedStatus === ORDER_STATUS.CANCELLED && [ORDER_STATUS.PENDING, ORDER_STATUS.CONFIRMED, ORDER_STATUS.SHIPPING, ORDER_STATUS.IN_TRANSIT].includes(previousStatus) && order.stockDeducted === true) {
                 await restoreStockInTransaction(transaction, order, productSnaps, productRefs);
                 order.stockDeducted = false;
             }
@@ -1069,6 +1083,10 @@ export async function updateOrderStatus(orderId, newStatus) {
                 console.warn('Email échoué (non bloquant):', e);
             }
         }
+
+        /* CORRECTIF C5 : un no-op n'est pas un succes. On renvoie le resultat
+           structure pour que l'appelant ne lise pas `undefined`. */
+        if (noopResult) return noopResult;
 
         return { success: true };
     } catch (e) {

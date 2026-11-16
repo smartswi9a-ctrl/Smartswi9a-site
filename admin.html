@@ -659,6 +659,10 @@
                 <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
                     <button class="admin-btn-secondary" id="pickupLivoBtn" style="margin:0;">📦 Ramassage</button>
                     <button class="admin-btn-primary" id="syncAllLivoBtn" style="margin:0;">🔄 Synchroniser</button>
+                    <!-- Audit 2026-11-16 : la CF syncLivoCities existait deja mais
+                         AUCUN bouton ne l'appelait. Les prix Firestore sont donc
+                         restes figes sur des valeurs obsoletes. -->
+                    <button class="admin-btn-primary" id="syncLivoCitiesBtn" style="margin:0;" title="Recupere la grille tarifaire officielle Livo et met a jour le prix de chaque ville (sans marge)">🏙️ Synchroniser les villes</button>
                 </div>
             </div>
 

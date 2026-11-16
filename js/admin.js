@@ -22,7 +22,7 @@ import {
 import {
     escapeHTML, slugify, getStoragePathFromUrl, isStorageUrl,
     getSignupMethodLabel, getSignupMethodEmoji, toDate, t, getCityName,
-    formatLivoDate, isLivoPickupDateValid, parseLivoDate
+    formatLivoDate, isLivoPickupDateValid, parseLivoDate, loadCities
 } from "./utils.js";
 import {
     renderAdminOrders, resetAdminOrdersCache,
@@ -2165,6 +2165,81 @@ function _getId(...ids) {
         if (el) return el;
     }
     return null;
+}
+
+/* ============================================================
+   LIVO — SYNCHRONISATION DES VILLES (audit 2026-11-16)
+   ------------------------------------------------------------
+   Appelle la Cloud Function `syncLivoCities` (europe-west1) qui
+   récupère GET https://rest.livo.ma/fees/public et écrit le prix
+   OFFICIEL de chaque ville dans Firestore `cities`.
+
+   Aucune marge n'est appliquée : `syncLivoCitiesFromApi` écrit
+   `price: c.fee` (voir functions/index.js). Le panier
+   (getCartDeliveryFee -> city.price) affiche donc exactement le
+   tarif Livo.
+
+   `preserveCustom: false` (défaut) supprime aussi les villes qui
+   ne sont plus desservies par Livo (sauf source === 'manual').
+
+   L'appel exige un jeton Firebase d'un compte admin : la Function
+   vérifie le custom claim `admin` ou users/{uid}.role === 'admin'.
+   ============================================================ */
+async function syncLivoCitiesGrid() {
+    const btn = document.getElementById('syncLivoCitiesBtn');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Synchronisation...'; }
+
+    try {
+        const user = auth.currentUser;
+        if (!user) {
+            showToast('Connexion administrateur requise.', 5000);
+            return;
+        }
+        const token = await user.getIdToken(true);
+
+        const response = await fetch('/api/syncLivoCities', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + token
+            },
+            body: JSON.stringify({ preserveCustom: false })
+        });
+
+        let payload = null;
+        try { payload = await response.json(); } catch (_) { payload = null; }
+
+        if (!response.ok || !payload || payload.success !== true) {
+            const msg = (payload && payload.message) || ('HTTP ' + response.status);
+            console.error('[syncLivoCities] Echec:', msg);
+            showToast('Échec de la synchronisation des villes : ' + msg, 6000);
+            return;
+        }
+
+        const parts = [
+            'total ' + (payload.citiesCount ?? payload.synced ?? 0),
+            'créées ' + (payload.created ?? 0),
+            'mises à jour ' + (payload.updated ?? 0),
+            'supprimées ' + (payload.deleted ?? 0)
+        ];
+        console.log('[syncLivoCities] OK -', parts.join(', '));
+        showToast('Villes synchronisées (prix Livo officiels) — ' + parts.join(', '), 7000);
+
+        /* Le cache local (utils.js CACHE_KEY) doit être invalidé, sinon les
+           pages continuent d'afficher les anciens prix jusqu'à expiration. */
+        try {
+            if (typeof loadCities === 'function') {
+                await loadCities(true);
+            }
+        } catch (e) {
+            console.warn('[syncLivoCities] Rechargement des villes impossible:', e);
+        }
+    } catch (e) {
+        console.error('[syncLivoCities] Erreur:', e);
+        showToast('Erreur réseau lors de la synchronisation des villes.', 6000);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '🏙️ Synchroniser les villes'; }
+    }
 }
 
 /* ============================================================
@@ -5034,6 +5109,12 @@ function attachAllRemainingEvents() {
 
     const syncAllBtn = _getId('syncAllLivoBtn', 'syncAllSpeedafBtn');
     if (syncAllBtn) syncAllBtn.addEventListener('click', handleSyncAllLivo);
+
+    /* Audit 2026-11-16 : synchronisation de la GRILLE TARIFAIRE des villes
+       depuis Livo (prix officiels, sans marge). Distinct du bouton ci-dessus
+       qui ne synchronise que les STATUTS de commandes. */
+    const syncCitiesBtn = document.getElementById('syncLivoCitiesBtn');
+    if (syncCitiesBtn) syncCitiesBtn.addEventListener('click', syncLivoCitiesGrid);
 
     const pickupBtn = _getId('pickupLivoBtn', 'pickupSpeedafBtn');
     if (pickupBtn) {

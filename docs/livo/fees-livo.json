@@ -1,0 +1,2028 @@
+{
+  "source": "https://rest.livo.ma/fees/public",
+  "fetched_at": "2026-11-16T19:01:32.751Z",
+  "request_date": "Mon Nov 16 2026 19:02:43 GMT+0000 (Coordinated Universal Time)",
+  "count": 404,
+  "cities": [
+    {
+      "key": "achakar",
+      "name": "achakar",
+      "fee": 45
+    },
+    {
+      "key": "adouz",
+      "name": "adouz",
+      "fee": 39
+    },
+    {
+      "key": "afourar",
+      "name": "afourar",
+      "fee": 45
+    },
+    {
+      "key": "agadir",
+      "name": "agadir",
+      "fee": 35
+    },
+    {
+      "key": "agard",
+      "name": "agard",
+      "fee": 39
+    },
+    {
+      "key": "agdz",
+      "name": "agdz",
+      "fee": 45
+    },
+    {
+      "key": "aghmat",
+      "name": "aghmat",
+      "fee": 43
+    },
+    {
+      "key": "aghroud",
+      "name": "aghroud",
+      "fee": 45
+    },
+    {
+      "key": "aguelmous",
+      "name": "aguelmous",
+      "fee": 45
+    },
+    {
+      "key": "ahfir",
+      "name": "ahfir",
+      "fee": 45
+    },
+    {
+      "key": "ain allah",
+      "name": "ain allah",
+      "fee": 35
+    },
+    {
+      "key": "ain assafa",
+      "name": "ain assafa",
+      "fee": 29
+    },
+    {
+      "key": "ain atiq",
+      "name": "ain atiq",
+      "fee": 45
+    },
+    {
+      "key": "ain beda",
+      "name": "ain beda",
+      "fee": 35
+    },
+    {
+      "key": "ain beida",
+      "name": "ain beida",
+      "fee": 45
+    },
+    {
+      "key": "ain beni mathar",
+      "name": "ain beni mathar",
+      "fee": 39
+    },
+    {
+      "key": "ain chair",
+      "name": "ain chair",
+      "fee": 40
+    },
+    {
+      "key": "ain cheggag",
+      "name": "ain cheggag",
+      "fee": 45
+    },
+    {
+      "key": "ain chqef",
+      "name": "ain chqef",
+      "fee": 35
+    },
+    {
+      "key": "ain el aouda",
+      "name": "ain el aouda",
+      "fee": 45
+    },
+    {
+      "key": "ain erreggada",
+      "name": "ain erreggada",
+      "fee": 39
+    },
+    {
+      "key": "ain harrouda",
+      "name": "ain harrouda",
+      "fee": 35
+    },
+    {
+      "key": "ain raggada",
+      "name": "ain raggada",
+      "fee": 40
+    },
+    {
+      "key": "ain taoujdate",
+      "name": "ain taoujdate",
+      "fee": 45
+    },
+    {
+      "key": "ait aissa",
+      "name": "ait aissa",
+      "fee": 45
+    },
+    {
+      "key": "ait aizza",
+      "name": "ait aizza",
+      "fee": 40
+    },
+    {
+      "key": "ait amira",
+      "name": "ait amira",
+      "fee": 45
+    },
+    {
+      "key": "ait amou",
+      "name": "ait amou",
+      "fee": 29
+    },
+    {
+      "key": "ait baha",
+      "name": "ait baha",
+      "fee": 40
+    },
+    {
+      "key": "ait ishaq",
+      "name": "ait ishaq",
+      "fee": 39
+    },
+    {
+      "key": "ait melloul",
+      "name": "ait melloul",
+      "fee": 45
+    },
+    {
+      "key": "ait milk",
+      "name": "ait milk",
+      "fee": 45
+    },
+    {
+      "key": "ait moussa",
+      "name": "ait moussa",
+      "fee": 45
+    },
+    {
+      "key": "ait oumribet",
+      "name": "ait oumribet",
+      "fee": 45
+    },
+    {
+      "key": "ait ourir",
+      "name": "ait ourir",
+      "fee": 45
+    },
+    {
+      "key": "ait youssef",
+      "name": "ait youssef",
+      "fee": 45
+    },
+    {
+      "key": "ajdir - al hoceima",
+      "name": "ajdir - al hoceima",
+      "fee": 45
+    },
+    {
+      "key": "akermoud",
+      "name": "akermoud",
+      "fee": 39
+    },
+    {
+      "key": "aklim",
+      "name": "aklim",
+      "fee": 39
+    },
+    {
+      "key": "aknoul",
+      "name": "aknoul",
+      "fee": 39
+    },
+    {
+      "key": "al aaroui",
+      "name": "al aaroui",
+      "fee": 45
+    },
+    {
+      "key": "al hoceima",
+      "name": "al hoceima",
+      "fee": 45
+    },
+    {
+      "key": "amizmiz",
+      "name": "amizmiz",
+      "fee": 45
+    },
+    {
+      "key": "amsa",
+      "name": "amsa",
+      "fee": 35
+    },
+    {
+      "key": "anza",
+      "name": "anza",
+      "fee": 45
+    },
+    {
+      "key": "aoulouz",
+      "name": "aoulouz",
+      "fee": 45
+    },
+    {
+      "key": "aourir",
+      "name": "aourir",
+      "fee": 45
+    },
+    {
+      "key": "arfoud",
+      "name": "arfoud",
+      "fee": 45
+    },
+    {
+      "key": "asilah",
+      "name": "asilah",
+      "fee": 45
+    },
+    {
+      "key": "asni",
+      "name": "asni",
+      "fee": 45
+    },
+    {
+      "key": "assa-zag",
+      "name": "assa-zag",
+      "fee": 45
+    },
+    {
+      "key": "azemmour",
+      "name": "azemmour",
+      "fee": 45
+    },
+    {
+      "key": "azilal",
+      "name": "azilal",
+      "fee": 45
+    },
+    {
+      "key": "azla",
+      "name": "azla",
+      "fee": 40
+    },
+    {
+      "key": "azrou",
+      "name": "azrou",
+      "fee": 45
+    },
+    {
+      "key": "bab berred",
+      "name": "bab berred",
+      "fee": 45
+    },
+    {
+      "key": "bab marzouka",
+      "name": "bab marzouka",
+      "fee": 45
+    },
+    {
+      "key": "bab taza",
+      "name": "bab taza",
+      "fee": 45
+    },
+    {
+      "key": "belaaguid",
+      "name": "belaaguid",
+      "fee": 45
+    },
+    {
+      "key": "belfaa",
+      "name": "belfaa",
+      "fee": 45
+    },
+    {
+      "key": "ben ahmed",
+      "name": "ben ahmed",
+      "fee": 45
+    },
+    {
+      "key": "ben guerir",
+      "name": "ben guerir",
+      "fee": 45
+    },
+    {
+      "key": "ben taieb",
+      "name": "ben taieb",
+      "fee": 45
+    },
+    {
+      "key": "beni chiker",
+      "name": "beni chiker",
+      "fee": 39
+    },
+    {
+      "key": "beni drar",
+      "name": "beni drar",
+      "fee": 45
+    },
+    {
+      "key": "beni ensar",
+      "name": "beni ensar",
+      "fee": 45
+    },
+    {
+      "key": "beni mellal",
+      "name": "beni mellal",
+      "fee": 40
+    },
+    {
+      "key": "benseragou",
+      "name": "benseragou",
+      "fee": 45
+    },
+    {
+      "key": "benslimane",
+      "name": "benslimane",
+      "fee": 40
+    },
+    {
+      "key": "berkane",
+      "name": "berkane",
+      "fee": 45
+    },
+    {
+      "key": "biougra",
+      "name": "biougra",
+      "fee": 45
+    },
+    {
+      "key": "bir jdid",
+      "name": "bir jdid",
+      "fee": 45
+    },
+    {
+      "key": "bni ahmed",
+      "name": "bni ahmed",
+      "fee": 45
+    },
+    {
+      "key": "bni bouayach - al hoceima",
+      "name": "bni bouayach - al hoceima",
+      "fee": 45
+    },
+    {
+      "key": "bni tadjite",
+      "name": "bni tadjite",
+      "fee": 45
+    },
+    {
+      "key": "bouaassida",
+      "name": "bouaassida",
+      "fee": 45
+    },
+    {
+      "key": "bouanane",
+      "name": "bouanane",
+      "fee": 45
+    },
+    {
+      "key": "bouarfa",
+      "name": "bouarfa",
+      "fee": 45
+    },
+    {
+      "key": "bouderbala",
+      "name": "bouderbala",
+      "fee": 45
+    },
+    {
+      "key": "boudnib",
+      "name": "boudnib",
+      "fee": 45
+    },
+    {
+      "key": "boufakrane",
+      "name": "boufakrane",
+      "fee": 45
+    },
+    {
+      "key": "bouizakarne",
+      "name": "bouizakarne",
+      "fee": 45
+    },
+    {
+      "key": "boujad",
+      "name": "boujad",
+      "fee": 45
+    },
+    {
+      "key": "boujdour",
+      "name": "boujdour",
+      "fee": 45
+    },
+    {
+      "key": "boujniba",
+      "name": "boujniba",
+      "fee": 45
+    },
+    {
+      "key": "boukidan - al hoceima",
+      "name": "boukidan - al hoceima",
+      "fee": 39
+    },
+    {
+      "key": "boulemane",
+      "name": "boulemane",
+      "fee": 45
+    },
+    {
+      "key": "boulenouar",
+      "name": "boulenouar",
+      "fee": 29
+    },
+    {
+      "key": "boumalne dades",
+      "name": "boumalne dades",
+      "fee": 45
+    },
+    {
+      "key": "boumia",
+      "name": "boumia",
+      "fee": 45
+    },
+    {
+      "key": "bouqorra",
+      "name": "bouqorra",
+      "fee": 45
+    },
+    {
+      "key": "bouskoura",
+      "name": "bouskoura",
+      "fee": 35
+    },
+    {
+      "key": "bouznika",
+      "name": "bouznika",
+      "fee": 40
+    },
+    {
+      "key": "briksha",
+      "name": "briksha",
+      "fee": 45
+    },
+    {
+      "key": "cabo negro",
+      "name": "cabo negro",
+      "fee": 40
+    },
+    {
+      "key": "casablanca",
+      "name": "casablanca",
+      "fee": 20
+    },
+    {
+      "key": "chefchaouen",
+      "name": "chefchaouen",
+      "fee": 45
+    },
+    {
+      "key": "chellalat",
+      "name": "chellalat",
+      "fee": 39
+    },
+    {
+      "key": "chichaoua",
+      "name": "chichaoua",
+      "fee": 45
+    },
+    {
+      "key": "chouiter",
+      "name": "chouiter",
+      "fee": 45
+    },
+    {
+      "key": "dakhla",
+      "name": "dakhla",
+      "fee": 45
+    },
+    {
+      "key": "dalia",
+      "name": "dalia",
+      "fee": 45
+    },
+    {
+      "key": "dar bouazza",
+      "name": "dar bouazza",
+      "fee": 35
+    },
+    {
+      "key": "dar el kebdani",
+      "name": "dar el kebdani",
+      "fee": 39
+    },
+    {
+      "key": "dar guedari",
+      "name": "dar guedari",
+      "fee": 45
+    },
+    {
+      "key": "dar ould zidouh",
+      "name": "dar ould zidouh",
+      "fee": 39
+    },
+    {
+      "key": "dcheira el jihadia",
+      "name": "dcheira el jihadia",
+      "fee": 45
+    },
+    {
+      "key": "demnate",
+      "name": "demnate",
+      "fee": 45
+    },
+    {
+      "key": "derdara",
+      "name": "derdara",
+      "fee": 45
+    },
+    {
+      "key": "deroua",
+      "name": "deroua",
+      "fee": 35
+    },
+    {
+      "key": "dlalha",
+      "name": "dlalha",
+      "fee": 45
+    },
+    {
+      "key": "douar sidi ali",
+      "name": "douar sidi ali",
+      "fee": 45
+    },
+    {
+      "key": "douyet",
+      "name": "douyet",
+      "fee": 35
+    },
+    {
+      "key": "drarga",
+      "name": "drarga",
+      "fee": 45
+    },
+    {
+      "key": "driouch",
+      "name": "driouch",
+      "fee": 45
+    },
+    {
+      "key": "echemmaia",
+      "name": "echemmaia",
+      "fee": 45
+    },
+    {
+      "key": "el ain",
+      "name": "el ain",
+      "fee": 39
+    },
+    {
+      "key": "el attaouia",
+      "name": "el attaouia",
+      "fee": 45
+    },
+    {
+      "key": "el bazaza",
+      "name": "el bazaza",
+      "fee": 45
+    },
+    {
+      "key": "el gara",
+      "name": "el gara",
+      "fee": 45
+    },
+    {
+      "key": "el haj kaddour",
+      "name": "el haj kaddour",
+      "fee": 45
+    },
+    {
+      "key": "el hajeb",
+      "name": "el hajeb",
+      "fee": 45
+    },
+    {
+      "key": "el jadida",
+      "name": "el jadida",
+      "fee": 40
+    },
+    {
+      "key": "el jebha",
+      "name": "el jebha",
+      "fee": 45
+    },
+    {
+      "key": "el ksabi",
+      "name": "el ksabi",
+      "fee": 39
+    },
+    {
+      "key": "el ksiba",
+      "name": "el ksiba",
+      "fee": 45
+    },
+    {
+      "key": "el mansouria",
+      "name": "el mansouria",
+      "fee": 45
+    },
+    {
+      "key": "elbrouj",
+      "name": "elbrouj",
+      "fee": 45
+    },
+    {
+      "key": "errachidia",
+      "name": "errachidia",
+      "fee": 45
+    },
+    {
+      "key": "errahma",
+      "name": "errahma",
+      "fee": 35
+    },
+    {
+      "key": "essamara",
+      "name": "essamara",
+      "fee": 45
+    },
+    {
+      "key": "essaouira",
+      "name": "essaouira",
+      "fee": 45
+    },
+    {
+      "key": "fadesa",
+      "name": "fadesa",
+      "fee": 29
+    },
+    {
+      "key": "farkhana",
+      "name": "farkhana",
+      "fee": 45
+    },
+    {
+      "key": "fes",
+      "name": "fes",
+      "fee": 35
+    },
+    {
+      "key": "fezouane",
+      "name": "fezouane",
+      "fee": 39
+    },
+    {
+      "key": "fezoune",
+      "name": "fezoune",
+      "fee": 45
+    },
+    {
+      "key": "figuig",
+      "name": "figuig",
+      "fee": 45
+    },
+    {
+      "key": "fkih ben salah",
+      "name": "fkih ben salah",
+      "fee": 45
+    },
+    {
+      "key": "fnideq",
+      "name": "fnideq",
+      "fee": 45
+    },
+    {
+      "key": "foum el ansar",
+      "name": "foum el ansar",
+      "fee": 39
+    },
+    {
+      "key": "foum oudi",
+      "name": "foum oudi",
+      "fee": 40
+    },
+    {
+      "key": "ghorm elam",
+      "name": "ghorm elam",
+      "fee": 29
+    },
+    {
+      "key": "goulmima",
+      "name": "goulmima",
+      "fee": 40
+    },
+    {
+      "key": "guelmim",
+      "name": "guelmim",
+      "fee": 45
+    },
+    {
+      "key": "guenfouda",
+      "name": "guenfouda",
+      "fee": 39
+    },
+    {
+      "key": "guercif",
+      "name": "guercif",
+      "fee": 45
+    },
+    {
+      "key": "guisser",
+      "name": "guisser",
+      "fee": 45
+    },
+    {
+      "key": "gzenaya",
+      "name": "gzenaya",
+      "fee": 45
+    },
+    {
+      "key": "had draa",
+      "name": "had draa",
+      "fee": 45
+    },
+    {
+      "key": "had khamouja",
+      "name": "had khamouja",
+      "fee": 45
+    },
+    {
+      "key": "had soualem",
+      "name": "had soualem",
+      "fee": 40
+    },
+    {
+      "key": "haouzia",
+      "name": "haouzia",
+      "fee": 35
+    },
+    {
+      "key": "harhoura",
+      "name": "harhoura",
+      "fee": 45
+    },
+    {
+      "key": "hattane",
+      "name": "hattane",
+      "fee": 45
+    },
+    {
+      "key": "houara",
+      "name": "houara",
+      "fee": 45
+    },
+    {
+      "key": "idelsane",
+      "name": "idelsane",
+      "fee": 45
+    },
+    {
+      "key": "ifrane",
+      "name": "ifrane",
+      "fee": 45
+    },
+    {
+      "key": "ihadaden",
+      "name": "ihadaden",
+      "fee": 39
+    },
+    {
+      "key": "imi ouaddar",
+      "name": "imi ouaddar",
+      "fee": 39
+    },
+    {
+      "key": "imintanoute",
+      "name": "imintanoute",
+      "fee": 45
+    },
+    {
+      "key": "imjad",
+      "name": "imjad",
+      "fee": 45
+    },
+    {
+      "key": "imouzzer",
+      "name": "imouzzer",
+      "fee": 45
+    },
+    {
+      "key": "imzouren",
+      "name": "imzouren",
+      "fee": 45
+    },
+    {
+      "key": "inezgane",
+      "name": "inezgane",
+      "fee": 45
+    },
+    {
+      "key": "issaguen",
+      "name": "issaguen",
+      "fee": 45
+    },
+    {
+      "key": "itzer",
+      "name": "itzer",
+      "fee": 39
+    },
+    {
+      "key": "jaadar",
+      "name": "jaadar",
+      "fee": 35
+    },
+    {
+      "key": "jamaat shaim",
+      "name": "jamaat shaim",
+      "fee": 45
+    },
+    {
+      "key": "jarf malha",
+      "name": "jarf malha",
+      "fee": 45
+    },
+    {
+      "key": "jerada",
+      "name": "jerada",
+      "fee": 45
+    },
+    {
+      "key": "jerf",
+      "name": "jerf",
+      "fee": 45
+    },
+    {
+      "key": "jourf el melha",
+      "name": "jourf el melha",
+      "fee": 45
+    },
+    {
+      "key": "kabila",
+      "name": "kabila",
+      "fee": 35
+    },
+    {
+      "key": "karia ba mohamed",
+      "name": "karia ba mohamed",
+      "fee": 45
+    },
+    {
+      "key": "kariat arekmane",
+      "name": "kariat arekmane",
+      "fee": 39
+    },
+    {
+      "key": "kasba tadla",
+      "name": "kasba tadla",
+      "fee": 45
+    },
+    {
+      "key": "kelaa des sraghna",
+      "name": "kelaa des sraghna",
+      "fee": 45
+    },
+    {
+      "key": "kelaat m'gouna",
+      "name": "kelaat m'gouna",
+      "fee": 45
+    },
+    {
+      "key": "kenitra",
+      "name": "kenitra",
+      "fee": 40
+    },
+    {
+      "key": "kettara",
+      "name": "kettara",
+      "fee": 45
+    },
+    {
+      "key": "khemissat",
+      "name": "khemissat",
+      "fee": 45
+    },
+    {
+      "key": "khenichet",
+      "name": "khenichet",
+      "fee": 45
+    },
+    {
+      "key": "khenifra",
+      "name": "khenifra",
+      "fee": 45
+    },
+    {
+      "key": "khmis rmila",
+      "name": "khmis rmila",
+      "fee": 45
+    },
+    {
+      "key": "khmis zmamra",
+      "name": "khmis zmamra",
+      "fee": 45
+    },
+    {
+      "key": "khouribga",
+      "name": "khouribga",
+      "fee": 40
+    },
+    {
+      "key": "koki",
+      "name": "koki",
+      "fee": 45
+    },
+    {
+      "key": "ksar el kebir",
+      "name": "ksar el kebir",
+      "fee": 45
+    },
+    {
+      "key": "ksar sghir",
+      "name": "ksar sghir",
+      "fee": 45
+    },
+    {
+      "key": "laaouamera",
+      "name": "laaouamera",
+      "fee": 45
+    },
+    {
+      "key": "laatamna",
+      "name": "laatamna",
+      "fee": 39
+    },
+    {
+      "key": "laayayta",
+      "name": "laayayta",
+      "fee": 45
+    },
+    {
+      "key": "laayoune",
+      "name": "laayoune",
+      "fee": 45
+    },
+    {
+      "key": "laayoune charkiya",
+      "name": "laayoune charkiya",
+      "fee": 45
+    },
+    {
+      "key": "lagfifat",
+      "name": "lagfifat",
+      "fee": 29
+    },
+    {
+      "key": "lahri",
+      "name": "lahri",
+      "fee": 39
+    },
+    {
+      "key": "lala mimouna",
+      "name": "lala mimouna",
+      "fee": 39
+    },
+    {
+      "key": "lamjaara",
+      "name": "lamjaara",
+      "fee": 45
+    },
+    {
+      "key": "lamriss",
+      "name": "lamriss",
+      "fee": 39
+    },
+    {
+      "key": "larache",
+      "name": "larache",
+      "fee": 45
+    },
+    {
+      "key": "leqliaa",
+      "name": "leqliaa",
+      "fee": 45
+    },
+    {
+      "key": "livo depot",
+      "name": "livo depot",
+      "fee": 45
+    },
+    {
+      "key": "livo depot casablanca",
+      "name": "livo depot casablanca",
+      "fee": 45
+    },
+    {
+      "key": "loudaya",
+      "name": "loudaya",
+      "fee": 35
+    },
+    {
+      "key": "m'haya",
+      "name": "m'haya",
+      "fee": 35
+    },
+    {
+      "key": "maaziz",
+      "name": "maaziz",
+      "fee": 45
+    },
+    {
+      "key": "madagh",
+      "name": "madagh",
+      "fee": 40
+    },
+    {
+      "key": "madina jedida",
+      "name": "madina jedida",
+      "fee": 45
+    },
+    {
+      "key": "marina smir",
+      "name": "marina smir",
+      "fee": 35
+    },
+    {
+      "key": "marrakech",
+      "name": "marrakech",
+      "fee": 35
+    },
+    {
+      "key": "martil",
+      "name": "martil",
+      "fee": 45
+    },
+    {
+      "key": "masmouda",
+      "name": "masmouda",
+      "fee": 45
+    },
+    {
+      "key": "mdiq",
+      "name": "mdiq",
+      "fee": 45
+    },
+    {
+      "key": "mechra bel ksiri",
+      "name": "mechra bel ksiri",
+      "fee": 45
+    },
+    {
+      "key": "mechraa belksiri",
+      "name": "mechraa belksiri",
+      "fee": 45
+    },
+    {
+      "key": "mediouna",
+      "name": "mediouna",
+      "fee": 35
+    },
+    {
+      "key": "mehdia",
+      "name": "mehdia",
+      "fee": 45
+    },
+    {
+      "key": "mejjat",
+      "name": "mejjat",
+      "fee": 45
+    },
+    {
+      "key": "meknes",
+      "name": "meknes",
+      "fee": 40
+    },
+    {
+      "key": "mers el lkhir",
+      "name": "mers el lkhir",
+      "fee": 40
+    },
+    {
+      "key": "merzouga",
+      "name": "merzouga",
+      "fee": 45
+    },
+    {
+      "key": "meskala",
+      "name": "meskala",
+      "fee": 39
+    },
+    {
+      "key": "midar",
+      "name": "midar",
+      "fee": 45
+    },
+    {
+      "key": "midelt",
+      "name": "midelt",
+      "fee": 45
+    },
+    {
+      "key": "mirleft",
+      "name": "mirleft",
+      "fee": 45
+    },
+    {
+      "key": "missour",
+      "name": "missour",
+      "fee": 45
+    },
+    {
+      "key": "mnar",
+      "name": "mnar",
+      "fee": 35
+    },
+    {
+      "key": "mohammedia",
+      "name": "mohammedia",
+      "fee": 35
+    },
+    {
+      "key": "mokrisset",
+      "name": "mokrisset",
+      "fee": 45
+    },
+    {
+      "key": "moqrisst",
+      "name": "moqrisst",
+      "fee": 45
+    },
+    {
+      "key": "moulay abdellah",
+      "name": "moulay abdellah",
+      "fee": 45
+    },
+    {
+      "key": "moulay bousselham",
+      "name": "moulay bousselham",
+      "fee": 45
+    },
+    {
+      "key": "moulay idriss zerhoun",
+      "name": "moulay idriss zerhoun",
+      "fee": 45
+    },
+    {
+      "key": "moullay abdellah amghar",
+      "name": "moullay abdellah amghar",
+      "fee": 45
+    },
+    {
+      "key": "mrirt",
+      "name": "mrirt",
+      "fee": 45
+    },
+    {
+      "key": "msmouda",
+      "name": "msmouda",
+      "fee": 45
+    },
+    {
+      "key": "nador",
+      "name": "nador",
+      "fee": 45
+    },
+    {
+      "key": "naima",
+      "name": "naima",
+      "fee": 40
+    },
+    {
+      "key": "nouaceur",
+      "name": "nouaceur",
+      "fee": 35
+    },
+    {
+      "key": "oualidia",
+      "name": "oualidia",
+      "fee": 45
+    },
+    {
+      "key": "ouargui",
+      "name": "ouargui",
+      "fee": 45
+    },
+    {
+      "key": "ouarzazate",
+      "name": "ouarzazate",
+      "fee": 45
+    },
+    {
+      "key": "ouazzane",
+      "name": "ouazzane",
+      "fee": 45
+    },
+    {
+      "key": "oued amlil",
+      "name": "oued amlil",
+      "fee": 45
+    },
+    {
+      "key": "oued jdida",
+      "name": "oued jdida",
+      "fee": 35
+    },
+    {
+      "key": "oued laou",
+      "name": "oued laou",
+      "fee": 45
+    },
+    {
+      "key": "oued zem",
+      "name": "oued zem",
+      "fee": 45
+    },
+    {
+      "key": "oujda",
+      "name": "oujda",
+      "fee": 45
+    },
+    {
+      "key": "oulad dahhou",
+      "name": "oulad dahhou",
+      "fee": 45
+    },
+    {
+      "key": "oulad fraj",
+      "name": "oulad fraj",
+      "fee": 45
+    },
+    {
+      "key": "oulad frej",
+      "name": "oulad frej",
+      "fee": 40
+    },
+    {
+      "key": "oulad ghanem",
+      "name": "oulad ghanem",
+      "fee": 45
+    },
+    {
+      "key": "oulad hassoune",
+      "name": "oulad hassoune",
+      "fee": 45
+    },
+    {
+      "key": "oulad ismail",
+      "name": "oulad ismail",
+      "fee": 40
+    },
+    {
+      "key": "oulad moussa",
+      "name": "oulad moussa",
+      "fee": 45
+    },
+    {
+      "key": "oulad rehou",
+      "name": "oulad rehou",
+      "fee": 45
+    },
+    {
+      "key": "oulad said",
+      "name": "oulad said",
+      "fee": 45
+    },
+    {
+      "key": "oulad teima",
+      "name": "oulad teima",
+      "fee": 45
+    },
+    {
+      "key": "oulad yahya",
+      "name": "oulad yahya",
+      "fee": 45
+    },
+    {
+      "key": "oulad yaich",
+      "name": "oulad yaich",
+      "fee": 45
+    },
+    {
+      "key": "oulad youssef",
+      "name": "oulad youssef",
+      "fee": 39
+    },
+    {
+      "key": "oulad zmam",
+      "name": "oulad zmam",
+      "fee": 39
+    },
+    {
+      "key": "ouled ayad",
+      "name": "ouled ayad",
+      "fee": 45
+    },
+    {
+      "key": "ouled berhil",
+      "name": "ouled berhil",
+      "fee": 45
+    },
+    {
+      "key": "ouled mbarek - beni mellal",
+      "name": "ouled mbarek - beni mellal",
+      "fee": 45
+    },
+    {
+      "key": "ouled said el oued",
+      "name": "ouled said el oued",
+      "fee": 29
+    },
+    {
+      "key": "ouled tayeb",
+      "name": "ouled tayeb",
+      "fee": 45
+    },
+    {
+      "key": "oulmes",
+      "name": "oulmes",
+      "fee": 45
+    },
+    {
+      "key": "ounagha",
+      "name": "ounagha",
+      "fee": 39
+    },
+    {
+      "key": "ounnana",
+      "name": "ounnana",
+      "fee": 45
+    },
+    {
+      "key": "ourika",
+      "name": "ourika",
+      "fee": 45
+    },
+    {
+      "key": "ourzazate-taznakht",
+      "name": "ourzazate-taznakht",
+      "fee": 45
+    },
+    {
+      "key": "outat el haj",
+      "name": "outat el haj",
+      "fee": 40
+    },
+    {
+      "key": "playa",
+      "name": "playa",
+      "fee": 45
+    },
+    {
+      "key": "rabat",
+      "name": "rabat",
+      "fee": 35
+    },
+    {
+      "key": "ranat",
+      "name": "ranat",
+      "fee": 39
+    },
+    {
+      "key": "ras el ma",
+      "name": "ras el ma",
+      "fee": 45
+    },
+    {
+      "key": "region casa",
+      "name": "region casa",
+      "fee": 29
+    },
+    {
+      "key": "region kech",
+      "name": "region kech",
+      "fee": 45
+    },
+    {
+      "key": "region marrakech",
+      "name": "region marrakech",
+      "fee": 45
+    },
+    {
+      "key": "region meknes",
+      "name": "region meknes",
+      "fee": 45
+    },
+    {
+      "key": "region tanger",
+      "name": "region tanger",
+      "fee": 40
+    },
+    {
+      "key": "rich",
+      "name": "rich",
+      "fee": 45
+    },
+    {
+      "key": "risani",
+      "name": "risani",
+      "fee": 45
+    },
+    {
+      "key": "rissani",
+      "name": "rissani",
+      "fee": 40
+    },
+    {
+      "key": "rommani",
+      "name": "rommani",
+      "fee": 45
+    },
+    {
+      "key": "rwadi",
+      "name": "rwadi",
+      "fee": 39
+    },
+    {
+      "key": "sabaa aiyoun",
+      "name": "sabaa aiyoun",
+      "fee": 45
+    },
+    {
+      "key": "safi",
+      "name": "safi",
+      "fee": 45
+    },
+    {
+      "key": "saidia",
+      "name": "saidia",
+      "fee": 45
+    },
+    {
+      "key": "sale",
+      "name": "sale",
+      "fee": 40
+    },
+    {
+      "key": "sale al jadida",
+      "name": "sale al jadida",
+      "fee": 45
+    },
+    {
+      "key": "sebaa ayoune",
+      "name": "sebaa ayoune",
+      "fee": 45
+    },
+    {
+      "key": "sebt gzoula",
+      "name": "sebt gzoula",
+      "fee": 45
+    },
+    {
+      "key": "sebt lguerdan",
+      "name": "sebt lguerdan",
+      "fee": 45
+    },
+    {
+      "key": "sefrou",
+      "name": "sefrou",
+      "fee": 45
+    },
+    {
+      "key": "selouane",
+      "name": "selouane",
+      "fee": 45
+    },
+    {
+      "key": "settat - sidi hajaj",
+      "name": "settat - sidi hajaj",
+      "fee": 40
+    },
+    {
+      "key": "sidi abdeljalil essaouira",
+      "name": "sidi abdeljalil essaouira",
+      "fee": 45
+    },
+    {
+      "key": "sidi abdellah ghiat",
+      "name": "sidi abdellah ghiat",
+      "fee": 45
+    },
+    {
+      "key": "sidi aissa ben ali",
+      "name": "sidi aissa ben ali",
+      "fee": 39
+    },
+    {
+      "key": "sidi allal el bahraoui",
+      "name": "sidi allal el bahraoui",
+      "fee": 45
+    },
+    {
+      "key": "sidi allal tazi",
+      "name": "sidi allal tazi",
+      "fee": 45
+    },
+    {
+      "key": "sidi bennour",
+      "name": "sidi bennour",
+      "fee": 45
+    },
+    {
+      "key": "sidi bibi",
+      "name": "sidi bibi",
+      "fee": 45
+    },
+    {
+      "key": "sidi bouknadel",
+      "name": "sidi bouknadel",
+      "fee": 45
+    },
+    {
+      "key": "sidi bousber",
+      "name": "sidi bousber",
+      "fee": 45
+    },
+    {
+      "key": "sidi bouzid",
+      "name": "sidi bouzid",
+      "fee": 39
+    },
+    {
+      "key": "sidi hajaj",
+      "name": "sidi hajaj",
+      "fee": 45
+    },
+    {
+      "key": "sidi hajjaj",
+      "name": "sidi hajjaj",
+      "fee": 45
+    },
+    {
+      "key": "sidi hmad",
+      "name": "sidi hmad",
+      "fee": 39
+    },
+    {
+      "key": "sidi ifni",
+      "name": "sidi ifni",
+      "fee": 45
+    },
+    {
+      "key": "sidi ishaq",
+      "name": "sidi ishaq",
+      "fee": 39
+    },
+    {
+      "key": "sidi jaber",
+      "name": "sidi jaber",
+      "fee": 45
+    },
+    {
+      "key": "sidi kacem",
+      "name": "sidi kacem",
+      "fee": 45
+    },
+    {
+      "key": "sidi rahal",
+      "name": "sidi rahal",
+      "fee": 45
+    },
+    {
+      "key": "sidi redouane",
+      "name": "sidi redouane",
+      "fee": 45
+    },
+    {
+      "key": "sidi sliman",
+      "name": "sidi sliman",
+      "fee": 45
+    },
+    {
+      "key": "sidi smail",
+      "name": "sidi smail",
+      "fee": 39
+    },
+    {
+      "key": "sidi taibi",
+      "name": "sidi taibi",
+      "fee": 45
+    },
+    {
+      "key": "sidi yahya du rharb",
+      "name": "sidi yahya du rharb",
+      "fee": 45
+    },
+    {
+      "key": "sidi yahya gharb",
+      "name": "sidi yahya gharb",
+      "fee": 45
+    },
+    {
+      "key": "sidi yahya zaer",
+      "name": "sidi yahya zaer",
+      "fee": 45
+    },
+    {
+      "key": "sidi zouine",
+      "name": "sidi zouine",
+      "fee": 45
+    },
+    {
+      "key": "skhirat",
+      "name": "skhirat",
+      "fee": 45
+    },
+    {
+      "key": "skoura",
+      "name": "skoura",
+      "fee": 45
+    },
+    {
+      "key": "smimou",
+      "name": "smimou",
+      "fee": 45
+    },
+    {
+      "key": "souihla",
+      "name": "souihla",
+      "fee": 45
+    },
+    {
+      "key": "souk el arbaa du gharb",
+      "name": "souk el arbaa du gharb",
+      "fee": 45
+    },
+    {
+      "key": "souk el had des bradia",
+      "name": "souk el had des bradia",
+      "fee": 45
+    },
+    {
+      "key": "souk elarbaa du gharb",
+      "name": "souk elarbaa du gharb",
+      "fee": 45
+    },
+    {
+      "key": "souk khemis du sahel",
+      "name": "souk khemis du sahel",
+      "fee": 45
+    },
+    {
+      "key": "souk sebt",
+      "name": "souk sebt",
+      "fee": 45
+    },
+    {
+      "key": "stehat",
+      "name": "stehat",
+      "fee": 45
+    },
+    {
+      "key": "taddart - agadir",
+      "name": "taddart - agadir",
+      "fee": 45
+    },
+    {
+      "key": "taddart - taza",
+      "name": "taddart - taza",
+      "fee": 45
+    },
+    {
+      "key": "tafersit",
+      "name": "tafersit",
+      "fee": 39
+    },
+    {
+      "key": "tafetachte",
+      "name": "tafetachte",
+      "fee": 39
+    },
+    {
+      "key": "tafraoute",
+      "name": "tafraoute",
+      "fee": 45
+    },
+    {
+      "key": "tagadirt",
+      "name": "tagadirt",
+      "fee": 45
+    },
+    {
+      "key": "tagharte",
+      "name": "tagharte",
+      "fee": 39
+    },
+    {
+      "key": "taghazout",
+      "name": "taghazout",
+      "fee": 45
+    },
+    {
+      "key": "taghbalt",
+      "name": "taghbalt",
+      "fee": 45
+    },
+    {
+      "key": "tagzert",
+      "name": "tagzert",
+      "fee": 39
+    },
+    {
+      "key": "tahannaout",
+      "name": "tahannaout",
+      "fee": 45
+    },
+    {
+      "key": "tahla",
+      "name": "tahla",
+      "fee": 45
+    },
+    {
+      "key": "taliouine",
+      "name": "taliouine",
+      "fee": 45
+    },
+    {
+      "key": "talmest",
+      "name": "talmest",
+      "fee": 39
+    },
+    {
+      "key": "tamait",
+      "name": "tamait",
+      "fee": 39
+    },
+    {
+      "key": "tamanar",
+      "name": "tamanar",
+      "fee": 45
+    },
+    {
+      "key": "tamansourt",
+      "name": "tamansourt",
+      "fee": 45
+    },
+    {
+      "key": "tamaris",
+      "name": "tamaris",
+      "fee": 30
+    },
+    {
+      "key": "tamelalt",
+      "name": "tamelalt",
+      "fee": 39
+    },
+    {
+      "key": "tamesluht",
+      "name": "tamesluht",
+      "fee": 45
+    },
+    {
+      "key": "tamesna",
+      "name": "tamesna",
+      "fee": 45
+    },
+    {
+      "key": "tamraght",
+      "name": "tamraght",
+      "fee": 45
+    },
+    {
+      "key": "tanger",
+      "name": "tanger",
+      "fee": 35
+    },
+    {
+      "key": "tantan",
+      "name": "tantan",
+      "fee": 45
+    },
+    {
+      "key": "taounat",
+      "name": "taounat",
+      "fee": 45
+    },
+    {
+      "key": "taourirt",
+      "name": "taourirt",
+      "fee": 45
+    },
+    {
+      "key": "tarfaya",
+      "name": "tarfaya",
+      "fee": 45
+    },
+    {
+      "key": "targuist - al hoceima",
+      "name": "targuist - al hoceima",
+      "fee": 45
+    },
+    {
+      "key": "taroudant",
+      "name": "taroudant",
+      "fee": 45
+    },
+    {
+      "key": "tarrast",
+      "name": "tarrast",
+      "fee": 45
+    },
+    {
+      "key": "tata",
+      "name": "tata",
+      "fee": 40
+    },
+    {
+      "key": "taza",
+      "name": "taza",
+      "fee": 45
+    },
+    {
+      "key": "tazaa",
+      "name": "tazaa",
+      "fee": 45
+    },
+    {
+      "key": "tazenakht",
+      "name": "tazenakht",
+      "fee": 39
+    },
+    {
+      "key": "temara",
+      "name": "temara",
+      "fee": 40
+    },
+    {
+      "key": "temsia",
+      "name": "temsia",
+      "fee": 39
+    },
+    {
+      "key": "tendrara",
+      "name": "tendrara",
+      "fee": 45
+    },
+    {
+      "key": "tenrara",
+      "name": "tenrara",
+      "fee": 29
+    },
+    {
+      "key": "teroual",
+      "name": "teroual",
+      "fee": 45
+    },
+    {
+      "key": "tetouan",
+      "name": "tetouan",
+      "fee": 35
+    },
+    {
+      "key": "tiddas",
+      "name": "tiddas",
+      "fee": 45
+    },
+    {
+      "key": "tiflet",
+      "name": "tiflet",
+      "fee": 45
+    },
+    {
+      "key": "tighssaline",
+      "name": "tighssaline",
+      "fee": 39
+    },
+    {
+      "key": "tikiouine",
+      "name": "tikiouine",
+      "fee": 45
+    },
+    {
+      "key": "tin mansour",
+      "name": "tin mansour",
+      "fee": 45
+    },
+    {
+      "key": "tinghir",
+      "name": "tinghir",
+      "fee": 45
+    },
+    {
+      "key": "tinjdad",
+      "name": "tinjdad",
+      "fee": 40
+    },
+    {
+      "key": "tiouli",
+      "name": "tiouli",
+      "fee": 29
+    },
+    {
+      "key": "tit mellil",
+      "name": "tit mellil",
+      "fee": 29
+    },
+    {
+      "key": "tizi ouasli",
+      "name": "tizi ouasli",
+      "fee": 29
+    },
+    {
+      "key": "tiznit",
+      "name": "tiznit",
+      "fee": 45
+    },
+    {
+      "key": "tlat bougedra",
+      "name": "tlat bougedra",
+      "fee": 45
+    },
+    {
+      "key": "tnin chtouka",
+      "name": "tnin chtouka",
+      "fee": 45
+    },
+    {
+      "key": "tnin gharbia",
+      "name": "tnin gharbia",
+      "fee": 45
+    },
+    {
+      "key": "tnin ghiat",
+      "name": "tnin ghiat",
+      "fee": 45
+    },
+    {
+      "key": "touima",
+      "name": "touima",
+      "fee": 45
+    },
+    {
+      "key": "touissite",
+      "name": "touissite",
+      "fee": 39
+    },
+    {
+      "key": "youssoufia",
+      "name": "youssoufia",
+      "fee": 45
+    },
+    {
+      "key": "zagora",
+      "name": "zagora",
+      "fee": 45
+    },
+    {
+      "key": "zaida",
+      "name": "zaida",
+      "fee": 39
+    },
+    {
+      "key": "zaio",
+      "name": "zaio",
+      "fee": 45
+    },
+    {
+      "key": "zaouda",
+      "name": "zaouda",
+      "fee": 45
+    },
+    {
+      "key": "zaouiat cheikh",
+      "name": "zaouiat cheikh",
+      "fee": 45
+    },
+    {
+      "key": "zaouyat sidi smail",
+      "name": "zaouyat sidi smail",
+      "fee": 47
+    },
+    {
+      "key": "zeghanghane",
+      "name": "zeghanghane",
+      "fee": 39
+    },
+    {
+      "key": "zemamra",
+      "name": "zemamra",
+      "fee": 45
+    },
+    {
+      "key": "zoualeth dkhissa",
+      "name": "zoualeth dkhissa",
+      "fee": 35
+    },
+    {
+      "key": "zoumi",
+      "name": "zoumi",
+      "fee": 45
+    },
+    {
+      "key": "zraibat",
+      "name": "zraibat",
+      "fee": 29
+    }
+  ]
+}
