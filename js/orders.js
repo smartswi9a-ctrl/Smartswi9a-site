@@ -582,7 +582,6 @@ const ALLOWED_TRANSITIONS = {
     [ORDER_STATUS.CONFIRMED]: [
         ORDER_STATUS.PREPARING,          /* mode entrepot */
         ORDER_STATUS.PICKUP_REQUESTED,   /* dropoff */
-        ORDER_STATUS.SHIPPING,           /* LEGACY : ancien flux direct */
         ORDER_STATUS.IN_TRANSIT,         /* PR 8.6 : sync Livo direct (confirmed -> in progress) */
         ORDER_STATUS.CANCELLED
     ],
@@ -816,6 +815,14 @@ export async function updateOrderStatus(orderId, newStatus) {
             const order = { id: orderId, ...orderSnap.data() };
             order.items = consolidateStockItems(order.items);
             const previousStatus = normalizeOrderStatus(order.status);
+            
+            // GARDE-FOU (Audit 2026-11-16) : Empecher la double execution
+            // (emails, appels Livo) si le statut est deja le bon.
+            if (previousStatus === normalizedStatus) {
+                console.log([updateOrderStatus] Statut deja a  pour , ignore.);
+                return; 
+            }
+
             previousStatusFinal = previousStatus;
             orderForEmail = order;
             emailStatus = normalizedStatus;
@@ -1014,13 +1021,13 @@ export async function updateOrderStatus(orderId, newStatus) {
 
                 if (livoResult.success && livoResult.trackingNumber) {
                     await updateDoc(orderRef, {
-                        status: ORDER_STATUS.SHIPPING,
+                        status: ORDER_STATUS.IN_TRANSIT,
                         livoTracking: livoResult.trackingNumber,
                         livoLabelUrl: livoResult.labelUrl || null,
                         livoSyncedAt: Timestamp.now()
                     });
-                    emailStatus = ORDER_STATUS.SHIPPING;
-                    orderForEmail.status = ORDER_STATUS.SHIPPING;
+                    emailStatus = ORDER_STATUS.IN_TRANSIT;
+                    orderForEmail.status = ORDER_STATUS.IN_TRANSIT;
                     orderForEmail.livoTracking = livoResult.trackingNumber;
                     showToast(`Colis créé chez Livo (Suivi: ${livoResult.trackingNumber})`);
                 } else {
