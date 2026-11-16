@@ -27,3 +27,6 @@ _rotate-secret.cjs
 _cfg.txt
 
 audit-report/
+
+# Backups locaux (audits, edits manuels)
+*.bak-*
