@@ -435,6 +435,44 @@ service cloud.firestore {
     }
 
     /* ============================================================
+       COLLECTIONS SENSIBLES — REFUS EXPLICITE (audit 2026-11-16)
+       ------------------------------------------------------------
+       Ces collections n'avaient AUCUNE clause dediee : elles tombaient
+       dans le refus par defaut. Le comportement ne change donc pas, mais
+       on le rend EXPLICITE et documente. Sans cela, une future regle
+       mal ciblee pouvait les exposer sans qu'aucun relecteur ne le voie.
+
+       - vendorCredentials  : hash bcrypt des mots de passe vendeurs.
+                              Ecriture/lecture uniquement via Admin SDK
+                              (setVendorPassword / loginVendor).
+       - vendorLoginThrottle: compteurs d'echecs de connexion.
+                              Ecrit uniquement par loginVendor.
+       - order_requests     : demandes de commande en attente de validation.
+       - livo_webhook_events: journal d'idempotence des webhooks Livo.
+       - meta               : caches techniques (livo_fees_cache, etc.).
+       ============================================================ */
+
+    match /vendorCredentials/{uid} {
+      allow read, write: if false;
+    }
+
+    match /vendorLoginThrottle/{throttleId} {
+      allow read, write: if false;
+    }
+
+    match /order_requests/{requestId} {
+      allow read, write: if false;
+    }
+
+    match /livo_webhook_events/{eventId} {
+      allow read, write: if false;
+    }
+
+    match /meta/{docId} {
+      allow read, write: if false;
+    }
+
+    /* ============================================================
        CONFIGURATION APPLICATIVE
        Source unique de verite (ex. contractVersion). Ecriture serveur
        uniquement ; la lecture par les regles passe par get() et ne

@@ -5,7 +5,7 @@
     "nameAr": "الدار البيضاء",
     "nameFr": "Casablanca",
     "nameEn": "Casablanca",
-    "price": 30,
+    "price": 20,
     "delay": "24h"
   },
   {
@@ -32,7 +32,7 @@
     "nameAr": "الرحمة",
     "nameFr": "Errahma",
     "nameEn": "Errahma Ville",
-    "price": 30,
+    "price": 35,
     "delay": "24h"
   },
   {
@@ -41,7 +41,7 @@
     "nameAr": "تيط مليل",
     "nameFr": "Tit Mellil",
     "nameEn": "Tit Mellil",
-    "price": 30,
+    "price": 29,
     "delay": "24h"
   },
   {
@@ -50,7 +50,7 @@
     "nameAr": "بوسكورة",
     "nameFr": "Bouskoura",
     "nameEn": "Bouskoura",
-    "price": 30,
+    "price": 35,
     "delay": "24h"
   },
   {
@@ -59,7 +59,7 @@
     "nameAr": "المحمدية",
     "nameFr": "Mohammedia",
     "nameEn": "Mohammedia",
-    "price": 30,
+    "price": 35,
     "delay": "24h"
   },
   {
@@ -68,7 +68,7 @@
     "nameAr": "حد السوالم",
     "nameFr": "Had Soualem",
     "nameEn": "Had Soualem",
-    "price": 30,
+    "price": 40,
     "delay": "24h"
   },
   {
@@ -77,7 +77,7 @@
     "nameAr": "النواصر",
     "nameFr": "Nouaceur",
     "nameEn": "Nouaceur",
-    "price": 30,
+    "price": 35,
     "delay": "24h"
   },
   {
@@ -86,7 +86,7 @@
     "nameAr": "دار بوعزة",
     "nameFr": "Dar Bouazza",
     "nameEn": "Dar Bouazza",
-    "price": 30,
+    "price": 35,
     "delay": "24h"
   },
   {
@@ -113,7 +113,7 @@
     "nameAr": "تيكيون",
     "nameFr": "Tikiouine",
     "nameEn": "Tikiouine",
-    "price": 30,
+    "price": 45,
     "delay": "24h"
   },
   {
@@ -122,7 +122,7 @@
     "nameAr": "الرباط",
     "nameFr": "Rabat",
     "nameEn": "Rabat",
-    "price": 30,
+    "price": 35,
     "delay": "48h"
   },
   {
@@ -131,7 +131,7 @@
     "nameAr": "سلا",
     "nameFr": "Salé",
     "nameEn": "Salé",
-    "price": 30,
+    "price": 40,
     "delay": "48h"
   },
   {
@@ -140,7 +140,7 @@
     "nameAr": "تمارة",
     "nameFr": "Témara",
     "nameEn": "Temara",
-    "price": 30,
+    "price": 40,
     "delay": "48h"
   },
   {
@@ -149,7 +149,7 @@
     "nameAr": "الصخيرات",
     "nameFr": "Skhirat",
     "nameEn": "Skhirat",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -158,7 +158,7 @@
     "nameAr": "القنيطرة",
     "nameFr": "Kenitra",
     "nameEn": "Kenitra",
-    "price": 30,
+    "price": 40,
     "delay": "48h"
   },
   {
@@ -176,7 +176,7 @@
     "nameAr": "سيدي قاسم",
     "nameFr": "Sidi Kacem",
     "nameEn": "Sidi Kacem",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -194,7 +194,7 @@
     "nameAr": "تيفلت",
     "nameFr": "Tiflet",
     "nameEn": "Tiflet",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -203,7 +203,7 @@
     "nameAr": "سيدي يحيى الغرب",
     "nameFr": "Sidi Yahya El Gharb",
     "nameEn": "Sidi Yahya Gharb",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -212,7 +212,7 @@
     "nameAr": "مشرع بلقصيري",
     "nameFr": "Mechra Bel Ksiri",
     "nameEn": "Mechra Bel Ksiri",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -221,7 +221,7 @@
     "nameAr": "مولاي بوسلهام",
     "nameFr": "Moulay Bousselham",
     "nameEn": "Moulay Bousselham",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -230,7 +230,7 @@
     "nameAr": "سيدي بنور",
     "nameFr": "Sidi Bennour",
     "nameEn": "Sidi Bennour",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -248,7 +248,7 @@
     "nameAr": "مراكش",
     "nameFr": "Marrakech",
     "nameEn": "Marrakesh",
-    "price": 30,
+    "price": 35,
     "delay": "48h"
   },
   {
@@ -257,7 +257,7 @@
     "nameAr": "أكادير",
     "nameFr": "Agadir",
     "nameEn": "Agadir",
-    "price": 30,
+    "price": 35,
     "delay": "48h"
   },
   {
@@ -266,7 +266,7 @@
     "nameAr": "إنزكان",
     "nameFr": "Inezgane",
     "nameEn": "Inezgane",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -275,7 +275,7 @@
     "nameAr": "أيت ملول",
     "nameFr": "Ait Melloul",
     "nameEn": "Ait Melloul",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -284,7 +284,7 @@
     "nameAr": "تارودانت",
     "nameFr": "Taroudant",
     "nameEn": "Taroudant",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -293,7 +293,7 @@
     "nameAr": "تيزنيت",
     "nameFr": "Tiznit",
     "nameEn": "Tiznit",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -302,7 +302,7 @@
     "nameAr": "الصويرة",
     "nameFr": "Essaouira",
     "nameEn": "Essaouira",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -311,7 +311,7 @@
     "nameAr": "شيشاوة",
     "nameFr": "Chichaoua",
     "nameEn": "Chichaoua",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -329,7 +329,7 @@
     "nameAr": "أمزميز",
     "nameFr": "Amizmiz",
     "nameEn": "Amizmiz",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -365,7 +365,7 @@
     "nameAr": "أورير",
     "nameFr": "Aourir",
     "nameEn": "Aourir",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -374,7 +374,7 @@
     "nameAr": "تمنار",
     "nameFr": "Tamanar",
     "nameEn": "Tamanar",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -383,7 +383,7 @@
     "nameAr": "تحناوت",
     "nameFr": "Tahannaout",
     "nameEn": "Tahanaout",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -410,7 +410,7 @@
     "nameAr": "فاس",
     "nameFr": "Fès",
     "nameEn": "Fez",
-    "price": 30,
+    "price": 35,
     "delay": "48h"
   },
   {
@@ -419,7 +419,7 @@
     "nameAr": "مكناس",
     "nameFr": "Meknès",
     "nameEn": "Meknes",
-    "price": 30,
+    "price": 40,
     "delay": "48h"
   },
   {
@@ -428,7 +428,7 @@
     "nameAr": "طنجة",
     "nameFr": "Tanger",
     "nameEn": "Tangier",
-    "price": 30,
+    "price": 35,
     "delay": "48h"
   },
   {
@@ -437,7 +437,7 @@
     "nameAr": "تطوان",
     "nameFr": "Tétouan",
     "nameEn": "Tetouan",
-    "price": 30,
+    "price": 35,
     "delay": "48h"
   },
   {
@@ -446,7 +446,7 @@
     "nameAr": "مارتيل",
     "nameFr": "Martil",
     "nameEn": "Martil",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -455,7 +455,7 @@
     "nameAr": "المضيق",
     "nameFr": "M'diq",
     "nameEn": "M'diq",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -464,7 +464,7 @@
     "nameAr": "الفنيدق",
     "nameFr": "Fnideq",
     "nameEn": "Fnideq",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -473,7 +473,7 @@
     "nameAr": "أصيلة",
     "nameFr": "Asilah",
     "nameEn": "Asilah",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -482,7 +482,7 @@
     "nameAr": "العرائش",
     "nameFr": "Larache",
     "nameEn": "Larache",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -491,7 +491,7 @@
     "nameAr": "القصر الكبير",
     "nameFr": "Ksar El Kébir",
     "nameEn": "Ksar El Kebir",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -500,7 +500,7 @@
     "nameAr": "شفشاون",
     "nameFr": "Chefchaouen",
     "nameEn": "Chefchaouen",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -509,7 +509,7 @@
     "nameAr": "وزان",
     "nameFr": "Ouezzane",
     "nameEn": "Ouezzane",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -518,7 +518,7 @@
     "nameAr": "الجديدة",
     "nameFr": "El Jadida",
     "nameEn": "El Jadida",
-    "price": 30,
+    "price": 40,
     "delay": "48h"
   },
   {
@@ -527,7 +527,7 @@
     "nameAr": "أزمور",
     "nameFr": "Azemmour",
     "nameEn": "Azemmour",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -536,7 +536,7 @@
     "nameAr": "بير الجديد",
     "nameFr": "Bir Jdid",
     "nameEn": "Bir Jdid",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -545,7 +545,7 @@
     "nameAr": "سيدي إسماعيل",
     "nameFr": "Sidi Smail",
     "nameEn": "Sidi Smail",
-    "price": 30,
+    "price": 39,
     "delay": "48h"
   },
   {
@@ -554,7 +554,7 @@
     "nameAr": "آسفي",
     "nameFr": "Safi",
     "nameEn": "Safi",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -563,7 +563,7 @@
     "nameAr": "اليوسفية",
     "nameFr": "Youssoufia",
     "nameEn": "Youssoufia",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -572,7 +572,7 @@
     "nameAr": "بني ملال",
     "nameFr": "Béni Mellal",
     "nameEn": "Beni Mellal",
-    "price": 30,
+    "price": 40,
     "delay": "48h"
   },
   {
@@ -590,7 +590,7 @@
     "nameAr": "قصبة تادلة",
     "nameFr": "Kasba Tadla",
     "nameEn": "Kasba Tadla",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -599,7 +599,7 @@
     "nameAr": "خنيفرة",
     "nameFr": "Khénifra",
     "nameEn": "Khenifra",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -608,7 +608,7 @@
     "nameAr": "أزيلال",
     "nameFr": "Azilal",
     "nameEn": "Azilal",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -617,7 +617,7 @@
     "nameAr": "دمنات",
     "nameFr": "Demnate",
     "nameEn": "Demnate",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -626,7 +626,7 @@
     "nameAr": "وادي زم",
     "nameFr": "Oued Zem",
     "nameEn": "Oued Zem",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -635,7 +635,7 @@
     "nameAr": "خريبكة",
     "nameFr": "Khouribga",
     "nameEn": "Khouribga",
-    "price": 30,
+    "price": 40,
     "delay": "48h"
   },
   {
@@ -671,7 +671,7 @@
     "nameAr": "بن سليمان",
     "nameFr": "Benslimane",
     "nameEn": "Benslimane",
-    "price": 30,
+    "price": 40,
     "delay": "48h"
   },
   {
@@ -680,7 +680,7 @@
     "nameAr": "بوزنيقة",
     "nameFr": "Bouznika",
     "nameEn": "Bouznika",
-    "price": 30,
+    "price": 40,
     "delay": "48h"
   },
   {
@@ -689,7 +689,7 @@
     "nameAr": "بن جرير",
     "nameFr": "Ben Guerir",
     "nameEn": "Ben Guerir",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -707,7 +707,7 @@
     "nameAr": "الشماعية",
     "nameFr": "Echemmaia",
     "nameEn": "Echemmaia",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -716,7 +716,7 @@
     "nameAr": "سيدي بوزيد",
     "nameFr": "Sidi Bouzid",
     "nameEn": "Sidi Bouzid",
-    "price": 30,
+    "price": 39,
     "delay": "48h"
   },
   {
@@ -725,7 +725,7 @@
     "nameAr": "أولاد فرج",
     "nameFr": "Oulad Frej",
     "nameEn": "Oulad Frej",
-    "price": 30,
+    "price": 40,
     "delay": "48h"
   },
   {
@@ -752,7 +752,7 @@
     "nameAr": "عين تاوجطات",
     "nameFr": "Aïn Taoujdate",
     "nameEn": "Ain Taoujdate",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -779,7 +779,7 @@
     "nameAr": "زاوية الشيخ",
     "nameFr": "Zaouiat Cheikh",
     "nameEn": "Zaouiat Cheikh",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -788,7 +788,7 @@
     "nameAr": "القصيبة",
     "nameFr": "El Ksiba",
     "nameEn": "El Ksiba",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -806,7 +806,7 @@
     "nameAr": "الحاجب",
     "nameFr": "El Hajeb",
     "nameEn": "El Hajeb",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -815,7 +815,7 @@
     "nameAr": "إفران",
     "nameFr": "Ifrane",
     "nameEn": "Ifrane",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -824,7 +824,7 @@
     "nameAr": "أزرو",
     "nameFr": "Azrou",
     "nameEn": "Azrou",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -833,7 +833,7 @@
     "nameAr": "مريرت",
     "nameFr": "Mrirt",
     "nameEn": "Mrirt",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -842,7 +842,7 @@
     "nameAr": "ميدلت",
     "nameFr": "Midelt",
     "nameEn": "Midelt",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -851,7 +851,7 @@
     "nameAr": "وجدة",
     "nameFr": "Oujda",
     "nameEn": "Oujda",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -860,7 +860,7 @@
     "nameAr": "بركان",
     "nameFr": "Berkane",
     "nameEn": "Berkane",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -869,7 +869,7 @@
     "nameAr": "الناظور",
     "nameFr": "Nador",
     "nameEn": "Nador",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -878,7 +878,7 @@
     "nameAr": "الدريوش",
     "nameFr": "Driouch",
     "nameEn": "Driouch",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -887,7 +887,7 @@
     "nameAr": "ميدار",
     "nameFr": "Midar",
     "nameEn": "Midar",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -896,7 +896,7 @@
     "nameAr": "تاوريرت",
     "nameFr": "Taourirt",
     "nameEn": "Taourirt",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -905,7 +905,7 @@
     "nameAr": "جرادة",
     "nameFr": "Jerada",
     "nameEn": "Jerada",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -914,7 +914,7 @@
     "nameAr": "فكيك",
     "nameFr": "Figuig",
     "nameEn": "Figuig",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -923,7 +923,7 @@
     "nameAr": "بوعرفة",
     "nameFr": "Bouarfa",
     "nameEn": "Bouarfa",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -932,7 +932,7 @@
     "nameAr": "جرسيف",
     "nameFr": "Guercif",
     "nameEn": "Guercif",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -941,7 +941,7 @@
     "nameAr": "تازة",
     "nameFr": "Taza",
     "nameEn": "Taza",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -950,7 +950,7 @@
     "nameAr": "الحسيمة",
     "nameFr": "Al Hoceïma",
     "nameEn": "Al Hoceima",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -959,7 +959,7 @@
     "nameAr": "إمزورن",
     "nameFr": "Imzouren",
     "nameEn": "Imzouren",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -995,7 +995,7 @@
     "nameAr": "أكنول",
     "nameFr": "Aknoul",
     "nameEn": "Aknoul",
-    "price": 30,
+    "price": 39,
     "delay": "72h"
   },
   {
@@ -1022,7 +1022,7 @@
     "nameAr": "تاهلة",
     "nameFr": "Tahla",
     "nameEn": "Tahla",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -1040,7 +1040,7 @@
     "nameAr": "الرشيدية",
     "nameFr": "Errachidia",
     "nameEn": "Errachidia",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -1058,7 +1058,7 @@
     "nameAr": "الريصاني",
     "nameFr": "Rissani",
     "nameEn": "Rissani",
-    "price": 30,
+    "price": 40,
     "delay": "72h"
   },
   {
@@ -1067,7 +1067,7 @@
     "nameAr": "تنغير",
     "nameFr": "Tinghir",
     "nameEn": "Tinghir",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -1076,7 +1076,7 @@
     "nameAr": "ورزازات",
     "nameFr": "Ouarzazate",
     "nameEn": "Ouarzazate",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -1085,7 +1085,7 @@
     "nameAr": "زاكورة",
     "nameFr": "Zagora",
     "nameEn": "Zagora",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -1094,7 +1094,7 @@
     "nameAr": "أكدز",
     "nameFr": "Agdz",
     "nameEn": "Agdz",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -1121,7 +1121,7 @@
     "nameAr": "بومالن دادس",
     "nameFr": "Boumalne Dadès",
     "nameEn": "Boumalne Dades",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -1130,7 +1130,7 @@
     "nameAr": "سكورة",
     "nameFr": "Skoura",
     "nameEn": "Skoura",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -1139,7 +1139,7 @@
     "nameAr": "كلميم",
     "nameFr": "Guelmim",
     "nameEn": "Guelmim",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -1148,7 +1148,7 @@
     "nameAr": "طاطا",
     "nameFr": "Tata",
     "nameEn": "Tata",
-    "price": 30,
+    "price": 40,
     "delay": "72h"
   },
   {
@@ -1184,7 +1184,7 @@
     "nameAr": "العيون",
     "nameFr": "Laâyoune",
     "nameEn": "Laayoune",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -1193,7 +1193,7 @@
     "nameAr": "بوجدور",
     "nameFr": "Boujdour",
     "nameEn": "Boujdour",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -1202,7 +1202,7 @@
     "nameAr": "الداخلة",
     "nameFr": "Dakhla",
     "nameEn": "Dakhla",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -1220,7 +1220,7 @@
     "nameAr": "طرفاية",
     "nameFr": "Tarfaya",
     "nameEn": "Tarfaya",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -1229,7 +1229,7 @@
     "nameAr": "سيدي إفني",
     "nameFr": "Sidi Ifni",
     "nameEn": "Sidi Ifni",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -1247,7 +1247,7 @@
     "nameAr": "باب برد",
     "nameFr": "Bab Berred",
     "nameEn": "Bab Berred",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -1256,7 +1256,7 @@
     "nameAr": "باب تازة",
     "nameFr": "Bab Taza",
     "nameEn": "Bab Taza",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -1265,7 +1265,7 @@
     "nameAr": "الدالية",
     "nameFr": "Dalia",
     "nameEn": "Dalia",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -1274,7 +1274,7 @@
     "nameAr": "بن أحمد",
     "nameFr": "Ben Ahmed",
     "nameEn": "Benhmed",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -1319,7 +1319,7 @@
     "nameAr": "الوداية",
     "nameFr": "Loudaya",
     "nameEn": "Loudaya",
-    "price": 30,
+    "price": 35,
     "delay": "48h"
   },
   {
@@ -1337,7 +1337,7 @@
     "nameAr": "أوناغة",
     "nameFr": "Ounagha",
     "nameEn": "Ounagha",
-    "price": 30,
+    "price": 39,
     "delay": "48h"
   },
   {
@@ -1355,7 +1355,7 @@
     "nameAr": "شوبطر",
     "nameFr": "Chouiter",
     "nameEn": "Chouiter",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -1364,7 +1364,7 @@
     "nameAr": "ريش",
     "nameFr": "Rich",
     "nameEn": "Rich",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -1373,7 +1373,7 @@
     "nameAr": "بومية",
     "nameFr": "Boumia",
     "nameEn": "Boumia",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -1382,7 +1382,7 @@
     "nameAr": "زايدة",
     "nameFr": "Zaida",
     "nameEn": "Zaida",
-    "price": 30,
+    "price": 39,
     "delay": "72h"
   },
   {
@@ -1400,7 +1400,7 @@
     "nameAr": "ميسور",
     "nameFr": "Missour",
     "nameEn": "Missour",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -1409,7 +1409,7 @@
     "nameAr": "أوطاط الحاج",
     "nameFr": "Outat El Haj",
     "nameEn": "Outat Lhaj",
-    "price": 30,
+    "price": 40,
     "delay": "72h"
   },
   {
@@ -1427,7 +1427,7 @@
     "nameAr": "بودنيب",
     "nameFr": "Boudnib",
     "nameEn": "Bodnib",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -1490,7 +1490,7 @@
     "nameAr": "أحفير",
     "nameFr": "Ahfir",
     "nameEn": "Ahfir",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -1499,7 +1499,7 @@
     "nameAr": "أكليم",
     "nameFr": "Aklim",
     "nameEn": "Aklim",
-    "price": 30,
+    "price": 39,
     "delay": "72h"
   },
   {
@@ -1508,7 +1508,7 @@
     "nameAr": "سلوان",
     "nameFr": "Selouane",
     "nameEn": "Selouane",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -1517,7 +1517,7 @@
     "nameAr": "زايو",
     "nameFr": "Zaïo",
     "nameEn": "Zaio",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -1553,7 +1553,7 @@
     "nameAr": "دار الكبداني",
     "nameFr": "Dar El Kebdani",
     "nameEn": "Dar el Kebdani",
-    "price": 30,
+    "price": 39,
     "delay": "72h"
   },
   {
@@ -1562,7 +1562,7 @@
     "nameAr": "العروي",
     "nameFr": "Al Aroui",
     "nameEn": "Al Aaroui",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -1589,7 +1589,7 @@
     "nameAr": "زغنغان",
     "nameFr": "Zeghanghane",
     "nameEn": "Zeghanghane",
-    "price": 30,
+    "price": 39,
     "delay": "72h"
   },
   {
@@ -1607,7 +1607,7 @@
     "nameAr": "جعدر",
     "nameFr": "Jaadar",
     "nameEn": "Jaadar",
-    "price": 30,
+    "price": 35,
     "delay": "72h"
   },
   {
@@ -1616,7 +1616,7 @@
     "nameAr": "بني انصار",
     "nameFr": "Beni Ensar",
     "nameEn": "Beni Ensar",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -1706,7 +1706,7 @@
     "nameAr": "فرخانة",
     "nameFr": "Farkhana",
     "nameEn": "Farkhana",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -1787,7 +1787,7 @@
     "nameAr": "بن الطيب",
     "nameFr": "Ben Taïeb",
     "nameEn": "Ben Taieb",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -1805,7 +1805,7 @@
     "nameAr": "دار الكبداني",
     "nameFr": "Dar El Kebdani",
     "nameEn": "Dar Kebdani",
-    "price": 30,
+    "price": 39,
     "delay": "72h"
   },
   {
@@ -1895,7 +1895,7 @@
     "nameAr": "فكيك المدينة",
     "nameFr": "Figuig",
     "nameEn": "Figuig Ville",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -1913,7 +1913,7 @@
     "nameAr": "بوعنان",
     "nameFr": "Bouanane",
     "nameEn": "Bouanane",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -1922,7 +1922,7 @@
     "nameAr": "تندرارة",
     "nameFr": "Tendrara",
     "nameEn": "Tendrara",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -1931,7 +1931,7 @@
     "nameAr": "عين الشاعر",
     "nameFr": "Aïn Chaïr",
     "nameEn": "Ain Chair",
-    "price": 30,
+    "price": 40,
     "delay": "72h"
   },
   {
@@ -2093,7 +2093,7 @@
     "nameAr": "بني أحمد",
     "nameFr": "Bni Ahmed",
     "nameEn": "Bni Ahmed",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -2102,7 +2102,7 @@
     "nameAr": "تاهلة",
     "nameFr": "Tahla",
     "nameEn": "Tahla",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -2129,7 +2129,7 @@
     "nameAr": "بولمان",
     "nameFr": "Boulemane",
     "nameEn": "Boulemane",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
@@ -2138,7 +2138,7 @@
     "nameAr": "أوطاط الحاج",
     "nameFr": "Outat el Haj",
     "nameEn": "Outat el Haj",
-    "price": 30,
+    "price": 40,
     "delay": "72h"
   },
   {
@@ -2156,7 +2156,7 @@
     "nameAr": "ميسور",
     "nameFr": "Missour",
     "nameEn": "Missour",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   }
 ]
