@@ -9,26 +9,8 @@
     "delay": "24h"
   },
   {
-    "id": 2,
-    "key": "lahraouiyine",
-    "nameAr": "الهراوين",
-    "nameFr": "Lahraouiyine",
-    "nameEn": "Lahraouiyine",
-    "price": 30,
-    "delay": "24h"
-  },
-  {
-    "id": 3,
-    "key": "ain harouda",
-    "nameAr": "عين حرودة",
-    "nameFr": "Aïn Harouda",
-    "nameEn": "Ain Harouda",
-    "price": 30,
-    "delay": "24h"
-  },
-  {
     "id": 4,
-    "key": "errahma ville",
+    "key": "errahma",
     "nameAr": "الرحمة",
     "nameFr": "Errahma",
     "nameEn": "Errahma Ville",
@@ -90,24 +72,6 @@
     "delay": "24h"
   },
   {
-    "id": 11,
-    "key": "sidi rahhal",
-    "nameAr": "سيدي رحال",
-    "nameFr": "Sidi Rahhal",
-    "nameEn": "Sidi Rahhal",
-    "price": 30,
-    "delay": "24h"
-  },
-  {
-    "id": 12,
-    "key": "el jorf",
-    "nameAr": "الجرف",
-    "nameFr": "El Jorf",
-    "nameEn": "El jorf",
-    "price": 30,
-    "delay": "24h"
-  },
-  {
     "id": 13,
     "key": "tikiouine",
     "nameAr": "تيكيون",
@@ -163,7 +127,7 @@
   },
   {
     "id": 19,
-    "key": "sidi slimane",
+    "key": "sidi sliman",
     "nameAr": "سيدي سليمان",
     "nameFr": "Sidi Slimane",
     "nameEn": "Sidi Slimane",
@@ -177,15 +141,6 @@
     "nameFr": "Sidi Kacem",
     "nameEn": "Sidi Kacem",
     "price": 45,
-    "delay": "48h"
-  },
-  {
-    "id": 21,
-    "key": "khemisset",
-    "nameAr": "الخميسات",
-    "nameFr": "Khemisset",
-    "nameEn": "Khemisset",
-    "price": 30,
     "delay": "48h"
   },
   {
@@ -235,7 +190,7 @@
   },
   {
     "id": 27,
-    "key": "souk el arbaa",
+    "key": "souk el arbaa du gharb",
     "nameAr": "سوق الأربعاء",
     "nameFr": "Souk El Arbaa",
     "nameEn": "Souk el Arbaa",
@@ -316,11 +271,11 @@
   },
   {
     "id": 36,
-    "key": "el kelaa des sraghna",
+    "key": "kelaa des sraghna",
     "nameAr": "قلعة السراغنة",
     "nameFr": "El Kelâa des Sraghna",
     "nameEn": "El Kelaa des Sraghna",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -333,30 +288,21 @@
     "delay": "48h"
   },
   {
-    "id": 38,
-    "key": "ait aourir",
-    "nameAr": "أيت أورير",
-    "nameFr": "Ait Aourir",
-    "nameEn": "Ait Aourir",
-    "price": 30,
-    "delay": "48h"
-  },
-  {
     "id": 39,
-    "key": "imi oudadr",
+    "key": "imi ouaddar",
     "nameAr": "إمي ودار",
     "nameFr": "Imi Oudadr",
     "nameEn": "Imi Oudadr",
-    "price": 30,
+    "price": 39,
     "delay": "48h"
   },
   {
     "id": 40,
-    "key": "sebt el guerdane",
+    "key": "sebt lguerdan",
     "nameAr": "سبت الكردان",
     "nameFr": "Sebt El Guerdane",
     "nameEn": "Sebt el Guerdane",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -375,33 +321,6 @@
     "nameFr": "Tamanar",
     "nameEn": "Tamanar",
     "price": 45,
-    "delay": "48h"
-  },
-  {
-    "id": 43,
-    "key": "tahanaout",
-    "nameAr": "تحناوت",
-    "nameFr": "Tahannaout",
-    "nameEn": "Tahanaout",
-    "price": 45,
-    "delay": "48h"
-  },
-  {
-    "id": 44,
-    "key": "tameslohte",
-    "nameAr": "تمصلوحت",
-    "nameFr": "Tamesloht",
-    "nameEn": "Tameslohte",
-    "price": 30,
-    "delay": "48h"
-  },
-  {
-    "id": 45,
-    "key": "sidi bou othmane",
-    "nameAr": "سيدي بوعثمان",
-    "nameFr": "Sidi Bou Othmane",
-    "nameEn": "Sidi bou Othmane",
-    "price": 30,
     "delay": "48h"
   },
   {
@@ -577,7 +496,7 @@
   },
   {
     "id": 65,
-    "key": "fquih ben salah",
+    "key": "fkih ben salah",
     "nameAr": "الفقه بن صالح",
     "nameFr": "Fquih Ben Salah",
     "nameEn": "Fquih Ben Salah",
@@ -639,30 +558,12 @@
     "delay": "48h"
   },
   {
-    "id": 72,
-    "key": "bejaad",
-    "nameAr": "بجعد",
-    "nameFr": "Bejaâd",
-    "nameEn": "Bejaad",
-    "price": 30,
-    "delay": "48h"
-  },
-  {
     "id": 73,
-    "key": "settat",
+    "key": "settat sidi hajaj",
     "nameAr": "سطات",
     "nameFr": "Settat",
     "nameEn": "Settat",
     "price": 40,
-    "delay": "48h"
-  },
-  {
-    "id": 74,
-    "key": "berrechid",
-    "nameAr": "برشيد",
-    "nameFr": "Berrechid",
-    "nameEn": "Berrechid",
-    "price": 30,
     "delay": "48h"
   },
   {
@@ -693,15 +594,6 @@
     "delay": "48h"
   },
   {
-    "id": 78,
-    "key": "khemis zemamra",
-    "nameAr": "خميس الزمامرة",
-    "nameFr": "Khemis Zemamra",
-    "nameEn": "Khemis Zemamra",
-    "price": 30,
-    "delay": "48h"
-  },
-  {
     "id": 79,
     "key": "echemmaia",
     "nameAr": "الشماعية",
@@ -729,24 +621,6 @@
     "delay": "48h"
   },
   {
-    "id": 82,
-    "key": "jorf el melha",
-    "nameAr": "جرف الملحة",
-    "nameFr": "Jorf El Melha",
-    "nameEn": "Jorf el Melha",
-    "price": 30,
-    "delay": "48h"
-  },
-  {
-    "id": 83,
-    "key": "oulad ayad",
-    "nameAr": "أولاد عياد",
-    "nameFr": "Oulad Ayad",
-    "nameEn": "Oulad Ayad",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
     "id": 84,
     "key": "ain taoujdate",
     "nameAr": "عين تاوجطات",
@@ -754,24 +628,6 @@
     "nameEn": "Ain Taoujdate",
     "price": 45,
     "delay": "72h"
-  },
-  {
-    "id": 85,
-    "key": "souk sebt oulad nemma",
-    "nameAr": "سوق سبت أولاد نمة",
-    "nameFr": "Souk Sebt Oulad Nemma",
-    "nameEn": "Souk Sebt oulad Nemma",
-    "price": 30,
-    "delay": "48h"
-  },
-  {
-    "id": 86,
-    "key": "oulad m barek",
-    "nameAr": "أولاد مبارك",
-    "nameFr": "Oulad M'Barek",
-    "nameEn": "Oulad M Barek",
-    "price": 30,
-    "delay": "48h"
   },
   {
     "id": 87,
@@ -789,15 +645,6 @@
     "nameFr": "El Ksiba",
     "nameEn": "El Ksiba",
     "price": 45,
-    "delay": "72h"
-  },
-  {
-    "id": 89,
-    "key": "ait oumghar",
-    "nameAr": "أيت أومغار",
-    "nameFr": "Aït Oumghar",
-    "nameEn": "Ait Oumghar",
-    "price": 30,
     "delay": "72h"
   },
   {
@@ -963,33 +810,6 @@
     "delay": "72h"
   },
   {
-    "id": 108,
-    "key": "bni bouayach",
-    "nameAr": "بني بوعياش",
-    "nameFr": "Bni Bouayach",
-    "nameEn": "Bni Bouayach",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 109,
-    "key": "ajdir",
-    "nameAr": "أجدير",
-    "nameFr": "Ajdir",
-    "nameEn": "Ajdir",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 110,
-    "key": "targuist",
-    "nameAr": "تارجيست",
-    "nameFr": "Targuist",
-    "nameEn": "Targuist",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
     "id": 111,
     "key": "aknoul",
     "nameAr": "أكنول",
@@ -999,57 +819,12 @@
     "delay": "72h"
   },
   {
-    "id": 112,
-    "key": "taounate",
-    "nameAr": "تاونات",
-    "nameFr": "Taounate",
-    "nameEn": "Taounate",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 113,
-    "key": "ghafsai",
-    "nameAr": "غفساي",
-    "nameFr": "Ghafsai",
-    "nameEn": "Ghafsai",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 114,
-    "key": "tahla",
-    "nameAr": "تاهلة",
-    "nameFr": "Tahla",
-    "nameEn": "Tahla",
-    "price": 45,
-    "delay": "72h"
-  },
-  {
-    "id": 115,
-    "key": "tissa",
-    "nameAr": "تيسة",
-    "nameFr": "Tissa",
-    "nameEn": "Tissa",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
     "id": 116,
     "key": "errachidia",
     "nameAr": "الرشيدية",
     "nameFr": "Errachidia",
     "nameEn": "Errachidia",
     "price": 45,
-    "delay": "72h"
-  },
-  {
-    "id": 117,
-    "key": "erfoud",
-    "nameAr": "أرفود",
-    "nameFr": "Erfoud",
-    "nameEn": "Erfoud",
-    "price": 30,
     "delay": "72h"
   },
   {
@@ -1098,24 +873,6 @@
     "delay": "72h"
   },
   {
-    "id": 123,
-    "key": "taznakht",
-    "nameAr": "تازناخت",
-    "nameFr": "Taznakht",
-    "nameEn": "Taznakht",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 124,
-    "key": "kelaa mgouna",
-    "nameAr": "قلعة مكونة",
-    "nameFr": "Kelâa M'Gouna",
-    "nameEn": "Kelaa Mgouna",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
     "id": 125,
     "key": "boumalne dades",
     "nameAr": "بومالن دادس",
@@ -1152,33 +909,6 @@
     "delay": "72h"
   },
   {
-    "id": 129,
-    "key": "tissint",
-    "nameAr": "تيسينت",
-    "nameFr": "Tissint",
-    "nameEn": "Tissint",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 130,
-    "key": "foum zguid",
-    "nameAr": "فم زكيد",
-    "nameFr": "Foum Zguid",
-    "nameEn": "Foum Zguid",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 131,
-    "key": "akka",
-    "nameAr": "أكا",
-    "nameFr": "Akka",
-    "nameEn": "Akka",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
     "id": 132,
     "key": "laayoune",
     "nameAr": "العيون",
@@ -1206,15 +936,6 @@
     "delay": "72h"
   },
   {
-    "id": 135,
-    "key": "smara",
-    "nameAr": "السمارة",
-    "nameFr": "Smara",
-    "nameEn": "Smara",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
     "id": 136,
     "key": "tarfaya",
     "nameAr": "طرفاية",
@@ -1234,7 +955,7 @@
   },
   {
     "id": 138,
-    "key": "tan-tan",
+    "key": "tantan",
     "nameAr": "طانطان",
     "nameFr": "Tan-Tan",
     "nameEn": "Tan-tan",
@@ -1269,51 +990,6 @@
     "delay": "72h"
   },
   {
-    "id": 142,
-    "key": "benhmed",
-    "nameAr": "بن أحمد",
-    "nameFr": "Ben Ahmed",
-    "nameEn": "Benhmed",
-    "price": 45,
-    "delay": "72h"
-  },
-  {
-    "id": 143,
-    "key": "tassoultant",
-    "nameAr": "تسولتان",
-    "nameFr": "Tassoultante",
-    "nameEn": "Tassoultant",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 144,
-    "key": "lahbichat",
-    "nameAr": "لحبيشات",
-    "nameFr": "Lahbichat",
-    "nameEn": "Lahbichat",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 145,
-    "key": "douar lhna",
-    "nameAr": "دوار الحنا",
-    "nameFr": "Douar Lhna",
-    "nameEn": "Douar Lhna",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 146,
-    "key": "tamsonsurt",
-    "nameAr": "تمنصورت",
-    "nameFr": "Tamsonsurt",
-    "nameEn": "Tamsonsurt",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
     "id": 147,
     "key": "loudaya",
     "nameAr": "الوداية",
@@ -1323,30 +999,12 @@
     "delay": "48h"
   },
   {
-    "id": 148,
-    "key": "sminou",
-    "nameAr": "اسميمو",
-    "nameFr": "Sminou",
-    "nameEn": "Sminou",
-    "price": 30,
-    "delay": "48h"
-  },
-  {
     "id": 149,
     "key": "ounagha",
     "nameAr": "أوناغة",
     "nameFr": "Ounagha",
     "nameEn": "Ounagha",
     "price": 39,
-    "delay": "48h"
-  },
-  {
-    "id": 150,
-    "key": "attaouia",
-    "nameAr": "العطاوية",
-    "nameFr": "Attaouia",
-    "nameEn": "Attaouia",
-    "price": 30,
     "delay": "48h"
   },
   {
@@ -1386,105 +1044,6 @@
     "delay": "72h"
   },
   {
-    "id": 155,
-    "key": "tounfiet",
-    "nameAr": "تنفيت",
-    "nameFr": "Tounfiet",
-    "nameEn": "Tounfiet",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 156,
-    "key": "missour",
-    "nameAr": "ميسور",
-    "nameFr": "Missour",
-    "nameEn": "Missour",
-    "price": 45,
-    "delay": "72h"
-  },
-  {
-    "id": 157,
-    "key": "outat lhaj",
-    "nameAr": "أوطاط الحاج",
-    "nameFr": "Outat El Haj",
-    "nameEn": "Outat Lhaj",
-    "price": 40,
-    "delay": "72h"
-  },
-  {
-    "id": 158,
-    "key": "tinejdad",
-    "nameAr": "تينجدا",
-    "nameFr": "Tinejdad",
-    "nameEn": "Tinejdad",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 159,
-    "key": "bodnib",
-    "nameAr": "بودنيب",
-    "nameFr": "Boudnib",
-    "nameEn": "Bodnib",
-    "price": 45,
-    "delay": "72h"
-  },
-  {
-    "id": 160,
-    "key": "bouarg",
-    "nameAr": "بوعرك",
-    "nameFr": "Bouarg",
-    "nameEn": "Bouarg",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 161,
-    "key": "laaroui",
-    "nameAr": "لعروى",
-    "nameFr": "Laâroui",
-    "nameEn": "Laaroui",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 162,
-    "key": "arkmane",
-    "nameAr": "أركمان",
-    "nameFr": "Arkmane",
-    "nameEn": "Arkmane",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 163,
-    "key": "bni drar",
-    "nameAr": "بني درار",
-    "nameFr": "Bni Drar",
-    "nameEn": "Bni Drar",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 164,
-    "key": "bni wkil",
-    "nameAr": "بني وكيل",
-    "nameFr": "Bni Oukil",
-    "nameEn": "Bni Wkil",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 165,
-    "key": "laayoune cergia",
-    "nameAr": "العيون الشرقية",
-    "nameFr": "Laâyoune Cergia",
-    "nameEn": "Laayoune Cergia",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
     "id": 166,
     "key": "ahfir",
     "nameAr": "أحفير",
@@ -1521,33 +1080,6 @@
     "delay": "72h"
   },
   {
-    "id": 170,
-    "key": "sidi slimane charae",
-    "nameAr": "سيدي سليمان الشراعة",
-    "nameFr": "Sidi Slimane Charaâ",
-    "nameEn": "Sidi Slimane Charae",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 171,
-    "key": "tamsamane",
-    "nameAr": "تمسمان",
-    "nameFr": "Tamsamane",
-    "nameEn": "Tamsamane",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 172,
-    "key": "boudinar",
-    "nameAr": "بودينار",
-    "nameFr": "Boudinar",
-    "nameEn": "Boudinar",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
     "id": 173,
     "key": "dar el kebdani",
     "nameAr": "دار الكبداني",
@@ -1566,39 +1098,12 @@
     "delay": "72h"
   },
   {
-    "id": 175,
-    "key": "bni ansar",
-    "nameAr": "بني أنصار",
-    "nameFr": "Bni Ansar",
-    "nameEn": "Bni Ansar",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 176,
-    "key": "nador ville",
-    "nameAr": "الناظور المدينة",
-    "nameFr": "Nador Ville",
-    "nameEn": "Nador Ville",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
     "id": 177,
     "key": "zeghanghane",
     "nameAr": "زغنغان",
     "nameFr": "Zeghanghane",
     "nameEn": "Zeghanghane",
     "price": 39,
-    "delay": "72h"
-  },
-  {
-    "id": 178,
-    "key": "hassi berkane",
-    "nameAr": "حاسي بركان",
-    "nameFr": "Hassi Berkane",
-    "nameEn": "Hassi Berkane",
-    "price": 30,
     "delay": "72h"
   },
   {
@@ -1620,87 +1125,6 @@
     "delay": "72h"
   },
   {
-    "id": 181,
-    "key": "tiztoutine",
-    "nameAr": "تيزطوطين",
-    "nameFr": "Tiztoutine",
-    "nameEn": "Tiztoutine",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 182,
-    "key": "ain zohra",
-    "nameAr": "عين الزهراء",
-    "nameFr": "Aïn Zohra",
-    "nameEn": "Ain Zohra",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 183,
-    "key": "temsamane",
-    "nameAr": "تمسمان",
-    "nameFr": "Temsamane",
-    "nameEn": "Temsamane",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 184,
-    "key": "azghenghan",
-    "nameAr": "ازغنغان",
-    "nameFr": "Azghanghan",
-    "nameEn": "Azghenghan",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 185,
-    "key": "kassita",
-    "nameAr": "كاسيطا",
-    "nameFr": "Kassita",
-    "nameEn": "Kassita",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 186,
-    "key": "tafoughalt",
-    "nameAr": "تافوغالت",
-    "nameFr": "Tafoughalt",
-    "nameEn": "Tafoughalt",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 187,
-    "key": "ain erroua",
-    "nameAr": "عين الروى",
-    "nameFr": "Aïn Erroua",
-    "nameEn": "Ain Erroua",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 188,
-    "key": "hassi oulad",
-    "nameAr": "حاسي أولاد",
-    "nameFr": "Hassi Oulad",
-    "nameEn": "Hassi oulad",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 189,
-    "key": "sidi bouafif",
-    "nameAr": "سيدي بوعفيف",
-    "nameFr": "Sidi Bouafif",
-    "nameEn": "Sidi Bouafif",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
     "id": 190,
     "key": "farkhana",
     "nameAr": "فرخانة",
@@ -1710,201 +1134,12 @@
     "delay": "72h"
   },
   {
-    "id": 191,
-    "key": "bni chiker",
-    "nameAr": "بني شيكر",
-    "nameFr": "Bni Chiker",
-    "nameEn": "Bni Chiker",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 192,
-    "key": "tawima",
-    "nameAr": "تاويمة",
-    "nameFr": "Taouima",
-    "nameEn": "Tawima",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 193,
-    "key": "ait bouayach",
-    "nameAr": "آيت بوعياش",
-    "nameFr": "Aït Bouayach",
-    "nameEn": "Ait Bouayach",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 194,
-    "key": "rouadi",
-    "nameAr": "رواضي",
-    "nameFr": "Rouadi",
-    "nameEn": "Rouadi",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 195,
-    "key": "trougout",
-    "nameAr": "تروكوت",
-    "nameFr": "Trougout",
-    "nameEn": "Trougout",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 196,
-    "key": "mhajer",
-    "nameAr": "المهجر",
-    "nameFr": "Mhajer",
-    "nameEn": "Mhajer",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 197,
-    "key": "sidi bouhria",
-    "nameAr": "سيدي بوهرية",
-    "nameFr": "Sidi Bouhria",
-    "nameEn": "Sidi Bouhria",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 198,
-    "key": "hassi barkane",
-    "nameAr": "حاسي بركان",
-    "nameFr": "Hassi Barkane",
-    "nameEn": "Hassi Barkane",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
     "id": 199,
     "key": "ben taieb",
     "nameAr": "بن الطيب",
     "nameFr": "Ben Taïeb",
     "nameEn": "Ben Taieb",
     "price": 45,
-    "delay": "72h"
-  },
-  {
-    "id": 200,
-    "key": "tizroutine",
-    "nameAr": "تيزروتين",
-    "nameFr": "Tizroutine",
-    "nameEn": "Tizroutine",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 201,
-    "key": "dar kebdani",
-    "nameAr": "دار الكبداني",
-    "nameFr": "Dar El Kebdani",
-    "nameEn": "Dar Kebdani",
-    "price": 39,
-    "delay": "72h"
-  },
-  {
-    "id": 202,
-    "key": "afra",
-    "nameAr": "أفرا",
-    "nameFr": "Afra",
-    "nameEn": "Afra",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 203,
-    "key": "ihddaden",
-    "nameAr": "إحدادن",
-    "nameFr": "Ihddaden",
-    "nameEn": "Ihddaden",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 204,
-    "key": "ait yassine",
-    "nameAr": "آيت ياسين",
-    "nameFr": "Aït Yassine",
-    "nameEn": "Ait Yassine",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 205,
-    "key": "tamdit",
-    "nameAr": "تامديت",
-    "nameFr": "Tamdit",
-    "nameEn": "Tamdit",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 206,
-    "key": "ouled settout",
-    "nameAr": "أولاد ستوت",
-    "nameFr": "Ouled Settout",
-    "nameEn": "Ouled Settout",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 207,
-    "key": "mrija",
-    "nameAr": "المريجة",
-    "nameFr": "Mrija",
-    "nameEn": "Mrija",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 208,
-    "key": "ain sfa",
-    "nameAr": "عين صفا",
-    "nameFr": "Aïn Sfa",
-    "nameEn": "Ain Sfa",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 209,
-    "key": "ain bni mathar",
-    "nameAr": "عين بني مطهر",
-    "nameFr": "Aïn Bni Mathar",
-    "nameEn": "Ain bni Mathar",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 210,
-    "key": "talsint",
-    "nameAr": "تالسينت",
-    "nameFr": "Talsint",
-    "nameEn": "Talsint",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 211,
-    "key": "figuig ville",
-    "nameAr": "فكيك المدينة",
-    "nameFr": "Figuig",
-    "nameEn": "Figuig Ville",
-    "price": 45,
-    "delay": "72h"
-  },
-  {
-    "id": 212,
-    "key": "bni tajjit",
-    "nameAr": "بني تاجيت",
-    "nameFr": "Bni Tajjit",
-    "nameEn": "Bni Tajjit",
-    "price": 30,
     "delay": "72h"
   },
   {
@@ -1935,159 +1170,6 @@
     "delay": "72h"
   },
   {
-    "id": 216,
-    "key": "oum laachar",
-    "nameAr": "أم العشار",
-    "nameFr": "Oum Laâchar",
-    "nameEn": "Oum Laachar",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 217,
-    "key": "bni guil",
-    "nameAr": "بني كيل",
-    "nameFr": "Bni Guil",
-    "nameEn": "Bni Guil",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 218,
-    "key": "ouled bouarfa",
-    "nameAr": "أولاد بوعرفة",
-    "nameFr": "Ouled Bouarfa",
-    "nameEn": "Ouled Bouarfa",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 219,
-    "key": "ain chouater",
-    "nameAr": "عين الشواطر",
-    "nameFr": "Aïn Chouater",
-    "nameEn": "Ain Chouater",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 220,
-    "key": "bousaada",
-    "nameAr": "بوسعادة",
-    "nameFr": "Bousaâda",
-    "nameEn": "Bousaada",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 221,
-    "key": "el arjoune",
-    "nameAr": "العروجين",
-    "nameFr": "El Arjoune",
-    "nameEn": "El Arjoune",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 222,
-    "key": "sidi rached",
-    "nameAr": "سيدي راشد",
-    "nameFr": "Sidi Rached",
-    "nameEn": "Sidi Rached",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 223,
-    "key": "bni khaled",
-    "nameAr": "بني خالد",
-    "nameFr": "Bni Khaled",
-    "nameEn": "Bni Khaled",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 224,
-    "key": "kerouna",
-    "nameAr": "كرونة",
-    "nameFr": "Kerouna",
-    "nameEn": "Kerouna",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 225,
-    "key": "tizi ouzli",
-    "nameAr": "تيزي وزلي",
-    "nameFr": "Tizi Ouzli",
-    "nameEn": "Tizi Ouzli",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 226,
-    "key": "ain leuh",
-    "nameAr": "عين لوه",
-    "nameFr": "Aïn Leuh",
-    "nameEn": "Ain Leuh",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 227,
-    "key": "el menzel",
-    "nameAr": "المنزل",
-    "nameFr": "El Menzel",
-    "nameEn": "El Menzel",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 228,
-    "key": "sidi youssef ben ahmed",
-    "nameAr": "سيدي يوسف بن أحمد",
-    "nameFr": "Sidi Youssef Ben Ahmed",
-    "nameEn": "Sidi Youssef ben Ahmed",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 229,
-    "key": "jbabra",
-    "nameAr": "جبابرة",
-    "nameFr": "Jbabra",
-    "nameEn": "Jbabra",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 230,
-    "key": "tissa",
-    "nameAr": "تيسة",
-    "nameFr": "Tissa",
-    "nameEn": "Tissa",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 231,
-    "key": "ghafsai",
-    "nameAr": "غفساي",
-    "nameFr": "Ghafsai",
-    "nameEn": "Ghafsai",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 232,
-    "key": "sidi hadjeb",
-    "nameAr": "سيدي الحاجب",
-    "nameFr": "Sidi El Hajeb",
-    "nameEn": "Sidi Hadjeb",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
     "id": 233,
     "key": "bni ahmed",
     "nameAr": "بني أحمد",
@@ -2103,24 +1185,6 @@
     "nameFr": "Tahla",
     "nameEn": "Tahla",
     "price": 45,
-    "delay": "72h"
-  },
-  {
-    "id": 235,
-    "key": "matmata",
-    "nameAr": "مطماطة",
-    "nameFr": "Matmata",
-    "nameEn": "Matmata",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
-    "id": 236,
-    "key": "msila",
-    "nameAr": "امسيلة",
-    "nameFr": "Msila",
-    "nameEn": "Msila",
-    "price": 30,
     "delay": "72h"
   },
   {
@@ -2142,15 +1206,6 @@
     "delay": "72h"
   },
   {
-    "id": 239,
-    "key": "guigou",
-    "nameAr": "كيكو",
-    "nameFr": "Guigou",
-    "nameEn": "Guigou",
-    "price": 30,
-    "delay": "72h"
-  },
-  {
     "id": 240,
     "key": "missour",
     "nameAr": "ميسور",
@@ -2158,5 +1213,2426 @@
     "nameEn": "Missour",
     "price": 45,
     "delay": "72h"
+  },
+  {
+    "id": 241,
+    "key": "achakar",
+    "nameAr": "Achakar",
+    "nameFr": "Achakar",
+    "nameEn": "Achakar",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 242,
+    "key": "adouz",
+    "nameAr": "Adouz",
+    "nameFr": "Adouz",
+    "nameEn": "Adouz",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 243,
+    "key": "afourar",
+    "nameAr": "Afourar",
+    "nameFr": "Afourar",
+    "nameEn": "Afourar",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 244,
+    "key": "agard",
+    "nameAr": "Agard",
+    "nameFr": "Agard",
+    "nameEn": "Agard",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 245,
+    "key": "aghmat",
+    "nameAr": "Aghmat",
+    "nameFr": "Aghmat",
+    "nameEn": "Aghmat",
+    "price": 43,
+    "delay": "48h"
+  },
+  {
+    "id": 246,
+    "key": "aghroud",
+    "nameAr": "Aghroud",
+    "nameFr": "Aghroud",
+    "nameEn": "Aghroud",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 247,
+    "key": "aguelmous",
+    "nameAr": "Aguelmous",
+    "nameFr": "Aguelmous",
+    "nameEn": "Aguelmous",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 248,
+    "key": "ain allah",
+    "nameAr": "Ain Allah",
+    "nameFr": "Ain Allah",
+    "nameEn": "Ain Allah",
+    "price": 35,
+    "delay": "48h"
+  },
+  {
+    "id": 249,
+    "key": "ain assafa",
+    "nameAr": "Ain Assafa",
+    "nameFr": "Ain Assafa",
+    "nameEn": "Ain Assafa",
+    "price": 29,
+    "delay": "48h"
+  },
+  {
+    "id": 250,
+    "key": "ain atiq",
+    "nameAr": "Ain Atiq",
+    "nameFr": "Ain Atiq",
+    "nameEn": "Ain Atiq",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 251,
+    "key": "ain beda",
+    "nameAr": "Ain Beda",
+    "nameFr": "Ain Beda",
+    "nameEn": "Ain Beda",
+    "price": 35,
+    "delay": "48h"
+  },
+  {
+    "id": 252,
+    "key": "ain beida",
+    "nameAr": "Ain Beida",
+    "nameFr": "Ain Beida",
+    "nameEn": "Ain Beida",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 253,
+    "key": "ain beni mathar",
+    "nameAr": "Ain Beni Mathar",
+    "nameFr": "Ain Beni Mathar",
+    "nameEn": "Ain Beni Mathar",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 254,
+    "key": "ain cheggag",
+    "nameAr": "Ain Cheggag",
+    "nameFr": "Ain Cheggag",
+    "nameEn": "Ain Cheggag",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 255,
+    "key": "ain chqef",
+    "nameAr": "Ain Chqef",
+    "nameFr": "Ain Chqef",
+    "nameEn": "Ain Chqef",
+    "price": 35,
+    "delay": "48h"
+  },
+  {
+    "id": 256,
+    "key": "ain el aouda",
+    "nameAr": "Ain El Aouda",
+    "nameFr": "Ain El Aouda",
+    "nameEn": "Ain El Aouda",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 257,
+    "key": "ain erreggada",
+    "nameAr": "Ain Erreggada",
+    "nameFr": "Ain Erreggada",
+    "nameEn": "Ain Erreggada",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 258,
+    "key": "ain harrouda",
+    "nameAr": "Ain Harrouda",
+    "nameFr": "Ain Harrouda",
+    "nameEn": "Ain Harrouda",
+    "price": 35,
+    "delay": "48h"
+  },
+  {
+    "id": 259,
+    "key": "ain raggada",
+    "nameAr": "Ain Raggada",
+    "nameFr": "Ain Raggada",
+    "nameEn": "Ain Raggada",
+    "price": 40,
+    "delay": "48h"
+  },
+  {
+    "id": 260,
+    "key": "ait aissa",
+    "nameAr": "Ait Aissa",
+    "nameFr": "Ait Aissa",
+    "nameEn": "Ait Aissa",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 261,
+    "key": "ait aizza",
+    "nameAr": "Ait Aizza",
+    "nameFr": "Ait Aizza",
+    "nameEn": "Ait Aizza",
+    "price": 40,
+    "delay": "48h"
+  },
+  {
+    "id": 262,
+    "key": "ait amira",
+    "nameAr": "Ait Amira",
+    "nameFr": "Ait Amira",
+    "nameEn": "Ait Amira",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 263,
+    "key": "ait amou",
+    "nameAr": "Ait Amou",
+    "nameFr": "Ait Amou",
+    "nameEn": "Ait Amou",
+    "price": 29,
+    "delay": "48h"
+  },
+  {
+    "id": 264,
+    "key": "ait baha",
+    "nameAr": "Ait Baha",
+    "nameFr": "Ait Baha",
+    "nameEn": "Ait Baha",
+    "price": 40,
+    "delay": "48h"
+  },
+  {
+    "id": 265,
+    "key": "ait ishaq",
+    "nameAr": "Ait Ishaq",
+    "nameFr": "Ait Ishaq",
+    "nameEn": "Ait Ishaq",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 266,
+    "key": "ait milk",
+    "nameAr": "Ait Milk",
+    "nameFr": "Ait Milk",
+    "nameEn": "Ait Milk",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 267,
+    "key": "ait moussa",
+    "nameAr": "Ait Moussa",
+    "nameFr": "Ait Moussa",
+    "nameEn": "Ait Moussa",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 268,
+    "key": "ait oumribet",
+    "nameAr": "Ait Oumribet",
+    "nameFr": "Ait Oumribet",
+    "nameEn": "Ait Oumribet",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 269,
+    "key": "ait ourir",
+    "nameAr": "Ait Ourir",
+    "nameFr": "Ait Ourir",
+    "nameEn": "Ait Ourir",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 270,
+    "key": "ait youssef",
+    "nameAr": "Ait Youssef",
+    "nameFr": "Ait Youssef",
+    "nameEn": "Ait Youssef",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 271,
+    "key": "ajdir al hoceima",
+    "nameAr": "Ajdir - Al Hoceima",
+    "nameFr": "Ajdir - Al Hoceima",
+    "nameEn": "Ajdir - Al Hoceima",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 272,
+    "key": "akermoud",
+    "nameAr": "Akermoud",
+    "nameFr": "Akermoud",
+    "nameEn": "Akermoud",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 273,
+    "key": "amsa",
+    "nameAr": "Amsa",
+    "nameFr": "Amsa",
+    "nameEn": "Amsa",
+    "price": 35,
+    "delay": "48h"
+  },
+  {
+    "id": 274,
+    "key": "anza",
+    "nameAr": "Anza",
+    "nameFr": "Anza",
+    "nameEn": "Anza",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 275,
+    "key": "aoulouz",
+    "nameAr": "Aoulouz",
+    "nameFr": "Aoulouz",
+    "nameEn": "Aoulouz",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 276,
+    "key": "arfoud",
+    "nameAr": "Arfoud",
+    "nameFr": "Arfoud",
+    "nameEn": "Arfoud",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 277,
+    "key": "asni",
+    "nameAr": "Asni",
+    "nameFr": "Asni",
+    "nameEn": "Asni",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 278,
+    "key": "assa zag",
+    "nameAr": "Assa-zag",
+    "nameFr": "Assa-zag",
+    "nameEn": "Assa-zag",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 279,
+    "key": "azla",
+    "nameAr": "Azla",
+    "nameFr": "Azla",
+    "nameEn": "Azla",
+    "price": 40,
+    "delay": "48h"
+  },
+  {
+    "id": 280,
+    "key": "bab marzouka",
+    "nameAr": "Bab Marzouka",
+    "nameFr": "Bab Marzouka",
+    "nameEn": "Bab Marzouka",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 281,
+    "key": "belaaguid",
+    "nameAr": "Belaaguid",
+    "nameFr": "Belaaguid",
+    "nameEn": "Belaaguid",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 282,
+    "key": "belfaa",
+    "nameAr": "Belfaa",
+    "nameFr": "Belfaa",
+    "nameEn": "Belfaa",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 283,
+    "key": "ben ahmed",
+    "nameAr": "Ben Ahmed",
+    "nameFr": "Ben Ahmed",
+    "nameEn": "Ben Ahmed",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 284,
+    "key": "beni chiker",
+    "nameAr": "Beni Chiker",
+    "nameFr": "Beni Chiker",
+    "nameEn": "Beni Chiker",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 285,
+    "key": "beni drar",
+    "nameAr": "Beni Drar",
+    "nameFr": "Beni Drar",
+    "nameEn": "Beni Drar",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 286,
+    "key": "benseragou",
+    "nameAr": "Benseragou",
+    "nameFr": "Benseragou",
+    "nameEn": "Benseragou",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 287,
+    "key": "biougra",
+    "nameAr": "Biougra",
+    "nameFr": "Biougra",
+    "nameEn": "Biougra",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 288,
+    "key": "bni bouayach al hoceima",
+    "nameAr": "Bni Bouayach - Al Hoceima",
+    "nameFr": "Bni Bouayach - Al Hoceima",
+    "nameEn": "Bni Bouayach - Al Hoceima",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 289,
+    "key": "bni tadjite",
+    "nameAr": "Bni Tadjite",
+    "nameFr": "Bni Tadjite",
+    "nameEn": "Bni Tadjite",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 290,
+    "key": "bouaassida",
+    "nameAr": "Bouaassida",
+    "nameFr": "Bouaassida",
+    "nameEn": "Bouaassida",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 291,
+    "key": "bouderbala",
+    "nameAr": "Bouderbala",
+    "nameFr": "Bouderbala",
+    "nameEn": "Bouderbala",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 292,
+    "key": "boudnib",
+    "nameAr": "Boudnib",
+    "nameFr": "Boudnib",
+    "nameEn": "Boudnib",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 293,
+    "key": "boufakrane",
+    "nameAr": "Boufakrane",
+    "nameFr": "Boufakrane",
+    "nameEn": "Boufakrane",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 294,
+    "key": "bouizakarne",
+    "nameAr": "Bouizakarne",
+    "nameFr": "Bouizakarne",
+    "nameEn": "Bouizakarne",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 295,
+    "key": "boujad",
+    "nameAr": "Boujad",
+    "nameFr": "Boujad",
+    "nameEn": "Boujad",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 296,
+    "key": "boujniba",
+    "nameAr": "Boujniba",
+    "nameFr": "Boujniba",
+    "nameEn": "Boujniba",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 297,
+    "key": "boukidan al hoceima",
+    "nameAr": "Boukidan - Al Hoceima",
+    "nameFr": "Boukidan - Al Hoceima",
+    "nameEn": "Boukidan - Al Hoceima",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 298,
+    "key": "boulenouar",
+    "nameAr": "Boulenouar",
+    "nameFr": "Boulenouar",
+    "nameEn": "Boulenouar",
+    "price": 29,
+    "delay": "48h"
+  },
+  {
+    "id": 299,
+    "key": "bouqorra",
+    "nameAr": "Bouqorra",
+    "nameFr": "Bouqorra",
+    "nameEn": "Bouqorra",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 300,
+    "key": "briksha",
+    "nameAr": "Briksha",
+    "nameFr": "Briksha",
+    "nameEn": "Briksha",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 301,
+    "key": "cabo negro",
+    "nameAr": "Cabo Negro",
+    "nameFr": "Cabo Negro",
+    "nameEn": "Cabo Negro",
+    "price": 40,
+    "delay": "48h"
+  },
+  {
+    "id": 302,
+    "key": "chellalat",
+    "nameAr": "Chellalat",
+    "nameFr": "Chellalat",
+    "nameEn": "Chellalat",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 303,
+    "key": "dar guedari",
+    "nameAr": "Dar Guedari",
+    "nameFr": "Dar Guedari",
+    "nameEn": "Dar Guedari",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 304,
+    "key": "dar ould zidouh",
+    "nameAr": "Dar Ould Zidouh",
+    "nameFr": "Dar Ould Zidouh",
+    "nameEn": "Dar Ould Zidouh",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 305,
+    "key": "dcheira el jihadia",
+    "nameAr": "Dcheira El Jihadia",
+    "nameFr": "Dcheira El Jihadia",
+    "nameEn": "Dcheira El Jihadia",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 306,
+    "key": "derdara",
+    "nameAr": "Derdara",
+    "nameFr": "Derdara",
+    "nameEn": "Derdara",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 307,
+    "key": "deroua",
+    "nameAr": "Deroua",
+    "nameFr": "Deroua",
+    "nameEn": "Deroua",
+    "price": 35,
+    "delay": "48h"
+  },
+  {
+    "id": 308,
+    "key": "dlalha",
+    "nameAr": "Dlalha",
+    "nameFr": "Dlalha",
+    "nameEn": "Dlalha",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 309,
+    "key": "douar sidi ali",
+    "nameAr": "Douar Sidi Ali",
+    "nameFr": "Douar Sidi Ali",
+    "nameEn": "Douar Sidi Ali",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 310,
+    "key": "douyet",
+    "nameAr": "Douyet",
+    "nameFr": "Douyet",
+    "nameEn": "Douyet",
+    "price": 35,
+    "delay": "48h"
+  },
+  {
+    "id": 311,
+    "key": "drarga",
+    "nameAr": "Drarga",
+    "nameFr": "Drarga",
+    "nameEn": "Drarga",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 312,
+    "key": "el ain",
+    "nameAr": "El Ain",
+    "nameFr": "El Ain",
+    "nameEn": "El Ain",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 313,
+    "key": "el attaouia",
+    "nameAr": "El Attaouia",
+    "nameFr": "El Attaouia",
+    "nameEn": "El Attaouia",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 314,
+    "key": "el bazaza",
+    "nameAr": "El Bazaza",
+    "nameFr": "El Bazaza",
+    "nameEn": "El Bazaza",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 315,
+    "key": "el gara",
+    "nameAr": "El Gara",
+    "nameFr": "El Gara",
+    "nameEn": "El Gara",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 316,
+    "key": "el haj kaddour",
+    "nameAr": "El Haj Kaddour",
+    "nameFr": "El Haj Kaddour",
+    "nameEn": "El Haj Kaddour",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 317,
+    "key": "el jebha",
+    "nameAr": "El Jebha",
+    "nameFr": "El Jebha",
+    "nameEn": "El Jebha",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 318,
+    "key": "el ksabi",
+    "nameAr": "El Ksabi",
+    "nameFr": "El Ksabi",
+    "nameEn": "El Ksabi",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 319,
+    "key": "el mansouria",
+    "nameAr": "El Mansouria",
+    "nameFr": "El Mansouria",
+    "nameEn": "El Mansouria",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 320,
+    "key": "elbrouj",
+    "nameAr": "Elbrouj",
+    "nameFr": "Elbrouj",
+    "nameEn": "Elbrouj",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 321,
+    "key": "essamara",
+    "nameAr": "Essamara",
+    "nameFr": "Essamara",
+    "nameEn": "Essamara",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 322,
+    "key": "fadesa",
+    "nameAr": "Fadesa",
+    "nameFr": "Fadesa",
+    "nameEn": "Fadesa",
+    "price": 29,
+    "delay": "48h"
+  },
+  {
+    "id": 323,
+    "key": "fezouane",
+    "nameAr": "Fezouane",
+    "nameFr": "Fezouane",
+    "nameEn": "Fezouane",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 324,
+    "key": "fezoune",
+    "nameAr": "Fezoune",
+    "nameFr": "Fezoune",
+    "nameEn": "Fezoune",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 325,
+    "key": "foum el ansar",
+    "nameAr": "Foum El Ansar",
+    "nameFr": "Foum El Ansar",
+    "nameEn": "Foum El Ansar",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 326,
+    "key": "foum oudi",
+    "nameAr": "Foum Oudi",
+    "nameFr": "Foum Oudi",
+    "nameEn": "Foum Oudi",
+    "price": 40,
+    "delay": "48h"
+  },
+  {
+    "id": 327,
+    "key": "ghorm elam",
+    "nameAr": "Ghorm Elam",
+    "nameFr": "Ghorm Elam",
+    "nameEn": "Ghorm Elam",
+    "price": 29,
+    "delay": "48h"
+  },
+  {
+    "id": 328,
+    "key": "goulmima",
+    "nameAr": "Goulmima",
+    "nameFr": "Goulmima",
+    "nameEn": "Goulmima",
+    "price": 40,
+    "delay": "48h"
+  },
+  {
+    "id": 329,
+    "key": "guenfouda",
+    "nameAr": "Guenfouda",
+    "nameFr": "Guenfouda",
+    "nameEn": "Guenfouda",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 330,
+    "key": "guisser",
+    "nameAr": "Guisser",
+    "nameFr": "Guisser",
+    "nameEn": "Guisser",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 331,
+    "key": "gzenaya",
+    "nameAr": "Gzenaya",
+    "nameFr": "Gzenaya",
+    "nameEn": "Gzenaya",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 332,
+    "key": "had draa",
+    "nameAr": "Had Draa",
+    "nameFr": "Had Draa",
+    "nameEn": "Had Draa",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 333,
+    "key": "had khamouja",
+    "nameAr": "Had Khamouja",
+    "nameFr": "Had Khamouja",
+    "nameEn": "Had Khamouja",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 334,
+    "key": "haouzia",
+    "nameAr": "Haouzia",
+    "nameFr": "Haouzia",
+    "nameEn": "Haouzia",
+    "price": 35,
+    "delay": "48h"
+  },
+  {
+    "id": 335,
+    "key": "harhoura",
+    "nameAr": "Harhoura",
+    "nameFr": "Harhoura",
+    "nameEn": "Harhoura",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 336,
+    "key": "hattane",
+    "nameAr": "Hattane",
+    "nameFr": "Hattane",
+    "nameEn": "Hattane",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 337,
+    "key": "houara",
+    "nameAr": "Houara",
+    "nameFr": "Houara",
+    "nameEn": "Houara",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 338,
+    "key": "idelsane",
+    "nameAr": "Idelsane",
+    "nameFr": "Idelsane",
+    "nameEn": "Idelsane",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 339,
+    "key": "ihadaden",
+    "nameAr": "Ihadaden",
+    "nameFr": "Ihadaden",
+    "nameEn": "Ihadaden",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 340,
+    "key": "imintanoute",
+    "nameAr": "Imintanoute",
+    "nameFr": "Imintanoute",
+    "nameEn": "Imintanoute",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 341,
+    "key": "imjad",
+    "nameAr": "Imjad",
+    "nameFr": "Imjad",
+    "nameEn": "Imjad",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 342,
+    "key": "imouzzer",
+    "nameAr": "Imouzzer",
+    "nameFr": "Imouzzer",
+    "nameEn": "Imouzzer",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 343,
+    "key": "issaguen",
+    "nameAr": "Issaguen",
+    "nameFr": "Issaguen",
+    "nameEn": "Issaguen",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 344,
+    "key": "itzer",
+    "nameAr": "Itzer",
+    "nameFr": "Itzer",
+    "nameEn": "Itzer",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 345,
+    "key": "jamaat shaim",
+    "nameAr": "Jamaat Shaim",
+    "nameFr": "Jamaat Shaim",
+    "nameEn": "Jamaat Shaim",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 346,
+    "key": "jarf malha",
+    "nameAr": "Jarf Malha",
+    "nameFr": "Jarf Malha",
+    "nameEn": "Jarf Malha",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 347,
+    "key": "jerf",
+    "nameAr": "Jerf",
+    "nameFr": "Jerf",
+    "nameEn": "Jerf",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 348,
+    "key": "jourf el melha",
+    "nameAr": "Jourf El Melha",
+    "nameFr": "Jourf El Melha",
+    "nameEn": "Jourf El Melha",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 349,
+    "key": "kabila",
+    "nameAr": "Kabila",
+    "nameFr": "Kabila",
+    "nameEn": "Kabila",
+    "price": 35,
+    "delay": "48h"
+  },
+  {
+    "id": 350,
+    "key": "karia ba mohamed",
+    "nameAr": "Karia Ba Mohamed",
+    "nameFr": "Karia Ba Mohamed",
+    "nameEn": "Karia Ba Mohamed",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 351,
+    "key": "kariat arekmane",
+    "nameAr": "Kariat Arekmane",
+    "nameFr": "Kariat Arekmane",
+    "nameEn": "Kariat Arekmane",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 352,
+    "key": "kelaat mgouna",
+    "nameAr": "Kelaat M'gouna",
+    "nameFr": "Kelaat M'gouna",
+    "nameEn": "Kelaat M'gouna",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 353,
+    "key": "kettara",
+    "nameAr": "Kettara",
+    "nameFr": "Kettara",
+    "nameEn": "Kettara",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 354,
+    "key": "khemissat",
+    "nameAr": "Khemissat",
+    "nameFr": "Khemissat",
+    "nameEn": "Khemissat",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 355,
+    "key": "khenichet",
+    "nameAr": "Khenichet",
+    "nameFr": "Khenichet",
+    "nameEn": "Khenichet",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 356,
+    "key": "khmis rmila",
+    "nameAr": "Khmis Rmila",
+    "nameFr": "Khmis Rmila",
+    "nameEn": "Khmis Rmila",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 357,
+    "key": "khmis zmamra",
+    "nameAr": "Khmis Zmamra",
+    "nameFr": "Khmis Zmamra",
+    "nameEn": "Khmis Zmamra",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 358,
+    "key": "koki",
+    "nameAr": "Koki",
+    "nameFr": "Koki",
+    "nameEn": "Koki",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 359,
+    "key": "ksar sghir",
+    "nameAr": "Ksar Sghir",
+    "nameFr": "Ksar Sghir",
+    "nameEn": "Ksar Sghir",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 360,
+    "key": "laaouamera",
+    "nameAr": "Laaouamera",
+    "nameFr": "Laaouamera",
+    "nameEn": "Laaouamera",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 361,
+    "key": "laatamna",
+    "nameAr": "Laatamna",
+    "nameFr": "Laatamna",
+    "nameEn": "Laatamna",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 362,
+    "key": "laayayta",
+    "nameAr": "Laayayta",
+    "nameFr": "Laayayta",
+    "nameEn": "Laayayta",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 363,
+    "key": "laayoune charkiya",
+    "nameAr": "Laayoune Charkiya",
+    "nameFr": "Laayoune Charkiya",
+    "nameEn": "Laayoune Charkiya",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 364,
+    "key": "lagfifat",
+    "nameAr": "Lagfifat",
+    "nameFr": "Lagfifat",
+    "nameEn": "Lagfifat",
+    "price": 29,
+    "delay": "48h"
+  },
+  {
+    "id": 365,
+    "key": "lahri",
+    "nameAr": "Lahri",
+    "nameFr": "Lahri",
+    "nameEn": "Lahri",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 366,
+    "key": "lala mimouna",
+    "nameAr": "Lala Mimouna",
+    "nameFr": "Lala Mimouna",
+    "nameEn": "Lala Mimouna",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 367,
+    "key": "lamjaara",
+    "nameAr": "Lamjaara",
+    "nameFr": "Lamjaara",
+    "nameEn": "Lamjaara",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 368,
+    "key": "lamriss",
+    "nameAr": "Lamriss",
+    "nameFr": "Lamriss",
+    "nameEn": "Lamriss",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 369,
+    "key": "leqliaa",
+    "nameAr": "Leqliaa",
+    "nameFr": "Leqliaa",
+    "nameEn": "Leqliaa",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 370,
+    "key": "livo depot",
+    "nameAr": "Livo Depot",
+    "nameFr": "Livo Depot",
+    "nameEn": "Livo Depot",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 371,
+    "key": "livo depot casablanca",
+    "nameAr": "Livo Depot Casablanca",
+    "nameFr": "Livo Depot Casablanca",
+    "nameEn": "Livo Depot Casablanca",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 372,
+    "key": "mhaya",
+    "nameAr": "M'haya",
+    "nameFr": "M'haya",
+    "nameEn": "M'haya",
+    "price": 35,
+    "delay": "48h"
+  },
+  {
+    "id": 373,
+    "key": "maaziz",
+    "nameAr": "Maaziz",
+    "nameFr": "Maaziz",
+    "nameEn": "Maaziz",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 374,
+    "key": "madagh",
+    "nameAr": "Madagh",
+    "nameFr": "Madagh",
+    "nameEn": "Madagh",
+    "price": 40,
+    "delay": "48h"
+  },
+  {
+    "id": 375,
+    "key": "madina jedida",
+    "nameAr": "Madina Jedida",
+    "nameFr": "Madina Jedida",
+    "nameEn": "Madina Jedida",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 376,
+    "key": "marina smir",
+    "nameAr": "Marina Smir",
+    "nameFr": "Marina Smir",
+    "nameEn": "Marina Smir",
+    "price": 35,
+    "delay": "48h"
+  },
+  {
+    "id": 377,
+    "key": "masmouda",
+    "nameAr": "Masmouda",
+    "nameFr": "Masmouda",
+    "nameEn": "Masmouda",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 378,
+    "key": "mechraa belksiri",
+    "nameAr": "Mechraa Belksiri",
+    "nameFr": "Mechraa Belksiri",
+    "nameEn": "Mechraa Belksiri",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 379,
+    "key": "mediouna",
+    "nameAr": "Mediouna",
+    "nameFr": "Mediouna",
+    "nameEn": "Mediouna",
+    "price": 35,
+    "delay": "48h"
+  },
+  {
+    "id": 380,
+    "key": "mehdia",
+    "nameAr": "Mehdia",
+    "nameFr": "Mehdia",
+    "nameEn": "Mehdia",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 381,
+    "key": "mejjat",
+    "nameAr": "Mejjat",
+    "nameFr": "Mejjat",
+    "nameEn": "Mejjat",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 382,
+    "key": "mers el lkhir",
+    "nameAr": "Mers El Lkhir",
+    "nameFr": "Mers El Lkhir",
+    "nameEn": "Mers El Lkhir",
+    "price": 40,
+    "delay": "48h"
+  },
+  {
+    "id": 383,
+    "key": "merzouga",
+    "nameAr": "Merzouga",
+    "nameFr": "Merzouga",
+    "nameEn": "Merzouga",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 384,
+    "key": "meskala",
+    "nameAr": "Meskala",
+    "nameFr": "Meskala",
+    "nameEn": "Meskala",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 385,
+    "key": "mirleft",
+    "nameAr": "Mirleft",
+    "nameFr": "Mirleft",
+    "nameEn": "Mirleft",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 386,
+    "key": "mnar",
+    "nameAr": "Mnar",
+    "nameFr": "Mnar",
+    "nameEn": "Mnar",
+    "price": 35,
+    "delay": "48h"
+  },
+  {
+    "id": 387,
+    "key": "mokrisset",
+    "nameAr": "Mokrisset",
+    "nameFr": "Mokrisset",
+    "nameEn": "Mokrisset",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 388,
+    "key": "moqrisst",
+    "nameAr": "Moqrisst",
+    "nameFr": "Moqrisst",
+    "nameEn": "Moqrisst",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 389,
+    "key": "moulay abdellah",
+    "nameAr": "Moulay Abdellah",
+    "nameFr": "Moulay Abdellah",
+    "nameEn": "Moulay Abdellah",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 390,
+    "key": "moulay idriss zerhoun",
+    "nameAr": "Moulay Idriss Zerhoun",
+    "nameFr": "Moulay Idriss Zerhoun",
+    "nameEn": "Moulay Idriss Zerhoun",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 391,
+    "key": "moullay abdellah amghar",
+    "nameAr": "Moullay Abdellah Amghar",
+    "nameFr": "Moullay Abdellah Amghar",
+    "nameEn": "Moullay Abdellah Amghar",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 392,
+    "key": "msmouda",
+    "nameAr": "Msmouda",
+    "nameFr": "Msmouda",
+    "nameEn": "Msmouda",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 393,
+    "key": "naima",
+    "nameAr": "Naima",
+    "nameFr": "Naima",
+    "nameEn": "Naima",
+    "price": 40,
+    "delay": "48h"
+  },
+  {
+    "id": 394,
+    "key": "oualidia",
+    "nameAr": "Oualidia",
+    "nameFr": "Oualidia",
+    "nameEn": "Oualidia",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 395,
+    "key": "ouargui",
+    "nameAr": "Ouargui",
+    "nameFr": "Ouargui",
+    "nameEn": "Ouargui",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 396,
+    "key": "oued amlil",
+    "nameAr": "Oued Amlil",
+    "nameFr": "Oued Amlil",
+    "nameEn": "Oued Amlil",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 397,
+    "key": "oued jdida",
+    "nameAr": "Oued Jdida",
+    "nameFr": "Oued Jdida",
+    "nameEn": "Oued Jdida",
+    "price": 35,
+    "delay": "48h"
+  },
+  {
+    "id": 398,
+    "key": "oued laou",
+    "nameAr": "Oued Laou",
+    "nameFr": "Oued Laou",
+    "nameEn": "Oued Laou",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 399,
+    "key": "oulad dahhou",
+    "nameAr": "Oulad Dahhou",
+    "nameFr": "Oulad Dahhou",
+    "nameEn": "Oulad Dahhou",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 400,
+    "key": "oulad fraj",
+    "nameAr": "Oulad Fraj",
+    "nameFr": "Oulad Fraj",
+    "nameEn": "Oulad Fraj",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 401,
+    "key": "oulad ghanem",
+    "nameAr": "Oulad Ghanem",
+    "nameFr": "Oulad Ghanem",
+    "nameEn": "Oulad Ghanem",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 402,
+    "key": "oulad hassoune",
+    "nameAr": "Oulad Hassoune",
+    "nameFr": "Oulad Hassoune",
+    "nameEn": "Oulad Hassoune",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 403,
+    "key": "oulad ismail",
+    "nameAr": "Oulad Ismail",
+    "nameFr": "Oulad Ismail",
+    "nameEn": "Oulad Ismail",
+    "price": 40,
+    "delay": "48h"
+  },
+  {
+    "id": 404,
+    "key": "oulad moussa",
+    "nameAr": "Oulad Moussa",
+    "nameFr": "Oulad Moussa",
+    "nameEn": "Oulad Moussa",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 405,
+    "key": "oulad rehou",
+    "nameAr": "Oulad Rehou",
+    "nameFr": "Oulad Rehou",
+    "nameEn": "Oulad Rehou",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 406,
+    "key": "oulad said",
+    "nameAr": "Oulad Said",
+    "nameFr": "Oulad Said",
+    "nameEn": "Oulad Said",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 407,
+    "key": "oulad teima",
+    "nameAr": "Oulad Teima",
+    "nameFr": "Oulad Teima",
+    "nameEn": "Oulad Teima",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 408,
+    "key": "oulad yahya",
+    "nameAr": "Oulad Yahya",
+    "nameFr": "Oulad Yahya",
+    "nameEn": "Oulad Yahya",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 409,
+    "key": "oulad yaich",
+    "nameAr": "Oulad Yaich",
+    "nameFr": "Oulad Yaich",
+    "nameEn": "Oulad Yaich",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 410,
+    "key": "oulad youssef",
+    "nameAr": "Oulad Youssef",
+    "nameFr": "Oulad Youssef",
+    "nameEn": "Oulad Youssef",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 411,
+    "key": "oulad zmam",
+    "nameAr": "Oulad Zmam",
+    "nameFr": "Oulad Zmam",
+    "nameEn": "Oulad Zmam",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 412,
+    "key": "ouled ayad",
+    "nameAr": "Ouled Ayad",
+    "nameFr": "Ouled Ayad",
+    "nameEn": "Ouled Ayad",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 413,
+    "key": "ouled berhil",
+    "nameAr": "Ouled Berhil",
+    "nameFr": "Ouled Berhil",
+    "nameEn": "Ouled Berhil",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 414,
+    "key": "ouled mbarek beni mellal",
+    "nameAr": "Ouled Mbarek - Beni Mellal",
+    "nameFr": "Ouled Mbarek - Beni Mellal",
+    "nameEn": "Ouled Mbarek - Beni Mellal",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 415,
+    "key": "ouled said el oued",
+    "nameAr": "Ouled Said El Oued",
+    "nameFr": "Ouled Said El Oued",
+    "nameEn": "Ouled Said El Oued",
+    "price": 29,
+    "delay": "48h"
+  },
+  {
+    "id": 416,
+    "key": "ouled tayeb",
+    "nameAr": "Ouled Tayeb",
+    "nameFr": "Ouled Tayeb",
+    "nameEn": "Ouled Tayeb",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 417,
+    "key": "oulmes",
+    "nameAr": "Oulmes",
+    "nameFr": "Oulmes",
+    "nameEn": "Oulmes",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 418,
+    "key": "ounnana",
+    "nameAr": "Ounnana",
+    "nameFr": "Ounnana",
+    "nameEn": "Ounnana",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 419,
+    "key": "ourika",
+    "nameAr": "Ourika",
+    "nameFr": "Ourika",
+    "nameEn": "Ourika",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 420,
+    "key": "ourzazate taznakht",
+    "nameAr": "Ourzazate-taznakht",
+    "nameFr": "Ourzazate-taznakht",
+    "nameEn": "Ourzazate-taznakht",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 421,
+    "key": "playa",
+    "nameAr": "Playa",
+    "nameFr": "Playa",
+    "nameEn": "Playa",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 422,
+    "key": "ranat",
+    "nameAr": "Ranat",
+    "nameFr": "Ranat",
+    "nameEn": "Ranat",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 423,
+    "key": "ras el ma",
+    "nameAr": "Ras El Ma",
+    "nameFr": "Ras El Ma",
+    "nameEn": "Ras El Ma",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 424,
+    "key": "region casa",
+    "nameAr": "Region Casa",
+    "nameFr": "Region Casa",
+    "nameEn": "Region Casa",
+    "price": 29,
+    "delay": "48h"
+  },
+  {
+    "id": 425,
+    "key": "region kech",
+    "nameAr": "Region Kech",
+    "nameFr": "Region Kech",
+    "nameEn": "Region Kech",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 426,
+    "key": "region marrakech",
+    "nameAr": "Region Marrakech",
+    "nameFr": "Region Marrakech",
+    "nameEn": "Region Marrakech",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 427,
+    "key": "region meknes",
+    "nameAr": "Region Meknes",
+    "nameFr": "Region Meknes",
+    "nameEn": "Region Meknes",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 428,
+    "key": "region tanger",
+    "nameAr": "Region Tanger",
+    "nameFr": "Region Tanger",
+    "nameEn": "Region Tanger",
+    "price": 40,
+    "delay": "48h"
+  },
+  {
+    "id": 429,
+    "key": "risani",
+    "nameAr": "Risani",
+    "nameFr": "Risani",
+    "nameEn": "Risani",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 430,
+    "key": "rommani",
+    "nameAr": "Rommani",
+    "nameFr": "Rommani",
+    "nameEn": "Rommani",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 431,
+    "key": "rwadi",
+    "nameAr": "Rwadi",
+    "nameFr": "Rwadi",
+    "nameEn": "Rwadi",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 432,
+    "key": "sabaa aiyoun",
+    "nameAr": "Sabaa Aiyoun",
+    "nameFr": "Sabaa Aiyoun",
+    "nameEn": "Sabaa Aiyoun",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 433,
+    "key": "saidia",
+    "nameAr": "Saidia",
+    "nameFr": "Saidia",
+    "nameEn": "Saidia",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 434,
+    "key": "sale al jadida",
+    "nameAr": "Sale Al Jadida",
+    "nameFr": "Sale Al Jadida",
+    "nameEn": "Sale Al Jadida",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 435,
+    "key": "sebaa ayoune",
+    "nameAr": "Sebaa Ayoune",
+    "nameFr": "Sebaa Ayoune",
+    "nameEn": "Sebaa Ayoune",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 436,
+    "key": "sebt gzoula",
+    "nameAr": "Sebt Gzoula",
+    "nameFr": "Sebt Gzoula",
+    "nameEn": "Sebt Gzoula",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 437,
+    "key": "sefrou",
+    "nameAr": "Sefrou",
+    "nameFr": "Sefrou",
+    "nameEn": "Sefrou",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 438,
+    "key": "sidi abdeljalil essaouira",
+    "nameAr": "Sidi Abdeljalil Essaouira",
+    "nameFr": "Sidi Abdeljalil Essaouira",
+    "nameEn": "Sidi Abdeljalil Essaouira",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 439,
+    "key": "sidi abdellah ghiat",
+    "nameAr": "Sidi Abdellah Ghiat",
+    "nameFr": "Sidi Abdellah Ghiat",
+    "nameEn": "Sidi Abdellah Ghiat",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 440,
+    "key": "sidi aissa ben ali",
+    "nameAr": "Sidi Aissa Ben Ali",
+    "nameFr": "Sidi Aissa Ben Ali",
+    "nameEn": "Sidi Aissa Ben Ali",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 441,
+    "key": "sidi allal el bahraoui",
+    "nameAr": "Sidi Allal El Bahraoui",
+    "nameFr": "Sidi Allal El Bahraoui",
+    "nameEn": "Sidi Allal El Bahraoui",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 442,
+    "key": "sidi allal tazi",
+    "nameAr": "Sidi Allal Tazi",
+    "nameFr": "Sidi Allal Tazi",
+    "nameEn": "Sidi Allal Tazi",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 443,
+    "key": "sidi bibi",
+    "nameAr": "Sidi Bibi",
+    "nameFr": "Sidi Bibi",
+    "nameEn": "Sidi Bibi",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 444,
+    "key": "sidi bouknadel",
+    "nameAr": "Sidi Bouknadel",
+    "nameFr": "Sidi Bouknadel",
+    "nameEn": "Sidi Bouknadel",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 445,
+    "key": "sidi bousber",
+    "nameAr": "Sidi Bousber",
+    "nameFr": "Sidi Bousber",
+    "nameEn": "Sidi Bousber",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 446,
+    "key": "sidi hajaj",
+    "nameAr": "Sidi Hajaj",
+    "nameFr": "Sidi Hajaj",
+    "nameEn": "Sidi Hajaj",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 447,
+    "key": "sidi hajjaj",
+    "nameAr": "Sidi Hajjaj",
+    "nameFr": "Sidi Hajjaj",
+    "nameEn": "Sidi Hajjaj",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 448,
+    "key": "sidi hmad",
+    "nameAr": "Sidi Hmad",
+    "nameFr": "Sidi Hmad",
+    "nameEn": "Sidi Hmad",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 449,
+    "key": "sidi ishaq",
+    "nameAr": "Sidi Ishaq",
+    "nameFr": "Sidi Ishaq",
+    "nameEn": "Sidi Ishaq",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 450,
+    "key": "sidi jaber",
+    "nameAr": "Sidi Jaber",
+    "nameFr": "Sidi Jaber",
+    "nameEn": "Sidi Jaber",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 451,
+    "key": "sidi rahal",
+    "nameAr": "Sidi Rahal",
+    "nameFr": "Sidi Rahal",
+    "nameEn": "Sidi Rahal",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 452,
+    "key": "sidi redouane",
+    "nameAr": "Sidi Redouane",
+    "nameFr": "Sidi Redouane",
+    "nameEn": "Sidi Redouane",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 453,
+    "key": "sidi taibi",
+    "nameAr": "Sidi Taibi",
+    "nameFr": "Sidi Taibi",
+    "nameEn": "Sidi Taibi",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 454,
+    "key": "sidi yahya du rharb",
+    "nameAr": "Sidi Yahya Du Rharb",
+    "nameFr": "Sidi Yahya Du Rharb",
+    "nameEn": "Sidi Yahya Du Rharb",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 455,
+    "key": "sidi yahya zaer",
+    "nameAr": "Sidi Yahya Zaer",
+    "nameFr": "Sidi Yahya Zaer",
+    "nameEn": "Sidi Yahya Zaer",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 456,
+    "key": "sidi zouine",
+    "nameAr": "Sidi Zouine",
+    "nameFr": "Sidi Zouine",
+    "nameEn": "Sidi Zouine",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 457,
+    "key": "smimou",
+    "nameAr": "Smimou",
+    "nameFr": "Smimou",
+    "nameEn": "Smimou",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 458,
+    "key": "souihla",
+    "nameAr": "Souihla",
+    "nameFr": "Souihla",
+    "nameEn": "Souihla",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 459,
+    "key": "souk el had des bradia",
+    "nameAr": "Souk El Had Des Bradia",
+    "nameFr": "Souk El Had Des Bradia",
+    "nameEn": "Souk El Had Des Bradia",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 460,
+    "key": "souk elarbaa du gharb",
+    "nameAr": "Souk Elarbaa Du Gharb",
+    "nameFr": "Souk Elarbaa Du Gharb",
+    "nameEn": "Souk Elarbaa Du Gharb",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 461,
+    "key": "souk khemis du sahel",
+    "nameAr": "Souk Khemis Du Sahel",
+    "nameFr": "Souk Khemis Du Sahel",
+    "nameEn": "Souk Khemis Du Sahel",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 462,
+    "key": "souk sebt",
+    "nameAr": "Souk Sebt",
+    "nameFr": "Souk Sebt",
+    "nameEn": "Souk Sebt",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 463,
+    "key": "stehat",
+    "nameAr": "Stehat",
+    "nameFr": "Stehat",
+    "nameEn": "Stehat",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 464,
+    "key": "taddart agadir",
+    "nameAr": "Taddart - Agadir",
+    "nameFr": "Taddart - Agadir",
+    "nameEn": "Taddart - Agadir",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 465,
+    "key": "taddart taza",
+    "nameAr": "Taddart - Taza",
+    "nameFr": "Taddart - Taza",
+    "nameEn": "Taddart - Taza",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 466,
+    "key": "tafersit",
+    "nameAr": "Tafersit",
+    "nameFr": "Tafersit",
+    "nameEn": "Tafersit",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 467,
+    "key": "tafetachte",
+    "nameAr": "Tafetachte",
+    "nameFr": "Tafetachte",
+    "nameEn": "Tafetachte",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 468,
+    "key": "tafraoute",
+    "nameAr": "Tafraoute",
+    "nameFr": "Tafraoute",
+    "nameEn": "Tafraoute",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 469,
+    "key": "tagadirt",
+    "nameAr": "Tagadirt",
+    "nameFr": "Tagadirt",
+    "nameEn": "Tagadirt",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 470,
+    "key": "tagharte",
+    "nameAr": "Tagharte",
+    "nameFr": "Tagharte",
+    "nameEn": "Tagharte",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 471,
+    "key": "taghazout",
+    "nameAr": "Taghazout",
+    "nameFr": "Taghazout",
+    "nameEn": "Taghazout",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 472,
+    "key": "taghbalt",
+    "nameAr": "Taghbalt",
+    "nameFr": "Taghbalt",
+    "nameEn": "Taghbalt",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 473,
+    "key": "tagzert",
+    "nameAr": "Tagzert",
+    "nameFr": "Tagzert",
+    "nameEn": "Tagzert",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 474,
+    "key": "tahannaout",
+    "nameAr": "Tahannaout",
+    "nameFr": "Tahannaout",
+    "nameEn": "Tahannaout",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 475,
+    "key": "taliouine",
+    "nameAr": "Taliouine",
+    "nameFr": "Taliouine",
+    "nameEn": "Taliouine",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 476,
+    "key": "talmest",
+    "nameAr": "Talmest",
+    "nameFr": "Talmest",
+    "nameEn": "Talmest",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 477,
+    "key": "tamait",
+    "nameAr": "Tamait",
+    "nameFr": "Tamait",
+    "nameEn": "Tamait",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 478,
+    "key": "tamansourt",
+    "nameAr": "Tamansourt",
+    "nameFr": "Tamansourt",
+    "nameEn": "Tamansourt",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 479,
+    "key": "tamaris",
+    "nameAr": "Tamaris",
+    "nameFr": "Tamaris",
+    "nameEn": "Tamaris",
+    "price": 30,
+    "delay": "48h"
+  },
+  {
+    "id": 480,
+    "key": "tamelalt",
+    "nameAr": "Tamelalt",
+    "nameFr": "Tamelalt",
+    "nameEn": "Tamelalt",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 481,
+    "key": "tamesluht",
+    "nameAr": "Tamesluht",
+    "nameFr": "Tamesluht",
+    "nameEn": "Tamesluht",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 482,
+    "key": "tamesna",
+    "nameAr": "Tamesna",
+    "nameFr": "Tamesna",
+    "nameEn": "Tamesna",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 483,
+    "key": "tamraght",
+    "nameAr": "Tamraght",
+    "nameFr": "Tamraght",
+    "nameEn": "Tamraght",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 484,
+    "key": "taounat",
+    "nameAr": "Taounat",
+    "nameFr": "Taounat",
+    "nameEn": "Taounat",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 485,
+    "key": "targuist al hoceima",
+    "nameAr": "Targuist - Al Hoceima",
+    "nameFr": "Targuist - Al Hoceima",
+    "nameEn": "Targuist - Al Hoceima",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 486,
+    "key": "tarrast",
+    "nameAr": "Tarrast",
+    "nameFr": "Tarrast",
+    "nameEn": "Tarrast",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 487,
+    "key": "tazaa",
+    "nameAr": "Tazaa",
+    "nameFr": "Tazaa",
+    "nameEn": "Tazaa",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 488,
+    "key": "tazenakht",
+    "nameAr": "Tazenakht",
+    "nameFr": "Tazenakht",
+    "nameEn": "Tazenakht",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 489,
+    "key": "temsia",
+    "nameAr": "Temsia",
+    "nameFr": "Temsia",
+    "nameEn": "Temsia",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 490,
+    "key": "tenrara",
+    "nameAr": "Tenrara",
+    "nameFr": "Tenrara",
+    "nameEn": "Tenrara",
+    "price": 29,
+    "delay": "48h"
+  },
+  {
+    "id": 491,
+    "key": "teroual",
+    "nameAr": "Teroual",
+    "nameFr": "Teroual",
+    "nameEn": "Teroual",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 492,
+    "key": "tiddas",
+    "nameAr": "Tiddas",
+    "nameFr": "Tiddas",
+    "nameEn": "Tiddas",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 493,
+    "key": "tighssaline",
+    "nameAr": "Tighssaline",
+    "nameFr": "Tighssaline",
+    "nameEn": "Tighssaline",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 494,
+    "key": "tin mansour",
+    "nameAr": "Tin Mansour",
+    "nameFr": "Tin Mansour",
+    "nameEn": "Tin Mansour",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 495,
+    "key": "tinjdad",
+    "nameAr": "Tinjdad",
+    "nameFr": "Tinjdad",
+    "nameEn": "Tinjdad",
+    "price": 40,
+    "delay": "48h"
+  },
+  {
+    "id": 496,
+    "key": "tiouli",
+    "nameAr": "Tiouli",
+    "nameFr": "Tiouli",
+    "nameEn": "Tiouli",
+    "price": 29,
+    "delay": "48h"
+  },
+  {
+    "id": 497,
+    "key": "tizi ouasli",
+    "nameAr": "Tizi Ouasli",
+    "nameFr": "Tizi Ouasli",
+    "nameEn": "Tizi Ouasli",
+    "price": 29,
+    "delay": "48h"
+  },
+  {
+    "id": 498,
+    "key": "tlat bougedra",
+    "nameAr": "Tlat Bougedra",
+    "nameFr": "Tlat Bougedra",
+    "nameEn": "Tlat Bougedra",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 499,
+    "key": "tnin chtouka",
+    "nameAr": "Tnin Chtouka",
+    "nameFr": "Tnin Chtouka",
+    "nameEn": "Tnin Chtouka",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 500,
+    "key": "tnin gharbia",
+    "nameAr": "Tnin Gharbia",
+    "nameFr": "Tnin Gharbia",
+    "nameEn": "Tnin Gharbia",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 501,
+    "key": "tnin ghiat",
+    "nameAr": "Tnin Ghiat",
+    "nameFr": "Tnin Ghiat",
+    "nameEn": "Tnin Ghiat",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 502,
+    "key": "touima",
+    "nameAr": "Touima",
+    "nameFr": "Touima",
+    "nameEn": "Touima",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 503,
+    "key": "touissite",
+    "nameAr": "Touissite",
+    "nameFr": "Touissite",
+    "nameEn": "Touissite",
+    "price": 39,
+    "delay": "48h"
+  },
+  {
+    "id": 504,
+    "key": "zaouda",
+    "nameAr": "Zaouda",
+    "nameFr": "Zaouda",
+    "nameEn": "Zaouda",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 505,
+    "key": "zaouyat sidi smail",
+    "nameAr": "Zaouyat Sidi Smail",
+    "nameFr": "Zaouyat Sidi Smail",
+    "nameEn": "Zaouyat Sidi Smail",
+    "price": 47,
+    "delay": "48h"
+  },
+  {
+    "id": 506,
+    "key": "zemamra",
+    "nameAr": "Zemamra",
+    "nameFr": "Zemamra",
+    "nameEn": "Zemamra",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 507,
+    "key": "zoualeth dkhissa",
+    "nameAr": "Zoualeth Dkhissa",
+    "nameFr": "Zoualeth Dkhissa",
+    "nameEn": "Zoualeth Dkhissa",
+    "price": 35,
+    "delay": "48h"
+  },
+  {
+    "id": 508,
+    "key": "zoumi",
+    "nameAr": "Zoumi",
+    "nameFr": "Zoumi",
+    "nameEn": "Zoumi",
+    "price": 45,
+    "delay": "48h"
+  },
+  {
+    "id": 509,
+    "key": "zraibat",
+    "nameAr": "Zraibat",
+    "nameFr": "Zraibat",
+    "nameEn": "Zraibat",
+    "price": 29,
+    "delay": "48h"
   }
 ]
