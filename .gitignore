@@ -25,3 +25,5 @@ _rotate-secret.cjs
 
 # Copie locale de travail (config / brouillons) — ne jamais committer
 _cfg.txt
+
+audit-report/
