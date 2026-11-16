@@ -389,7 +389,24 @@ async function fetchLivoFeesFromApi() {
 }
 
 async function syncLivoCitiesFromApi(options = {}) {
-  const { preserveCustom = false } = options;
+  const { preserveCustom = false, preserveReferenced = true } = options;
+  const purgeReferencedGuard = preserveReferenced === true;
+
+  /* CORRECTIF C11 : ids de villes encore references par une commande.
+     Garde-fou avant toute suppression (desactivable via preserveReferenced). */
+  const referencedCityIds = new Set();
+  if (purgeReferencedGuard) {
+    try {
+      const ordersSnap = await db.collection('orders').select('delivery').limit(2000).get();
+      ordersSnap.docs.forEach(o => {
+        const dv = (o.data() || {}).delivery || {};
+        if (dv.cityId != null && String(dv.cityId) !== '') referencedCityIds.add(String(dv.cityId));
+      });
+    } catch (e) {
+      console.warn('[syncLivoCities] lecture orders pour garde-fou impossible:', e.message);
+    }
+  }
+
   const { requestDate, cities } = await fetchLivoFeesFromApi();
 
   if (!cities.length) throw new Error('Livo a retournÃ© 0 ville.');
@@ -526,13 +543,20 @@ async function syncLivoCitiesFromApi(options = {}) {
       const data = d.data();
       if (data.source === 'manual') return;
 
-      /* Ne jamais supprimer un document historique (non cree par Livo) :
-         il peut etre reference par une commande passee. */
-      if (data.source !== 'livo') return;
-
       /* Ne supprimer que les doublons Livo non apparies : un document
          Livo qui a servi de cible (matchedRefs) est conserve. */
       if (matchedRefs.has(d.id)) return;
+
+      /* CORRECTIF C11 (2026-11-16) : decision produit -> le site ne doit
+         proposer QUE les villes desservees par Livo. Les documents
+         historiques (source absente) sont desormais purges EUX AUSSI,
+         au lieu d etre conserves indefiniment.
+         `matchedRefs` couvre deja les villes historiques reconnues par
+         l index tolerant (sidi slimane, souk el arbaa, errahma...) : elles
+         sont mises a jour, pas supprimees.
+         Garde-fou : si `preserveReferenced` est vrai, on conserve en plus
+         tout document encore reference par une commande. */
+      if (purgeReferencedGuard && referencedCityIds.has(String(data.id))) return;
 
       toDelete.push(d.ref);
     });
@@ -1073,8 +1097,12 @@ exports.syncLivoCities = onRequest({ invoker: 'public', region: 'europe-west1', 
       return res.status(403).json({ success: false, message: 'Action rÃ©servÃ©e Ã  un administrateur.' });
     }
 
+    /* preserveCustom: true      -> ne supprime rien, met seulement a jour.
+       preserveReferenced: false -> supprime aussi les villes encore
+         referencees par une commande (par defaut on les conserve). */
     const result = await syncLivoCitiesFromApi({
-      preserveCustom: req.body?.preserveCustom === true
+      preserveCustom: req.body?.preserveCustom === true,
+      preserveReferenced: req.body?.preserveReferenced !== false
     });
 
     return res.status(200).json({ success: true, ...result });

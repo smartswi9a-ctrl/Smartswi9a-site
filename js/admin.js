@@ -2224,7 +2224,6 @@ async function syncLivoCitiesGrid() {
         ];
         console.log('[syncLivoCities] OK -', parts.join(', '));
         showToast('Villes synchronisées (prix Livo officiels) — ' + parts.join(', '), 7000);
-
         /* Le cache local (utils.js CACHE_KEY) doit être invalidé, sinon les
            pages continuent d'afficher les anciens prix jusqu'à expiration. */
         try {
