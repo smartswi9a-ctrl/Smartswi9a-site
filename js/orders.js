@@ -819,7 +819,7 @@ export async function updateOrderStatus(orderId, newStatus) {
             // GARDE-FOU (Audit 2026-11-16) : Empecher la double execution
             // (emails, appels Livo) si le statut est deja le bon.
             if (previousStatus === normalizedStatus) {
-                console.log([updateOrderStatus] Statut deja a  pour , ignore.);
+                console.log("[updateOrderStatus] Statut deja " + normalizedStatus + " pour " + orderId + ", ignore.");
                 return; 
             }
 
