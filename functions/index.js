@@ -1,4 +1,4 @@
-const { onRequest } = require('firebase-functions/v2/https');
+﻿const { onRequest } = require('firebase-functions/v2/https');
 const { onDocumentWritten, onDocumentUpdated, onDocumentCreated } = require('firebase-functions/v2/firestore');
 const { defineSecret } = require('firebase-functions/params');
 const { initializeApp } = require('firebase-admin/app');
@@ -25,10 +25,10 @@ const ALLOWED_ORIGINS = new Set([
    CONSTANTES GLOBALES
    ============================================================
    - LIVO_API_BASE : endpoint public Livo
-   - RETURN_FEE_LIVO : valeur historique conservée uniquement pour reconstruire
-     les contrats 1.1.0 à 1.3.0 ; aucun débit de retour ne l'utilise.
-   - FALLBACK_DELIVERY_FEE : frais par défaut si Firestore vide
-   - LIVO_DEPOT_KEYS : entrepôts Livo à exclure des villes clients
+   - RETURN_FEE_LIVO : valeur historique conservÃ©e uniquement pour reconstruire
+     les contrats 1.1.0 Ã  1.3.0 ; aucun dÃ©bit de retour ne l'utilise.
+   - FALLBACK_DELIVERY_FEE : frais par dÃ©faut si Firestore vide
+   - LIVO_DEPOT_KEYS : entrepÃ´ts Livo Ã  exclure des villes clients
    - LOGIN_* : throttle login vendeur
    ============================================================ */
 const LIVO_API_BASE = 'https://rest.livo.ma';
@@ -56,10 +56,10 @@ const LOGIN_MAX_FAILURES = 8;
 /* ============================================================
    SNAPSHOT CONTRAT OFFICIEL (B-C1)
    ============================================================
-   DOIT être synchronisé avec CONFIG.VENDOR dans js/config.js.
-   Si tu modifies CONFIG.VENDOR côté client, tu DOIS modifier
-   ces valeurs ici, sinon tous les nouveaux contrats échoueront
-   avec "Falsification détectée".
+   DOIT Ãªtre synchronisÃ© avec CONFIG.VENDOR dans js/config.js.
+   Si tu modifies CONFIG.VENDOR cÃ´tÃ© client, tu DOIS modifier
+   ces valeurs ici, sinon tous les nouveaux contrats Ã©choueront
+   avec "Falsification dÃ©tectÃ©e".
    ============================================================ */
 const OFFICIAL_VENDOR_CONFIG = {
   CONTRACT_VERSION: '1.5.0',
@@ -220,7 +220,7 @@ function resolveCreditUnlockBase(order) {
 }
 
 /* ============================================================
-   HELPERS GÉNÉRAUX
+   HELPERS GÃ‰NÃ‰RAUX
    ============================================================ */
 function cors(req, res) {
   const origin = req.get('origin');
@@ -233,11 +233,11 @@ function cors(req, res) {
   res.set('Cache-Control', 'no-store');
   if (req.method === 'OPTIONS') { res.status(204).send(''); return true; }
   if (req.method !== 'POST' && req.method !== 'GET') {
-    res.status(405).json({ success: false, message: 'Méthode non autorisée.' });
+    res.status(405).json({ success: false, message: 'MÃ©thode non autorisÃ©e.' });
     return true;
   }
   if (origin && !ALLOWED_ORIGINS.has(origin)) {
-    res.status(403).json({ success: false, message: 'Origine non autorisée.' });
+    res.status(403).json({ success: false, message: 'Origine non autorisÃ©e.' });
     return true;
   }
   return false;
@@ -267,10 +267,10 @@ function approved(profile) {
 function statusMessage(profile) {
   const status = profile?.vendorInfo?.status;
   if (status === 'pending') return 'Votre demande vendeur est en attente de validation.';
-  if (status === 'rejected') return 'Votre demande vendeur a été refusée.';
-  if (status === 'suspended') return 'Votre accès vendeur est suspendu.';
-  if (status === 'approved') return 'Votre contrat vendeur doit être accepté avant l’accès au tableau de bord.';
-  return 'Ce compte ne dispose pas d’un accès vendeur approuvé.';
+  if (status === 'rejected') return 'Votre demande vendeur a Ã©tÃ© refusÃ©e.';
+  if (status === 'suspended') return 'Votre accÃ¨s vendeur est suspendu.';
+  if (status === 'approved') return 'Votre contrat vendeur doit Ãªtre acceptÃ© avant lâ€™accÃ¨s au tableau de bord.';
+  return 'Ce compte ne dispose pas dâ€™un accÃ¨s vendeur approuvÃ©.';
 }
 
 /* ============================================================
@@ -298,6 +298,69 @@ function normalizeCityKey(raw) {
     .trim();
 }
 
+/* ============================================================
+   CORRECTIF C3 (audit 2026-11-16) â€” RAPPROCHEMENT TOLERANT DES VILLES
+   ------------------------------------------------------------
+   Livo renvoie des libelles qui varient d une synchronisation a une autre :
+     "sidi sliman"             vs  "sidi slimane"     (doc historique)
+     "ajdir al hoceima"        vs  "ajdir"
+     "bni bouayach al hoceima" vs  "bni bouayach"
+   Avec une egalite stricte sur normalizeCityKey, ces variantes ne
+   matchaient pas le document existant : syncLivoCitiesFromApi CREAIT un
+   second document au lieu de mettre a jour, laissant deux prix pour la
+   meme ville. utils.js retenant le premier par id, c est l ancien tarif
+   qui s affichait (sous-facturation).
+
+   Trois passes, de la plus stricte a la plus permissive :
+     1. cle exacte normalisee
+     2. cle agressive (tout sauf [a-z0-9] supprime)
+     3. prefixe, borne : l une prefixe de l autre, chacune >= 8 chars
+        et rapport de longueur >= 0.75, pour ne pas fusionner des
+        villes reellement distinctes (bir jdid / bir rami, ksar el
+        kebir / ksar sghir, oued jdida / oued laou).
+
+   Au niveau module : testable sans Firestore
+   (tests/livo-city-matching.test.cjs) et non recree a chaque appel.
+   NOTE : pas d apostrophe dans ce bloc. Le test livo-webhook-sim extrait
+   du code par comptage de quotes et ne sait pas ignorer les commentaires ;
+   une apostrophe ici decalerait son extraction.
+   ============================================================ */
+const MIN_CITY_PREFIX = 8;
+
+function looseCityKey(raw) {
+  return normalizeCityKey(raw).replace(/[^a-z0-9]/g, '');
+}
+
+/* index = { byKey: Map, byLoose: Map, list: [{ loose, entry }] } */
+function findExistingCity(index, livoKey) {
+  if (!index) return null;
+
+  const strict = index.byKey.get(livoKey);
+  if (strict) return strict;
+
+  const loose = looseCityKey(livoKey);
+  if (!loose) return null;
+
+  const byLoose = index.byLoose.get(loose);
+  if (byLoose) return byLoose;
+
+  if (loose.length >= MIN_CITY_PREFIX) {
+    let best = null;
+    for (const cand of index.list) {
+      if (cand.loose.length < MIN_CITY_PREFIX) continue;
+      if (!(loose.startsWith(cand.loose) || cand.loose.startsWith(loose))) continue;
+      const shorter = Math.min(loose.length, cand.loose.length);
+      const longer = Math.max(loose.length, cand.loose.length);
+      if (shorter / longer < 0.75) continue;
+      if (!best || cand.loose.length > best.loose.length) best = cand;
+    }
+    if (best) return best.entry;
+  }
+
+  return null;
+}
+
+
 async function fetchLivoFeesFromApi() {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), LIVO_FEES_FETCH_TIMEOUT_MS);
@@ -311,7 +374,7 @@ async function fetchLivoFeesFromApi() {
     const json = await res.json();
     const data = json?.data?.data || json?.data || null;
     if (!data || !Array.isArray(data.order_fees)) {
-      throw new Error('Format de réponse Livo invalide (order_fees manquant).');
+      throw new Error('Format de rÃ©ponse Livo invalide (order_fees manquant).');
     }
     return {
       requestDate: String(data.request_date || new Date().toISOString()),
@@ -329,19 +392,41 @@ async function syncLivoCitiesFromApi(options = {}) {
   const { preserveCustom = false } = options;
   const { requestDate, cities } = await fetchLivoFeesFromApi();
 
-  if (!cities.length) throw new Error('Livo a retourné 0 ville.');
+  if (!cities.length) throw new Error('Livo a retournÃ© 0 ville.');
 
   const existingSnap = await db.collection('cities').get();
   const existingByKey = new Map();
   let maxExistingId = 0;
 
+  /* CORRECTIF C3 (audit 2026-11-16) : index de rapprochement TOLERANT.
+     Livo renvoie des libelles qui varient d une synchronisation a une autre
+     ("sidi sliman" vs "sidi slimane", "ajdir al hoceima" vs "ajdir",
+     "bni bouayach al hoceima" vs "bni bouayach"). Avec une comparaison
+     stricte sur normalizeCityKey, ces variations ne matchaient pas
+     le document existant : le sync CREAIT un second document au lieu de mettre a
+     jour, laissant deux prix pour la meme ville.
+
+     Les helpers looseCityKey / findExistingCity sont declares au niveau
+     module (voir plus bas, a cote de normalizeCityKey) pour rester
+     testables et ne pas recreer de fonction a chaque synchronisation. */
+  const existingByLoose = new Map();   // cle agressive -> doc
+  const existingByLooseList = [];      // [{ loose, entry }] pour les prefixes
+
   existingSnap.docs.forEach(d => {
     const data = d.data();
     const key = normalizeCityKey(data.key || data.nameFr || '');
-    if (key) existingByKey.set(key, { id: d.id, data });
+    const loose = looseCityKey(data.key || data.nameFr || '');
+    const entry = { id: d.id, data, loose };
+    if (key) existingByKey.set(key, entry);
+    if (loose) {
+      if (!existingByLoose.has(loose)) existingByLoose.set(loose, entry);
+      existingByLooseList.push({ loose, entry });
+    }
     const existingId = Number(data.id) || 0;
     if (existingId > maxExistingId) maxExistingId = existingId;
   });
+
+  const cityIndex = { byKey: existingByKey, byLoose: existingByLoose, list: existingByLooseList };
 
   // Anti-collision ID
   let nextId = maxExistingId + 1;
@@ -363,7 +448,7 @@ async function syncLivoCitiesFromApi(options = {}) {
     const chunk = allCities.slice(i, i + BATCH_SIZE);
 
     chunk.forEach(c => {
-      const existing = existingByKey.get(c.city);
+      const existing = findExistingCity(cityIndex, c.city);
       const docId = existing?.id || `city_${c.city.replace(/\s+/g, '_')}`;
       const ref = db.collection('cities').doc(docId);
 
@@ -413,17 +498,45 @@ async function syncLivoCitiesFromApi(options = {}) {
     await batch.commit();
   }
 
-  // Suppression des villes obsolètes
+  // Suppression des villes obsolÃ¨tes
+  // ------------------------------------------------------------
+  // CORRECTIF C3-bis (audit 2026-11-16) : ce bloc supprimait tout document
+  // dont la cle ne correspondait pas EXACTEMENT a la grille Livo, y compris les
+  // documents LEGACY (source absente, ex. `lahraouiyine`, `sidi slimane`).
+  // Or une commande existante peut referencer ces documents par leur id
+  // numerique : createCustomerOrder fait
+  //   db.collection('cities').doc(String(delivery.cityId))
+  // et refuse la commande si le document a disparu.
+  //
+  // On ne supprime donc que les documents reellement crees par Livo
+  // (source === 'livo' ET presents dans `existingByKey` via notre index
+  // tolerant). Les documents historiques sont CONSERVES : ils seront
+  // simplement mis a jour au prix Livo si les deux correspondent, ou laisses tels quels sinon.
+  // desservie, ou laisses tels quels sinon.
   let deleted = 0;
   if (!preserveCustom) {
-    const livoKeys = new Set(cities.map(c => c.city));
+    const matchedRefs = new Set();
+    for (const c of cities) {
+      const entry = findExistingCity(cityIndex, c.city);
+      if (entry) matchedRefs.add(entry.id);
+    }
+
     const toDelete = [];
     existingSnap.docs.forEach(d => {
       const data = d.data();
       if (data.source === 'manual') return;
-      const key = normalizeCityKey(data.key || data.nameFr || '');
-      if (key && !livoKeys.has(key)) toDelete.push(d.ref);
+
+      /* Ne jamais supprimer un document historique (non cree par Livo) :
+         il peut etre reference par une commande passee. */
+      if (data.source !== 'livo') return;
+
+      /* Ne supprimer que les doublons Livo non apparies : un document
+         Livo qui a servi de cible (matchedRefs) est conserve. */
+      if (matchedRefs.has(d.id)) return;
+
+      toDelete.push(d.ref);
     });
+
     for (let i = 0; i < toDelete.length; i += BATCH_SIZE) {
       const batch = db.batch();
       toDelete.slice(i, i + BATCH_SIZE).forEach(ref => batch.delete(ref));
@@ -493,46 +606,46 @@ async function clearLoginFailures(email) {
 }
 
 /* ============================================================
-   TEMPLATES CONTRAT (Reproduction stricte côté serveur)
+   TEMPLATES CONTRAT (Reproduction stricte cÃ´tÃ© serveur)
    ============================================================ */
 function getContractText(lang, version, snapshot) {
   const templates = {
     "1.1.0": {
-      fr: (t) => `CONTRAT DE PARTENARIAT VENDEUR — SMART SWI9A\nVersion ${t.version}\n\nArticle 1 — Objet\nLe présent contrat encadre la mise en vente de produits par le Vendeur sur la plateforme Smart Swi9a (smartswi9a.top), marketplace marocaine d'appareils connectés et de produits pour la maison.\n\nArticle 2 — Inscription et vérification\nLe Vendeur s'engage à fournir des informations exactes (nom de boutique, téléphone, ville, ICE ou CIN). Toute fausse déclaration entraîne la suspension immédiate du compte.\n\nArticle 3 — Commission\nSmart Swi9a prélève une commission de ${(t.commissionRate * 100).toFixed(0)} % sur le montant hors livraison de chaque vente. Cette commission peut être ajustée entre ${(t.commissionRateMin * 100).toFixed(0)} % et ${(t.commissionRateMax * 100).toFixed(0)} % avec l'accord écrit du Vendeur.\n\nArticle 4 — Expédition\nLe Vendeur choisit le dépôt en agence (drop-off) ou la logistique Smart Swi9a (fulfillment). Les délais de dépôt sont de ${t.dropoffDeadlineHoursNew} heures (nouveaux comptes) ou ${t.dropoffDeadlineHoursEstablished} heures (comptes matures). Tout retard peut entraîner une suspension.\n\nArticle 5 — Paiement\nLes gains sont crédités sur le portefeuille vendeur et deviennent disponibles ${t.unlockDaysVendor} jours après livraison confirmée (${t.unlockDaysSmart} jours pour les produits Smart Swi9a). Le retrait minimum est de ${t.minWithdrawal} MAD.\n\nArticle 6 — Retours\nEn cas de retour, des frais de ${t.returnFeeSpeedaf} MAD sont prélevés par colis retourné. Les retours répétés peuvent entraîner une révision du statut du Vendeur.\n\nArticle 7 — Résiliation\nChaque partie peut résilier ce contrat à tout moment. Les commandes en cours restent soumises aux présentes conditions.\n\nArticle 8 — Loi applicable\nLe présent contrat est régi par le droit marocain. Tout litige relève des tribunaux de Casablanca.\n\nArticle 9 — Signature électronique\nLa signature électronique vaut acceptation pleine et entière. L'IP, le user-agent, la date serveur et un hash SHA-256 du présent document sont enregistrés à titre de preuve.\n\nEn signant, le Vendeur reconnaît avoir lu et compris l'intégralité du présent contrat.`,
-      ar: (t) => `عقد شراكة البائع — سمارت سويقة\nالإصدار ${t.version}\n\nالمادة 1 — الموضوع\nينظم هذا العقد عرض البائع لمنتجاته للبيع على منصة سمارت سويقة (smartswi9a.top)، وهي سوق مغربية للأجهزة المتصلة ومنتجات المنزل.\n\nالمادة 2 — التسجيل والتحقق\nيلتزم البائع بتقديم معلومات صحيحة (اسم المتجر، الهاتف، المدينة، ICE أو CIN). أي تصريح كاذب يؤدي إلى تعليق الحساب فوراً.\n\nالمادة 3 — العمولة\nتقتطع سمارت سويقة عمولة قدرها ${(t.commissionRate * 100).toFixed(0)}% على مبلغ كل عملية بيع دون احتساب التوصيل. يمكن تعديل هذه العمولة بين ${(t.commissionRateMin * 100).toFixed(0)}% و${(t.commissionRateMax * 100).toFixed(0)}% بموافقة كتابية من البائع.\n\nالمادة 4 — الشحن\nيختار البائع الإيداع في الوكالة (drop-off) أو لوجستيك سمارت سويقة (fulfillment). مهل الإيداع هي ${t.dropoffDeadlineHoursNew} ساعة (الحسابات الجديدة) أو ${t.dropoffDeadlineHoursEstablished} ساعة (الحسابات الناضجة). أي تأخير قد يؤدي إلى تعليق الحساب.\n\nالمادة 5 — الدفع\nتُضاف الأرباح إلى محفظة البائع وتصبح متاحة بعد ${t.unlockDaysVendor} أيام من تأكيد التسليم (${t.unlockDaysSmart} يوماً لمنتجات سمارت سويقة). الحد الأدنى للسحب هو ${t.minWithdrawal} درهم.\n\nالمادة 6 — الإرجاع\nفي حالة الإرجاع، تُخصم رسوم قدرها ${t.returnFeeSpeedaf} درهماً لكل طرد مُرجع. الإرجاعات المتكررة قد تؤدي إلى مراجعة وضع البائع.\n\nالمادة 7 — الإنهاء\nيمكن لأي طرف إنهاء هذا العقد في أي وقت. تبقى الطلبات الجارية خاضعة لهذه الشروط.\n\nالمادة 8 — القانون المطبق\nيخضع هذا العقد للقانون المغربي. يختص القضاء في الدار البيضاء بأي نزاع.\n\nالمادة 9 — التوقيع الإلكتروني\nالتوقيع الإلكتروني يعتبر قبولاً تاماً وصريحاً. يتم تسجيل عنوان IP، ووكيل المستخدم، وتاريخ الخادم، وبصمة SHA-256 لهذا المستند كدليل.\n\nبالتوقيع، يقر البائع بأنه قرأ وفهم كامل هذا العقد.`,
-      en: (t) => `VENDOR PARTNERSHIP AGREEMENT — SMART SWI9A\nVersion ${t.version}\n\nArticle 1 — Purpose\nThis agreement governs the listing and sale of products by the Vendor on Smart Swi9a (smartswi9a.top), a Moroccan marketplace for connected devices and home products.\n\nArticle 2 — Registration and verification\nThe Vendor agrees to provide accurate information (shop name, phone, city, ICE or CIN). Any false statement results in immediate account suspension.\n\nArticle 3 — Commission\nSmart Swi9a charges a ${(t.commissionRate * 100).toFixed(0)}% commission on the delivery-excluded amount of each sale. This commission may be adjusted between ${(t.commissionRateMin * 100).toFixed(0)}% and ${(t.commissionRateMax * 100).toFixed(0)}% with the Vendor's written consent.\n\nArticle 4 — Shipping\nThe Vendor chooses agency drop-off or Smart Swi9a fulfillment. Drop-off deadlines are ${t.dropoffDeadlineHoursNew} hours (new accounts) or ${t.dropoffDeadlineHoursEstablished} hours (mature accounts). Any delay may result in suspension.\n\nArticle 5 — Payment\nEarnings are credited to the vendor wallet and become available ${t.unlockDaysVendor} days after confirmed delivery (${t.unlockDaysSmart} days for Smart Swi9a products). Minimum withdrawal is ${t.minWithdrawal} MAD.\n\nArticle 6 — Returns\nIn case of return, a ${t.returnFeeSpeedaf} MAD fee is charged per returned parcel. Repeated returns may lead to a review of the Vendor's status.\n\nArticle 7 — Termination\nEither party may terminate this agreement at any time. Pending orders remain subject to these terms.\n\nArticle 8 — Governing law\nThis agreement is governed by Moroccan law. Any dispute falls under the jurisdiction of the courts of Casablanca.\n\nArticle 9 — Electronic signature\nThe electronic signature constitutes full acceptance. The IP, user-agent, server date, and a SHA-256 hash of this document are recorded as evidence.\n\nBy signing, the Vendor acknowledges having read and understood this entire agreement.`
+      fr: (t) => `CONTRAT DE PARTENARIAT VENDEUR â€” SMART SWI9A\nVersion ${t.version}\n\nArticle 1 â€” Objet\nLe prÃ©sent contrat encadre la mise en vente de produits par le Vendeur sur la plateforme Smart Swi9a (smartswi9a.top), marketplace marocaine d'appareils connectÃ©s et de produits pour la maison.\n\nArticle 2 â€” Inscription et vÃ©rification\nLe Vendeur s'engage Ã  fournir des informations exactes (nom de boutique, tÃ©lÃ©phone, ville, ICE ou CIN). Toute fausse dÃ©claration entraÃ®ne la suspension immÃ©diate du compte.\n\nArticle 3 â€” Commission\nSmart Swi9a prÃ©lÃ¨ve une commission de ${(t.commissionRate * 100).toFixed(0)} % sur le montant hors livraison de chaque vente. Cette commission peut Ãªtre ajustÃ©e entre ${(t.commissionRateMin * 100).toFixed(0)} % et ${(t.commissionRateMax * 100).toFixed(0)} % avec l'accord Ã©crit du Vendeur.\n\nArticle 4 â€” ExpÃ©dition\nLe Vendeur choisit le dÃ©pÃ´t en agence (drop-off) ou la logistique Smart Swi9a (fulfillment). Les dÃ©lais de dÃ©pÃ´t sont de ${t.dropoffDeadlineHoursNew} heures (nouveaux comptes) ou ${t.dropoffDeadlineHoursEstablished} heures (comptes matures). Tout retard peut entraÃ®ner une suspension.\n\nArticle 5 â€” Paiement\nLes gains sont crÃ©ditÃ©s sur le portefeuille vendeur et deviennent disponibles ${t.unlockDaysVendor} jours aprÃ¨s livraison confirmÃ©e (${t.unlockDaysSmart} jours pour les produits Smart Swi9a). Le retrait minimum est de ${t.minWithdrawal} MAD.\n\nArticle 6 â€” Retours\nEn cas de retour, des frais de ${t.returnFeeSpeedaf} MAD sont prÃ©levÃ©s par colis retournÃ©. Les retours rÃ©pÃ©tÃ©s peuvent entraÃ®ner une rÃ©vision du statut du Vendeur.\n\nArticle 7 â€” RÃ©siliation\nChaque partie peut rÃ©silier ce contrat Ã  tout moment. Les commandes en cours restent soumises aux prÃ©sentes conditions.\n\nArticle 8 â€” Loi applicable\nLe prÃ©sent contrat est rÃ©gi par le droit marocain. Tout litige relÃ¨ve des tribunaux de Casablanca.\n\nArticle 9 â€” Signature Ã©lectronique\nLa signature Ã©lectronique vaut acceptation pleine et entiÃ¨re. L'IP, le user-agent, la date serveur et un hash SHA-256 du prÃ©sent document sont enregistrÃ©s Ã  titre de preuve.\n\nEn signant, le Vendeur reconnaÃ®t avoir lu et compris l'intÃ©gralitÃ© du prÃ©sent contrat.`,
+      ar: (t) => `Ø¹Ù‚Ø¯ Ø´Ø±Ø§ÙƒØ© Ø§Ù„Ø¨Ø§Ø¦Ø¹ â€” Ø³Ù…Ø§Ø±Øª Ø³ÙˆÙŠÙ‚Ø©\nØ§Ù„Ø¥ØµØ¯Ø§Ø± ${t.version}\n\nØ§Ù„Ù…Ø§Ø¯Ø© 1 â€” Ø§Ù„Ù…ÙˆØ¶ÙˆØ¹\nÙŠÙ†Ø¸Ù… Ù‡Ø°Ø§ Ø§Ù„Ø¹Ù‚Ø¯ Ø¹Ø±Ø¶ Ø§Ù„Ø¨Ø§Ø¦Ø¹ Ù„Ù…Ù†ØªØ¬Ø§ØªÙ‡ Ù„Ù„Ø¨ÙŠØ¹ Ø¹Ù„Ù‰ Ù…Ù†ØµØ© Ø³Ù…Ø§Ø±Øª Ø³ÙˆÙŠÙ‚Ø© (smartswi9a.top)ØŒ ÙˆÙ‡ÙŠ Ø³ÙˆÙ‚ Ù…ØºØ±Ø¨ÙŠØ© Ù„Ù„Ø£Ø¬Ù‡Ø²Ø© Ø§Ù„Ù…ØªØµÙ„Ø© ÙˆÙ…Ù†ØªØ¬Ø§Øª Ø§Ù„Ù…Ù†Ø²Ù„.\n\nØ§Ù„Ù…Ø§Ø¯Ø© 2 â€” Ø§Ù„ØªØ³Ø¬ÙŠÙ„ ÙˆØ§Ù„ØªØ­Ù‚Ù‚\nÙŠÙ„ØªØ²Ù… Ø§Ù„Ø¨Ø§Ø¦Ø¹ Ø¨ØªÙ‚Ø¯ÙŠÙ… Ù…Ø¹Ù„ÙˆÙ…Ø§Øª ØµØ­ÙŠØ­Ø© (Ø§Ø³Ù… Ø§Ù„Ù…ØªØ¬Ø±ØŒ Ø§Ù„Ù‡Ø§ØªÙØŒ Ø§Ù„Ù…Ø¯ÙŠÙ†Ø©ØŒ ICE Ø£Ùˆ CIN). Ø£ÙŠ ØªØµØ±ÙŠØ­ ÙƒØ§Ø°Ø¨ ÙŠØ¤Ø¯ÙŠ Ø¥Ù„Ù‰ ØªØ¹Ù„ÙŠÙ‚ Ø§Ù„Ø­Ø³Ø§Ø¨ ÙÙˆØ±Ø§Ù‹.\n\nØ§Ù„Ù…Ø§Ø¯Ø© 3 â€” Ø§Ù„Ø¹Ù…ÙˆÙ„Ø©\nØªÙ‚ØªØ·Ø¹ Ø³Ù…Ø§Ø±Øª Ø³ÙˆÙŠÙ‚Ø© Ø¹Ù…ÙˆÙ„Ø© Ù‚Ø¯Ø±Ù‡Ø§ ${(t.commissionRate * 100).toFixed(0)}% Ø¹Ù„Ù‰ Ù…Ø¨Ù„Øº ÙƒÙ„ Ø¹Ù…Ù„ÙŠØ© Ø¨ÙŠØ¹ Ø¯ÙˆÙ† Ø§Ø­ØªØ³Ø§Ø¨ Ø§Ù„ØªÙˆØµÙŠÙ„. ÙŠÙ…ÙƒÙ† ØªØ¹Ø¯ÙŠÙ„ Ù‡Ø°Ù‡ Ø§Ù„Ø¹Ù…ÙˆÙ„Ø© Ø¨ÙŠÙ† ${(t.commissionRateMin * 100).toFixed(0)}% Ùˆ${(t.commissionRateMax * 100).toFixed(0)}% Ø¨Ù…ÙˆØ§ÙÙ‚Ø© ÙƒØªØ§Ø¨ÙŠØ© Ù…Ù† Ø§Ù„Ø¨Ø§Ø¦Ø¹.\n\nØ§Ù„Ù…Ø§Ø¯Ø© 4 â€” Ø§Ù„Ø´Ø­Ù†\nÙŠØ®ØªØ§Ø± Ø§Ù„Ø¨Ø§Ø¦Ø¹ Ø§Ù„Ø¥ÙŠØ¯Ø§Ø¹ ÙÙŠ Ø§Ù„ÙˆÙƒØ§Ù„Ø© (drop-off) Ø£Ùˆ Ù„ÙˆØ¬Ø³ØªÙŠÙƒ Ø³Ù…Ø§Ø±Øª Ø³ÙˆÙŠÙ‚Ø© (fulfillment). Ù…Ù‡Ù„ Ø§Ù„Ø¥ÙŠØ¯Ø§Ø¹ Ù‡ÙŠ ${t.dropoffDeadlineHoursNew} Ø³Ø§Ø¹Ø© (Ø§Ù„Ø­Ø³Ø§Ø¨Ø§Øª Ø§Ù„Ø¬Ø¯ÙŠØ¯Ø©) Ø£Ùˆ ${t.dropoffDeadlineHoursEstablished} Ø³Ø§Ø¹Ø© (Ø§Ù„Ø­Ø³Ø§Ø¨Ø§Øª Ø§Ù„Ù†Ø§Ø¶Ø¬Ø©). Ø£ÙŠ ØªØ£Ø®ÙŠØ± Ù‚Ø¯ ÙŠØ¤Ø¯ÙŠ Ø¥Ù„Ù‰ ØªØ¹Ù„ÙŠÙ‚ Ø§Ù„Ø­Ø³Ø§Ø¨.\n\nØ§Ù„Ù…Ø§Ø¯Ø© 5 â€” Ø§Ù„Ø¯ÙØ¹\nØªÙØ¶Ø§Ù Ø§Ù„Ø£Ø±Ø¨Ø§Ø­ Ø¥Ù„Ù‰ Ù…Ø­ÙØ¸Ø© Ø§Ù„Ø¨Ø§Ø¦Ø¹ ÙˆØªØµØ¨Ø­ Ù…ØªØ§Ø­Ø© Ø¨Ø¹Ø¯ ${t.unlockDaysVendor} Ø£ÙŠØ§Ù… Ù…Ù† ØªØ£ÙƒÙŠØ¯ Ø§Ù„ØªØ³Ù„ÙŠÙ… (${t.unlockDaysSmart} ÙŠÙˆÙ…Ø§Ù‹ Ù„Ù…Ù†ØªØ¬Ø§Øª Ø³Ù…Ø§Ø±Øª Ø³ÙˆÙŠÙ‚Ø©). Ø§Ù„Ø­Ø¯ Ø§Ù„Ø£Ø¯Ù†Ù‰ Ù„Ù„Ø³Ø­Ø¨ Ù‡Ùˆ ${t.minWithdrawal} Ø¯Ø±Ù‡Ù….\n\nØ§Ù„Ù…Ø§Ø¯Ø© 6 â€” Ø§Ù„Ø¥Ø±Ø¬Ø§Ø¹\nÙÙŠ Ø­Ø§Ù„Ø© Ø§Ù„Ø¥Ø±Ø¬Ø§Ø¹ØŒ ØªÙØ®ØµÙ… Ø±Ø³ÙˆÙ… Ù‚Ø¯Ø±Ù‡Ø§ ${t.returnFeeSpeedaf} Ø¯Ø±Ù‡Ù…Ø§Ù‹ Ù„ÙƒÙ„ Ø·Ø±Ø¯ Ù…ÙØ±Ø¬Ø¹. Ø§Ù„Ø¥Ø±Ø¬Ø§Ø¹Ø§Øª Ø§Ù„Ù…ØªÙƒØ±Ø±Ø© Ù‚Ø¯ ØªØ¤Ø¯ÙŠ Ø¥Ù„Ù‰ Ù…Ø±Ø§Ø¬Ø¹Ø© ÙˆØ¶Ø¹ Ø§Ù„Ø¨Ø§Ø¦Ø¹.\n\nØ§Ù„Ù…Ø§Ø¯Ø© 7 â€” Ø§Ù„Ø¥Ù†Ù‡Ø§Ø¡\nÙŠÙ…ÙƒÙ† Ù„Ø£ÙŠ Ø·Ø±Ù Ø¥Ù†Ù‡Ø§Ø¡ Ù‡Ø°Ø§ Ø§Ù„Ø¹Ù‚Ø¯ ÙÙŠ Ø£ÙŠ ÙˆÙ‚Øª. ØªØ¨Ù‚Ù‰ Ø§Ù„Ø·Ù„Ø¨Ø§Øª Ø§Ù„Ø¬Ø§Ø±ÙŠØ© Ø®Ø§Ø¶Ø¹Ø© Ù„Ù‡Ø°Ù‡ Ø§Ù„Ø´Ø±ÙˆØ·.\n\nØ§Ù„Ù…Ø§Ø¯Ø© 8 â€” Ø§Ù„Ù‚Ø§Ù†ÙˆÙ† Ø§Ù„Ù…Ø·Ø¨Ù‚\nÙŠØ®Ø¶Ø¹ Ù‡Ø°Ø§ Ø§Ù„Ø¹Ù‚Ø¯ Ù„Ù„Ù‚Ø§Ù†ÙˆÙ† Ø§Ù„Ù…ØºØ±Ø¨ÙŠ. ÙŠØ®ØªØµ Ø§Ù„Ù‚Ø¶Ø§Ø¡ ÙÙŠ Ø§Ù„Ø¯Ø§Ø± Ø§Ù„Ø¨ÙŠØ¶Ø§Ø¡ Ø¨Ø£ÙŠ Ù†Ø²Ø§Ø¹.\n\nØ§Ù„Ù…Ø§Ø¯Ø© 9 â€” Ø§Ù„ØªÙˆÙ‚ÙŠØ¹ Ø§Ù„Ø¥Ù„ÙƒØªØ±ÙˆÙ†ÙŠ\nØ§Ù„ØªÙˆÙ‚ÙŠØ¹ Ø§Ù„Ø¥Ù„ÙƒØªØ±ÙˆÙ†ÙŠ ÙŠØ¹ØªØ¨Ø± Ù‚Ø¨ÙˆÙ„Ø§Ù‹ ØªØ§Ù…Ø§Ù‹ ÙˆØµØ±ÙŠØ­Ø§Ù‹. ÙŠØªÙ… ØªØ³Ø¬ÙŠÙ„ Ø¹Ù†ÙˆØ§Ù† IPØŒ ÙˆÙˆÙƒÙŠÙ„ Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…ØŒ ÙˆØªØ§Ø±ÙŠØ® Ø§Ù„Ø®Ø§Ø¯Ù…ØŒ ÙˆØ¨ØµÙ…Ø© SHA-256 Ù„Ù‡Ø°Ø§ Ø§Ù„Ù…Ø³ØªÙ†Ø¯ ÙƒØ¯Ù„ÙŠÙ„.\n\nØ¨Ø§Ù„ØªÙˆÙ‚ÙŠØ¹ØŒ ÙŠÙ‚Ø± Ø§Ù„Ø¨Ø§Ø¦Ø¹ Ø¨Ø£Ù†Ù‡ Ù‚Ø±Ø£ ÙˆÙÙ‡Ù… ÙƒØ§Ù…Ù„ Ù‡Ø°Ø§ Ø§Ù„Ø¹Ù‚Ø¯.`,
+      en: (t) => `VENDOR PARTNERSHIP AGREEMENT â€” SMART SWI9A\nVersion ${t.version}\n\nArticle 1 â€” Purpose\nThis agreement governs the listing and sale of products by the Vendor on Smart Swi9a (smartswi9a.top), a Moroccan marketplace for connected devices and home products.\n\nArticle 2 â€” Registration and verification\nThe Vendor agrees to provide accurate information (shop name, phone, city, ICE or CIN). Any false statement results in immediate account suspension.\n\nArticle 3 â€” Commission\nSmart Swi9a charges a ${(t.commissionRate * 100).toFixed(0)}% commission on the delivery-excluded amount of each sale. This commission may be adjusted between ${(t.commissionRateMin * 100).toFixed(0)}% and ${(t.commissionRateMax * 100).toFixed(0)}% with the Vendor's written consent.\n\nArticle 4 â€” Shipping\nThe Vendor chooses agency drop-off or Smart Swi9a fulfillment. Drop-off deadlines are ${t.dropoffDeadlineHoursNew} hours (new accounts) or ${t.dropoffDeadlineHoursEstablished} hours (mature accounts). Any delay may result in suspension.\n\nArticle 5 â€” Payment\nEarnings are credited to the vendor wallet and become available ${t.unlockDaysVendor} days after confirmed delivery (${t.unlockDaysSmart} days for Smart Swi9a products). Minimum withdrawal is ${t.minWithdrawal} MAD.\n\nArticle 6 â€” Returns\nIn case of return, a ${t.returnFeeSpeedaf} MAD fee is charged per returned parcel. Repeated returns may lead to a review of the Vendor's status.\n\nArticle 7 â€” Termination\nEither party may terminate this agreement at any time. Pending orders remain subject to these terms.\n\nArticle 8 â€” Governing law\nThis agreement is governed by Moroccan law. Any dispute falls under the jurisdiction of the courts of Casablanca.\n\nArticle 9 â€” Electronic signature\nThe electronic signature constitutes full acceptance. The IP, user-agent, server date, and a SHA-256 hash of this document are recorded as evidence.\n\nBy signing, the Vendor acknowledges having read and understood this entire agreement.`
     },
     "1.2.0": {
-      fr: (t) => `CONTRAT DE PARTENARIAT VENDEUR — SMART SWI9A\nVersion ${t.version}\n\nArticle 1 — Objet\nLe présent contrat encadre la mise en vente de produits par le Vendeur sur la plateforme Smart Swi9a (smartswi9a.top), marketplace marocaine d'appareils connectés et de produits pour la maison.\n\nArticle 2 — Inscription et vérification\nLe Vendeur s'engage à fournir des informations exactes (nom de boutique, téléphone, ville, ICE ou CIN). Toute fausse déclaration entraîne la suspension immédiate du compte.\n\nArticle 3 — Commission\nSmart Swi9a prélève une commission de ${(t.commissionRate * 100).toFixed(0)} % sur le montant hors livraison de chaque vente. Cette commission peut être ajustée entre ${(t.commissionRateMin * 100).toFixed(0)} % et ${(t.commissionRateMax * 100).toFixed(0)} % avec l'accord écrit du Vendeur.\n\nArticle 4 — Expédition\nLe Vendeur choisit le dépôt en agence (drop-off) ou la logistique Smart Swi9a (fulfillment). Les délais de dépôt sont de ${t.dropoffDeadlineHoursNew} heures (nouveaux comptes) ou ${t.dropoffDeadlineHoursEstablished} heures (comptes matures). Tout retard peut entraîner une suspension.\n\nArticle 5 — Paiement\nLes gains sont crédités sur le portefeuille vendeur et deviennent disponibles ${t.unlockDaysVendor} jours après livraison confirmée (${t.unlockDaysSmart} jours pour les produits Smart Swi9a). Le retrait minimum est de ${t.minWithdrawal} MAD.\n\nArticle 6 — Retours\nEn cas de retour, des frais de ${t.returnFeeLivo} MAD sont prélevés par colis retourné (frais facturés par notre partenaire logistique Livo). Les retours répétés peuvent entraîner une révision du statut du Vendeur.\n\nArticle 7 — Résiliation\nChaque partie peut résilier ce contrat à tout moment. Les commandes en cours restent soumises aux présentes conditions.\n\nArticle 8 — Loi applicable\nLe présent contrat est régi par le droit marocain. Tout litige relève des tribunaux de Casablanca.\n\nArticle 9 — Signature électronique\nLa signature électronique vaut acceptation pleine et entière. L'IP, le user-agent, la date serveur et un hash SHA-256 du présent document sont enregistrés à titre de preuve.\n\nEn signant, le Vendeur reconnaît avoir lu et compris l'intégralité du présent contrat.`,
-      ar: (t) => `عقد شراكة البائع — سمارت سويقة\nالإصدار ${t.version}\n\nالمادة 1 — الموضوع\nينظم هذا العقد عرض البائع لمنتجاته للبيع على منصة سمارت سويقة (smartswi9a.top)، وهي سوق مغربية للأجهزة المتصلة ومنتجات المنزل.\n\nالمادة 2 — التسجيل والتحقق\nيلتزم البائع بتقديم معلومات صحيحة (اسم المتجر، الهاتف، المدينة، ICE أو CIN). أي تصريح كاذب يؤدي إلى تعليق الحساب فوراً.\n\nالمادة 3 — العمولة\nتقتطع سمارت سويقة عمولة قدرها ${(t.commissionRate * 100).toFixed(0)}% على مبلغ كل عملية بيع دون احتساب التوصيل. يمكن تعديل هذه العمولة بين ${(t.commissionRateMin * 100).toFixed(0)}% و${(t.commissionRateMax * 100).toFixed(0)}% بموافقة كتابية من البائع.\n\nالمادة 4 — الشحن\nيختار البائع الإيداع في الوكالة (drop-off) أو لوجستيك سمارت سويقة (fulfillment). مهل الإيداع هي ${t.dropoffDeadlineHoursNew} ساعة (الحسابات الجديدة) أو ${t.dropoffDeadlineHoursEstablished} ساعة (الحسابات الناضجة). أي تأخير قد يؤدي إلى تعليق الحساب.\n\nالمادة 5 — الدفع\nتُضاف الأرباح إلى محفظة البائع وتصبح متاحة بعد ${t.unlockDaysVendor} أيام من تأكيد التسليم (${t.unlockDaysSmart} يوماً لمنتجات سمارت سويقة). الحد الأدنى للسحب هو ${t.minWithdrawal} درهم.\n\nالمادة 6 — الإرجاع\nفي حالة الإرجاع، تُخصم رسوم قدرها ${t.returnFeeLivo} درهماً لكل طرد مُرجع (رسوم يفرضها شريكنا اللوجستي Livo). الإرجاعات المتكررة قد تؤدي إلى مراجعة وضع البائع.\n\nالمادة 7 — الإنهاء\nيمكن لأي طرف إنهاء هذا العقد في أي وقت. تبقى الطلبات الجارية خاضعة لهذه الشروط.\n\nالمادة 8 — القانون المطبق\nيخضع هذا العقد للقانون المغربي. يختص القضاء في الدار البيضاء بأي نزاع.\n\nالمادة 9 — التوقيع الإلكتروني\nالتوقيع الإلكتروني يعتبر قبولاً تاماً وصريحاً. يتم تسجيل عنوان IP، ووكيل المستخدم، وتاريخ الخادم، وبصمة SHA-256 لهذا المستند كدليل.\n\nبالتوقيع، يقر البائع بأنه قرأ وفهم كامل هذا العقد.`,
-      en: (t) => `VENDOR PARTNERSHIP AGREEMENT — SMART SWI9A\nVersion ${t.version}\n\nArticle 1 — Purpose\nThis agreement governs the listing and sale of products by the Vendor on Smart Swi9a (smartswi9a.top), a Moroccan marketplace for connected devices and home products.\n\nArticle 2 — Registration and verification\nThe Vendor agrees to provide accurate information (shop name, phone, city, ICE or CIN). Any false statement results in immediate account suspension.\n\nArticle 3 — Commission\nSmart Swi9a charges a ${(t.commissionRate * 100).toFixed(0)}% commission on the delivery-excluded amount of each sale. This commission may be adjusted between ${(t.commissionRateMin * 100).toFixed(0)}% and ${(t.commissionRateMax * 100).toFixed(0)}% with the Vendor's written consent.\n\nArticle 4 — Shipping\nThe Vendor chooses agency drop-off or Smart Swi9a fulfillment. Drop-off deadlines are ${t.dropoffDeadlineHoursNew} hours (new accounts) or ${t.dropoffDeadlineHoursEstablished} hours (mature accounts). Any delay may result in suspension.\n\nArticle 5 — Payment\nEarnings are credited to the vendor wallet and become available ${t.unlockDaysVendor} days after confirmed delivery (${t.unlockDaysSmart} days for Smart Swi9a products). Minimum withdrawal is ${t.minWithdrawal} MAD.\n\nArticle 6 — Returns\nIn case of return, a ${t.returnFeeLivo} MAD fee is charged per returned parcel (fee charged by our logistics partner Livo). Repeated returns may lead to a review of the Vendor's status.\n\nArticle 7 — Termination\nEither party may terminate this agreement at any time. Pending orders remain subject to these terms.\n\nArticle 8 — Governing law\nThis agreement is governed by Moroccan law. Any dispute falls under the jurisdiction of the courts of Casablanca.\n\nArticle 9 — Electronic signature\nThe electronic signature constitutes full acceptance. The IP, user-agent, server date, and a SHA-256 hash of this document are recorded as evidence.\n\nBy signing, the Vendor acknowledges having read and understood this entire agreement.`
+      fr: (t) => `CONTRAT DE PARTENARIAT VENDEUR â€” SMART SWI9A\nVersion ${t.version}\n\nArticle 1 â€” Objet\nLe prÃ©sent contrat encadre la mise en vente de produits par le Vendeur sur la plateforme Smart Swi9a (smartswi9a.top), marketplace marocaine d'appareils connectÃ©s et de produits pour la maison.\n\nArticle 2 â€” Inscription et vÃ©rification\nLe Vendeur s'engage Ã  fournir des informations exactes (nom de boutique, tÃ©lÃ©phone, ville, ICE ou CIN). Toute fausse dÃ©claration entraÃ®ne la suspension immÃ©diate du compte.\n\nArticle 3 â€” Commission\nSmart Swi9a prÃ©lÃ¨ve une commission de ${(t.commissionRate * 100).toFixed(0)} % sur le montant hors livraison de chaque vente. Cette commission peut Ãªtre ajustÃ©e entre ${(t.commissionRateMin * 100).toFixed(0)} % et ${(t.commissionRateMax * 100).toFixed(0)} % avec l'accord Ã©crit du Vendeur.\n\nArticle 4 â€” ExpÃ©dition\nLe Vendeur choisit le dÃ©pÃ´t en agence (drop-off) ou la logistique Smart Swi9a (fulfillment). Les dÃ©lais de dÃ©pÃ´t sont de ${t.dropoffDeadlineHoursNew} heures (nouveaux comptes) ou ${t.dropoffDeadlineHoursEstablished} heures (comptes matures). Tout retard peut entraÃ®ner une suspension.\n\nArticle 5 â€” Paiement\nLes gains sont crÃ©ditÃ©s sur le portefeuille vendeur et deviennent disponibles ${t.unlockDaysVendor} jours aprÃ¨s livraison confirmÃ©e (${t.unlockDaysSmart} jours pour les produits Smart Swi9a). Le retrait minimum est de ${t.minWithdrawal} MAD.\n\nArticle 6 â€” Retours\nEn cas de retour, des frais de ${t.returnFeeLivo} MAD sont prÃ©levÃ©s par colis retournÃ© (frais facturÃ©s par notre partenaire logistique Livo). Les retours rÃ©pÃ©tÃ©s peuvent entraÃ®ner une rÃ©vision du statut du Vendeur.\n\nArticle 7 â€” RÃ©siliation\nChaque partie peut rÃ©silier ce contrat Ã  tout moment. Les commandes en cours restent soumises aux prÃ©sentes conditions.\n\nArticle 8 â€” Loi applicable\nLe prÃ©sent contrat est rÃ©gi par le droit marocain. Tout litige relÃ¨ve des tribunaux de Casablanca.\n\nArticle 9 â€” Signature Ã©lectronique\nLa signature Ã©lectronique vaut acceptation pleine et entiÃ¨re. L'IP, le user-agent, la date serveur et un hash SHA-256 du prÃ©sent document sont enregistrÃ©s Ã  titre de preuve.\n\nEn signant, le Vendeur reconnaÃ®t avoir lu et compris l'intÃ©gralitÃ© du prÃ©sent contrat.`,
+      ar: (t) => `Ø¹Ù‚Ø¯ Ø´Ø±Ø§ÙƒØ© Ø§Ù„Ø¨Ø§Ø¦Ø¹ â€” Ø³Ù…Ø§Ø±Øª Ø³ÙˆÙŠÙ‚Ø©\nØ§Ù„Ø¥ØµØ¯Ø§Ø± ${t.version}\n\nØ§Ù„Ù…Ø§Ø¯Ø© 1 â€” Ø§Ù„Ù…ÙˆØ¶ÙˆØ¹\nÙŠÙ†Ø¸Ù… Ù‡Ø°Ø§ Ø§Ù„Ø¹Ù‚Ø¯ Ø¹Ø±Ø¶ Ø§Ù„Ø¨Ø§Ø¦Ø¹ Ù„Ù…Ù†ØªØ¬Ø§ØªÙ‡ Ù„Ù„Ø¨ÙŠØ¹ Ø¹Ù„Ù‰ Ù…Ù†ØµØ© Ø³Ù…Ø§Ø±Øª Ø³ÙˆÙŠÙ‚Ø© (smartswi9a.top)ØŒ ÙˆÙ‡ÙŠ Ø³ÙˆÙ‚ Ù…ØºØ±Ø¨ÙŠØ© Ù„Ù„Ø£Ø¬Ù‡Ø²Ø© Ø§Ù„Ù…ØªØµÙ„Ø© ÙˆÙ…Ù†ØªØ¬Ø§Øª Ø§Ù„Ù…Ù†Ø²Ù„.\n\nØ§Ù„Ù…Ø§Ø¯Ø© 2 â€” Ø§Ù„ØªØ³Ø¬ÙŠÙ„ ÙˆØ§Ù„ØªØ­Ù‚Ù‚\nÙŠÙ„ØªØ²Ù… Ø§Ù„Ø¨Ø§Ø¦Ø¹ Ø¨ØªÙ‚Ø¯ÙŠÙ… Ù…Ø¹Ù„ÙˆÙ…Ø§Øª ØµØ­ÙŠØ­Ø© (Ø§Ø³Ù… Ø§Ù„Ù…ØªØ¬Ø±ØŒ Ø§Ù„Ù‡Ø§ØªÙØŒ Ø§Ù„Ù…Ø¯ÙŠÙ†Ø©ØŒ ICE Ø£Ùˆ CIN). Ø£ÙŠ ØªØµØ±ÙŠØ­ ÙƒØ§Ø°Ø¨ ÙŠØ¤Ø¯ÙŠ Ø¥Ù„Ù‰ ØªØ¹Ù„ÙŠÙ‚ Ø§Ù„Ø­Ø³Ø§Ø¨ ÙÙˆØ±Ø§Ù‹.\n\nØ§Ù„Ù…Ø§Ø¯Ø© 3 â€” Ø§Ù„Ø¹Ù…ÙˆÙ„Ø©\nØªÙ‚ØªØ·Ø¹ Ø³Ù…Ø§Ø±Øª Ø³ÙˆÙŠÙ‚Ø© Ø¹Ù…ÙˆÙ„Ø© Ù‚Ø¯Ø±Ù‡Ø§ ${(t.commissionRate * 100).toFixed(0)}% Ø¹Ù„Ù‰ Ù…Ø¨Ù„Øº ÙƒÙ„ Ø¹Ù…Ù„ÙŠØ© Ø¨ÙŠØ¹ Ø¯ÙˆÙ† Ø§Ø­ØªØ³Ø§Ø¨ Ø§Ù„ØªÙˆØµÙŠÙ„. ÙŠÙ…ÙƒÙ† ØªØ¹Ø¯ÙŠÙ„ Ù‡Ø°Ù‡ Ø§Ù„Ø¹Ù…ÙˆÙ„Ø© Ø¨ÙŠÙ† ${(t.commissionRateMin * 100).toFixed(0)}% Ùˆ${(t.commissionRateMax * 100).toFixed(0)}% Ø¨Ù…ÙˆØ§ÙÙ‚Ø© ÙƒØªØ§Ø¨ÙŠØ© Ù…Ù† Ø§Ù„Ø¨Ø§Ø¦Ø¹.\n\nØ§Ù„Ù…Ø§Ø¯Ø© 4 â€” Ø§Ù„Ø´Ø­Ù†\nÙŠØ®ØªØ§Ø± Ø§Ù„Ø¨Ø§Ø¦Ø¹ Ø§Ù„Ø¥ÙŠØ¯Ø§Ø¹ ÙÙŠ Ø§Ù„ÙˆÙƒØ§Ù„Ø© (drop-off) Ø£Ùˆ Ù„ÙˆØ¬Ø³ØªÙŠÙƒ Ø³Ù…Ø§Ø±Øª Ø³ÙˆÙŠÙ‚Ø© (fulfillment). Ù…Ù‡Ù„ Ø§Ù„Ø¥ÙŠØ¯Ø§Ø¹ Ù‡ÙŠ ${t.dropoffDeadlineHoursNew} Ø³Ø§Ø¹Ø© (Ø§Ù„Ø­Ø³Ø§Ø¨Ø§Øª Ø§Ù„Ø¬Ø¯ÙŠØ¯Ø©) Ø£Ùˆ ${t.dropoffDeadlineHoursEstablished} Ø³Ø§Ø¹Ø© (Ø§Ù„Ø­Ø³Ø§Ø¨Ø§Øª Ø§Ù„Ù†Ø§Ø¶Ø¬Ø©). Ø£ÙŠ ØªØ£Ø®ÙŠØ± Ù‚Ø¯ ÙŠØ¤Ø¯ÙŠ Ø¥Ù„Ù‰ ØªØ¹Ù„ÙŠÙ‚ Ø§Ù„Ø­Ø³Ø§Ø¨.\n\nØ§Ù„Ù…Ø§Ø¯Ø© 5 â€” Ø§Ù„Ø¯ÙØ¹\nØªÙØ¶Ø§Ù Ø§Ù„Ø£Ø±Ø¨Ø§Ø­ Ø¥Ù„Ù‰ Ù…Ø­ÙØ¸Ø© Ø§Ù„Ø¨Ø§Ø¦Ø¹ ÙˆØªØµØ¨Ø­ Ù…ØªØ§Ø­Ø© Ø¨Ø¹Ø¯ ${t.unlockDaysVendor} Ø£ÙŠØ§Ù… Ù…Ù† ØªØ£ÙƒÙŠØ¯ Ø§Ù„ØªØ³Ù„ÙŠÙ… (${t.unlockDaysSmart} ÙŠÙˆÙ…Ø§Ù‹ Ù„Ù…Ù†ØªØ¬Ø§Øª Ø³Ù…Ø§Ø±Øª Ø³ÙˆÙŠÙ‚Ø©). Ø§Ù„Ø­Ø¯ Ø§Ù„Ø£Ø¯Ù†Ù‰ Ù„Ù„Ø³Ø­Ø¨ Ù‡Ùˆ ${t.minWithdrawal} Ø¯Ø±Ù‡Ù….\n\nØ§Ù„Ù…Ø§Ø¯Ø© 6 â€” Ø§Ù„Ø¥Ø±Ø¬Ø§Ø¹\nÙÙŠ Ø­Ø§Ù„Ø© Ø§Ù„Ø¥Ø±Ø¬Ø§Ø¹ØŒ ØªÙØ®ØµÙ… Ø±Ø³ÙˆÙ… Ù‚Ø¯Ø±Ù‡Ø§ ${t.returnFeeLivo} Ø¯Ø±Ù‡Ù…Ø§Ù‹ Ù„ÙƒÙ„ Ø·Ø±Ø¯ Ù…ÙØ±Ø¬Ø¹ (Ø±Ø³ÙˆÙ… ÙŠÙØ±Ø¶Ù‡Ø§ Ø´Ø±ÙŠÙƒÙ†Ø§ Ø§Ù„Ù„ÙˆØ¬Ø³ØªÙŠ Livo). Ø§Ù„Ø¥Ø±Ø¬Ø§Ø¹Ø§Øª Ø§Ù„Ù…ØªÙƒØ±Ø±Ø© Ù‚Ø¯ ØªØ¤Ø¯ÙŠ Ø¥Ù„Ù‰ Ù…Ø±Ø§Ø¬Ø¹Ø© ÙˆØ¶Ø¹ Ø§Ù„Ø¨Ø§Ø¦Ø¹.\n\nØ§Ù„Ù…Ø§Ø¯Ø© 7 â€” Ø§Ù„Ø¥Ù†Ù‡Ø§Ø¡\nÙŠÙ…ÙƒÙ† Ù„Ø£ÙŠ Ø·Ø±Ù Ø¥Ù†Ù‡Ø§Ø¡ Ù‡Ø°Ø§ Ø§Ù„Ø¹Ù‚Ø¯ ÙÙŠ Ø£ÙŠ ÙˆÙ‚Øª. ØªØ¨Ù‚Ù‰ Ø§Ù„Ø·Ù„Ø¨Ø§Øª Ø§Ù„Ø¬Ø§Ø±ÙŠØ© Ø®Ø§Ø¶Ø¹Ø© Ù„Ù‡Ø°Ù‡ Ø§Ù„Ø´Ø±ÙˆØ·.\n\nØ§Ù„Ù…Ø§Ø¯Ø© 8 â€” Ø§Ù„Ù‚Ø§Ù†ÙˆÙ† Ø§Ù„Ù…Ø·Ø¨Ù‚\nÙŠØ®Ø¶Ø¹ Ù‡Ø°Ø§ Ø§Ù„Ø¹Ù‚Ø¯ Ù„Ù„Ù‚Ø§Ù†ÙˆÙ† Ø§Ù„Ù…ØºØ±Ø¨ÙŠ. ÙŠØ®ØªØµ Ø§Ù„Ù‚Ø¶Ø§Ø¡ ÙÙŠ Ø§Ù„Ø¯Ø§Ø± Ø§Ù„Ø¨ÙŠØ¶Ø§Ø¡ Ø¨Ø£ÙŠ Ù†Ø²Ø§Ø¹.\n\nØ§Ù„Ù…Ø§Ø¯Ø© 9 â€” Ø§Ù„ØªÙˆÙ‚ÙŠØ¹ Ø§Ù„Ø¥Ù„ÙƒØªØ±ÙˆÙ†ÙŠ\nØ§Ù„ØªÙˆÙ‚ÙŠØ¹ Ø§Ù„Ø¥Ù„ÙƒØªØ±ÙˆÙ†ÙŠ ÙŠØ¹ØªØ¨Ø± Ù‚Ø¨ÙˆÙ„Ø§Ù‹ ØªØ§Ù…Ø§Ù‹ ÙˆØµØ±ÙŠØ­Ø§Ù‹. ÙŠØªÙ… ØªØ³Ø¬ÙŠÙ„ Ø¹Ù†ÙˆØ§Ù† IPØŒ ÙˆÙˆÙƒÙŠÙ„ Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…ØŒ ÙˆØªØ§Ø±ÙŠØ® Ø§Ù„Ø®Ø§Ø¯Ù…ØŒ ÙˆØ¨ØµÙ…Ø© SHA-256 Ù„Ù‡Ø°Ø§ Ø§Ù„Ù…Ø³ØªÙ†Ø¯ ÙƒØ¯Ù„ÙŠÙ„.\n\nØ¨Ø§Ù„ØªÙˆÙ‚ÙŠØ¹ØŒ ÙŠÙ‚Ø± Ø§Ù„Ø¨Ø§Ø¦Ø¹ Ø¨Ø£Ù†Ù‡ Ù‚Ø±Ø£ ÙˆÙÙ‡Ù… ÙƒØ§Ù…Ù„ Ù‡Ø°Ø§ Ø§Ù„Ø¹Ù‚Ø¯.`,
+      en: (t) => `VENDOR PARTNERSHIP AGREEMENT â€” SMART SWI9A\nVersion ${t.version}\n\nArticle 1 â€” Purpose\nThis agreement governs the listing and sale of products by the Vendor on Smart Swi9a (smartswi9a.top), a Moroccan marketplace for connected devices and home products.\n\nArticle 2 â€” Registration and verification\nThe Vendor agrees to provide accurate information (shop name, phone, city, ICE or CIN). Any false statement results in immediate account suspension.\n\nArticle 3 â€” Commission\nSmart Swi9a charges a ${(t.commissionRate * 100).toFixed(0)}% commission on the delivery-excluded amount of each sale. This commission may be adjusted between ${(t.commissionRateMin * 100).toFixed(0)}% and ${(t.commissionRateMax * 100).toFixed(0)}% with the Vendor's written consent.\n\nArticle 4 â€” Shipping\nThe Vendor chooses agency drop-off or Smart Swi9a fulfillment. Drop-off deadlines are ${t.dropoffDeadlineHoursNew} hours (new accounts) or ${t.dropoffDeadlineHoursEstablished} hours (mature accounts). Any delay may result in suspension.\n\nArticle 5 â€” Payment\nEarnings are credited to the vendor wallet and become available ${t.unlockDaysVendor} days after confirmed delivery (${t.unlockDaysSmart} days for Smart Swi9a products). Minimum withdrawal is ${t.minWithdrawal} MAD.\n\nArticle 6 â€” Returns\nIn case of return, a ${t.returnFeeLivo} MAD fee is charged per returned parcel (fee charged by our logistics partner Livo). Repeated returns may lead to a review of the Vendor's status.\n\nArticle 7 â€” Termination\nEither party may terminate this agreement at any time. Pending orders remain subject to these terms.\n\nArticle 8 â€” Governing law\nThis agreement is governed by Moroccan law. Any dispute falls under the jurisdiction of the courts of Casablanca.\n\nArticle 9 â€” Electronic signature\nThe electronic signature constitutes full acceptance. The IP, user-agent, server date, and a SHA-256 hash of this document are recorded as evidence.\n\nBy signing, the Vendor acknowledges having read and understood this entire agreement.`
     }
   };
   // La version 1.3.0 reprend strictement le contrat Livo 1.2.0,
   // avec le nouveau domaine. Les gabarits 1.1.0 et 1.2.0 restent intacts
-  // afin de préserver les empreintes des contrats déjà signés.
+  // afin de prÃ©server les empreintes des contrats dÃ©jÃ  signÃ©s.
   const sourceVersion = ["1.3.0", "1.4.0", "1.5.0"].includes(version) ? "1.2.0" : version;
   const t = templates[sourceVersion] || templates["1.2.0"];
   let text = t[lang] ? t[lang](snapshot) : t["fr"](snapshot);
   if (["1.4.0", "1.5.0"].includes(version)) {
     const clauses = {
-      fr: `Article 6 — Retours
-Les frais de retour sont facturés séparément à chaque Vendeur selon le montant réel communiqué par le transporteur ou, à défaut, validé par l'administration. Aucun frais n'est débité avant l'enregistrement et la validation de ce montant. Les retours répétés peuvent entraîner une révision du statut du Vendeur.`,
-      ar: `المادة 6 — الإرجاع
-تُفرض رسوم الإرجاع بشكل منفصل على كل بائع وفق المبلغ الفعلي الذي يحدده الناقل، أو الذي تعتمده الإدارة عند عدم توفره. لا يتم خصم أي رسوم قبل تسجيل المبلغ واعتماده. وقد تؤدي الإرجاعات المتكررة إلى مراجعة وضع البائع.`,
-      en: `Article 6 — Returns
+      fr: `Article 6 â€” Retours
+Les frais de retour sont facturÃ©s sÃ©parÃ©ment Ã  chaque Vendeur selon le montant rÃ©el communiquÃ© par le transporteur ou, Ã  dÃ©faut, validÃ© par l'administration. Aucun frais n'est dÃ©bitÃ© avant l'enregistrement et la validation de ce montant. Les retours rÃ©pÃ©tÃ©s peuvent entraÃ®ner une rÃ©vision du statut du Vendeur.`,
+      ar: `Ø§Ù„Ù…Ø§Ø¯Ø© 6 â€” Ø§Ù„Ø¥Ø±Ø¬Ø§Ø¹
+ØªÙÙØ±Ø¶ Ø±Ø³ÙˆÙ… Ø§Ù„Ø¥Ø±Ø¬Ø§Ø¹ Ø¨Ø´ÙƒÙ„ Ù…Ù†ÙØµÙ„ Ø¹Ù„Ù‰ ÙƒÙ„ Ø¨Ø§Ø¦Ø¹ ÙˆÙÙ‚ Ø§Ù„Ù…Ø¨Ù„Øº Ø§Ù„ÙØ¹Ù„ÙŠ Ø§Ù„Ø°ÙŠ ÙŠØ­Ø¯Ø¯Ù‡ Ø§Ù„Ù†Ø§Ù‚Ù„ØŒ Ø£Ùˆ Ø§Ù„Ø°ÙŠ ØªØ¹ØªÙ…Ø¯Ù‡ Ø§Ù„Ø¥Ø¯Ø§Ø±Ø© Ø¹Ù†Ø¯ Ø¹Ø¯Ù… ØªÙˆÙØ±Ù‡. Ù„Ø§ ÙŠØªÙ… Ø®ØµÙ… Ø£ÙŠ Ø±Ø³ÙˆÙ… Ù‚Ø¨Ù„ ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ù…Ø¨Ù„Øº ÙˆØ§Ø¹ØªÙ…Ø§Ø¯Ù‡. ÙˆÙ‚Ø¯ ØªØ¤Ø¯ÙŠ Ø§Ù„Ø¥Ø±Ø¬Ø§Ø¹Ø§Øª Ø§Ù„Ù…ØªÙƒØ±Ø±Ø© Ø¥Ù„Ù‰ Ù…Ø±Ø§Ø¬Ø¹Ø© ÙˆØ¶Ø¹ Ø§Ù„Ø¨Ø§Ø¦Ø¹.`,
+      en: `Article 6 â€” Returns
 Return fees are charged separately to each Vendor based on the actual amount provided by the carrier or, if unavailable, validated by the administration. No fee is debited until that amount has been recorded and approved. Repeated returns may lead to a review of the Vendor's status.`
     };
     const patterns = {
-      fr: /Article 6 — Retours\n[\s\S]*?(?=\n\nArticle 7 — Résiliation)/,
-      ar: /المادة 6 — الإرجاع\n[\s\S]*?(?=\n\nالمادة 7 — الإنهاء)/,
-      en: /Article 6 — Returns\n[\s\S]*?(?=\n\nArticle 7 — Termination)/
+      fr: /Article 6 â€” Retours\n[\s\S]*?(?=\n\nArticle 7 â€” RÃ©siliation)/,
+      ar: /Ø§Ù„Ù…Ø§Ø¯Ø© 6 â€” Ø§Ù„Ø¥Ø±Ø¬Ø§Ø¹\n[\s\S]*?(?=\n\nØ§Ù„Ù…Ø§Ø¯Ø© 7 â€” Ø§Ù„Ø¥Ù†Ù‡Ø§Ø¡)/,
+      en: /Article 6 â€” Returns\n[\s\S]*?(?=\n\nArticle 7 â€” Termination)/
     };
     const language = clauses[lang] ? lang : "fr";
     text = text.replace(patterns[language], clauses[language]);
     text = text.replaceAll("smartswi9a.top", "smartswika.ma");
     if (version === "1.5.0") {
-      text = text.replaceAll("SMART SWI9A", "SMARTSWIKA").replaceAll("Smart Swi9a", "Smartswika").replaceAll("سمارت سويقة", "سمارتسويكا");
+      text = text.replaceAll("SMART SWI9A", "SMARTSWIKA").replaceAll("Smart Swi9a", "Smartswika").replaceAll("Ø³Ù…Ø§Ø±Øª Ø³ÙˆÙŠÙ‚Ø©", "Ø³Ù…Ø§Ø±ØªØ³ÙˆÙŠÙƒØ§");
     }
     text = text.replace(/\s+/g, " ").trim();
     return text;
@@ -543,7 +656,7 @@ Return fees are charged separately to each Vendor based on the actual amount pro
 }
 
 /* ============================================================
-   VÉRIFICATION D'UN CONTRAT VENDEUR OFFICIEL
+   VÃ‰RIFICATION D'UN CONTRAT VENDEUR OFFICIEL
    ============================================================ */
 function isOfficialVendorContract(vendorId, contract) {
   try {
@@ -646,8 +759,8 @@ exports.getLivoFees = onRequest({ invoker: 'public', region: 'europe-west1', cor
           }
         }
 
-        // N'expose que les villes présentes dans la dernière réponse Livo. Cela
-        // exclut les anciennes villes et les éventuels tarifs manuels du tableau public.
+        // N'expose que les villes prÃ©sentes dans la derniÃ¨re rÃ©ponse Livo. Cela
+        // exclut les anciennes villes et les Ã©ventuels tarifs manuels du tableau public.
         if (Array.isArray(meta?.cityKeys) && meta.cityKeys.length) {
           const activeKeys = new Set(meta.cityKeys.map(normalizeCityKey));
           cities = cities.filter(city => activeKeys.has(normalizeCityKey(city.key)));
@@ -660,7 +773,7 @@ exports.getLivoFees = onRequest({ invoker: 'public', region: 'europe-west1', cor
     if (cities.length === 0) {
       return res.status(503).json({
         success: false,
-        message: 'Grille tarifaire temporairement indisponible. Réessayez dans quelques instants.',
+        message: 'Grille tarifaire temporairement indisponible. RÃ©essayez dans quelques instants.',
         source: 'none'
       });
     }
@@ -678,7 +791,7 @@ exports.getLivoFees = onRequest({ invoker: 'public', region: 'europe-west1', cor
       stale: !cacheFresh,
       lastSyncedAt: updatedAt,
       requestDate: meta?.requestDate || null,
-      ...(syncError ? { refreshError: 'Tarifs Livo indisponibles; affichage des derniers tarifs enregistrés.' } : {}),
+      ...(syncError ? { refreshError: 'Tarifs Livo indisponibles; affichage des derniers tarifs enregistrÃ©s.' } : {}),
       cities
     });
   } catch (error) {
@@ -753,7 +866,7 @@ exports.livoWebhook = onRequest({
 
   const rawBody = Buffer.isBuffer(req.rawBody) ? req.rawBody : null;
   if (!rawBody || rawBody.length === 0 || rawBody.length > 512 * 1024) {
-    return res.status(400).json({ success: false, message: 'Corps de requête invalide.' });
+    return res.status(400).json({ success: false, message: 'Corps de requÃªte invalide.' });
   }
 
   const signature = String(req.get('x-livo-signature') || '').match(/^sha256=([a-f0-9]{64})$/i);
@@ -776,7 +889,7 @@ exports.livoWebhook = onRequest({
   const data = event?.data && typeof event.data === 'object' && !Array.isArray(event.data) ? event.data : null;
   if (!eventId || eventId.length > 200 || eventId.includes('/') || (eventType !== 'ping' && !data) ||
       !LIVO_WEBHOOK_ALLOWED_EVENTS.has(eventType)) {
-    return res.status(400).json({ success: false, message: 'Événement Livo invalide.' });
+    return res.status(400).json({ success: false, message: 'Ã‰vÃ©nement Livo invalide.' });
   }
 
   const resourceId = String(data?._id || data?.order_id || data?.id || '').trim().slice(0, 200);
@@ -865,7 +978,7 @@ exports.livoWebhook = onRequest({
         // une annulation par un retour serait une inversion de sens.
         const canSetReturnedStatus = isFullReturn && !['cancelled', 'returned'].includes(orderStatus);
 
-        // Un retour ANNONCÉ (returned-pending, returned-started) n'est pas un
+        // Un retour ANNONCÃ‰ (returned-pending, returned-started) n'est pas un
         // retour RECU : le colis n'est pas encore a l'entrepot, donc rien a
         // restituer. Seuls returned-warehouse et returned-fully declenchent une
         // restitution.
@@ -957,7 +1070,7 @@ exports.syncLivoCities = onRequest({ invoker: 'public', region: 'europe-west1', 
     const adminSnap = await db.collection('users').doc(decoded.uid).get();
     const isAdmin = decoded.admin === true || (adminSnap.exists && adminSnap.data()?.role === 'admin');
     if (!isAdmin) {
-      return res.status(403).json({ success: false, message: 'Action réservée à un administrateur.' });
+      return res.status(403).json({ success: false, message: 'Action rÃ©servÃ©e Ã  un administrateur.' });
     }
 
     const result = await syncLivoCitiesFromApi({
@@ -981,15 +1094,15 @@ exports.syncVendorPublic = onDocumentWritten('users/{userId}', async (event) => 
   const snap = event.data.after;
 
   // La suppression du profil doit aussi supprimer la fiche publique.
-  // Sans ce cas, une ancienne boutique peut rester visible après suppression du vendeur.
+  // Sans ce cas, une ancienne boutique peut rester visible aprÃ¨s suppression du vendeur.
   if (!snap || !snap.exists) {
     return db.collection('vendorsPublic').doc(event.params.userId).delete();
   }
 
   const data = snap.data();
 
-  // Seuls les vendeurs approuvés avec un contrat accepté sont publiés.
-  // Les demandes pending/rejected/suspended restent privées dans users/.
+  // Seuls les vendeurs approuvÃ©s avec un contrat acceptÃ© sont publiÃ©s.
+  // Les demandes pending/rejected/suspended restent privÃ©es dans users/.
   if (
     data.role !== 'vendor' ||
     !data.vendorInfo ||
@@ -1011,7 +1124,7 @@ exports.syncVendorPublic = onDocumentWritten('users/{userId}', async (event) => 
 });
 
 /* ============================================================
-   CF : signVendorContract (Sécurisé + B-C1 snapshot officiel)
+   CF : signVendorContract (SÃ©curisÃ© + B-C1 snapshot officiel)
    ============================================================ */
 exports.signVendorContract = onRequest({ invoker: 'public', region: 'europe-west1', cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
   if (cors(req, res)) return;
@@ -1020,13 +1133,13 @@ exports.signVendorContract = onRequest({ invoker: 'public', region: 'europe-west
     if (!match) return res.status(401).json({ success: false, message: 'Connexion requise.' });
     const decoded = await getAuth().verifyIdToken(match[1], true);
 
-    // Le contrat vendeur ne peut être signé que par un compte déjà inscrit
-    // comme vendeur. Sans ce contrôle, un acheteur authentifié pourrait créer
+    // Le contrat vendeur ne peut Ãªtre signÃ© que par un compte dÃ©jÃ  inscrit
+    // comme vendeur. Sans ce contrÃ´le, un acheteur authentifiÃ© pourrait crÃ©er
     // un document contracts/ et recevoir vendorInfo.contractStatus=accepted.
     const vendorRef = db.collection('users').doc(decoded.uid);
     const vendorSnap = await vendorRef.get();
     if (!vendorSnap.exists || vendorSnap.data()?.role !== 'vendor') {
-      return res.status(403).json({ success: false, message: 'Cette action est réservée aux comptes vendeurs.' });
+      return res.status(403).json({ success: false, message: 'Cette action est rÃ©servÃ©e aux comptes vendeurs.' });
     }
 
     const vendorProfile = vendorSnap.data();
@@ -1034,7 +1147,7 @@ exports.signVendorContract = onRequest({ invoker: 'public', region: 'europe-west
     if (!['pending', 'approved'].includes(vendorStatus)) {
       return res.status(403).json({
         success: false,
-        message: 'Votre compte vendeur ne peut pas signer de contrat dans son état actuel.'
+        message: 'Votre compte vendeur ne peut pas signer de contrat dans son Ã©tat actuel.'
       });
     }
 
@@ -1045,7 +1158,7 @@ exports.signVendorContract = onRequest({ invoker: 'public', region: 'europe-west
       return res.status(400).json({ success: false, message: 'Origine de signature invalide.' });
     }
     if (!version || !language || !textHash) {
-      return res.status(400).json({ success: false, message: 'Données incomplètes.' });
+      return res.status(400).json({ success: false, message: 'DonnÃ©es incomplÃ¨tes.' });
     }
     if (!['fr', 'ar', 'en'].includes(String(language))) {
       return res.status(400).json({ success: false, message: 'Langue du contrat invalide.' });
@@ -1057,7 +1170,7 @@ exports.signVendorContract = onRequest({ invoker: 'public', region: 'europe-west
     if (String(officialSnapshot.version) !== String(version)) {
       return res.status(400).json({
         success: false,
-        message: `Version contrat obsolète. Version attendue : ${officialSnapshot.version}, reçue : ${version}. Rechargez la page.`
+        message: `Version contrat obsolÃ¨te. Version attendue : ${officialSnapshot.version}, reÃ§ue : ${version}. Rechargez la page.`
       });
     }
 
@@ -1068,14 +1181,14 @@ exports.signVendorContract = onRequest({ invoker: 'public', region: 'europe-west
     if (existing.exists) {
       const existingData = existing.data();
 
-      // Idempotence : si le contrat existe déjà, réconcilier aussi le profil.
-      // Cela évite qu'un ancien échec réseau laisse contractStatus à "pending"
-      // alors que le document signé est bien présent dans contracts/.
+      // Idempotence : si le contrat existe dÃ©jÃ , rÃ©concilier aussi le profil.
+      // Cela Ã©vite qu'un ancien Ã©chec rÃ©seau laisse contractStatus Ã  "pending"
+      // alors que le document signÃ© est bien prÃ©sent dans contracts/.
       if (!isOfficialVendorContract(decoded.uid, existingData) ||
           String(existingData.version) !== String(version)) {
         return res.status(409).json({
           success: false,
-          message: 'Un document de contrat existe déjà mais ses données ne sont pas cohérentes. Contactez l’administration.'
+          message: 'Un document de contrat existe dÃ©jÃ  mais ses donnÃ©es ne sont pas cohÃ©rentes. Contactez lâ€™administration.'
         });
       }
 
@@ -1110,7 +1223,7 @@ exports.signVendorContract = onRequest({ invoker: 'public', region: 'europe-west
     if (officialHash !== textHash) {
       return res.status(400).json({
         success: false,
-        message: 'Falsification détectée : le hash ne correspond pas au contrat officiel. Rechargez la page.'
+        message: 'Falsification dÃ©tectÃ©e : le hash ne correspond pas au contrat officiel. Rechargez la page.'
       });
     }
 
@@ -1123,7 +1236,7 @@ exports.signVendorContract = onRequest({ invoker: 'public', region: 'europe-west
       vendorId: decoded.uid,
       version: version,
       language: language,
-      termsSnapshot: officialSnapshot,  // ← officiel
+      termsSnapshot: officialSnapshot,  // â† officiel
       textHash: textHash,
       contractHash: contractHash,
       acceptedAt: FieldValue.serverTimestamp(),
@@ -1138,7 +1251,7 @@ exports.signVendorContract = onRequest({ invoker: 'public', region: 'europe-west
       'vendorInfo.currentContractId': contractId,
       'vendorInfo.contractVersion': version,
       'vendorInfo.contractSignedAt': FieldValue.serverTimestamp(),
-      // La commission contractuelle est fixée par le serveur lors de la signature.
+      // La commission contractuelle est fixÃ©e par le serveur lors de la signature.
       'vendorInfo.commissionRate': OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE,
       'vendorInfo.commissionRateMin': OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE_MIN,
       'vendorInfo.commissionRateMax': OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE_MAX,
@@ -1172,7 +1285,7 @@ exports.loginVendor = onRequest({ invoker: 'public', region: 'europe-west1', max
     if (await isLoginThrottled(email)) {
       return res.status(429).json({
         success: false,
-        message: 'Trop de tentatives échouées. Réessayez dans 15 minutes.'
+        message: 'Trop de tentatives Ã©chouÃ©es. RÃ©essayez dans 15 minutes.'
       });
     }
 
@@ -1198,10 +1311,10 @@ exports.loginVendor = onRequest({ invoker: 'public', region: 'europe-west1', max
       return res.status(401).json({ success: false, message: 'Identifiants incorrects.' });
     }
 
-    // Ne jamais émettre de jeton vendeur pour un profil qui n'a pas le rôle vendeur.
-    // Autoriser les vendeurs approuvés avec un ancien contrat à se connecter
-    // uniquement pour accéder à l'écran de re-signature (les droits métier
-    // restent bloqués par les règles tant que la version courante n'est pas acceptée).
+    // Ne jamais Ã©mettre de jeton vendeur pour un profil qui n'a pas le rÃ´le vendeur.
+    // Autoriser les vendeurs approuvÃ©s avec un ancien contrat Ã  se connecter
+    // uniquement pour accÃ©der Ã  l'Ã©cran de re-signature (les droits mÃ©tier
+    // restent bloquÃ©s par les rÃ¨gles tant que la version courante n'est pas acceptÃ©e).
     const canLogin = profile.role === 'vendor' &&
       ['pending', 'approved'].includes(String(profile.vendorInfo?.status || ''));
     if (!canLogin) {
@@ -1237,7 +1350,7 @@ exports.setVendorPassword = onRequest({ invoker: 'public', region: 'europe-west1
     const vendorProfile = snap.exists ? snap.data() : null;
     if (!vendorProfile || vendorProfile.role !== 'vendor' ||
         !['pending', 'approved'].includes(String(vendorProfile.vendorInfo?.status || ''))) {
-      return res.status(403).json({ success: false, message: 'Profil vendeur non autorisé.' });
+      return res.status(403).json({ success: false, message: 'Profil vendeur non autorisÃ©.' });
     }
 
     const passwordHash = await bcrypt.hash(vendorPassword, 12);
@@ -1255,7 +1368,7 @@ exports.setVendorPassword = onRequest({ invoker: 'public', region: 'europe-west1
 });
 
 /* ============================================================
-   CONTRÔLE DE COHÉRENCE AVANT SUPPRESSION VENDEUR
+   CONTRÃ”LE DE COHÃ‰RENCE AVANT SUPPRESSION VENDEUR
    ============================================================ */
 async function inspectVendorSettlement(vendorId) {
   const blockers = [];
@@ -1264,8 +1377,8 @@ async function inspectVendorSettlement(vendorId) {
   let orderPages = 0;
 
   while (true) {
-    // Parcourir toutes les commandes permet aussi de détecter les anciennes
-    // commandes qui n'ont pas encore été migrées et ne possèdent pas vendorIds.
+    // Parcourir toutes les commandes permet aussi de dÃ©tecter les anciennes
+    // commandes qui n'ont pas encore Ã©tÃ© migrÃ©es et ne possÃ¨dent pas vendorIds.
     let query = db.collection('orders')
       .orderBy(FieldPath.documentId())
       .limit(300);
@@ -1285,31 +1398,31 @@ async function inspectVendorSettlement(vendorId) {
       const status = String(order.status || '').toLowerCase();
       if (['cancelled', 'canceled'].includes(status)) continue;
       if (!['delivered', 'returned'].includes(status)) {
-        blockers.push({ orderId: orderDoc.id, reason: `commande non clôturée (statut ${status || 'absent'})` });
+        blockers.push({ orderId: orderDoc.id, reason: `commande non clÃ´turÃ©e (statut ${status || 'absent'})` });
         continue;
       }
 
       const credit = order.vendorCredits?.[vendorId];
-      // Une commande retournée avant livraison peut légitimement ne jamais
-      // avoir généré de crédit de vente. Si un crédit existe, il doit toujours
-      // être relié à une transaction cohérente.
+      // Une commande retournÃ©e avant livraison peut lÃ©gitimement ne jamais
+      // avoir gÃ©nÃ©rÃ© de crÃ©dit de vente. Si un crÃ©dit existe, il doit toujours
+      // Ãªtre reliÃ© Ã  une transaction cohÃ©rente.
       if (status === 'delivered' && (!credit?.txId || !(Number(credit.amount) > 0))) {
-        blockers.push({ orderId: orderDoc.id, reason: 'crédit vendeur absent ou incomplet' });
+        blockers.push({ orderId: orderDoc.id, reason: 'crÃ©dit vendeur absent ou incomplet' });
       } else if (credit) {
         const saleTx = await db.collection('wallet_transactions').doc(String(credit.txId || '')).get();
         const sale = saleTx.exists ? saleTx.data() : null;
         if (!credit.txId || !sale || sale.vendorId !== vendorId || sale.orderId !== orderDoc.id ||
             sale.type !== 'sale' || !(Number(sale.amount) > 0)) {
-          blockers.push({ orderId: orderDoc.id, reason: 'écriture de vente absente ou incohérente' });
+          blockers.push({ orderId: orderDoc.id, reason: 'Ã©criture de vente absente ou incohÃ©rente' });
         }
       }
 
       if (status === 'returned') {
         const returns = Array.isArray(order.returns) ? order.returns : [];
         if (returns.length === 0) {
-          blockers.push({ orderId: orderDoc.id, reason: 'commande retournée sans détail de retour' });
+          blockers.push({ orderId: orderDoc.id, reason: 'commande retournÃ©e sans dÃ©tail de retour' });
         }
-        // Vérifier chaque variante exacte (produit + taille + couleur), et non
+        // VÃ©rifier chaque variante exacte (produit + taille + couleur), et non
         // seulement le total par produit : deux variantes ne sont pas interchangeables.
         const orderedByVariant = {};
         for (const item of (order.items || [])) {
@@ -1336,11 +1449,11 @@ async function inspectVendorSettlement(vendorId) {
             const owners = [...new Set(matchingItems.map(item => String(item.vendorId || '')))];
             const delta = Number(retItem?.delta);
             if (!productId || !Number.isInteger(delta) || delta <= 0 || owners.length !== 1) {
-              blockers.push({ orderId: orderDoc.id, reason: `produit ou propriétaire ambigu dans le retour ${returnIndex + 1}` });
+              blockers.push({ orderId: orderDoc.id, reason: `produit ou propriÃ©taire ambigu dans le retour ${returnIndex + 1}` });
               continue;
             }
-            // Les lignes des autres vendeurs du même panier ne doivent pas
-            // être comptées dans le rapprochement de ce vendeur.
+            // Les lignes des autres vendeurs du mÃªme panier ne doivent pas
+            // Ãªtre comptÃ©es dans le rapprochement de ce vendeur.
             if (owners[0] !== vendorId) continue;
             const key = JSON.stringify([
               productId,
@@ -1353,7 +1466,7 @@ async function inspectVendorSettlement(vendorId) {
             }
             cumulativeReturnedByVariant[key] = (cumulativeReturnedByVariant[key] || 0) + delta;
             if (cumulativeReturnedByVariant[key] > orderedByVariant[key]) {
-              blockers.push({ orderId: orderDoc.id, reason: `quantité retournée supérieure à la quantité commandée pour ${productId}` });
+              blockers.push({ orderId: orderDoc.id, reason: `quantitÃ© retournÃ©e supÃ©rieure Ã  la quantitÃ© commandÃ©e pour ${productId}` });
             }
           }
         }
@@ -1380,9 +1493,9 @@ async function inspectVendorSettlement(vendorId) {
           if (!debit?.txId) {
             if (!feeRecord || feeRecord.status !== 'validated' ||
                 !Number.isFinite(Number(feeRecord.amount)) || Number(feeRecord.amount) <= 0) {
-              blockers.push({ orderId: orderDoc.id, reason: `frais du retour ${returnIndex + 1} non renseignés pour ce vendeur` });
+              blockers.push({ orderId: orderDoc.id, reason: `frais du retour ${returnIndex + 1} non renseignÃ©s pour ce vendeur` });
             } else {
-              blockers.push({ orderId: orderDoc.id, reason: `débit du retour ${returnIndex + 1} en attente de rapprochement` });
+              blockers.push({ orderId: orderDoc.id, reason: `dÃ©bit du retour ${returnIndex + 1} en attente de rapprochement` });
             }
           } else {
             const hasFeeRecord = !!feeRecord;
@@ -1407,7 +1520,7 @@ async function inspectVendorSettlement(vendorId) {
                 debitTx.type !== 'return_fee' || Number(debitTx.amount) >= 0 ||
                 Math.abs(Math.abs(Number(debitTx.amount)) - expectedFee) > 0.01 ||
                 (hasFeeRecord && debit.source !== feeRecord.source)) {
-              blockers.push({ orderId: orderDoc.id, reason: `écriture financière du retour ${returnIndex + 1} absente ou incohérente` });
+              blockers.push({ orderId: orderDoc.id, reason: `Ã©criture financiÃ¨re du retour ${returnIndex + 1} absente ou incohÃ©rente` });
             }
           }
         }
@@ -1417,12 +1530,12 @@ async function inspectVendorSettlement(vendorId) {
     cursor = snap.docs[snap.docs.length - 1];
     if (snap.size < 300) break;
     if (orderPages >= 100) {
-      blockers.push({ reason: 'contrôle des commandes incomplet : limite de pagination atteinte' });
+      blockers.push({ reason: 'contrÃ´le des commandes incomplet : limite de pagination atteinte' });
       break;
     }
   }
 
-  // Vérifier également les écritures pending indépendamment du solde agrégé.
+  // VÃ©rifier Ã©galement les Ã©critures pending indÃ©pendamment du solde agrÃ©gÃ©.
   cursor = null;
   let txPages = 0;
   while (true) {
@@ -1436,13 +1549,13 @@ async function inspectVendorSettlement(vendorId) {
     snap.docs.forEach(docSnap => {
       const tx = docSnap.data();
       if (tx.status === 'pending') {
-        blockers.push({ reason: `écriture financière en attente (${docSnap.id})` });
+        blockers.push({ reason: `Ã©criture financiÃ¨re en attente (${docSnap.id})` });
       }
     });
     cursor = snap.docs[snap.docs.length - 1];
     if (snap.size < 300) break;
     if (txPages >= 100) {
-      blockers.push({ reason: 'contrôle des écritures financières incomplet : limite de pagination atteinte' });
+      blockers.push({ reason: 'contrÃ´le des Ã©critures financiÃ¨res incomplet : limite de pagination atteinte' });
       break;
     }
   }
@@ -1462,7 +1575,7 @@ exports.adminVendorAction = onRequest({ invoker: 'public', region: 'europe-west1
     const adminSnap = await db.collection('users').doc(decoded.uid).get();
     const isAdmin = decoded.admin === true || (adminSnap.exists && adminSnap.data()?.role === 'admin');
     if (!isAdmin) {
-      return res.status(403).json({ success: false, message: 'Action réservée à un administrateur.' });
+      return res.status(403).json({ success: false, message: 'Action rÃ©servÃ©e Ã  un administrateur.' });
     }
 
     const vendorId = String(req.body?.vendorId || '').trim();
@@ -1480,30 +1593,30 @@ exports.adminVendorAction = onRequest({ invoker: 'public', region: 'europe-west1
     if (action === 'approved') {
       const vendorInfo = vendorSnap.data().vendorInfo || {};
 
-      // Vérifier l'état réel dans Firebase Authentication, pas uniquement
-      // le champ emailVerified du profil Firestore qui peut être obsolète.
+      // VÃ©rifier l'Ã©tat rÃ©el dans Firebase Authentication, pas uniquement
+      // le champ emailVerified du profil Firestore qui peut Ãªtre obsolÃ¨te.
       const vendorAuthUser = await getAuth().getUser(vendorId);
       if (vendorAuthUser.emailVerified !== true) {
         return res.status(409).json({
           success: false,
-          message: 'Impossible d’approuver : le vendeur doit d’abord vérifier son adresse e-mail.'
+          message: 'Impossible dâ€™approuver : le vendeur doit dâ€™abord vÃ©rifier son adresse e-mail.'
         });
       }
 
       if (vendorInfo.contractStatus !== 'accepted') {
-        return res.status(409).json({ success: false, message: 'Impossible d’approuver : contrat non signé.' });
+        return res.status(409).json({ success: false, message: 'Impossible dâ€™approuver : contrat non signÃ©.' });
       }
       if (String(vendorInfo.contractVersion || '') !== OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION) {
         return res.status(409).json({
           success: false,
-          message: 'Impossible d’approuver : le vendeur doit accepter le contrat ' + OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION + '.'
+          message: 'Impossible dâ€™approuver : le vendeur doit accepter le contrat ' + OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION + '.'
         });
       }
 
       const contractId = vendorInfo.currentContractId ||
         (vendorInfo.contractVersion ? `contract_${vendorId}_v${vendorInfo.contractVersion}` : '');
       if (!contractId) {
-        return res.status(409).json({ success: false, message: 'Impossible d’approuver : référence du contrat signée introuvable.' });
+        return res.status(409).json({ success: false, message: 'Impossible dâ€™approuver : rÃ©fÃ©rence du contrat signÃ©e introuvable.' });
       }
 
       const contractSnap = await db.collection('contracts').doc(contractId).get();
@@ -1512,14 +1625,14 @@ exports.adminVendorAction = onRequest({ invoker: 'public', region: 'europe-west1
         !isOfficialVendorContract(vendorId, contract) ||
         String(contract.version) !== String(vendorInfo.contractVersion || contract.version)
       ) {
-        return res.status(409).json({ success: false, message: 'Impossible d’approuver : le document du contrat signé est absent ou incohérent.' });
+        return res.status(409).json({ success: false, message: 'Impossible dâ€™approuver : le document du contrat signÃ© est absent ou incohÃ©rent.' });
       }
     }
 
     if (action === 'deleted') {
-      // Verrouiller le vendeur et retirer sa fiche publique AVANT les contrôles :
+      // Verrouiller le vendeur et retirer sa fiche publique AVANT les contrÃ´les :
       // createCustomerOrder lit vendorsPublic dans sa transaction, qui sera ainsi
-      // invalidée si une commande était en cours de création.
+      // invalidÃ©e si une commande Ã©tait en cours de crÃ©ation.
       const originalVendorInfo = vendorSnap.data().vendorInfo || {};
       const restoreStatus = originalVendorInfo.statusBeforeDeletion || originalVendorInfo.status || 'pending';
       await vendorRef.update({
@@ -1547,18 +1660,18 @@ exports.adminVendorAction = onRequest({ invoker: 'public', region: 'europe-west1
         }
       };
 
-      // Si le retrait de la fiche publique échoue, restaurer le compte au lieu
-      // de laisser le vendeur bloqué en deletion_pending.
+      // Si le retrait de la fiche publique Ã©choue, restaurer le compte au lieu
+      // de laisser le vendeur bloquÃ© en deletion_pending.
       try {
         await db.collection('vendorsPublic').doc(vendorId).delete();
       } catch (error) {
         await restoreVendorListing().catch(restoreError =>
-          console.error('[adminVendorAction] restauration après échec vendorsPublic:', restoreError)
+          console.error('[adminVendorAction] restauration aprÃ¨s Ã©chec vendorsPublic:', restoreError)
         );
         throw error;
       }
 
-      // Protection financière et contrôle des commandes/écritures associées.
+      // Protection financiÃ¨re et contrÃ´le des commandes/Ã©critures associÃ©es.
       const walletRef = db.collection('wallets').doc(vendorId);
       const payoutQuery = db.collection('payout_requests')
         .where('vendorId', '==', vendorId);
@@ -1571,7 +1684,7 @@ exports.adminVendorAction = onRequest({ invoker: 'public', region: 'europe-west1
         ]);
       } catch (error) {
         await restoreVendorListing().catch(restoreError =>
-          console.error('[adminVendorAction] restauration après échec lecture financière:', restoreError)
+          console.error('[adminVendorAction] restauration aprÃ¨s Ã©chec lecture financiÃ¨re:', restoreError)
         );
         throw error;
       }
@@ -1596,7 +1709,7 @@ exports.adminVendorAction = onRequest({ invoker: 'public', region: 'europe-west1
         financialReasons.push(`dette vendeur de ${Math.abs(negativeBalance).toFixed(2)} MAD`);
       }
       if (openPayouts.length > 0) {
-        financialReasons.push(`${openPayouts.length} demande(s) de retrait non traitée(s)`);
+        financialReasons.push(`${openPayouts.length} demande(s) de retrait non traitÃ©e(s)`);
       }
 
       let settlement;
@@ -1604,12 +1717,12 @@ exports.adminVendorAction = onRequest({ invoker: 'public', region: 'europe-west1
         settlement = await inspectVendorSettlement(vendorId);
       } catch (error) {
         await restoreVendorListing().catch(restoreError =>
-          console.error('[adminVendorAction] restauration après échec audit financier:', restoreError)
+          console.error('[adminVendorAction] restauration aprÃ¨s Ã©chec audit financier:', restoreError)
         );
         throw error;
       }
       if (settlement.blockers.length > 0) {
-        financialReasons.push(`${settlement.blockers.length} anomalie(s) de commande ou d'écriture financière`);
+        financialReasons.push(`${settlement.blockers.length} anomalie(s) de commande ou d'Ã©criture financiÃ¨re`);
       }
 
       if (financialReasons.length > 0) {
@@ -1617,7 +1730,7 @@ exports.adminVendorAction = onRequest({ invoker: 'public', region: 'europe-west1
         return res.status(409).json({
           success: false,
           code: 'VENDOR_FINANCIAL_SETTLEMENT_REQUIRED',
-          message: `Suppression bloquée : ${financialReasons.join(' ; ')}. Réglez les soldes et clôturez les demandes de retrait avant de supprimer ce compte.`,
+          message: `Suppression bloquÃ©e : ${financialReasons.join(' ; ')}. RÃ©glez les soldes et clÃ´turez les demandes de retrait avant de supprimer ce compte.`,
           financial: {
             availableBalance,
             pendingBalance,
@@ -1631,8 +1744,8 @@ exports.adminVendorAction = onRequest({ invoker: 'public', region: 'europe-west1
 
       let deletedProducts = 0;
 
-      // Nettoyage borné par requête pour éviter un dépassement du délai Cloud Functions.
-      // Le profil et l'identité Firebase restent intacts tant qu'il reste des produits.
+      // Nettoyage bornÃ© par requÃªte pour Ã©viter un dÃ©passement du dÃ©lai Cloud Functions.
+      // Le profil et l'identitÃ© Firebase restent intacts tant qu'il reste des produits.
       for (let page = 0; page < 20; page++) {
         const productsSnap = await db.collection('products')
           .where('vendorId', '==', vendorId)
@@ -1649,7 +1762,7 @@ exports.adminVendorAction = onRequest({ invoker: 'public', region: 'europe-west1
         if (productsSnap.size < 400) break;
       }
 
-      // Vérification explicite : ne jamais supprimer le compte si le nettoyage est incomplet.
+      // VÃ©rification explicite : ne jamais supprimer le compte si le nettoyage est incomplet.
       const remainingProducts = await db.collection('products')
         .where('vendorId', '==', vendorId)
         .limit(1)
@@ -1661,26 +1774,26 @@ exports.adminVendorAction = onRequest({ invoker: 'public', region: 'europe-west1
           action,
           deletedProducts,
           productsRemaining: true,
-          message: 'Suppression partielle : des produits restent à traiter. Relancez la suppression pour continuer.'
+          message: 'Suppression partielle : des produits restent Ã  traiter. Relancez la suppression pour continuer.'
         });
       }
 
       // Supprimer uniquement les images produits de ce vendeur.
-      // Si Storage échoue, conserver le compte et permettre une nouvelle tentative.
+      // Si Storage Ã©choue, conserver le compte et permettre une nouvelle tentative.
       await getStorage().bucket('smartswi9a-31063.firebasestorage.app')
         .deleteFiles({ prefix: `vendors/${vendorId}/products/` });
 
       // Retirer explicitement la fiche publique avant la suppression du profil.
       // Le trigger syncVendorPublic effectue aussi ce nettoyage, mais cet appel
-      // synchrone garantit qu'une boutique ne reste pas publiée si le trigger tarde.
+      // synchrone garantit qu'une boutique ne reste pas publiÃ©e si le trigger tarde.
       await db.collection('vendorsPublic').doc(vendorId).delete();
 
-      // Supprimer les identifiants vendeurs avant le profil, et ne pas masquer une erreur réelle.
+      // Supprimer les identifiants vendeurs avant le profil, et ne pas masquer une erreur rÃ©elle.
       await db.collection('vendorCredentials').doc(vendorId).delete().catch(error => {
         if (error.code !== 5) throw error; // NOT_FOUND
       });
 
-      // Un utilisateur déjà absent est considéré comme nettoyé ; toute autre erreur bloque la suite.
+      // Un utilisateur dÃ©jÃ  absent est considÃ©rÃ© comme nettoyÃ© ; toute autre erreur bloque la suite.
       try {
         await getAuth().deleteUser(vendorId);
       } catch (error) {
@@ -1699,7 +1812,7 @@ exports.adminVendorAction = onRequest({ invoker: 'public', region: 'europe-west1
       updatedAt: FieldValue.serverTimestamp()
     };
     if (action === 'approved') {
-      // Le taux de commission est défini côté serveur, jamais par le vendeur.
+      // Le taux de commission est dÃ©fini cÃ´tÃ© serveur, jamais par le vendeur.
       vendorUpdate['vendorInfo.commissionRate'] = OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE;
       vendorUpdate['vendorInfo.commissionRateMin'] = OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE_MIN;
       vendorUpdate['vendorInfo.commissionRateMax'] = OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE_MAX;
@@ -1717,7 +1830,7 @@ function returnFeeDocId(orderId, returnIndex, vendorId) {
 
 /* ============================================================
    CF : adminSetReturnFee
-   Enregistre un justificatif isolé par commande, retour et vendeur.
+   Enregistre un justificatif isolÃ© par commande, retour et vendeur.
    ============================================================ */
 exports.adminSetReturnFee = onRequest({ invoker: 'public', region: 'europe-west1', cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
   if (cors(req, res)) return;
@@ -1727,7 +1840,7 @@ exports.adminSetReturnFee = onRequest({ invoker: 'public', region: 'europe-west1
     const decoded = await getAuth().verifyIdToken(match[1], true);
     const adminSnap = await db.collection('users').doc(decoded.uid).get();
     const isAdmin = decoded.admin === true || (adminSnap.exists && adminSnap.data()?.role === 'admin');
-    if (!isAdmin) return res.status(403).json({ success: false, message: 'Action réservée à un administrateur.' });
+    if (!isAdmin) return res.status(403).json({ success: false, message: 'Action rÃ©servÃ©e Ã  un administrateur.' });
 
     const orderId = String(req.body?.orderId || '').trim();
     const returnIndex = Number(req.body?.returnIndex);
@@ -1751,18 +1864,18 @@ exports.adminSetReturnFee = onRequest({ invoker: 'public', region: 'europe-west1
       const returns = Array.isArray(order.returns) ? order.returns : [];
       const entry = returns[returnIndex];
       if (order.status !== 'returned' || !entry || !Array.isArray(entry.items)) {
-        throw new Error('Retour introuvable ou commande non retournée.');
+        throw new Error('Retour introuvable ou commande non retournÃ©e.');
       }
-      if (feeSnap.exists) throw new Error('Un montant a déjà été enregistré pour ce vendeur et ce retour.');
+      if (feeSnap.exists) throw new Error('Un montant a dÃ©jÃ  Ã©tÃ© enregistrÃ© pour ce vendeur et ce retour.');
       if (order.vendorDebits?.[`${vendorId}_ret${returnIndex}`]) {
-        throw new Error('Ce frais a déjà été débité : aucun second débit n’est autorisé.');
+        throw new Error('Ce frais a dÃ©jÃ  Ã©tÃ© dÃ©bitÃ© : aucun second dÃ©bit nâ€™est autorisÃ©.');
       }
 
       const vendorData = vendorSnap.exists ? vendorSnap.data() : null;
       if (!vendorData || vendorData.role !== 'vendor' ||
           vendorData.vendorInfo?.contractStatus !== 'accepted' ||
           String(vendorData.vendorInfo?.contractVersion || '') !== OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION) {
-        throw new Error('Le vendeur doit accepter le nouveau contrat ' + OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION + ' avant l’application de ces frais.');
+        throw new Error('Le vendeur doit accepter le nouveau contrat ' + OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION + ' avant lâ€™application de ces frais.');
       }
 
       const orderedByVariant = {};
@@ -1786,13 +1899,13 @@ exports.adminSetReturnFee = onRequest({ invoker: 'public', region: 'europe-west1
           const owners = [...new Set(matchingItems.map(item => String(item.vendorId || '')))];
           const delta = Number(retItem.delta);
           if (!productId || !Number.isInteger(delta) || delta <= 0 || owners.length !== 1) {
-            throw new Error('Produit, propriétaire ou quantité de retour invalide.');
+            throw new Error('Produit, propriÃ©taire ou quantitÃ© de retour invalide.');
           }
           if (owners[0] !== vendorId) continue;
           const key = JSON.stringify([productId, String(variant.size || ''), String(variant.color || '')]);
           cumulativeByVariant[key] = (cumulativeByVariant[key] || 0) + delta;
           if (!orderedByVariant[key] || cumulativeByVariant[key] > orderedByVariant[key]) {
-            throw new Error('La quantité retournée dépasse la quantité commandée.');
+            throw new Error('La quantitÃ© retournÃ©e dÃ©passe la quantitÃ© commandÃ©e.');
           }
         }
       }
@@ -1809,7 +1922,7 @@ exports.adminSetReturnFee = onRequest({ invoker: 'public', region: 'europe-west1
             String(itemVariant.color || '') === String(variant.color || '');
         });
         const owners = [...new Set(matchingItems.map(item => String(item.vendorId || '')))];
-        if (owners.length !== 1) throw new Error('Une ligne retournée est absente ou ambiguë dans la commande.');
+        if (owners.length !== 1) throw new Error('Une ligne retournÃ©e est absente ou ambiguÃ« dans la commande.');
         if (owners[0] === vendorId) {
           const vendorItems = matchingItems.filter(item => String(item.vendorId || '') === vendorId);
           returnedQty += Number(retItem.delta);
@@ -1817,7 +1930,7 @@ exports.adminSetReturnFee = onRequest({ invoker: 'public', region: 'europe-west1
         }
       }
       if (!Number.isInteger(returnedQty) || returnedQty <= 0) {
-        throw new Error('Ce vendeur ne possède aucun article dans ce retour.');
+        throw new Error('Ce vendeur ne possÃ¨de aucun article dans ce retour.');
       }
 
       tx.create(feeRef, {
@@ -1836,19 +1949,19 @@ exports.adminSetReturnFee = onRequest({ invoker: 'public', region: 'europe-west1
       });
     });
 
-    return res.status(200).json({ success: true, message: 'Montant enregistré. Le débit sécurisé sera rapproché automatiquement.' });
+    return res.status(200).json({ success: true, message: 'Montant enregistrÃ©. Le dÃ©bit sÃ©curisÃ© sera rapprochÃ© automatiquement.' });
   } catch (error) {
     const message = error.message || 'Erreur serveur.';
     if (/nouveau contrat 1\.4\.0/i.test(message)) {
       return res.status(409).json({ success: false, code: 'VENDOR_CONTRACT_UPDATE_REQUIRED', message });
     }
-    const clientError = /introuvable|invalide|retournée|correspond pas|aucun article|déjà été enregistré|déjà été débité|dépasse la quantité/i.test(message);
+    const clientError = /introuvable|invalide|retournÃ©e|correspond pas|aucun article|dÃ©jÃ  Ã©tÃ© enregistrÃ©|dÃ©jÃ  Ã©tÃ© dÃ©bitÃ©|dÃ©passe la quantitÃ©/i.test(message);
     return res.status(clientError ? 400 : 500).json({ success: false, message });
   }
 });
 
 /* ============================================================
-   CF : requestWithdrawal (B-C2 : check vendeur approuvé)
+   CF : requestWithdrawal (B-C2 : check vendeur approuvÃ©)
    ============================================================ */
 exports.requestWithdrawal = onRequest({ invoker: 'public', region: 'europe-west1', cors: [...ALLOWED_ORIGINS] }, async (req, res) => {
   if (cors(req, res)) return;
@@ -1860,14 +1973,14 @@ exports.requestWithdrawal = onRequest({ invoker: 'public', region: 'europe-west1
     const amount = Number(req.body?.amount);
     const method = String(req.body?.method || '').trim();
 
-    // Identité du bénéficiaire : l'admin dépose le montant à l'agence au nom
-    // du vendeur, ces informations sont donc obligatoires et validées ici.
+    // IdentitÃ© du bÃ©nÃ©ficiaire : l'admin dÃ©pose le montant Ã  l'agence au nom
+    // du vendeur, ces informations sont donc obligatoires et validÃ©es ici.
     const firstName = String(req.body?.firstName || '').trim();
     const lastName = String(req.body?.lastName || '').trim();
     const cin = String(req.body?.cin || '').trim().toUpperCase();
     const phone = normalizeMoroccanPhone(req.body?.phone || req.body?.account || '');
-    // `account` est l'ancien nom du champ de réception : conservé égal à `phone`
-    // pour ne pas casser les demandes déjà enregistrées.
+    // `account` est l'ancien nom du champ de rÃ©ception : conservÃ© Ã©gal Ã  `phone`
+    // pour ne pas casser les demandes dÃ©jÃ  enregistrÃ©es.
     const account = phone || '';
 
     if (!Number.isFinite(amount) || amount < 200) {
@@ -1876,24 +1989,24 @@ exports.requestWithdrawal = onRequest({ invoker: 'public', region: 'europe-west1
 
     const allowedMethods = new Set(['Wafacash', 'CashPlus']);
     if (!allowedMethods.has(method)) {
-      return res.status(400).json({ success: false, message: 'Réseau de retrait invalide (Wafacash ou CashPlus).' });
+      return res.status(400).json({ success: false, message: 'RÃ©seau de retrait invalide (Wafacash ou CashPlus).' });
     }
 
     if (firstName.length < 2 || firstName.length > 60) {
-      return res.status(400).json({ success: false, message: 'Prénom invalide (2 à 60 caractères).' });
+      return res.status(400).json({ success: false, message: 'PrÃ©nom invalide (2 Ã  60 caractÃ¨res).' });
     }
     if (lastName.length < 2 || lastName.length > 60) {
-      return res.status(400).json({ success: false, message: 'Nom invalide (2 à 60 caractères).' });
+      return res.status(400).json({ success: false, message: 'Nom invalide (2 Ã  60 caractÃ¨res).' });
     }
     if (!isValidMoroccanCin(cin)) {
       return res.status(400).json({ success: false, message: 'CIN invalide (ex : AB123456).' });
     }
     if (!/^(?:\+212|0)[67]\d{8}$/.test(phone || '')) {
-      return res.status(400).json({ success: false, message: 'Numéro de téléphone invalide (06XXXXXXXX ou 07XXXXXXXX).' });
+      return res.status(400).json({ success: false, message: 'NumÃ©ro de tÃ©lÃ©phone invalide (06XXXXXXXX ou 07XXXXXXXX).' });
     }
 
-    // Aucun frais n'est retenu par Smart Swika : l'admin dépose exactement le
-    // montant demandé. Les frais de retrait sont déduits par l'agence
+    // Aucun frais n'est retenu par Smart Swika : l'admin dÃ©pose exactement le
+    // montant demandÃ©. Les frais de retrait sont dÃ©duits par l'agence
     // Wafacash/CashPlus et ne concernent pas la plateforme.
 
     const vendorRef = db.collection('users').doc(decoded.uid);
@@ -1903,8 +2016,8 @@ exports.requestWithdrawal = onRequest({ invoker: 'public', region: 'europe-west1
       .where('vendorId', '==', decoded.uid)
       .where('status', '==', 'pending');
 
-    // Transaction atomique : empêche deux demandes simultanées de passer
-    // le contrôle du solde et de l'unicité d'une demande en attente.
+    // Transaction atomique : empÃªche deux demandes simultanÃ©es de passer
+    // le contrÃ´le du solde et de l'unicitÃ© d'une demande en attente.
     await db.runTransaction(async tx => {
       const [vendorSnap, walletSnap, pendingSnap] = await Promise.all([
         tx.get(vendorRef),
@@ -1920,7 +2033,7 @@ exports.requestWithdrawal = onRequest({ invoker: 'public', region: 'europe-west1
       if (vendorData.vendorInfo?.status !== 'approved' ||
           vendorData.vendorInfo?.contractStatus !== 'accepted' ||
           String(vendorData.vendorInfo?.contractVersion || '') !== OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION) {
-        throw new Error('Votre compte vendeur doit être approuvé et votre contrat accepté.');
+        throw new Error('Votre compte vendeur doit Ãªtre approuvÃ© et votre contrat acceptÃ©.');
       }
 
       // Statut portefeuille : un compte gele (litige) ou suspendu (dette)
@@ -1928,26 +2041,26 @@ exports.requestWithdrawal = onRequest({ invoker: 'public', region: 'europe-west1
       // bloquer les vendeurs qui n'ont pas encore le champ.
       const walletStatus = normalizeWalletStatus(vendorData);
       if (walletStatus === WALLET_STATUS.FROZEN) {
-        throw new Error('Retrait impossible : vos fonds sont gelés suite à un litige en cours.');
+        throw new Error('Retrait impossible : vos fonds sont gelÃ©s suite Ã  un litige en cours.');
       }
       if (walletStatus === WALLET_STATUS.SUSPENDED) {
-        throw new Error('Retrait impossible : votre portefeuille est suspendu (solde débiteur à régulariser).');
+        throw new Error('Retrait impossible : votre portefeuille est suspendu (solde dÃ©biteur Ã  rÃ©gulariser).');
       }
 
       if (!walletSnap.exists) throw new Error('Wallet introuvable.');
-      if (!pendingSnap.empty) throw new Error('Une demande de retrait est déjà en cours.');
+      if (!pendingSnap.empty) throw new Error('Une demande de retrait est dÃ©jÃ  en cours.');
 
       const walletData = walletSnap.data();
       if ((Number(walletData.negativeBalance) || 0) < -0.0001) {
-        throw new Error('Retrait impossible : votre portefeuille présente un solde débiteur à régulariser.');
+        throw new Error('Retrait impossible : votre portefeuille prÃ©sente un solde dÃ©biteur Ã  rÃ©gulariser.');
       }
       const balance = Number(walletData.availableBalance);
       if (!Number.isFinite(balance) || amount > balance) {
         throw new Error('Solde insuffisant.');
       }
 
-      // Cette écriture sur le wallet force les transactions concurrentes
-      // à se rejouer et à constater la demande déjà créée.
+      // Cette Ã©criture sur le wallet force les transactions concurrentes
+      // Ã  se rejouer et Ã  constater la demande dÃ©jÃ  crÃ©Ã©e.
       tx.update(walletRef, {
         payoutRequestVersion: FieldValue.increment(1),
         updatedAt: FieldValue.serverTimestamp()
@@ -1973,7 +2086,7 @@ exports.requestWithdrawal = onRequest({ invoker: 'public', region: 'europe-west1
     return res.status(200).json({ success: true });
   } catch (error) {
     const message = error.message || 'Erreur serveur.';
-    const clientError = /introuvable|invalide|minimum|coordonnées|méthode|réseau|prénom|\bnom\b|CIN|téléphone|solde insuffisant|solde débiteur|retrait impossible|déjà en cours|doit être approuvé/i.test(message);
+    const clientError = /introuvable|invalide|minimum|coordonnÃ©es|mÃ©thode|rÃ©seau|prÃ©nom|\bnom\b|CIN|tÃ©lÃ©phone|solde insuffisant|solde dÃ©biteur|retrait impossible|dÃ©jÃ  en cours|doit Ãªtre approuvÃ©/i.test(message);
     return res.status(clientError ? 400 : 500).json({ success: false, message });
   }
 });
@@ -1995,7 +2108,7 @@ exports.adminManageWallet = onRequest({
     const adminSnap = await db.collection('users').doc(decoded.uid).get();
     const isAdmin = decoded.admin === true || (adminSnap.exists && adminSnap.data()?.role === 'admin');
     if (!isAdmin) {
-      return res.status(403).json({ success: false, message: 'Action réservée à un administrateur.' });
+      return res.status(403).json({ success: false, message: 'Action rÃ©servÃ©e Ã  un administrateur.' });
     }
 
     const vendorId = String(req.body?.vendorId || '').trim();
@@ -2007,10 +2120,10 @@ exports.adminManageWallet = onRequest({
     }
 
     const ACTIONS = {
-      freeze:        { status: WALLET_STATUS.FROZEN,    label: 'Portefeuille gelé' },
-      unfreeze:      { status: WALLET_STATUS.ACTIVE,    label: 'Portefeuille débloqué' },
+      freeze:        { status: WALLET_STATUS.FROZEN,    label: 'Portefeuille gelÃ©' },
+      unfreeze:      { status: WALLET_STATUS.ACTIVE,    label: 'Portefeuille dÃ©bloquÃ©' },
       suspend:       { status: WALLET_STATUS.SUSPENDED, label: 'Portefeuille suspendu' },
-      reactivate:    { status: WALLET_STATUS.ACTIVE,    label: 'Portefeuille réactivé' }
+      reactivate:    { status: WALLET_STATUS.ACTIVE,    label: 'Portefeuille rÃ©activÃ©' }
     };
     const decision = ACTIONS[action];
     if (!decision) {
@@ -2049,8 +2162,8 @@ exports.adminManageWallet = onRequest({
 });
 
 /* ============================================================
-   DÉBIT SÉCURISÉ D'UN FRAIS DE RETOUR
-   Le document justificatif est séparé de la commande et idempotent.
+   DÃ‰BIT SÃ‰CURISÃ‰ D'UN FRAIS DE RETOUR
+   Le document justificatif est sÃ©parÃ© de la commande et idempotent.
    ============================================================ */
 async function processReturnFeeDebit(orderId, returnIndex, vendorId) {
   const orderRef = db.collection('orders').doc(orderId);
@@ -2083,15 +2196,15 @@ async function processReturnFeeDebit(orderId, returnIndex, vendorId) {
     }
     if (vendorData.vendorInfo?.contractStatus !== 'accepted' ||
         String(vendorData.vendorInfo?.contractVersion || '') !== OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION) {
-      throw new Error('Débit retour bloqué : contrat vendeur ' + OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION + ' non accepté.');
+      throw new Error('DÃ©bit retour bloquÃ© : contrat vendeur ' + OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION + ' non acceptÃ©.');
     }
     if (vendorData.vendorInfo?.status === 'deletion_pending') {
-      throw new Error('Débit retour bloqué : suppression du compte en cours.');
+      throw new Error('DÃ©bit retour bloquÃ© : suppression du compte en cours.');
     }
 
     const returns = Array.isArray(order.returns) ? order.returns : [];
     const entry = returns[returnIndex];
-    if (!entry || !Array.isArray(entry.items)) throw new Error('Détail du retour introuvable.');
+    if (!entry || !Array.isArray(entry.items)) throw new Error('DÃ©tail du retour introuvable.');
 
     const orderedByVariant = {};
     for (const item of (order.items || [])) {
@@ -2114,13 +2227,13 @@ async function processReturnFeeDebit(orderId, returnIndex, vendorId) {
         const owners = [...new Set(matchingItems.map(item => String(item.vendorId || '')))];
         const delta = Number(retItem.delta);
         if (!productId || !Number.isInteger(delta) || delta <= 0 || owners.length !== 1) {
-          throw new Error('Produit, propriétaire ou quantité de retour invalide pour la commande ' + orderId);
+          throw new Error('Produit, propriÃ©taire ou quantitÃ© de retour invalide pour la commande ' + orderId);
         }
         if (owners[0] !== vendorId) continue;
         const key = JSON.stringify([productId, String(variant.size || ''), String(variant.color || '')]);
         cumulativeByVariant[key] = (cumulativeByVariant[key] || 0) + delta;
         if (!orderedByVariant[key] || cumulativeByVariant[key] > orderedByVariant[key]) {
-          throw new Error('Quantité retournée supérieure à la quantité commandée pour ' + key);
+          throw new Error('QuantitÃ© retournÃ©e supÃ©rieure Ã  la quantitÃ© commandÃ©e pour ' + key);
         }
       }
     }
@@ -2136,12 +2249,12 @@ async function processReturnFeeDebit(orderId, returnIndex, vendorId) {
           String(itemVariant.color || '') === String(variant.color || '');
       });
       const owners = [...new Set(matchingItems.map(item => String(item.vendorId || '')))];
-      if (owners.length !== 1) throw new Error('Ligne retournée absente ou ambiguë pour la commande ' + orderId);
+      if (owners.length !== 1) throw new Error('Ligne retournÃ©e absente ou ambiguÃ« pour la commande ' + orderId);
       if (owners[0] === vendorId) returnedQty += Number(retItem.delta);
     }
     if (!Number.isInteger(returnedQty) || returnedQty <= 0 ||
         Number(feeRecord.returnedQty) !== returnedQty) {
-      throw new Error('Quantité retournée incohérente avec le justificatif des frais.');
+      throw new Error('QuantitÃ© retournÃ©e incohÃ©rente avec le justificatif des frais.');
     }
 
     const walletSnap = await tx.get(walletRef);
@@ -2241,8 +2354,8 @@ exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}',
 
   const orderId = event.params.orderId;
 
-  // Synchroniser uniquement le statut dans les vues privées de chaque vendeur.
-  // Les articles et montants propres à chaque vendeur restent cloisonnés.
+  // Synchroniser uniquement le statut dans les vues privÃ©es de chaque vendeur.
+  // Les articles et montants propres Ã  chaque vendeur restent cloisonnÃ©s.
   // Filet de securite : si le webhook Livo n'a pas pose la date (commande
   // passee en livraison/livree par un autre chemin), on l'ancre ici pour que
   // le chrono 7/15 jours ne soit jamais perdu.
@@ -2277,11 +2390,11 @@ exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}',
     ));
   }
 
-  // Le trigger est aussi relancé lorsqu'un administrateur valide les frais
-  // d'un retour déjà enregistré. Les débits sont idempotents via vendorDebits.
+  // Le trigger est aussi relancÃ© lorsqu'un administrateur valide les frais
+  // d'un retour dÃ©jÃ  enregistrÃ©. Les dÃ©bits sont idempotents via vendorDebits.
 
-  // Notifications client générées côté serveur (idempotentes).
-  // Les vendeurs ne peuvent pas créer librement des notifications dans Firestore.
+  // Notifications client gÃ©nÃ©rÃ©es cÃ´tÃ© serveur (idempotentes).
+  // Les vendeurs ne peuvent pas crÃ©er librement des notifications dans Firestore.
   if (after.status === 'delivered' && before.status !== 'delivered' && after.userId) {
     const deliveryNotificationRef = db.collection('notifications').doc('order_delivered_' + orderId);
     const reviewNotificationRef = db.collection('notifications').doc('review_request_' + orderId);
@@ -2295,8 +2408,8 @@ exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}',
         tx.create(deliveryNotificationRef, {
           userId: after.userId,
           type: 'order_delivered',
-          title: 'Commande livrée',
-          message: 'Votre commande #' + shortId + ' est livrée !',
+          title: 'Commande livrÃ©e',
+          message: 'Votre commande #' + shortId + ' est livrÃ©e !',
           orderId,
           read: false,
           createdAt: FieldValue.serverTimestamp()
@@ -2307,7 +2420,7 @@ exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}',
           userId: after.userId,
           type: 'review_request',
           title: 'Laissez un avis',
-          message: 'Votre commande #' + shortId + ' est livrée ! Partagez votre expérience.',
+          message: 'Votre commande #' + shortId + ' est livrÃ©e ! Partagez votre expÃ©rience.',
           orderId,
           persistent: true,
           read: false,
@@ -2317,7 +2430,7 @@ exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}',
     });
   }
 
-  // Crédit vendeur
+  // CrÃ©dit vendeur
   if (after.status === 'delivered' && before.status !== 'delivered') {
     const vendorItems = {};
     (after.items || []).forEach(item => {
@@ -2364,18 +2477,18 @@ exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}',
           if (!freshOrderSnap.exists) return;
           const freshOrder = freshOrderSnap.data();
 
-          // Une invocation retardée du trigger "delivered" ne doit jamais
-          // créditer une vente si la commande est déjà passée à "returned"
-          // ou à un autre statut depuis l'événement initial.
+          // Une invocation retardÃ©e du trigger "delivered" ne doit jamais
+          // crÃ©diter une vente si la commande est dÃ©jÃ  passÃ©e Ã  "returned"
+          // ou Ã  un autre statut depuis l'Ã©vÃ©nement initial.
           if (freshOrder.status !== 'delivered') return;
           if (freshOrder.vendorCredits && freshOrder.vendorCredits[vendorId]) return;
 
           // Lecture du profil dans la transaction : le verrou deletion_pending
-          // invalide/rejoue un crédit qui serait concurrent à une suppression.
+          // invalide/rejoue un crÃ©dit qui serait concurrent Ã  une suppression.
           const freshVendorSnap = await tx.get(db.collection('users').doc(vendorId));
           if (!freshVendorSnap.exists || freshVendorSnap.data()?.role !== 'vendor') return;
           if (freshVendorSnap.data()?.vendorInfo?.status === 'deletion_pending') {
-            throw new Error('Crédit vendeur bloqué : suppression du compte en cours.');
+            throw new Error('CrÃ©dit vendeur bloquÃ© : suppression du compte en cours.');
           }
 
           const freshWalletSnap = await tx.get(walletRef);
@@ -2429,14 +2542,14 @@ exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}',
           });
         });
       } catch (err) {
-        console.error(`[onOrderStatusChanged] Erreur crédit vendeur ${vendorId}:`, err);
+        console.error(`[onOrderStatusChanged] Erreur crÃ©dit vendeur ${vendorId}:`, err);
         throw err;
       }
     }
   }
 
-  // Rejouer les justificatifs déjà créés si une commande repasse au statut retourné.
-  // Le processeur est idempotent : une écriture wallet ne peut être créée qu'une fois.
+  // Rejouer les justificatifs dÃ©jÃ  crÃ©Ã©s si une commande repasse au statut retournÃ©.
+  // Le processeur est idempotent : une Ã©criture wallet ne peut Ãªtre crÃ©Ã©e qu'une fois.
   if (after.status === 'returned') {
     const feeSnap = await db.collection('order_return_fees')
       .where('orderId', '==', orderId)
@@ -2450,7 +2563,7 @@ exports.onOrderStatusChanged = onDocumentUpdated({ document: 'orders/{orderId}',
 
 /* ============================================================
    CF : createVerifiedReview
-   Création d'avis avec vérification d'achat côté serveur.
+   CrÃ©ation d'avis avec vÃ©rification d'achat cÃ´tÃ© serveur.
    ============================================================ */
 exports.createVerifiedReview = onRequest({ invoker: 'public', region: 'europe-west1', cors: [...ALLOWED_ORIGINS], timeoutSeconds: 30 }, async (req, res) => {
   if (cors(req, res)) return;
@@ -2478,7 +2591,7 @@ exports.createVerifiedReview = onRequest({ invoker: 'public', region: 'europe-we
         validPath = parsed.hostname === 'firebasestorage.googleapis.com' &&
           decodedPath.includes('/o/reviews/' + decoded.uid + '/');
       } catch (_) {}
-      if (!validPath) return res.status(400).json({ success: false, message: 'Photo non autorisée.' });
+      if (!validPath) return res.status(400).json({ success: false, message: 'Photo non autorisÃ©e.' });
     }
 
     const reviewId = 'review_' + decoded.uid + '_' + productId;
@@ -2494,7 +2607,7 @@ exports.createVerifiedReview = onRequest({ invoker: 'public', region: 'europe-we
       (docSnap.data().items || []).some(item => String(item.productId) === productId)
     );
     if (!matchingOrder) {
-      return res.status(403).json({ success: false, message: 'Un achat livré de ce produit est nécessaire pour publier un avis.' });
+      return res.status(403).json({ success: false, message: 'Un achat livrÃ© de ce produit est nÃ©cessaire pour publier un avis.' });
     }
 
     const result = await db.runTransaction(async tx => {
@@ -2504,9 +2617,9 @@ exports.createVerifiedReview = onRequest({ invoker: 'public', region: 'europe-we
         tx.get(productRef),
         tx.get(db.collection('users').doc(decoded.uid))
       ]);
-      if (reviewSnap.exists) throw new Error('Vous avez déjà publié un avis pour ce produit.');
+      if (reviewSnap.exists) throw new Error('Vous avez dÃ©jÃ  publiÃ© un avis pour ce produit.');
       if (!orderSnap.exists || !['delivered', 'received'].includes(orderSnap.data().status)) {
-        throw new Error('La commande ne permet plus de vérifier cet achat.');
+        throw new Error('La commande ne permet plus de vÃ©rifier cet achat.');
       }
       if (!(orderSnap.data().items || []).some(item => String(item.productId) === productId)) {
         throw new Error('Produit absent de la commande.');
@@ -2540,13 +2653,13 @@ exports.createVerifiedReview = onRequest({ invoker: 'public', region: 'europe-we
     return res.status(200).json({ success: true, ...result });
   } catch (error) {
     console.error('[createVerifiedReview]', error);
-    return res.status(400).json({ success: false, message: error.message || 'Création de l’avis impossible.' });
+    return res.status(400).json({ success: false, message: error.message || 'CrÃ©ation de lâ€™avis impossible.' });
   }
 });
 
 /* ============================================================
    CF : backfillVendorOrderViews
-   Migration idempotente des anciennes commandes vers les vues privées.
+   Migration idempotente des anciennes commandes vers les vues privÃ©es.
    ============================================================ */
 exports.backfillVendorOrderViews = onRequest({ invoker: 'public', region: 'europe-west1', cors: [...ALLOWED_ORIGINS], timeoutSeconds: 60 }, async (req, res) => {
   if (cors(req, res)) return;
@@ -2556,7 +2669,7 @@ exports.backfillVendorOrderViews = onRequest({ invoker: 'public', region: 'europ
     const decoded = await getAuth().verifyIdToken(match[1], true);
     const adminSnap = await db.collection('users').doc(decoded.uid).get();
     const isAdmin = decoded.admin === true || (adminSnap.exists && adminSnap.data()?.role === 'admin');
-    if (!isAdmin) return res.status(403).json({ success: false, message: 'Action réservée à un administrateur.' });
+    if (!isAdmin) return res.status(403).json({ success: false, message: 'Action rÃ©servÃ©e Ã  un administrateur.' });
 
     const pageSize = Math.max(1, Math.min(Number(req.body?.pageSize) || 100, 100));
     let query = db.collection('orders').orderBy(FieldPath.documentId()).limit(pageSize);
@@ -2621,7 +2734,7 @@ exports.backfillVendorOrderViews = onRequest({ invoker: 'public', region: 'europ
 
     for (let i = 0; i < writes.length; i += 400) {
       const batch = db.batch();
-      // Remplacement complet pour effacer les coordonnées acheteur présentes
+      // Remplacement complet pour effacer les coordonnÃ©es acheteur prÃ©sentes
       // dans les anciennes projections vendeur.
       writes.slice(i, i + 400).forEach(write => batch.set(write.ref, write.data));
       await batch.commit();
@@ -2658,8 +2771,8 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
     if (suppliedRequestId && !/^[A-Za-z0-9_-]{20,80}$/.test(suppliedRequestId)) {
       return res.status(400).json({ success: false, message: 'Identifiant de demande invalide.' });
     }
-    // Compatibilité avec les versions du site déjà publiées; les versions
-    // récentes transmettent leur clé stable pour rendre les reprises idempotentes.
+    // CompatibilitÃ© avec les versions du site dÃ©jÃ  publiÃ©es; les versions
+    // rÃ©centes transmettent leur clÃ© stable pour rendre les reprises idempotentes.
     const requestId = suppliedRequestId || crypto.randomUUID();
 
     if (!rawItems.length || rawItems.length > 50) {
@@ -2710,7 +2823,7 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
     })).digest('hex');
 
     // Le checkout ne doit jamais confirmer une commande avec une grille tarifaire
-    // Livo périmée. On synchronise avant la transaction Firestore.
+    // Livo pÃ©rimÃ©e. On synchronise avant la transaction Firestore.
     let livoFeesFresh = false;
     try { livoFeesFresh = await isLivoFeesCacheFresh(); } catch (e) { console.warn('[createCustomerOrder] Cache tarifs Livo illisible:', e.message); }
     if (!livoFeesFresh) {
@@ -2721,7 +2834,7 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
         console.error('[createCustomerOrder] Actualisation des tarifs Livo impossible:', e.message);
       }
     }
-    if (!livoFeesFresh) throw new Error('Les tarifs Livo ne peuvent pas être vérifiés pour le moment. Réessayez dans quelques minutes.');
+    if (!livoFeesFresh) throw new Error('Les tarifs Livo ne peuvent pas Ãªtre vÃ©rifiÃ©s pour le moment. RÃ©essayez dans quelques minutes.');
 
     const requestRef = db.collection('order_requests').doc(`${decoded.uid}_${requestId}`);
     const orderRef = db.collection('orders').doc();
@@ -2731,9 +2844,9 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
       if (requestSnap.exists) {
         const requestData = requestSnap.data();
         if (requestData.payloadHash !== requestPayloadHash) {
-          throw new Error('Cette demande de commande a déjà été utilisée avec d’autres informations.');
+          throw new Error('Cette demande de commande a dÃ©jÃ  Ã©tÃ© utilisÃ©e avec dâ€™autres informations.');
         }
-        if (!requestData.response) throw new Error('Commande précédente en cours de traitement. Réessayez dans un instant.');
+        if (!requestData.response) throw new Error('Commande prÃ©cÃ©dente en cours de traitement. RÃ©essayez dans un instant.');
         return requestData.response;
       }
 
@@ -2745,10 +2858,10 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
         if (!productSnaps[i].exists) throw new Error(`Produit introuvable.`);
         const pd = productSnaps[i].data();
         const vid = String(pd.vendorId || 'smartswi9a');
-        // Les produits vendeurs doivent explicitement être approuvés.
-        // La tolérance au champ status absent est réservée au catalogue historique Smartswika.
+        // Les produits vendeurs doivent explicitement Ãªtre approuvÃ©s.
+        // La tolÃ©rance au champ status absent est rÃ©servÃ©e au catalogue historique Smartswika.
         if (vid !== 'smartswi9a' && pd.status !== 'approved') {
-          throw new Error('Produit vendeur indisponible ou non approuvé.');
+          throw new Error('Produit vendeur indisponible ou non approuvÃ©.');
         }
         if (vid === 'smartswi9a' && pd.status && pd.status !== 'approved') {
           throw new Error('Produit indisponible.');
@@ -2758,7 +2871,7 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
       const vendorIds = [...vendorIdsSet];
       const shippingMethodsByVendor = new Map();
 
-      // C6 : vérif vendeurs approuvés
+      // C6 : vÃ©rif vendeurs approuvÃ©s
       if (vendorIds.length > 0) {
         const vendorRefs = vendorIds.map(id => db.collection('vendorsPublic').doc(id));
         const vendorSnaps = await Promise.all(vendorRefs.map(ref => tx.get(ref)));
@@ -2769,7 +2882,7 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
           const vData = snap.data();
           if (vData.status !== 'approved' ||
               String(vData.contractVersion || '') !== OFFICIAL_VENDOR_CONFIG.CONTRACT_VERSION) {
-            throw new Error(`Le vendeur ${vendorIds[i]} n'est pas approuvé avec le contrat courant.`);
+            throw new Error(`Le vendeur ${vendorIds[i]} n'est pas approuvÃ© avec le contrat courant.`);
           }
           const profileSnap = vendorProfileSnaps[i];
           if (!profileSnap.exists || profileSnap.data().role !== 'vendor' || profileSnap.data().vendorInfo?.status !== 'approved') {
@@ -2777,7 +2890,7 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
           }
           const shippingMethod = String(profileSnap.data().vendorInfo?.shippingMethod || '');
           if (!['dropoff', 'fulfillment'].includes(shippingMethod)) {
-            throw new Error(`Le mode logistique du vendeur ${vendorIds[i]} n'est pas configuré.`);
+            throw new Error(`Le mode logistique du vendeur ${vendorIds[i]} n'est pas configurÃ©.`);
           }
           shippingMethodsByVendor.set(vendorIds[i], shippingMethod);
         });
@@ -2845,10 +2958,10 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
         });
       }
 
-      // Le tarif doit provenir d'une ville Firestore identifiée et correspondre
-      // au nom français sélectionné. Le client ne peut pas choisir un cityId
+      // Le tarif doit provenir d'une ville Firestore identifiÃ©e et correspondre
+      // au nom franÃ§ais sÃ©lectionnÃ©. Le client ne peut pas choisir un cityId
       // moins cher tout en saisissant une autre ville.
-      if (!delivery.cityId) throw new Error('Veuillez sélectionner une ville de livraison valide.');
+      if (!delivery.cityId) throw new Error('Veuillez sÃ©lectionner une ville de livraison valide.');
       const cityIdNumber = Number(delivery.cityId);
       let cityData = null;
       if (Number.isFinite(cityIdNumber)) {
@@ -2856,8 +2969,8 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
         const cityQuerySnap = await tx.get(cityQuery);
         if (!cityQuerySnap.empty) cityData = cityQuerySnap.docs[0].data();
       }
-      // Compatibilité avec les anciennes villes dont l'identifiant Firestore
-      // est directement utilisé comme identifiant côté interface.
+      // CompatibilitÃ© avec les anciennes villes dont l'identifiant Firestore
+      // est directement utilisÃ© comme identifiant cÃ´tÃ© interface.
       if (!cityData) {
         const cityDocSnap = await tx.get(db.collection('cities').doc(String(delivery.cityId)));
         if (cityDocSnap.exists) cityData = cityDocSnap.data();
@@ -2877,11 +2990,11 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
         (submittedCity && acceptedCityNames.includes(submittedCity)) ||
         exactSubmittedNames.some(name => exactAcceptedNames.includes(name));
       if (!cityNameMatches) {
-        throw new Error('La ville sélectionnée ne correspond pas à la ville de livraison.');
+        throw new Error('La ville sÃ©lectionnÃ©e ne correspond pas Ã  la ville de livraison.');
       }
       const deliveryFee = Math.max(0, Number(cityData.price) || 0);
 
-      // M1 : réduction volume
+      // M1 : rÃ©duction volume
       const volumeDiscount = totalQty >= 3 ? Math.round(subtotal * 0.05) : 0;
 
       // C3 : coupon
@@ -2895,23 +3008,23 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
         if (c.isActive !== true) throw new Error('Code promo inactif.');
         if (c.expiresAt) {
           const exp = c.expiresAt.toDate ? c.expiresAt.toDate() : new Date(c.expiresAt);
-          if (exp.getTime() < Date.now()) throw new Error('Code promo expiré.');
+          if (exp.getTime() < Date.now()) throw new Error('Code promo expirÃ©.');
         }
         if (Number(c.maxUses) > 0 && (Number(c.usedCount) || 0) >= Number(c.maxUses)) {
-          throw new Error('Code promo épuisé.');
+          throw new Error('Code promo Ã©puisÃ©.');
         }
         if (Number(c.minPurchase) > 0 && subtotal < Number(c.minPurchase)) {
           throw new Error(`Minimum ${Number(c.minPurchase)} MAD requis.`);
         }
         if (c.oneUsePerUser === true) {
           const useSnap = await tx.get(db.collection('coupon_uses').doc(`${couponId}_${decoded.uid}`));
-          if (useSnap.exists) throw new Error('Vous avez déjà utilisé ce code promo.');
+          if (useSnap.exists) throw new Error('Vous avez dÃ©jÃ  utilisÃ© ce code promo.');
         }
         const value = Math.max(0, Number(c.value) || 0);
         if (c.type === 'percentage') couponDiscount = Math.round(subtotal * Math.min(100, value) / 100);
         else if (c.type === 'fixed') couponDiscount = Math.min(value, subtotal);
         else if (c.type === 'free_shipping') couponDiscount = deliveryFee;
-        if (couponDiscount <= 0) throw new Error('Ce code ne produit aucune réduction.');
+        if (couponDiscount <= 0) throw new Error('Ce code ne produit aucune rÃ©duction.');
 
         couponData = c;
         tx.update(couponRef, { usedCount: FieldValue.increment(1) });
@@ -2964,7 +3077,7 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
       productUpdates.forEach(u => tx.update(u.ref, u.data));
       tx.set(orderRef, orderData);
 
-      // Vue cloisonnée par vendeur : aucun vendeur ne reçoit les articles
+      // Vue cloisonnÃ©e par vendeur : aucun vendeur ne reÃ§oit les articles
       // des autres boutiques ni les totaux globaux de la commande.
       for (const vendorId of vendorList) {
         const vendorItems = validatedItems
@@ -3004,7 +3117,7 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
       tx.set(notifRef, {
         userId: decoded.uid,
         type: 'order_created',
-        title: 'Commande reçue',
+        title: 'Commande reÃ§ue',
         message: `Merci pour votre commande #${orderRef.id.slice(0, 8).toUpperCase()} !`,
         orderId: orderRef.id,
         read: false,
@@ -3037,7 +3150,7 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
     return res.status(200).json({ success: true, ...outcome });
   } catch (error) {
     console.error('[createCustomerOrder]', error);
-    return res.status(400).json({ success: false, message: error.message || 'Création de commande impossible.' });
+    return res.status(400).json({ success: false, message: error.message || 'CrÃ©ation de commande impossible.' });
   }
 });
 
@@ -3058,14 +3171,14 @@ exports.cancelCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
       const orderSnap = await tx.get(orderRef);
       if (!orderSnap.exists) throw new Error('Commande introuvable.');
       const order = orderSnap.data();
-      if (order.userId !== decoded.uid) throw new Error('Non autorisé.');
-      if (!['pending', 'confirmed'].includes(order.status)) throw new Error('Délai dépassé.');
+      if (order.userId !== decoded.uid) throw new Error('Non autorisÃ©.');
+      if (!['pending', 'confirmed'].includes(order.status)) throw new Error('DÃ©lai dÃ©passÃ©.');
 
       if (order.cancellableUntil) {
         const until = order.cancellableUntil.toDate
           ? order.cancellableUntil.toDate()
           : new Date(order.cancellableUntil);
-        if (Date.now() > until.getTime()) throw new Error('Le délai d’annulation est dépassé.');
+        if (Date.now() > until.getTime()) throw new Error('Le dÃ©lai dâ€™annulation est dÃ©passÃ©.');
       }
 
       const items = Array.isArray(order.items) ? order.items : [];
@@ -3073,7 +3186,7 @@ exports.cancelCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
       const refs = productIds.map(id => db.collection('products').doc(id));
       const snaps = await Promise.all(refs.map(ref => tx.get(ref)));
 
-      // Toutes les lectures doivent précéder les premières écritures
+      // Toutes les lectures doivent prÃ©cÃ©der les premiÃ¨res Ã©critures
       // de la transaction Firestore.
       const couponRef = order.couponId
         ? db.collection('coupons').doc(String(order.couponId))
@@ -3085,14 +3198,14 @@ exports.cancelCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
       if (order.stockDeducted === true) {
         for (let i = 0; i < productIds.length; i++) {
           if (!snaps[i].exists) {
-            throw new Error(`Produit ${productIds[i]} introuvable : annulation interrompue pour préserver le stock.`);
+            throw new Error(`Produit ${productIds[i]} introuvable : annulation interrompue pour prÃ©server le stock.`);
           }
           const p = snaps[i].data();
           const productItems = items.filter(item => String(item.productId) === productIds[i]);
           const quantities = productItems.map(item => {
             const qty = Number(item.quantity);
             if (!Number.isInteger(qty) || qty <= 0) {
-              throw new Error(`Quantité invalide pour le produit ${productIds[i]}.`);
+              throw new Error(`QuantitÃ© invalide pour le produit ${productIds[i]}.`);
             }
             return { item, qty };
           });
@@ -3129,7 +3242,7 @@ exports.cancelCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
           }
 
           if (hasVariantItems && hasSimpleItems) {
-            throw new Error(`Structure de stock incohérente pour le produit ${productIds[i]} : variantes et stock simple mélangés.`);
+            throw new Error(`Structure de stock incohÃ©rente pour le produit ${productIds[i]} : variantes et stock simple mÃ©langÃ©s.`);
           }
           if (hasVariantItems) {
             upd.variants = variants;
@@ -3141,8 +3254,8 @@ exports.cancelCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
         }
       }
 
-      // Restaurer le coupon sans lecture après les premières écritures
-      // et sans jamais rendre usedCount négatif.
+      // Restaurer le coupon sans lecture aprÃ¨s les premiÃ¨res Ã©critures
+      // et sans jamais rendre usedCount nÃ©gatif.
       if (couponRef && !order.couponRestored) {
         if (couponSnap?.exists && Number(couponSnap.data().usedCount) > 0) {
           tx.update(couponRef, { usedCount: FieldValue.increment(-1) });
@@ -3188,7 +3301,7 @@ exports.adminPayoutAction = onRequest({ invoker: 'public', region: 'europe-west1
     const adminSnap = await db.collection('users').doc(decoded.uid).get();
     const isAdmin = decoded.admin === true || (adminSnap.exists && adminSnap.data()?.role === 'admin');
     if (!isAdmin) {
-      return res.status(403).json({ success: false, message: 'Action réservée à un administrateur.' });
+      return res.status(403).json({ success: false, message: 'Action rÃ©servÃ©e Ã  un administrateur.' });
     }
 
     const payoutId = String(req.body?.payoutId || '');
@@ -3199,10 +3312,10 @@ exports.adminPayoutAction = onRequest({ invoker: 'public', region: 'europe-west1
     const reason = String(req.body?.reason || '').trim().slice(0, 500);
 
     if (!payoutId || !['sent', 'completed', 'rejected'].includes(action)) {
-      return res.status(400).json({ success: false, message: 'Paramètres invalides.' });
+      return res.status(400).json({ success: false, message: 'ParamÃ¨tres invalides.' });
     }
     if (action === 'sent' && transferNumber.length < 3) {
-      return res.status(400).json({ success: false, message: 'Numéro de transfert obligatoire (3 caractères minimum).' });
+      return res.status(400).json({ success: false, message: 'NumÃ©ro de transfert obligatoire (3 caractÃ¨res minimum).' });
     }
 
     await db.runTransaction(async (t) => {
@@ -3217,12 +3330,12 @@ exports.adminPayoutAction = onRequest({ invoker: 'public', region: 'europe-west1
       // Transitions autorisees uniquement.
       const allowedFrom = { sent: ['pending'], completed: ['sent'], rejected: ['pending', 'sent'] };
       if (!allowedFrom[action].includes(currentStatus)) {
-        throw new Error(`Transition de retrait impossible depuis le statut « ${currentStatus} ».`);
+        throw new Error(`Transition de retrait impossible depuis le statut Â« ${currentStatus} Â».`);
       }
 
       // M3 : vendorId obligatoire
       const vendorId = String(payoutData.vendorId || '');
-      if (!vendorId) throw new Error('Demande sans vendorId — impossible de traiter.');
+      if (!vendorId) throw new Error('Demande sans vendorId â€” impossible de traiter.');
 
       // Serialiser le traitement d'un retrait avec le verrou de suppression
       // du vendeur. Si la suppression est deja engagee, aucune operation
@@ -3233,7 +3346,7 @@ exports.adminPayoutAction = onRequest({ invoker: 'public', region: 'europe-west1
         throw new Error('Profil vendeur introuvable.');
       }
       if (vendorSnap.data()?.vendorInfo?.status === 'deletion_pending') {
-        throw new Error('Suppression du compte vendeur en cours : retrait temporairement bloqué.');
+        throw new Error('Suppression du compte vendeur en cours : retrait temporairement bloquÃ©.');
       }
 
       const amount = Number(payoutData.amount) || 0;
@@ -3248,11 +3361,11 @@ exports.adminPayoutAction = onRequest({ invoker: 'public', region: 'europe-west1
 
         const wallet = walletSnap.data();
         if ((Number(wallet.negativeBalance) || 0) < -0.0001) {
-          throw new Error('Envoi bloqué : le portefeuille vendeur présente un solde débiteur à régulariser.');
+          throw new Error('Envoi bloquÃ© : le portefeuille vendeur prÃ©sente un solde dÃ©biteur Ã  rÃ©gulariser.');
         }
         const available = Number(wallet.availableBalance) || 0;
         if (available < amount) {
-          throw new Error(`Solde insuffisant : disponible ${available} MAD, demandé ${amount} MAD.`);
+          throw new Error(`Solde insuffisant : disponible ${available} MAD, demandÃ© ${amount} MAD.`);
         }
 
         // Option A : le wallet est debite au moment ou l'argent est depose
@@ -3277,7 +3390,7 @@ exports.adminPayoutAction = onRequest({ invoker: 'public', region: 'europe-west1
           amount: -amount,
           status: 'released',
           payoutRequestId: payoutId,
-          description: `Retrait envoyé à l'agence - ${method}`,
+          description: `Retrait envoyÃ© Ã  l'agence - ${method}`,
           createdAt: FieldValue.serverTimestamp(),
           releasedAt: FieldValue.serverTimestamp()
         });
@@ -3286,8 +3399,8 @@ exports.adminPayoutAction = onRequest({ invoker: 'public', region: 'europe-west1
         t.set(notifRef, {
           userId: vendorId,
           type: 'payout_sent',
-          title: 'Retrait envoyé',
-          message: `Votre retrait de ${amount} MAD a été envoyé. Numéro de transfert : ${transferNumber}. Présentez-vous à une agence avec votre CIN.`,
+          title: 'Retrait envoyÃ©',
+          message: `Votre retrait de ${amount} MAD a Ã©tÃ© envoyÃ©. NumÃ©ro de transfert : ${transferNumber}. PrÃ©sentez-vous Ã  une agence avec votre CIN.`,
           read: false,
           createdAt: FieldValue.serverTimestamp(),
           payoutId
@@ -3303,8 +3416,8 @@ exports.adminPayoutAction = onRequest({ invoker: 'public', region: 'europe-west1
         t.set(notifRef, {
           userId: vendorId,
           type: 'payout_completed',
-          title: 'Retrait retiré',
-          message: `Votre retrait de ${amount} MAD a été marqué comme retiré.`,
+          title: 'Retrait retirÃ©',
+          message: `Votre retrait de ${amount} MAD a Ã©tÃ© marquÃ© comme retirÃ©.`,
           read: false,
           createdAt: FieldValue.serverTimestamp(),
           payoutId
@@ -3321,10 +3434,10 @@ exports.adminPayoutAction = onRequest({ invoker: 'public', region: 'europe-west1
         t.set(notifRef, {
           userId: vendorId,
           type: 'payout_rejected',
-          title: 'Retrait rejeté',
+          title: 'Retrait rejetÃ©',
           message: reason
-            ? `Votre demande de retrait de ${amount} MAD a été rejetée. Motif : ${reason}`
-            : `Votre demande de retrait de ${amount} MAD a été rejetée.`,
+            ? `Votre demande de retrait de ${amount} MAD a Ã©tÃ© rejetÃ©e. Motif : ${reason}`
+            : `Votre demande de retrait de ${amount} MAD a Ã©tÃ© rejetÃ©e.`,
           read: false,
           createdAt: FieldValue.serverTimestamp(),
           payoutId
@@ -3336,7 +3449,7 @@ exports.adminPayoutAction = onRequest({ invoker: 'public', region: 'europe-west1
   } catch (error) {
     console.error('[adminPayoutAction]', error);
     const message = error.message || 'Erreur serveur.';
-    const clientError = /introuvable|invalide|obligatoire|impossible|solde insuffisant|solde débiteur|suppression du compte/i.test(message);
+    const clientError = /introuvable|invalide|obligatoire|impossible|solde insuffisant|solde dÃ©biteur|suppression du compte/i.test(message);
     return res.status(clientError ? 400 : 500).json({ success: false, message });
   }
 });
@@ -3354,7 +3467,7 @@ exports.releaseDueFunds = onRequest({ invoker: 'public', region: 'europe-west1',
     const adminSnap = await db.collection('users').doc(decoded.uid).get();
     const isAdmin = decoded.admin === true || (adminSnap.exists && adminSnap.data()?.role === 'admin');
     if (!isAdmin) {
-      return res.status(403).json({ success: false, message: 'Action réservée à un administrateur.' });
+      return res.status(403).json({ success: false, message: 'Action rÃ©servÃ©e Ã  un administrateur.' });
     }
 
     const batchSize = Math.min(Number(req.body?.batchSize) || 400, 1000);
@@ -3389,7 +3502,7 @@ exports.releaseDueFunds = onRequest({ invoker: 'public', region: 'europe-west1',
 
         const result = await db.runTransaction(async (t) => {
           // Le profil vendeur sert de verrou commun avec adminVendorAction :
-          // une libération ne peut pas passer silencieusement après le début
+          // une libÃ©ration ne peut pas passer silencieusement aprÃ¨s le dÃ©but
           // d'une suppression.
           const vendorRef = db.collection('users').doc(vendorId);
           const [vendorSnap, walletSnap] = await Promise.all([
@@ -3403,13 +3516,13 @@ exports.releaseDueFunds = onRequest({ invoker: 'public', region: 'europe-west1',
             throw new Error('Suppression du compte vendeur en cours');
           }
           if (normalizeWalletStatus(vendorSnap.data()) === WALLET_STATUS.FROZEN) {
-            throw new Error('Portefeuille gelé : libération des fonds impossible tant que le litige est en cours.');
+            throw new Error('Portefeuille gelÃ© : libÃ©ration des fonds impossible tant que le litige est en cours.');
           }
           if (!walletSnap.exists) throw new Error('Wallet introuvable');
 
           // Relire chaque transaction dans la transaction Firestore : deux
-          // exécutions concurrentes ne doivent jamais libérer deux fois la
-          // même écriture à partir du même résultat de requête initial.
+          // exÃ©cutions concurrentes ne doivent jamais libÃ©rer deux fois la
+          // mÃªme Ã©criture Ã  partir du mÃªme rÃ©sultat de requÃªte initial.
           const freshTxs = [];
           for (const candidate of txs) {
             const freshSnap = await t.get(candidate.ref);
