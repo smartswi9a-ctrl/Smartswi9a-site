@@ -4419,79 +4419,10 @@ async function handleMigrateVendorOrderPrivacy() {
     }
 }
 
-async function handleMigrateCities() {
-    const btn = document.getElementById('migrateCitiesBtn');
-    const logEl = document.getElementById('migrationLog');
-    const log = (msg, isErr = false) => {
-        if (!logEl) return;
-        logEl.classList.add('active');
-        const span = document.createElement('div');
-        if (isErr) span.className = 'error';
-        span.textContent = msg;
-        logEl.appendChild(span);
-        logEl.scrollTop = logEl.scrollHeight;
-    };
-
-    if (logEl) logEl.innerHTML = '';
-    if (btn) btn.disabled = true;
-    if (!auth.currentUser) { log('Login requis', true); if (btn) btn.disabled = false; return; }
-
-    let cities;
-    try {
-        const res = await fetch('/villes.json');
-        cities = await res.json();
-        log(`${cities.length} villes chargées`);
-    } catch (e) {
-        log(e.message, true);
-        if (btn) btn.disabled = false;
-        return;
-    }
-
-    const existingSnap = await getDocs(collection(db, "cities"));
-    if (!existingSnap.empty) {
-        const confirmed = await confirmAction(`La collection "cities" contient ${existingSnap.size} documents. Ils seront SUPPRIMÉS et remplacés. Continuer ?`, { title: 'Migration villes', confirmText: 'Remplacer', cancelText: 'Annuler', variant: 'danger' });
-        if (!confirmed) { if (btn) btn.disabled = false; return; }
-        log('Suppression des anciennes villes...');
-        const oldDocs = existingSnap.docs;
-        for (let i = 0; i < oldDocs.length; i += 400) {
-            const batch = writeBatch(db);
-            oldDocs.slice(i, i + 400).forEach(d => batch.delete(d.ref));
-            await batch.commit();
-        }
-    }
-
-    const BATCH = 400;
-    let processed = 0;
-    for (let i = 0; i < cities.length; i += BATCH) {
-        const batch = writeBatch(db);
-        const chunk = cities.slice(i, i + BATCH);
-        for (const city of chunk) {
-            if (!city.id || (!city.name && !city.nameAr)) continue;
-            const ref = doc(db, "cities", String(city.id));
-            batch.set(ref, {
-                id: Number(city.id), key: String(city.key || '').toLowerCase().trim(),
-                name: String(city.nameAr || city.name || '').trim(), nameAr: String(city.nameAr || city.name || '').trim(),
-                nameFr: String(city.nameFr || city.name || '').trim(), nameEn: String(city.nameEn || city.nameFr || city.name || '').trim(),
-                price: Number(city.price) || 30, delay: String(city.delay || '48h').trim()
-            });
-        }
-        try {
-            await batch.commit();
-            processed += chunk.length;
-            log(`${processed}/${cities.length}`);
-        } catch (e) {
-            log(`batch ${i} : ${e.message}`, true);
-            if (btn) btn.disabled = false;
-            return;
-        }
-    }
-
-    log(`Migration OK - ${cities.length} villes`);
-    if (btn) { btn.disabled = false; btn.textContent = 'Terminé'; }
-    loadCollectionsStatus();
-    loadStats();
-    showToast('Villes migrées');
-}
+/* Supprime (audit 2026-11-16) : handleMigrateCities(). Ce bouton ecrasait
+   la collection cities (404 villes Livo) par les 240 entrees statiques de
+   villes.json, supprimant 164 villes desservees et reinitialisant les prix.
+   La grille officielle se synchronise via syncLivoCities (onglet Livo). */
 
 async function handleMigrateLegacyCategories() {
     const btn = document.getElementById('migrateLegacyCategoriesBtn');
@@ -5147,7 +5078,6 @@ function attachAllRemainingEvents() {
 
     /* Outils. */
     document.getElementById('migrateVendorOrderPrivacyBtn')?.addEventListener('click', handleMigrateVendorOrderPrivacy);
-    document.getElementById('migrateCitiesBtn')?.addEventListener('click', handleMigrateCities);
     document.getElementById('migrateLegacyCategoriesBtn')?.addEventListener('click', handleMigrateLegacyCategories);
     document.getElementById('migrateSkuBtn')?.addEventListener('click', handleMigrateSku);
     document.getElementById('migrateProductsStatusBtn')?.addEventListener('click', handleMigrateProductStatus);

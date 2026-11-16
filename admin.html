@@ -1035,10 +1035,15 @@
             </div>
 
             <div class="admin-tool-card">
-                <h4>🏙️ Migration des villes (obsolète)</h4>
-                <p><strong>Ne plus utiliser.</strong> Ce bouton recopie les 240 villes de <code>villes.json</code> vers Firestore, alors que Livo en référence <strong>404</strong>. Pour les prix officiels et à jour, utilisez <strong>🚚 Livraisons Livo → 🏙️ Synchroniser les villes</strong>.</p>
-                <button class="admin-btn-secondary" id="migrateCitiesBtn">🚀 Lancer (legacy)</button>
-                <div class="admin-tool-log" id="migrationLog"></div>
+                <h4>🏙️ Villes de livraison</h4>
+                <p>La grille tarifaire officielle (<strong>404 villes</strong>) se synchronise depuis Livo : <strong>🚚 Livraisons Livo → 🏙️ Synchroniser les villes</strong>.</p>
+                <p><strong>Répartition connue (audit 2026-11-16) :</strong></p>
+                <ul style="margin:0.5rem 0 0.75rem 1.2rem;line-height:1.7;">
+                    <li><strong>140 villes</strong> de <code>villes.json</code> ont un tarif Livo exact (sans marge).</li>
+                    <li><strong>100 villes</strong> ne sont <strong>pas desservies par Livo</strong> : <code>lahraouiyine</code>, <code>khemisset</code>, <code>berrechid</code>, <code>sidi slimane</code>, <code>ain harouda</code>, <code>el jorf</code>, <code>bejaad</code>… Leur tarif de 30 DH n'a <strong>aucune base Livo</strong> et doit être arbitré commercialement.</li>
+                </ul>
+                <p style="color:var(--danger);"><strong>Ancien bouton « Migration des villes » supprimé</strong> : il écrasait les villes Livo par les 240 entrées statiques de <code>villes.json</code>, supprimant 164 villes desservies et réinitialisant les prix.</p>
+                <p style="font-size:0.85rem;opacity:0.8;">Pour régénérer <code>villes.json</code> depuis la grille Livo : <code>node scripts/apply-livo-fees-to-villes.cjs --write</code></p>
             </div>
 
             <div class="admin-tool-card">

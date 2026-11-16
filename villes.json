@@ -167,7 +167,7 @@
     "nameAr": "سيدي سليمان",
     "nameFr": "Sidi Slimane",
     "nameEn": "Sidi Slimane",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -239,7 +239,7 @@
     "nameAr": "سوق الأربعاء",
     "nameFr": "Souk El Arbaa",
     "nameEn": "Souk el Arbaa",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -581,7 +581,7 @@
     "nameAr": "الفقه بن صالح",
     "nameFr": "Fquih Ben Salah",
     "nameEn": "Fquih Ben Salah",
-    "price": 30,
+    "price": 45,
     "delay": "48h"
   },
   {
@@ -653,7 +653,7 @@
     "nameAr": "سطات",
     "nameFr": "Settat",
     "nameEn": "Settat",
-    "price": 30,
+    "price": 40,
     "delay": "48h"
   },
   {
@@ -1238,7 +1238,7 @@
     "nameAr": "طانطان",
     "nameFr": "Tan-Tan",
     "nameEn": "Tan-tan",
-    "price": 30,
+    "price": 45,
     "delay": "72h"
   },
   {
