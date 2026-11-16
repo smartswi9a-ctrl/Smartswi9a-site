@@ -29,6 +29,11 @@ const SITE_URL = "https://smartswika.ma";
 const PROJECT_ID = "smartswi9a-31063";
 const DEFAULT_OUT = path.join(__dirname, "..", "sitemap.xml");
 
+// Protection contre les unhandled rejections (ex: crash de google-auth-library)
+process.on("unhandledRejection", (reason, promise) => {
+  console.warn("[sitemap] Unhandled Rejection ignoree :", reason);
+});
+
 // ---------------------------------------------------------------------------
 // Pages statiques publiques (hors pages noindex / privees)
 // ---------------------------------------------------------------------------
@@ -45,22 +50,11 @@ const STATIC_PAGES = [
   { loc: "/politique-confidentialite.html", changefreq: "yearly", priority: "0.3" },
 ];
 
-// ---------------------------------------------------------------------------
-// Arguments
-// ---------------------------------------------------------------------------
 function parseArgs(argv) {
   const opts = { dryRun: false, out: DEFAULT_OUT };
-  for (const raw of argv.slice(2)) {
-    if (raw === "--dry-run" || raw === "-n") {
-      opts.dryRun = true;
-    } else if (raw.startsWith("--out=")) {
-      opts.out = path.resolve(process.cwd(), raw.slice("--out=".length));
-    } else if (raw === "--out") {
-      // ignore : on attend la forme --out=chemin
-    } else if (raw === "--help" || raw === "-h") {
-      console.log("Usage: node scripts/generate-sitemap.cjs [--dry-run] [--out=chemin]");
-      process.exit(0);
-    }
+  for (const arg of argv.slice(2)) {
+    if (arg === "--dry-run") opts.dryRun = true;
+    else if (arg.startsWith("--out=")) opts.out = arg.slice(6);
   }
   return opts;
 }
@@ -69,24 +63,17 @@ function parseArgs(argv) {
 // Helpers
 // ---------------------------------------------------------------------------
 function toDate(value) {
-  // Accepte Date, {toDate()}, timestamp ms, string ISO
   try {
     if (!value) return null;
-    if (typeof value === "object" && typeof value.toDate === "function") {
-      return value.toDate();
-    }
+    if (typeof value === "object" && typeof value.toDate === "function") return value.toDate();
     if (value instanceof Date) return value;
-    if (typeof value === "object" && typeof value.seconds === "number") {
-      return new Date(value.seconds * 1000);
-    }
+    if (typeof value === "object" && typeof value.seconds === "number") return new Date(value.seconds * 1000);
     if (typeof value === "number") return new Date(value);
     if (typeof value === "string") {
       const d = new Date(value);
       return isNaN(d.getTime()) ? null : d;
     }
-  } catch (_) {
-    /* ignore */
-  }
+  } catch (_) {}
   return null;
 }
 
@@ -96,12 +83,7 @@ function isoDate(d) {
 }
 
 function escapeXml(str) {
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
+  return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 }
 
 function buildEntry(entry) {
@@ -114,44 +96,65 @@ function buildEntry(entry) {
 }
 
 function renderSitemap(entries) {
-  const head = [
-    '<?xml version="1.0" encoding="UTF-8"?>',
-    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
-  ].join("\n");
+  const head = ['<?xml version="1.0" encoding="UTF-8"?>', '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'].join("\n");
   const body = entries.map(buildEntry).join("\n");
   return head + "\n" + body + "\n</urlset>\n";
 }
 
 // ---------------------------------------------------------------------------
-// Firestore
+// Firestore (API v14 modulaire)
 // ---------------------------------------------------------------------------
 async function fetchProductEntries() {
-  let admin;
+  let initializeApp, getApps, cert, applicationDefault;
+  let getFirestore;
+
   try {
-    admin = require("firebase-admin");
+    const appMod = require("firebase-admin/app");
+    const firestoreMod = require("firebase-admin/firestore");
+    initializeApp = appMod.initializeApp;
+    getApps = appMod.getApps;
+    cert = appMod.cert;
+    applicationDefault = appMod.applicationDefault;
+    getFirestore = firestoreMod.getFirestore;
   } catch (e) {
-    throw new Error(
-      "firebase-admin introuvable a la racine du projet. Installez-le : npm i -D firebase-admin"
-    );
+    throw new Error("firebase-admin introuvable ou version incompatible (v14 requise).");
   }
 
-  if (!admin.apps.length) {
+  let app;
+  if (getApps().length === 0) {
     const initOpts = { projectId: PROJECT_ID };
     const saPath = process.env.FIREBASE_SERVICE_ACCOUNT || process.env.GOOGLE_APPLICATION_CREDENTIALS;
+
     if (saPath && fs.existsSync(saPath)) {
       try {
-        initOpts.credential = admin.credential.cert(JSON.parse(fs.readFileSync(saPath, "utf8")));
+        initOpts.credential = cert(JSON.parse(fs.readFileSync(saPath, "utf8")));
       } catch (e) {
         throw new Error("Service account illisible : " + saPath + " (" + e.message + ")");
       }
     } else {
-      initOpts.credential = admin.credential.applicationDefault();
+      // FIX : Au lieu de laisser applicationDefault() planter en arrière-plan,
+      // on vérifie si on est dans un environnement qui supporte l'ADC.
+      if (!process.env.K_SERVICE && !process.env.FUNCTION_TARGET && !process.env.GCP_PROJECT) {
+        throw new Error("Credentials introuvables. Definissez FIREBASE_SERVICE_ACCOUNT ou GOOGLE_APPLICATION_CREDENTIALS.");
+      }
+      initOpts.credential = applicationDefault();
     }
-    admin.initializeApp(initOpts);
+    app = initializeApp(initOpts);
+  } else {
+    app = getApps()[0];
   }
 
-  const db = admin.firestore();
-  const snap = await db.collection("products").where("status", "==", "approved").get();
+  const db = getFirestore(app);
+
+  // Timeout pour éviter de bloquer le script indéfiniment si le réseau Firestore ne répond pas
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error("Timeout Firestore (10s)")), 10000)
+  );
+
+  const snap = await Promise.race([
+    db.collection("products").where("status", "==", "approved").get(),
+    timeoutPromise
+  ]);
 
   const entries = [];
   snap.forEach((doc) => {
@@ -196,7 +199,6 @@ async function main() {
     console.warn("[sitemap] Raison : " + (err && err.message ? err.message : String(err)));
   }
 
-  // Deduplication par loc
   const seen = new Set();
   const entries = [];
   for (const e of staticEntries.concat(productEntries)) {
