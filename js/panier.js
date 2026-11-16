@@ -317,7 +317,27 @@ function renderSummary() {
   const totalDiscount = Math.min(volumeDiscount + couponDiscount, subtotal);
   const total = Math.max(0, subtotal - totalDiscount + deliveryFee);
 
-  return ` <div class="cart-page-summary"> <h3 class="cart-page-summary-title">${t("cartSummary")}</h3> ${renderCouponBlock()} <div class="cart-page-summary-row"><span>${t( "cartSubtotalLabel" )}</span><span>${subtotal} MAD</span></div> ${ savings > 0 ? `<div class="cart-page-summary-row savings"><span>${t( "savingsLabel" )}</span><span>−${savings} MAD</span></div>` : "" } ${ volumeDiscount > 0 ? `<div class="cart-page-summary-row discount"><span>${t( "discountLabel" )}</span><span>−${volumeDiscount} MAD</span></div>` : "" } ${ couponDiscount > 0 ? `<div class="cart-page-summary-row discount"><span>${appliedCoupon.code}</span><span>−${couponDiscount} MAD</span></div>` : "" } <div class="cart-page-summary-row"> <span>${t("cartDeliveryLabel")}</span> <span class="cart-delivery-value ${ selectedCity ? "" : "pending" }"> ${selectedCity ? `${deliveryFee} MAD` : t("cartSelectCity")} </span> </div> <div class="cart-page-summary-divider"></div> <div class="cart-page-summary-total"><span>${t( "cartTotalLabel" )}</span><span class="cart-page-total-value">${total} MAD</span></div> </div> `;
+  return ` <div class="cart-page-summary"> <h3 class="cart-page-summary-title">${t("cartSummary")}</h3> ${renderCouponBlock()} <div class="cart-page-summary-row"><span>${t( "cartSubtotalLabel" )}</span><span>${subtotal} MAD</span></div> ${ savings > 0 ? `<div class="cart-page-summary-row savings"><span>${t( "savingsLabel" )}</span><span>−${savings} MAD</span></div>` : "" } ${ volumeDiscount > 0 ? `<div class="cart-page-summary-row discount"><span>${t( "discountLabel" )}</span><span>−${volumeDiscount} MAD</span></div>` : "" } ${ couponDiscount > 0 ? `<div class="cart-page-summary-row discount"><span>${appliedCoupon.code}</span><span>−${couponDiscount} MAD</span></div>` : "" } <div class="cart-page-summary-row"> <span>${t("cartDeliveryLabel")}${renderDeliveryDelay(selectedCity)}</span> <span class="cart-delivery-value ${ selectedCity ? "" : "pending" }"> ${selectedCity ? `${deliveryFee} MAD` : t("cartSelectCity")} </span> </div> <div class="cart-page-summary-divider"></div> <div class="cart-page-summary-total"><span>${t( "cartTotalLabel" )}</span><span class="cart-page-total-value">${total} MAD</span></div> </div> `;
+}
+
+/* ============================================================
+   CORRECTIF C13 : DELAI DE LIVRAISON REEL PAR VILLE
+   ------------------------------------------------------------
+   Le champ `delay` etait deja stocke dans la ville selectionnee
+   (cart.js:171 `delay: selectedCity.delay`) et synchronise depuis Livo,
+   mais n etait AFFICHE NULLE PART : le site promettait « 24-72h »
+   globalement alors que la donnee reelle par ville existait
+   (24h pour 9 villes, 48h pour 332, 72h pour 63).
+
+   On affiche donc le delai exact sous le libelle « Livraison ».
+   Aucune valeur inventee : si `delay` est absent, rien n est affiche.
+   ============================================================ */
+function renderDeliveryDelay(city) {
+  const raw = city && city.delay ? String(city.delay).trim() : "";
+  if (!raw) return "";
+  /* Le champ vient de Livo sous la forme "24h" / "48h" / "72h". */
+  const safe = escapeHTML(raw);
+  return ` <span class="cart-delivery-delay" title="Delai estime">~${safe}</span> `;
 }
 
 function refreshSummaryTotals() {

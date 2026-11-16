@@ -1279,3 +1279,25 @@ p, h1, h2, h3, h4, h5, h6 {
    LOG
    ============================================================ */
 /* style-patches.css v2.1.0 — Fix Étoiles Avis, Design AliExpress, Témoignages */
+
+/* ============================================================
+   DELAI DE LIVRAISON REEL PAR VILLE (correctif C13)
+   ------------------------------------------------------------
+   Affiche sous le libelle « Livraison » du panier le delai exact
+   synchronise depuis Livo pour la ville selectionnee (24h / 48h / 72h).
+   Style discret : pastille doree, taille reduite, sans gras.
+   ============================================================ */
+.cart-delivery-delay {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: rgba(165, 123, 46, 0.12);
+  color: var(--gold, #a57b2e);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+

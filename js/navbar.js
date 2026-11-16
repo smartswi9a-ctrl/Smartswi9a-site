@@ -16,7 +16,7 @@
 
   /** * Détecte si AU MOINS une modale est ouverte dans la page. * Utilisé pour ne PAS écraser l'overflow du body quand le * burger se ferme alors qu'une autre modale est toujours * ouverte (sinon scroll fantôme derrière la modale). * * B-NAV-1 : couvre toutes les modales du projet. Ajouter * ici tout nouveau sélecteur `.open` si on crée une nouvelle * modale dans un futur lot. * * @returns {boolean} */
   function isAnyModalOpen() {
-    var SELECTORS = [
+    const SELECTORS = [
       ".modal-overlay.open" /* modal-overlay générique (admin, pickup, contract, etc.) */,
       ".blog-article-modal.open" /* blog.js (Lot 17) */,
       "#cartOverlay.open" /* legacy sidebar panier */,
@@ -47,8 +47,8 @@
 
   /** * Ouvre le menu mobile. No-op si déjà ouvert ou si les * éléments sont absents (page sans navbar). * Sauvegarde l'overflow actuel du body avant de le passer à * "hidden" (sauf si déjà "hidden", auquel cas c'est qu'une * autre modale l'a déjà posé). * @returns {void} */
   function openMenu() {
-    var burger = getBurger();
-    var mobile = getMobileMenu();
+    const burger = getBurger();
+    const mobile = getMobileMenu();
     if (!burger || !mobile) return;
     if (mobile.classList.contains("open")) return;
 
@@ -64,8 +64,8 @@
 
   /** * Ferme le menu mobile. No-op si déjà fermé. * Restaure l'overflow UNIQUEMENT si aucune autre modale n'est * ouverte (sinon on libère le scroll alors qu'une modale est * toujours affichée). * @returns {void} */
   function closeMenu() {
-    var burger = getBurger();
-    var mobile = getMobileMenu();
+    const burger = getBurger();
+    const mobile = getMobileMenu();
     if (!burger || !mobile) return;
     if (!mobile.classList.contains("open")) return;
 
@@ -81,7 +81,7 @@
 
   /** * Toggle le menu mobile. * @returns {void} */
   function toggleMenu() {
-    var mobile = getMobileMenu();
+    const mobile = getMobileMenu();
     if (!mobile) return;
     if (mobile.classList.contains("open")) closeMenu();
     else openMenu();
@@ -91,7 +91,7 @@
   document.addEventListener(
     "click",
     function (e) {
-      var burger = getBurger();
+      const burger = getBurger();
       if (!burger) return;
 
       if (burger === e.target || burger.contains(e.target)) {
@@ -109,18 +109,18 @@
   document.addEventListener(
     "click",
     function (e) {
-      var mobile = getMobileMenu();
+      const mobile = getMobileMenu();
       if (!mobile || !mobile.classList.contains("open")) return;
 
       /* Clic sur un lien du menu → fermer (avant navigation). */
-      var link = e.target.closest("a");
+      const link = e.target.closest("a");
       if (link && mobile.contains(link)) {
         closeMenu();
         return;
       }
 
       /* Clic en dehors → fermer. */
-      var burger = getBurger();
+      const burger = getBurger();
       if (burger && burger.contains(e.target)) return;
       if (mobile.contains(e.target)) return;
 
@@ -146,14 +146,14 @@
      ne designent pas une page, aria-current serait trompeur.
      ============================================================ */
   function markActiveNavLink() {
-    var path = window.location.pathname.replace(/\/$/, "") || "/";
-    var links = document.querySelectorAll(
+    const path = window.location.pathname.replace(/\/$/, "") || "/";
+    const links = document.querySelectorAll(
       ".nav-links a[href], .nav-mobile a[href]"
     );
-    for (var i = 0; i < links.length; i++) {
-      var href = links[i].getAttribute("href") || "";
+    for (let i = 0; i < links.length; i++) {
+      const href = links[i].getAttribute("href") || "";
       if (!href || href.charAt(0) === "#" || href.indexOf(":") !== -1) continue;
-      var target = href.split("#")[0].split("?")[0].replace(/\.html$/, "")
+      const target = href.split("#")[0].split("?")[0].replace(/\.html$/, "")
         .replace(/\/$/, "") || "/";
       if (target === path) {
         links[i].setAttribute("aria-current", "page");
