@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="fr" dir="ltr">
+<html lang="fr" dir="ltr" data-title-key="legalPageTitlePrivacy">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
@@ -29,6 +29,40 @@
     <link rel="stylesheet" href="/css/style.c422eb25.css">
     <link rel="stylesheet" href="/css/style-patches.1bd4b588.css">
     <link rel="stylesheet" href="/css/legal.css">
+    <script src="/translations.js"></script>
+    <style>
+        .legal-lang-select {
+            padding: .45rem .65rem;
+            border: 1px solid var(--border-gold);
+            border-radius: 8px;
+            background: var(--bg-card);
+            color: var(--text);
+            font: inherit;
+            font-size: .85rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .legal-lang-select:focus {
+            outline: none;
+            border-color: var(--gold);
+            box-shadow: 0 0 0 3px rgba(165, 123, 46, .14);
+        }
+        .legal-nav-right { display: flex; align-items: center; gap: .7rem; }
+        .legal-lang-notice {
+            max-width: 860px;
+            margin: 1.25rem auto 0;
+            padding: .9rem 1.15rem;
+            border-radius: 10px;
+            border: 1px solid var(--border-gold);
+            background: rgba(212, 163, 75, .10);
+            color: var(--text);
+            font-size: .87rem;
+            line-height: 1.6;
+        }
+        .legal-lang-notice strong { display: block; color: var(--gold); margin-bottom: .15rem; }
+        .legal-lang-notice[hidden] { display: none !important; }
+        [dir="rtl"] .legal-lang-notice { text-align: right; }
+    </style>
 </head>
 <body class="legal-page">
     <a class="skip-link" href="#legalContent">Aller au contenu</a>
@@ -40,19 +74,28 @@
             </a>
         </div>
         <ul class="nav-links" id="navLinks" role="menubar">
-            <li role="none"><a href="/" role="menuitem">Produits</a></li>
-            <li role="none"><a href="/boutique.html" role="menuitem">Boutique</a></li>
-            <li role="none"><a href="/blog.html" role="menuitem">Blog</a></li>
-            <li role="none"><a href="/villesmaroc.html" role="menuitem">Villes</a></li>
+            <li role="none"><a href="/" role="menuitem" data-key="navProducts">Produits</a></li>
+            <li role="none"><a href="/boutique.html" role="menuitem" data-key="navShop">Boutique</a></li>
+            <li role="none"><a href="/blog.html" role="menuitem" data-key="navBlog">Blog</a></li>
+            <li role="none"><a href="/villesmaroc.html" role="menuitem" data-key="navCities">Villes</a></li>
             <li role="none"><a href="/cgu-acheteur.html" role="menuitem">CGU</a></li>
-            <li role="none"><a href="/vendor-login.html" role="menuitem">Espace vendeur</a></li>
+            <li role="none"><a href="/vendor-login.html" role="menuitem" data-key="vendorSpace">Espace vendeur</a></li>
         </ul>
-        <div class="nav-right">
-            <a class="btn-account" href="/">Retour à la boutique</a>
-        </div>
-    </nav>
+                  <div class="nav-right legal-nav-right">
+              <select id="langSelect" class="legal-lang-select" data-aria-key="ariaLangChange" aria-label="Changer la langue">
+                  <option value="ar">🇲🇦 AR</option>
+                  <option value="fr" selected>🇫🇷 FR</option>
+                  <option value="en">🇬🇧 EN</option>
+              </select>
+              <a class="btn-account" href="/" data-key="backToShop">Retour à la boutique</a>
+          </div>
+      </nav>
 
     <main id="legalContent" class="legal-container">
+      <div id="legalLangNotice" class="legal-lang-notice" role="status" hidden>
+          <strong data-key="legalNoticeTitle">Version de référence</strong>
+          <span data-key="legalNoticeText">Seule la version française de ce document fait foi. La traduction intégrale est en cours de validation juridique.</span>
+      </div>
         <nav class="legal-breadcrumb" aria-label="Fil d'Ariane">
             <a href="/">Accueil</a> <span aria-hidden="true">›</span> <span>Politique de confidentialité</span>
         </nav>
@@ -186,10 +229,10 @@
         <aside class="legal-crosslinks" aria-label="Autres documents légaux">
             <h2>Autres documents légaux</h2>
             <ul>
-                <li><a href="/cgu-acheteur.html">CGU Acheteur</a></li>
-                <li><a href="/cgu-vendeur.html">CGU Vendeur</a></li>
-                <li><a href="/contrat-vendeur.html">Contrat Vendeur</a></li>
-                <li><a href="/politique-confidentialite.html">Politique de confidentialité</a></li>
+                <li><a href="/cgu-acheteur.html" data-key="footerLegalCguBuyer">CGU Acheteur</a></li>
+                <li><a href="/cgu-vendeur.html" data-key="footerLegalCguVendor">CGU Vendeur</a></li>
+                <li><a href="/contrat-vendeur.html" data-key="footerLegalContract">Contrat Vendeur</a></li>
+                <li><a href="/politique-confidentialite.html" data-key="footerLegalPrivacy">Politique de confidentialité</a></li>
             </ul>
         </aside>
     </main>
@@ -209,15 +252,20 @@
         </div>
 
         <nav class="footer-legal" aria-label="Informations légales">
-            <h3 class="footer-legal-title">Informations légales</h3>
+            <h3 class="footer-legal-title" data-key="footerLegalTitle">Informations légales</h3>
             <ul class="footer-legal-links">
-                <li><a href="/cgu-acheteur.html">CGU Acheteur</a></li>
-                <li><a href="/cgu-vendeur.html">CGU Vendeur</a></li>
-                <li><a href="/contrat-vendeur.html">Contrat Vendeur</a></li>
-                <li><a href="/politique-confidentialite.html">Politique de confidentialité</a></li>
+                <li><a href="/cgu-acheteur.html" data-key="footerLegalCguBuyer">CGU Acheteur</a></li>
+                <li><a href="/cgu-vendeur.html" data-key="footerLegalCguVendor">CGU Vendeur</a></li>
+                <li><a href="/contrat-vendeur.html" data-key="footerLegalContract">Contrat Vendeur</a></li>
+                <li><a href="/politique-confidentialite.html" data-key="footerLegalPrivacy">Politique de confidentialité</a></li>
             </ul>
         </nav>
         <p style="margin-top:0.8rem;font-size:0.75rem;opacity:0.5;">© 2026 Smartswika — Tous droits réservés</p>
     </footer>
-</body>
+
+      <script type="module">
+          import { initLangToggle } from '/js/lang-toggle.js';
+          initLangToggle();
+      </script>
+  </body>
 </html>
