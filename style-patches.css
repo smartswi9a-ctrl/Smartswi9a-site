@@ -1620,3 +1620,71 @@ p, h1, h2, h3, h4, h5, h6 {
   white-space: nowrap;
 }
 
+
+
+/* ============================================================
+   DRAPEAUX DU SELECTEUR DE LANGUE — images SVG
+   ------------------------------------------------------------
+   Les drapeaux emoji (🇲🇦 🇫🇷 🇬🇧) ne s'affichent PAS de façon
+   fiable : sous Windows la police Segoe UI Emoji ne contient pas
+   les glyphes "regional indicator", et le navigateur retombe sur
+   les initiales du pays -> l'utilisateur voit « FR FR » au lieu
+   du drapeau.
+
+   Solution : de vraies images SVG dans /assets/, posées en
+   background-image par langue. Fonctionne partout, sans dépendre
+   d'une police emoji installée.
+
+   Astuce de positionnement : on garde les <option> avec le code
+   langue seul (AR / FR / EN) et on réserve un espace à gauche du
+   select pour le drapeau correspondant à la langue ACTIVE.
+   ============================================================ */
+select#langSelect,
+.legal-lang-select,
+.login-lang-select,
+.v-lang-select,
+#langSelect {
+  /* Espace réservé au drapeau dessiné en background. */
+  padding-left: 34px !important;
+  background-repeat: no-repeat !important;
+  background-position: 10px center !important;
+  background-size: 18px 12px !important;
+  background-color: #ffffff;
+}
+
+/* Drapeau selon la langue actuellement sélectionnée.
+   [dir] est posé sur <html> par setLang() / initLangToggle(). */
+html[lang="ar"] select#langSelect,
+html[lang="ar"] .legal-lang-select,
+html[lang="ar"] .login-lang-select,
+html[lang="ar"] .v-lang-select {
+  background-image: url("/assets/flag-ma.svg") !important;
+}
+
+html[lang="fr"] select#langSelect,
+html[lang="fr"] .legal-lang-select,
+html[lang="fr"] .login-lang-select,
+html[lang="fr"] .v-lang-select {
+  background-image: url("/assets/flag-fr.svg") !important;
+}
+
+html[lang="en"] select#langSelect,
+html[lang="en"] .legal-lang-select,
+html[lang="en"] .login-lang-select,
+html[lang="en"] .v-lang-select {
+  background-image: url("/assets/flag-gb.svg") !important;
+}
+
+/* En RTL le drapeau passe à droite. */
+html[dir="rtl"] select#langSelect,
+html[dir="rtl"] .legal-lang-select,
+html[dir="rtl"] .login-lang-select,
+html[dir="rtl"] .v-lang-select {
+  padding-left: 0 !important;
+  padding-right: 34px !important;
+  background-position: right 10px center !important;
+}
+
+/* La liste déroulante ouverte ne peut pas afficher d'image : on y
+   remet les drapeaux emoji en secours, et à défaut le code langue
+   reste lisible. Aucun risque : le code est toujours présent. */

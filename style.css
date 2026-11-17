@@ -456,6 +456,24 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
     max-width: 100%;
     text-align: center;
     letter-spacing: -0.3px;
+
+    /* Les drapeaux 🇲🇦 🇫🇷 🇬🇧 sont des emojis. La police du site (Inter)
+       ne contient pas ces glyphes : le navigateur affiche alors deux
+       lettres (MA, FR) au lieu du drapeau. On déclare donc explicitement
+       une chaîne de polices emoji AVANT la police texte, sinon les
+       drapeaux restent invisibles.
+       "Segoe UI Emoji" (Windows), "Apple Color Emoji" (macOS/iOS),
+       "Noto Color Emoji" (Android/Linux). */
+    font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji",
+                 "Twemoji Mozilla", "EmojiOne Color", var(--font-primary);
+}
+
+#langSelect option {
+    font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji",
+                 "Twemoji Mozilla", "EmojiOne Color", var(--font-primary);
+    /* Une option de <select> ne peut pas être stylée finement sur tous les
+       navigateurs, mais la police emoji suffit à faire apparaître le drapeau
+       à côté du code langue. */
 }
 
 #langSelect:focus {
