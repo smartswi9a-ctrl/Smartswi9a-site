@@ -1382,6 +1382,234 @@ p, h1, h2, h3, h4, h5, h6 {
   display: inline-block;
   margin-left: 0.4rem;
   padding: 0.05rem 0.4rem;
+
+/* ============================================================
+   SECTION VENTES FLASH — ACCUEIL (audit 2026-11-16)
+   ------------------------------------------------------------
+   Charte respectee : or #a57b2e sur ivoire, Playfair pour le titre,
+   rouge sombre #b03a2e reserve au compte a rebours.
+   Aucun orange criard. Aucun liseré agressif.
+   La section est `hidden` par defaut : le JS l'affiche seulement
+   s il existe au moins une vente active.
+   ============================================================ */
+.flash-hero {
+  padding-top: 1.5rem;
+  padding-bottom: 1.5rem;
+}
+
+.flash-hero-inner {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 1.6rem 1.35rem 1.35rem;
+  border-radius: 18px;
+  background:
+    radial-gradient(120% 140% at 0% 0%, rgba(212, 163, 75, 0.10) 0%, rgba(248, 246, 242, 0) 55%),
+    linear-gradient(180deg, #fffdf9 0%, var(--bg) 100%);
+  border: 1px solid var(--border-gold);
+  box-shadow: 0 10px 34px -18px rgba(165, 123, 46, 0.40);
+}
+
+.flash-hero-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.15rem;
+}
+
+.flash-hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(165, 123, 46, 0.12);
+  color: var(--gold);
+  border: 1px solid var(--border-gold);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.flash-hero-title {
+  font-family: var(--font-secondary);
+  font-size: clamp(1.35rem, 2.4vw, 1.85rem);
+  color: var(--text);
+  margin: 0.55rem 0 0.25rem;
+  letter-spacing: -0.01em;
+}
+
+.flash-hero-sub {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--text-dim);
+  max-width: 46ch;
+}
+
+/* Compte a rebours : seul endroit ou le rouge sombre apparait */
+.flash-hero-timer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.15rem;
+}
+
+.flash-hero-timer-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.flash-hero-timer-value {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 1.32rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--danger);
+  padding: 0.2rem 0.7rem;
+  border-radius: 8px;
+  background: rgba(176, 58, 46, 0.07);
+  border: 1px solid rgba(176, 58, 46, 0.16);
+}
+
+/* Carrousel horizontal */
+.flash-hero-track {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(190px, 1fr);
+  gap: 0.9rem;
+  overflow-x: auto;
+  padding-bottom: 0.5rem;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-gold) transparent;
+}
+
+.flash-hero-track::-webkit-scrollbar { height: 6px; }
+.flash-hero-track::-webkit-scrollbar-thumb {
+  background: var(--border-gold);
+  border-radius: 3px;
+}
+
+/* Carte produit dans le carrousel */
+.flash-item {
+  scroll-snap-align: start;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  text-decoration: none;
+  color: inherit;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.flash-item:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 26px -16px rgba(26, 26, 46, 0.35);
+  border-color: var(--border-gold);
+}
+
+.flash-item-img {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  background: #f3efe7;
+  overflow: hidden;
+}
+
+.flash-item-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.flash-item-pct {
+  position: absolute;
+  top: 0.45rem;
+  left: 0.45rem;
+  padding: 0.22rem 0.5rem;
+  border-radius: 6px;
+  background: var(--gold);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  box-shadow: 0 2px 8px -2px rgba(165, 123, 46, 0.6);
+}
+
+.flash-item-body {
+  padding: 0.6rem 0.65rem 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  flex: 1;
+}
+
+.flash-item-name {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text);
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 2.1em;
+}
+
+.flash-item-prices {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  margin-top: auto;
+}
+
+.flash-item-now {
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--gold);
+}
+
+.flash-item-was {
+  font-size: 0.76rem;
+  color: var(--text-dim);
+  text-decoration: line-through;
+}
+
+/* Barre de progression du stock vendu (si quota defini) */
+.flash-item-progress {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(165, 123, 46, 0.14);
+  overflow: hidden;
+  margin-top: 0.15rem;
+}
+
+.flash-item-progress > span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--gold) 0%, var(--gold-light) 100%);
+  border-radius: 2px;
+}
+
+.flash-item-stock {
+  font-size: 0.68rem;
+  color: var(--text-dim);
+}
+
+@media (max-width: 640px) {
+  .flash-hero-inner { padding: 1.2rem 1rem 1rem; border-radius: 14px; }
+  .flash-hero-timer { align-items: flex-start; }
+  .flash-hero-track { grid-auto-columns: minmax(150px, 1fr); gap: 0.7rem; }
+}
+
   border-radius: 999px;
   background: rgba(165, 123, 46, 0.12);
   color: var(--gold, #a57b2e);

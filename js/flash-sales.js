@@ -228,3 +228,104 @@ export function startFlashCountdown() {
 export function stopFlashCountdown() {
   if (_countdownTimer) { clearInterval(_countdownTimer); _countdownTimer = null; }
 }
+
+/* ============================================================
+   SECTION DEDIEE EN HAUT DE L ACCUEIL
+   ------------------------------------------------------------
+   Affiche un carrousel horizontal des produits en vente flash.
+   La section est masquee si aucune vente active : pas de bloc vide.
+   Le compte a rebours affiche la FIN LA PLUS PROCHE parmi les ventes
+   en cours (c est l urgence reelle pour le visiteur).
+   ============================================================ */
+
+function esc(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function pickImage(product) {
+  const p = product || {};
+  if (Array.isArray(p.images) && p.images.length) {
+    const first = p.images.find(Boolean);
+    if (first) return String(first);
+  }
+  if (p.image) return String(p.image);
+  return "";
+}
+
+/**
+ * Construit et affiche la section ventes flash de l accueil.
+ * Ne fait rien si la section n existe pas dans le DOM.
+ * @param {Array} products liste complete des produits charges
+ * @returns {Promise<void>}
+ */
+export async function renderFlashHero(products) {
+  const section = document.getElementById("flashSection");
+  const track = document.getElementById("flashHeroTrack");
+  if (!section || !track) return;
+
+  if (!Array.isArray(products) || products.length === 0) {
+    section.hidden = true;
+    return;
+  }
+
+  /* Produits effectivement en vente flash. */
+  const items = products.filter((p) => Number.isFinite(p.flashPrice) && p.flashPrice > 0 && p.flashPrice < Number(p.price));
+  if (items.length === 0) {
+    section.hidden = true;
+    return;
+  }
+
+  /* La fin la plus proche : c est elle qui doit s afficher dans le bandeau. */
+  let nearestEnd = null;
+  for (const p of items) {
+    const d = p.flashEndsAt ? new Date(p.flashEndsAt).getTime() : null;
+    if (d && (!nearestEnd || d < nearestEnd)) nearestEnd = d;
+  }
+
+  const timerEl = document.getElementById("flashHeroTimer");
+  if (timerEl && nearestEnd) {
+    timerEl.setAttribute("data-flash-ends", new Date(nearestEnd).toISOString());
+  }
+
+  track.innerHTML = items.map((p) => {
+    const img = pickImage(p);
+    const name = String(p.nameFr || p.nameEn || "Produit");
+    const slug = String(p.slug || p.id || "");
+    const pct = Number(p.flashPercent) || 0;
+    const nowPrice = Number(p.flashPrice) || 0;
+    const wasPrice = Number(p.price) || 0;
+
+    /* Barre de progression si un quota est defini sur la vente. */
+    let progressHtml = "";
+    const sale = (p.flashSaleId && _flashCache.sales.find((s) => s.id === p.flashSaleId)) || null;
+    if (sale && sale.maxQuantity != null && Number(sale.maxQuantity) > 0) {
+      const sold = Number(sale.soldCount || 0);
+      const max = Number(sale.maxQuantity);
+      const ratio = Math.min(100, Math.round((sold / max) * 100));
+      const remaining = Math.max(0, max - sold);
+      progressHtml = `
+        <div class="flash-item-progress" aria-hidden="true"><span style="width:${ratio}%"></span></div>
+        <div class="flash-item-stock">${remaining > 0 ? `Plus que ${remaining} disponible(s)` : "Épuisé"}</div>`;
+    }
+
+    return `<a class="flash-item" role="listitem" href="/produit?slug=${encodeURIComponent(slug)}">
+      <div class="flash-item-img">
+        ${img ? `<img src="${esc(img)}" alt="${esc(name)}" loading="lazy" width="300" height="300">` : ""}
+        ${pct > 0 ? `<span class="flash-item-pct">-${pct}%</span>` : ""}
+      </div>
+      <div class="flash-item-body">
+        <div class="flash-item-name">${esc(name)}</div>
+        <div class="flash-item-prices">
+          <span class="flash-item-now">${nowPrice} MAD</span>
+          ${wasPrice > nowPrice ? `<span class="flash-item-was">${wasPrice} MAD</span>` : ""}
+        </div>
+        ${progressHtml}
+      </div>
+    </a>`;
+  }).join("");
+
+  section.hidden = false;
+  startFlashCountdown();
+}

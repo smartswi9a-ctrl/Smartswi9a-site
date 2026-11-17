@@ -259,6 +259,34 @@
         </div>
     </section>
 
+    <!-- ============================================================
+         SECTION VENTES FLASH (audit 2026-11-16)
+         ------------------------------------------------------------
+         Affichee UNIQUEMENT si au moins une vente flash est active.
+         Le JS la masque sinon (pas de section vide).
+         Charte : or #a57b2e sur fond ivoire, rouge sombre #b03a2e
+         uniquement pour le compte a rebours (urgence discrete).
+         ============================================================ -->
+    <section class="section flash-hero" id="flashSection" aria-labelledby="flashTitle" hidden>
+        <div class="flash-hero-inner">
+            <div class="flash-hero-head">
+                <div class="flash-hero-title-wrap">
+                    <span class="flash-hero-badge">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                        Ventes Flash
+                    </span>
+                    <h2 class="flash-hero-title" id="flashTitle">Offres à durée limitée</h2>
+                    <p class="flash-hero-sub">Remises exceptionnelles — jusqu'à épuisement du stock ou de la durée.</p>
+                </div>
+                <div class="flash-hero-timer" aria-live="polite">
+                    <span class="flash-hero-timer-label">Fin dans</span>
+                    <span class="flash-hero-timer-value" id="flashHeroTimer">--:--:--</span>
+                </div>
+            </div>
+            <div class="flash-hero-track" id="flashHeroTrack" role="list" aria-label="Produits en vente flash"></div>
+        </div>
+    </section>
+
     <section class="section" id="produits" aria-labelledby="productsTitle">
         <div class="products-wrap">
             <div style="text-align:center;margin-bottom:1rem;">
