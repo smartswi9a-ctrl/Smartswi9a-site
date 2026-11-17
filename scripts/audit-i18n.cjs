@@ -68,6 +68,38 @@ function listPages(dir, acc) {
   return acc;
 }
 
+/* ---------------------------------------------
+   Détection des textes SANS traduction
+   ---------------------------------------------
+   Un noeud texte est considéré comme traduit si :
+     - son élément porte data-key ou data-i18n, ou
+     - un de ses ancêtres (max 6 niveaux) en porte un, ou
+     - il est dans <script>, <style>, <noscript>.
+
+   DIFFÉRENCE CLÉ avec l ancienne version : on retire les emojis avant
+   de comparer. "🏪 Espace vendeur" sans data-key doit être signalé,
+   car l ancienne comparaison le croyait traduit (l emoji faisait
+   échouer la correspondance et il passait pour "connu").
+   --------------------------------------------- */
+
+const EMOJI_RE = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}\u{2B00}-\u{2BFF}]/gu;
+
+function normalizeText(t) {
+  return t.replace(EMOJI_RE, "").replace(/\s+/g, " ").trim();
+}
+
+/* Un texte est-il couvert par un mécanisme de traduction ? */
+function isTranslatedAt(html, index) {
+  const before = html.slice(0, index);
+  const tags = before.match(/<([a-z][a-z0-9]*)\b[^>]*>/gi) || [];
+  /* Les 6 dernières balises ouvrantes = chaîne d ancêtres probable. */
+  for (const tag of tags.slice(-6)) {
+    if (/^<(script|style|noscript)/i.test(tag)) return true;
+    if (/data-key\s*=|data-i18n\s*=|data-placeholder-key\s*=/.test(tag)) return true;
+  }
+  return false;
+}
+
 const pages = listPages(ROOT, []).sort();
 
 const problems = [];
@@ -83,22 +115,30 @@ for (const rel of pages) {
 
   const hasSelector = /id=["']langSelect["']/.test(raw);
 
-  /* Textes codés en dur (hors scripts, styles, commentaires). */
-  let html = raw
-    .replace(/<script[\s\S]*?<\/script>/gi, "")
-    .replace(/<style[\s\S]*?<\/style>/gi, "")
-    .replace(/<!--[\s\S]*?-->/g, "");
-  const bodyAt = html.search(/<body/i);
-  if (bodyAt >= 0) html = html.slice(bodyAt);
+  /* On neutralise les zones non visibles en CONSERVANT la longueur
+     (remplacement par des espaces), pour que les index restent alignés
+     avec le HTML d origine. Sinon les faux positifs <script>/<style>
+     polluent le rapport. */
+  const masked = raw
+    .replace(/<script[\s\S]*?<\/script>/gi, (s) => " ".repeat(s.length))
+    .replace(/<style[\s\S]*?<\/style>/gi, (s) => " ".repeat(s.length))
+    .replace(/<!--[\s\S]*?-->/g, (s) => " ".repeat(s.length));
 
   const hard = [];
   const re = />([^<>]{3,})</g;
   let m;
-  while ((m = re.exec(html))) {
-    const text = m[1].replace(/\s+/g, " ").trim();
+  while ((m = re.exec(masked))) {
+    const index = m.index;
+    const text = normalizeText(m[1]);
     if (!/[A-Za-z\u0600-\u06FF]{3,}/.test(text)) continue;
+
+    /* Déjà couvert par data-key / data-i18n / data-placeholder-key ? */
+    if (isTranslatedAt(raw, index)) continue;
+
     const low = text.toLowerCase();
-    if (known.has(low) || IGNORE.has(low)) continue;
+    if (IGNORE.has(low)) continue;
+    if (known.has(low)) continue;
+
     hard.push(text);
   }
   const uniq = [...new Set(hard)];

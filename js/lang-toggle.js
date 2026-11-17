@@ -55,11 +55,30 @@ function refreshPage() {
     if (value && value !== key) el.setAttribute("aria-label", value);
   });
 
-  /* Le <title> est traduit si la page déclare data-title-key. */
-  const titleKey = document.documentElement.getAttribute("data-title-key");
-  if (titleKey) {
-    const value = t(titleKey);
-    if (value && value !== titleKey) document.title = value;
+  /* Le <title> est traduit si la page déclare data-title-key.
+     Sinon on retombe sur le même mapping par nom de page que
+     applyTranslations(), pour les pages qui n ont pas l attribut. */
+  const titleEl = document.querySelector("title");
+  if (titleEl) {
+    let titleKey = document.documentElement.getAttribute("data-title-key");
+    if (!titleKey) {
+      const stem = window.location.pathname.replace(/\.html$/, "").replace(/\/$/, "").split("/").pop();
+      const TITLE_BY_STEM = {
+        boutique: "shopPageTitle",
+        produit: "productPageTitle",
+        panier: "cartPageTitle",
+        blog: "blogPageTitle",
+        villesmaroc: "villesPageTitle",
+        "vendor-login": "vendorLoginPageTitle",
+        "inscription-vendeur": "vendorSignupPageTitle",
+        dashboard: "vendorDashboardPageTitle",
+      };
+      titleKey = TITLE_BY_STEM[stem] || null;
+    }
+    if (titleKey) {
+      const value = t(titleKey);
+      if (value && value !== titleKey) titleEl.textContent = value;
+    }
   }
 
   /* Crochet pour les pages qui génèrent du texte en JS. */
