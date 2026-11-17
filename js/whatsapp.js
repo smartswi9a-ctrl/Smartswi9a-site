@@ -58,7 +58,7 @@ async function openWhatsAppWithToast(message, successMsg = null) {
 
   try {
     const { showToast } = await import("./ui-core.js");
-    showToast(successMsg || "WhatsApp ouvert - envoyez le message !", 2500);
+    showToast(successMsg || t("waOpened"), 2500);
   } catch (e) {
     /* Non bloquant si ui-core indisponible. */
     console.warn("Toast non affiché :", e);
@@ -95,7 +95,7 @@ export async function orderViaWhatsApp(productId, variant = null) {
     console.warn("Catalogue non chargé");
     try {
       const { showToast } = await import("./ui-core.js");
-      showToast("Patientez, le catalogue se charge encore...");
+      showToast(t("catalogLoading"));
     } catch (e) {
       /* ignore */
     }
@@ -149,7 +149,7 @@ export async function orderViaWhatsApp(productId, variant = null) {
   msg += `${t("waCity")} : \n\n`;
   msg += `${t("waThanks")}`;
 
-  await openWhatsAppWithToast(msg, "WhatsApp ouvert - complétez vos infos !");
+  await openWhatsAppWithToast(msg, t("waOpenedComplete"));
 }
 
 /* ============================================================ SUPPORT CLIENT (chat direct) ============================================================ */

@@ -403,7 +403,7 @@ function renderGrid() {
     // Bouton "Charger plus" : uniquement si filtre "Tout" et produits restants
     if (hasMoreProducts && activeCategory === 'all') {
         html += `<div style="grid-column: 1 / -1; text-align: center; margin-top: 1rem;">
-            <button id="loadMoreProductsBtn" class="btn-primary" style="padding: 0.5rem 2rem;">Charger plus de produits</button>
+            <button id="loadMoreProductsBtn" class="btn-primary" style="padding: 0.5rem 2rem;">${t('loadMoreProducts')}</button>
         </div>`;
     }
 
@@ -422,7 +422,7 @@ function renderGrid() {
             } catch (err) {
                 console.warn('[boutique] loadMore error:', err);
                 loadMoreBtn.disabled = false;
-                loadMoreBtn.textContent = 'Charger plus de produits';
+                loadMoreBtn.textContent = t('loadMoreProducts');
             }
         });
     }

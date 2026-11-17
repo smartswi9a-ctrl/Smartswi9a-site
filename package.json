@@ -6,7 +6,7 @@
   "license": "UNLICENSED",
   "type": "module",
   "scripts": {
-    "test": "node tests/livo-sync.test.cjs && node tests/livo-compliance.test.cjs && node tests/grouped-pickup.test.cjs && node tests/flash-sales.test.cjs && node tests/koulchi.test.mjs && node tests/koulchi-server.test.cjs",
+    "test": "node tests/livo-sync.test.cjs && node tests/livo-compliance.test.cjs && node tests/grouped-pickup.test.cjs && node tests/flash-sales.test.cjs && node tests/koulchi.test.mjs && node tests/koulchi-server.test.cjs && node tests/i18n-keys.test.cjs",
     "audit:livo": "node tests/livo-sync.test.cjs && node tests/livo-compliance.test.cjs",
     "backfill:shipping": "node scripts/backfill-shipping-to-in-transit.cjs",
     "sitemap": "node scripts/generate-sitemap.cjs"
