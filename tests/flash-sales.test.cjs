@@ -23,16 +23,18 @@ const SRC = path.join(__dirname, "..", "js", "flash-sales.js");
 const src = fs.readFileSync(SRC, "utf8");
 
 /* On extrait uniquement les fonctions pures : le module importe firebase
-   et utils, indisponibles hors navigateur. */
+   et utils, indisponibles hors navigateur.
+   Le fichier contient aussi loadLiveFlashSales / computeFlashPrice-suite
+   qui utilisent Firestore : on ne copie QUE les deux fonctions pures,
+   en s'arretant a la fin de la premiere (isFlashSaleLive + computeFlashPrice). */
 function extractPureFns() {
   const start = src.indexOf("export function isFlashSaleLive");
-  const end = src.indexOf("loadLiveFlashSales");
-  assert.ok(start >= 0 && end > start, "bloc des fonctions pures introuvable");
-  /* On recule jusqu au debut du commentaire JSDoc de loadLiveFlashSales. */
-  const cut = src.lastIndexOf("/**", end);
-  let body = src.slice(start, cut > start ? cut : end);
-  body = body.replace(/export /g, "");
-  return body + "\n; ({ isFlashSaleLive, computeFlashPrice })";
+  const endMarker = src.indexOf("export async function loadLiveFlashSales");
+  assert.ok(start >= 0 && endMarker > start, "bloc des fonctions pures introuvable");
+  /* On recule au debut du commentaire JSDoc qui precede loadLiveFlashSales. */
+  const cut = src.lastIndexOf("/**", endMarker);
+  const body = src.slice(start, cut > start ? cut : endMarker);
+  return body.replace(/export /g, "") + "\n; ({ isFlashSaleLive, computeFlashPrice })";
 }
 
 /* toDate simplifie pour le sandbox : accepte Date | Timestamp-like | string. */
@@ -56,9 +58,15 @@ function check(name, fn) {
   catch (e) { results.push({ name, ok: false }); console.log("FAIL: " + name + " -> " + e.message); }
 }
 
-const NOW = new Date("2026-11-16T12:00:00Z");
-const PAST = new Date("2026-11-15T12:00:00Z");
-const FUTURE = new Date("2026-11-17T12:00:00Z");
+/* Dates RELATIVES a l execution : un test qui fige une date absolue devient
+   faux le jour ou cette date est depassee (cas vecu le 17/11/2026 : le test
+   simulait une fin a 12:00 alors qu il etait 14:46, donc la vente etait
+   expiree et 5 verifications echouaient sans aucun bug de code).
+   En derivant de Date.now(), le test reste valable indefiniment. */
+const HOUR = 3600 * 1000;
+const NOW = new Date(Date.now() - 2 * HOUR);
+const PAST = new Date(NOW.getTime() - 24 * HOUR);
+const FUTURE = new Date(NOW.getTime() + 24 * HOUR);
 
 function sale(over) {
   return {
