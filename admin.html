@@ -435,6 +435,7 @@
             <button data-tab="reviews">⭐ Avis</button>
             <button data-tab="blog">📝 Blog</button>
             <button data-tab="coupons">🎟️ Codes Promo</button>
+  <button data-tab="flash">⚡ Ventes Flash</button>
             <button data-tab="finances">💰 Comptabilité</button>
             <button data-tab="wallets">💸 Retraits</button>
             <button data-tab="disputes">⚖️ Litiges / Retours</button>
@@ -737,6 +738,74 @@
             <div class="admin-search-bar"><input type="text" id="blogSearchAdmin" placeholder="🔍 Rechercher..."></div>
             <div id="adminBlogList"><div class="admin-loading">⏳ Chargement...</div></div>
         </div>
+
+        <!-- ============================================================
+             ONGLET VENTES FLASH (audit 2026-11-16)
+             ------------------------------------------------------------
+             Une vente flash applique une remise TEMPORAIRE et BORNEE sur
+             une selection de produits. Le prix final est recalcule cote
+             serveur (functions/index.js -> createCustomerOrder) : le client
+             ne peut pas forger un prix remise.
+             Le champ product.price n est jamais ecrase : la remise est
+             ajoutee par-dessus (flashPrice). Desactiver la vente restitue
+             immediatement le prix normal.
+             ============================================================ -->
+        <div class="admin-content" id="tab-flash">
+            <div class="admin-form">
+                <h3 id="flashFormTitle">⚡ Créer une vente flash</h3>
+                <input type="hidden" id="fEditId">
+
+                <div class="admin-form-row">
+                    <div><label>🏷️ Titre *</label><input type="text" id="fTitle" maxlength="80" placeholder="Black Friday -50%"></div>
+                    <div>
+                        <label>📌 Statut</label>
+                        <select id="fStatus">
+                            <option value="draft">📝 Brouillon</option>
+                            <option value="active">🟢 Active</option>
+                            <option value="ended">⏹️ Terminée</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="admin-form-row cols-3">
+                    <div>
+                        <label>💸 Type de remise *</label>
+                        <select id="fDiscountType">
+                            <option value="percent">📊 Pourcentage</option>
+                            <option value="fixed">💰 Montant fixe (MAD)</option>
+                        </select>
+                    </div>
+                    <div><label>🔢 Valeur *</label><input type="number" id="fDiscountValue" min="1" step="1" value="20"></div>
+                    <div><label>🎯 Limite de ventes</label><input type="number" id="fMaxQuantity" min="0" step="1" value="0" placeholder="0 = illimité"></div>
+                </div>
+
+                <div class="admin-form-row">
+                    <div><label>📅 Début *</label><input type="datetime-local" id="fStartsAt"></div>
+                    <div><label>📅 Fin *</label><input type="datetime-local" id="fEndsAt"></div>
+                </div>
+
+                <div class="admin-form-row">
+                    <div style="grid-column:1/-1;">
+                        <label>📦 Produits concernés * <span id="fSelectedCount" style="color:var(--gold);font-weight:600;">(0 sélectionné)</span></label>
+                        <input type="text" id="fProductSearch" placeholder="🔍 Filtrer les produits par nom...">
+                        <div id="fProductPicker" style="max-height:240px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:0.5rem;margin-top:0.5rem;">
+                            <div class="admin-loading">⏳ Chargement des produits...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="admin-form-row">
+                    <div style="display:flex;gap:0.75rem;flex-wrap:wrap;">
+                        <button class="admin-btn-primary" id="fSaveBtn">💾 Enregistrer</button>
+                        <button class="admin-btn-secondary" id="fResetBtn">↺ Réinitialiser</button>
+                    </div>
+                </div>
+            </div>
+
+            <h3 style="font-family:var(--font-secondary);color:var(--gold);margin:2rem 0 1rem;">⚡ Ventes flash</h3>
+            <div id="adminFlashList"><div class="admin-loading">⏳ Chargement...</div></div>
+        </div>
+
 
         <div class="admin-content" id="tab-coupons">
             <div class="admin-form">

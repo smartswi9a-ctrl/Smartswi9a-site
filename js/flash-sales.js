@@ -168,3 +168,63 @@ export function getEffectivePrice(product) {
 export function invalidateFlashSalesCache() {
   _flashCache = { at: 0, sales: [] };
 }
+
+/* ============================================================
+   COMPTE A REBOURS (affichage client)
+   ------------------------------------------------------------
+   Un SEUL timer global met a jour tous les elements portant
+   data-flash-ends="<ISO>". Evite un setInterval par carte produit.
+   Quand la date est passee, le texte affiche « Terminée ».
+   ============================================================ */
+
+let _countdownTimer = null;
+
+function formatRemaining(ms) {
+  if (ms <= 0) return "Terminée";
+  const totalSec = Math.floor(ms / 1000);
+  const d = Math.floor(totalSec / 86400);
+  const h = Math.floor((totalSec % 86400) / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  const pad = (n) => String(n).padStart(2, "0");
+  if (d > 0) return `${d}j ${pad(h)}:${pad(m)}:${pad(s)}`;
+  return `${pad(h)}:${pad(m)}:${pad(s)}`;
+}
+
+function tickCountdowns() {
+  const nodes = document.querySelectorAll("[data-flash-ends]");
+  if (nodes.length === 0) {
+    if (_countdownTimer) { clearInterval(_countdownTimer); _countdownTimer = null; }
+    return;
+  }
+  const now = Date.now();
+  nodes.forEach((el) => {
+    const iso = el.getAttribute("data-flash-ends");
+    if (!iso) return;
+    const end = new Date(iso).getTime();
+    if (Number.isNaN(end)) return;
+    const target = el.querySelector(".flash-timer") || el;
+    if (el.classList.contains("flash-timer")) return;
+    target.textContent = formatRemaining(end - now);
+    if (end - now <= 0) el.classList.add("is-ended");
+  });
+}
+
+/**
+ * Demarre (ou relance) le compte a rebours global.
+ * Idempotent : un seul interval actif. A appeler apres chaque rendu.
+ * @returns {void}
+ */
+export function startFlashCountdown() {
+  tickCountdowns();
+  if (_countdownTimer) return;
+  _countdownTimer = setInterval(tickCountdowns, 1000);
+}
+
+/**
+ * Arrete le timer (utile au changement de page).
+ * @returns {void}
+ */
+export function stopFlashCountdown() {
+  if (_countdownTimer) { clearInterval(_countdownTimer); _countdownTimer = null; }
+}

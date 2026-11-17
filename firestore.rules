@@ -389,20 +389,24 @@ service cloud.firestore {
        ============================================================ */
 
     match /flash_sales/{saleId} {
-      allow read: if resource.data.get('status', '') == 'active' || isAdmin();
+      allow read: if resource.data.get('status', '') == 'active' || isAdmin() ||
+        (isSignedIn() && resource.data.get('vendorId', '') == request.auth.uid);
 
       allow create: if isAdmin() || (
+        /* CORRECTIF (2026-11-16) : decision produit -> pas de validation
+           admin. Le vendeur publie DIRECTEMENT en 'active' (ou 'draft' s il
+           veut preparer). L ancienne regle imposait status == 'draft', ce
+           qui contredisait l UI vendeur. */
         isApprovedVendor(request.auth.uid) &&
         request.resource.data.scope == 'vendor' &&
         request.resource.data.vendorId == request.auth.uid &&
         request.resource.data.soldCount == 0 &&
-        request.resource.data.status == 'draft' &&
+        request.resource.data.status in ['draft', 'active'] &&
         request.resource.data.productIds is list &&
         request.resource.data.productIds.size() > 0 &&
         request.resource.data.discountValue is number &&
         request.resource.data.discountValue > 0 &&
-        request.resource.data.discountType in ['percent', 'fixed'] &&
-        !('endedAt' in request.resource.data)
+        request.resource.data.discountType in ['percent', 'fixed']
       );
 
       allow update: if isAdmin() || (

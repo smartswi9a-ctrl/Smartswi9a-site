@@ -344,6 +344,18 @@ function initAdmin() {
             else if (tab === 'preparation') await loadWarehousePrep();
             else if (tab === 'livo') await loadLivoTab();
             else if (tab === 'coupons') await loadCoupons();
+            /* Onglet Ventes Flash : module separe (js/admin-flash.js) pour ne
+               pas aggraver ce fichier. Import dynamique : le module n est
+               charge que si l admin ouvre l onglet. */
+            else if (tab === 'flash') {
+                try {
+                    const m = await import('./admin-flash.js');
+                    await m.initFlashTab();
+                } catch (e) {
+                    console.error('[admin] initFlashTab impossible :', e);
+                    showToast('Impossible de charger les ventes flash.', 5000);
+                }
+            }
             else if (tab === 'finances') await loadFinancesTab();
             else if (tab === 'users') await loadUsers();
             else if (tab === 'reviews') await loadReviews();

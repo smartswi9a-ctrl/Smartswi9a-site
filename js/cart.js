@@ -481,9 +481,12 @@ export function getCartSubtotal() {
   return cart.reduce((sum, item) => {
     const p = products.find((pp) => String(pp.id) === String(item.productId));
     if (!p) return sum;
+    /* Vente flash : le prix remise s applique aux produits sans variante.
+       Les articles avec variante gardent le prix de la declinaison (la
+       vente flash porte sur le produit, pas sur une variante precise). */
     const price = item.variant
       ? Number(item.variant.price)
-      : Number(p.price) || 0;
+      : (Number.isFinite(p.flashPrice) && p.flashPrice > 0 ? p.flashPrice : (Number(p.price) || 0));
     return sum + price * item.quantity;
   }, 0);
 }

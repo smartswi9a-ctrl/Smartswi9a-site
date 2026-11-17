@@ -1894,6 +1894,14 @@ async function renderTab(tabName) {
         if (tabName === 'orders')   return await renderOrders(container);
         if (tabName === 'wallet')   return await renderWallet(container);
         if (tabName === 'stock')    return await renderStock(container);
+  /* Ventes flash vendeur : module separe (js/vendor-flash.js).
+     Le vendeur cree ses propres ventes, sans validation admin, sur SES
+     produits uniquement. Import dynamique pour ne pas alourdir le bundle
+     initial du dashboard. */
+  if (tabName === 'flash') {
+    const m = await import('./vendor-flash.js');
+    return await m.renderVendorFlash(container);
+  }
     } catch (e) {
         console.error('[vendor-dashboard] renderTab ' + tabName + ' :', e);
         container.innerHTML = renderEmptyState('⚠️', tr('vendor.error.tab', 'Erreur de chargement'), tr('vendor.error.tabDesc', 'Veuillez réessayer.'));
@@ -1905,8 +1913,8 @@ async function renderTab(tabName) {
 /* ============================================================
    NAVIGATION
    ============================================================ */
-const TAB_I18N_KEYS = { overview: 'vendor.page.overview', products: 'vendor.nav.products', orders: 'vendor.nav.orders', wallet: 'vendor.nav.wallet', stock: 'vendor.nav.stock' };
-const TAB_FALLBACK_TITLES = { overview: "Vue d'ensemble", products: 'Mes produits', orders: 'Commandes', wallet: 'Mon Wallet', stock: 'Stock Fulfillment' };
+const TAB_I18N_KEYS = { overview: 'vendor.page.overview', products: 'vendor.nav.products', orders: 'vendor.nav.orders', wallet: 'vendor.nav.wallet', stock: 'vendor.nav.stock', flash: 'vendor.nav.flash' };
+const TAB_FALLBACK_TITLES = { overview: "Vue d'ensemble", products: 'Mes produits', orders: 'Commandes', wallet: 'Mon Wallet', stock: 'Stock Fulfillment', flash: 'Ventes Flash' };
 
 function setActiveTab(tabName) {
     document.querySelectorAll('.v-nav-link[data-tab]').forEach(l => {
