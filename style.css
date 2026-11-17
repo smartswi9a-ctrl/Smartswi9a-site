@@ -5259,6 +5259,17 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
         grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
         align-items: start;
     }
+
+    /* Ordre demande : offre groupee A GAUCHE, ventes flash A DROITE.
+       On n inverse qu en mode cote a cote : sur mobile, la vente flash
+       reste en premier (urgence), suivie de Koulchi. */
+    .promo-duo.is-pair > #koulchiSection {
+        order: 1;
+    }
+
+    .promo-duo.is-pair > #flashSection {
+        order: 2;
+    }
 }
 
 @media (max-width: 520px) {

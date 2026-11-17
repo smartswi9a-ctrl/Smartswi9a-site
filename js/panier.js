@@ -137,7 +137,7 @@ async function revalidateCoupon(silent = false) {
   if (subtotal <= 0) {
     appliedCoupon = null;
     saveAppliedCoupon();
-    if (!silent) showToast("Code promo retiré : panier vide");
+    if (!silent) showToast(t("couponRemovedEmpty"));
     return true;
   }
 
@@ -148,7 +148,9 @@ async function revalidateCoupon(silent = false) {
     saveAppliedCoupon();
     if (!silent)
       showToast(
-        `Code ${oldCode} retiré : minimum ${minPurchase} MAD non atteint`
+        t("couponRemovedMinimum")
+          .replace("{c}", oldCode)
+          .replace("{n}", minPurchase)
       );
     return true;
   }
@@ -164,7 +166,7 @@ async function revalidateCoupon(silent = false) {
     appliedCoupon = null;
     saveAppliedCoupon();
     if (!silent)
-      showToast("Code promo retiré : plus aucune réduction applicable");
+      showToast(t("couponRemovedNoDiscount"));
     return true;
   }
 
@@ -486,9 +488,9 @@ function renderKoulchiZone(itemsHtml, zone) {
 function renderCouponBlock() {
   if (appliedCoupon) {
     const discountAmount = Number(appliedCoupon.discountAmount) || 0;
-    return ` <div class="cart-page-coupon-applied"> <div class="cart-page-coupon-applied-info"> <span class="cart-page-coupon-applied-code">${escapeHTML( appliedCoupon.code )}</span> <span class="cart-page-coupon-applied-label">${ appliedCoupon.type === "percentage" ? `-${appliedCoupon.value}%` : appliedCoupon.type === "free_shipping" ? "Livraison offerte" : `-${appliedCoupon.value} MAD` }</span> <span class="cart-page-coupon-applied-value">-${discountAmount} MAD</span> </div> <button class="cart-page-coupon-remove-btn" id="removeCouponBtn">✕</button> </div> `;
+    return ` <div class="cart-page-coupon-applied"> <div class="cart-page-coupon-applied-info"> <span class="cart-page-coupon-applied-code">${escapeHTML( appliedCoupon.code )}</span> <span class="cart-page-coupon-applied-label">${ appliedCoupon.type === "percentage" ? `-${appliedCoupon.value}%` : appliedCoupon.type === "free_shipping" ? t("couponFreeShipping") : `-${appliedCoupon.value} MAD` }</span> <span class="cart-page-coupon-applied-value">-${discountAmount} MAD</span> </div> <button class="cart-page-coupon-remove-btn" id="removeCouponBtn">✕</button> </div> `;
   }
-  return ` <div class="cart-page-coupon-box"> <div class="cart-page-coupon-title">Code promo</div> <div class="cart-page-coupon-input-row"> <input type="text" class="cart-page-coupon-input" id="couponCodeInput" placeholder="Ex: PROMO10"> <button class="cart-page-coupon-apply-btn" id="applyCouponBtn">Appliquer</button> </div> <div class="cart-page-coupon-msg" id="couponCodeMsg"></div> </div> `;
+  return ` <div class="cart-page-coupon-box"> <div class="cart-page-coupon-title">${t("couponTitle")}</div> <div class="cart-page-coupon-input-row"> <input type="text" class="cart-page-coupon-input" id="couponCodeInput" placeholder="${t("couponPlaceholder")}"> <button class="cart-page-coupon-apply-btn" id="applyCouponBtn">${t("couponApply")}</button> </div> <div class="cart-page-coupon-msg" id="couponCodeMsg"></div> </div> `;
 }
 
 function renderSummary() {
@@ -576,12 +578,14 @@ function renderForm(user) {
   const selectedCity = getSelectedCity();
   const cityValue = selectedCity ? getCityName(selectedCity) : "";
 
-  return ` <div class="cart-page-form"> <h3 class="cart-page-form-title">${t("cartCheckoutInfo")}</h3> <div class="cart-page-field"> <label>${t("accountNamePlaceholder")} *</label> <input type="text" id="cartName" value="${escapeHTML( user?.name || "" )}" autocomplete="name"> </div> <div class="cart-page-field"> <label>${t("accountPhonePlaceholder")} *</label> <input type="tel" id="cartPhone" value="${escapeHTML( user?.phone || "" )}" autocomplete="tel" inputmode="tel" placeholder="06XXXXXXXX ou 07XXXXXXXX"> </div> <div class="cart-page-field"> <label>${t("cartAddressPlaceholder")} *</label> <textarea id="cartAddress" rows="2" autocomplete="street-address"></textarea> </div> <div class="cart-page-field"> <label>${t("accountEmailPlaceholder")}</label> <input type="email" id="cartEmail" value="${escapeHTML( user?.email || "" )}" autocomplete="email"> </div> <div class="cart-page-field city-search-wrapper"> <label>${t("city")} *</label> <input type="text" id="cityFilterInput" placeholder="${t( "searchCity" )}" value="${escapeHTML(cityValue)}" autocomplete="off"> <div class="city-suggestions" id="citySuggestions"></div> </div> <div class="cart-page-field"> <label>Note de livraison (${ t("optional") || "optionnel" })</label> <textarea id="cartDeliveryNote" rows="2" placeholder="Ex: Sonner deux fois, 3ème étage, laisser chez le gardien..." maxlength="300"></textarea> </div> 
+  return ` <div class="cart-page-form"> <h3 class="cart-page-form-title">${t("cartCheckoutInfo")}</h3> <div class="cart-page-field"> <label>${t("accountNamePlaceholder")} *</label> <input type="text" id="cartName" value="${escapeHTML( user?.name || "" )}" autocomplete="name"> </div> <div class="cart-page-field"> <label>${t("accountPhonePlaceholder")} *</label> <input type="tel" id="cartPhone" value="${escapeHTML( user?.phone || "" )}" autocomplete="tel" inputmode="tel" placeholder="06XXXXXXXX ou 07XXXXXXXX"> </div> <div class="cart-page-field"> <label>${t("cartAddressPlaceholder")} *</label> <textarea id="cartAddress" rows="2" autocomplete="street-address"></textarea> </div> <div class="cart-page-field"> <label>${t("accountEmailPlaceholder")}</label> <input type="email" id="cartEmail" value="${escapeHTML( user?.email || "" )}" autocomplete="email"> </div> <div class="cart-page-field city-search-wrapper"> <label>${t("city")} *</label> <input type="text" id="cityFilterInput" placeholder="${t( "searchCity" )}" value="${escapeHTML(cityValue)}" autocomplete="off"> <div class="city-suggestions" id="citySuggestions"></div> </div> <div class="cart-page-field"> <label>${t("cartDeliveryNoteLabel")} (${ t("optional") || "optionnel" })</label> <textarea id="cartDeliveryNote" rows="2" placeholder="${t("cartDeliveryNotePlaceholder")}" maxlength="300"></textarea> </div> 
     <div class="legal-consent" id="cartLegalConsent" data-legal-consent="acheteur">
         <input type="checkbox" id="acceptCguAcheteur" name="acceptCguAcheteur" required>
         <label for="acceptCguAcheteur">
-            J'accepte les <a href="/cgu-acheteur.html" target="_blank" rel="noopener noreferrer">CGU Acheteur</a>
-            et je reconnais avoir pris connaissance des conditions de commande, de livraison et de retour.
+            ${t("cartCguAccept")} <a href="/cgu-acheteur.html" target="_blank" rel="noopener noreferrer">${t(
+              "cartCguBuyer"
+            )}</a>
+            ${t("cartCguAccept2")}
         </label>
     </div>
  <div class="cart-page-trust"> <div>${t("trust1")}</div> <div>${t("trust2")}</div> <div>${t("trust3")}</div> <div>${t("trust4")}</div> </div> </div> `;
@@ -650,11 +654,11 @@ async function applyCouponCode() {
   };
 
   if (!code) {
-    showMsg("Saisissez un code");
+    showMsg(t("couponEnterCode"));
     return;
   }
   if (code.length < 3) {
-    showMsg("Code trop court");
+    showMsg(t("couponTooShort"));
     return;
   }
 
@@ -667,13 +671,13 @@ async function applyCouponCode() {
     const snap = await getDoc(doc(db, "coupons", deterministicId));
 
     if (!snap.exists()) {
-      showMsg("Code introuvable");
+      showMsg(t("couponNotFound"));
       return;
     }
     const couponData = snap.data();
 
     if (couponData.isActive !== true) {
-      showMsg("Ce code n'est pas actif");
+      showMsg(t("couponInactive"));
       return;
     }
 
@@ -681,20 +685,20 @@ async function applyCouponCode() {
       ? toDate(couponData.expiresAt)
       : null;
     if (expiresAt && expiresAt.getTime() < Date.now()) {
-      showMsg("Ce code a expiré");
+      showMsg(t("couponExpired"));
       return;
     }
 
     const maxUses = Number(couponData.maxUses) || 0;
     if (maxUses > 0 && (Number(couponData.usedCount) || 0) >= maxUses) {
-      showMsg("Ce code a atteint sa limite");
+      showMsg(t("couponLimit"));
       return;
     }
 
     const subtotal = getCartSubtotal();
     const minPurchase = Number(couponData.minPurchase) || 0;
     if (subtotal < minPurchase) {
-      showMsg(`Minimum ${minPurchase} MAD requis`);
+      showMsg(t("couponMinPurchase").replace("{n}", minPurchase));
       return;
     }
 
@@ -705,7 +709,7 @@ async function applyCouponCode() {
           doc(db, "coupon_uses", `${snap.id}_${user.uid}`)
         );
         if (useSnap.exists()) {
-          showMsg("Vous avez déjà utilisé ce code");
+          showMsg(t("couponAlreadyUsed"));
           return;
         }
       }
@@ -717,7 +721,7 @@ async function applyCouponCode() {
       getCartDeliveryFee()
     );
     if (discountAmount <= 0) {
-      showMsg("Aucune réduction applicable");
+      showMsg(t("couponNoDiscount"));
       return;
     }
 
@@ -731,13 +735,13 @@ async function applyCouponCode() {
       oneUsePerUser: couponData.oneUsePerUser === true,
     };
     saveAppliedCoupon();
-    showToast("Code promo appliqué !");
+    showToast(t("couponApplied"));
     renderCartPage({ skipSuggestions: true });
   } catch (e) {
-    showMsg("Erreur de validation");
+    showMsg(t("couponValidationError"));
   } finally {
     applyBtn.disabled = false;
-    applyBtn.textContent = "Appliquer";
+    applyBtn.textContent = t("couponApply");
   }
 }
 
@@ -786,7 +790,7 @@ function attachFullCartEvents() {
       const item = getCart().find((i) => i.id === btn.dataset.itemId);
       if (item) {
         removeFromCart(item.id);
-        showToast("Article retiré");
+        showToast(t("cartItemRemoved"));
       }
     });
   });
@@ -948,25 +952,23 @@ async function handleCheckoutFromPage() {
 
   /* B-PAN-1 : validations strictes. */
   if (name.length < 2) {
-    showToast("Nom invalide (min 2 caractères)");
+    showToast(t("errNameShort"));
     return;
   }
 
   if (!isValidMoroccanPhone(phone)) {
-    showToast(
-      "Numéro de téléphone marocain invalide (06XXXXXXXX ou 07XXXXXXXX)"
-    );
+    showToast(t("errPhoneInvalid"));
     return;
   }
 
   if (address.length < 5) {
-    showToast("Adresse trop courte (min 5 caractères)");
+    showToast(t("errAddressShort"));
     return;
   }
 
   const finalEmail = email || user?.email || "";
   if (finalEmail && !isValidEmail(finalEmail)) {
-    showToast("Format d'email invalide");
+    showToast(t("errEmailInvalid"));
     return;
   }
 
@@ -985,9 +987,7 @@ async function handleCheckoutFromPage() {
       box.scrollIntoView({ behavior: "smooth", block: "center" });
     }
     if (consentEl) consentEl.focus({ preventScroll: true });
-    showToast(
-      "Vous devez accepter les CGU Acheteur pour passer commande."
-    );
+    showToast(t("errCguRequired"));
     return;
   }
 
@@ -1002,7 +1002,7 @@ async function handleCheckoutFromPage() {
   try {
     waWindow = window.open("", "_blank");
     if (waWindow) {
-      waWindow.document.write(` <!DOCTYPE html> <html> <head> <title>Validation de la commande...</title> <meta name="viewport" content="width=device-width, initial-scale=1.0"> <style> body { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #f8f6f2; font-family: system-ui, -apple-system, sans-serif; text-align: center; color: #1a1a2e; } h1 { color: #a57b2e; font-family: 'Georgia', serif; letter-spacing: 2px; margin-bottom: 10px; } .spinner { border: 4px solid #e0e0e0; border-top: 4px solid #a57b2e; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 20px auto; } @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } } .msg { font-size: 15px; margin-top: 15px; font-weight: 600; } .submsg { font-size: 12px; color: #666; margin-top: 5px; } </style> </head> <body> <h1>SMARTSWIKA</h1> <div class="spinner"></div> <div class="msg">Validation de votre commande...</div> <div class="submsg">Ne fermez pas cette fenêtre.</div> </body> </html> `);
+      waWindow.document.write(` <!DOCTYPE html> <html> <head> <title>${t("checkoutValidating")}</title> <meta name="viewport" content="width=device-width, initial-scale=1.0"> <style> body { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #f8f6f2; font-family: system-ui, -apple-system, sans-serif; text-align: center; color: #1a1a2e; } h1 { color: #a57b2e; font-family: 'Georgia', serif; letter-spacing: 2px; margin-bottom: 10px; } .spinner { border: 4px solid #e0e0e0; border-top: 4px solid #a57b2e; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 20px auto; } @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } } .msg { font-size: 15px; margin-top: 15px; font-weight: 600; } .submsg { font-size: 12px; color: #666; margin-top: 5px; } </style> </head> <body> <h1>SMARTSWIKA</h1> <div class="spinner"></div> <div class="msg">${t("checkoutValidating")}</div> <div class="submsg">${t("checkoutPopupWait")}</div> </body> </html> `);
       waWindow.document.close();
     }
   } catch (e) {
@@ -1039,7 +1039,7 @@ async function handleCheckoutFromPage() {
     }
   } catch (e) {
     if (waWindow && !waWindow.closed) waWindow.close();
-    showToast(e.message || "Erreur");
+    showToast(e.message || t("genericError"));
     if (checkoutBtn && checkoutBtn.isConnected) {
       checkoutBtn.disabled = false;
       checkoutBtn.textContent = t("cartCheckout");
