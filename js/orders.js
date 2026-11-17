@@ -294,11 +294,20 @@ function buildInvoiceText(order, recipient, lang = 'fr') {
     const invoiceNum = getInvoiceNumber(order);
     const orderDate = toDate(order.createdAt);
     const invoiceDate = orderDate ? orderDate.toLocaleDateString(lang === 'ar' ? 'ar-MA' : (lang === 'en' ? 'en-GB' : 'fr-FR')) : '—';
-    const isAr = lang === 'ar';
+
+    /* Facture texte : les trois langues sont definies ici, independamment de
+       la langue de l interface (le destinataire peut differer du visiteur). */
+    const INVOICE_TEXT_LABELS = {
+        fr: { invoice: 'FACTURE', issuedOn: 'Émise le', client: 'Client', items: 'ARTICLES', subtotal: 'Sous-total', discount: 'Réduction', delivery: 'Livraison', total: 'TOTAL', cod: 'Paiement à la livraison', paid: 'PAYÉ', thanks: 'Merci pour votre confiance !' },
+        ar: { invoice: 'فاتورة', issuedOn: 'صدرت في', client: 'العميل', items: 'المنتجات', subtotal: 'المجموع الفرعي', discount: 'الخصم', delivery: 'التوصيل', total: 'الإجمالي', cod: 'الدفع عند الاستلام', paid: 'مدفوع', thanks: 'شكراً على ثقتكم!' },
+        en: { invoice: 'INVOICE', issuedOn: 'Issued on', client: 'Client', items: 'ITEMS', subtotal: 'Subtotal', discount: 'Discount', delivery: 'Delivery', total: 'TOTAL', cod: 'Cash on delivery', paid: 'PAID', thanks: 'Thank you for your trust!' }
+    };
+    const lb = INVOICE_TEXT_LABELS[lang] || INVOICE_TEXT_LABELS.fr;
+
     const lines = [];
     lines.push('════════════════════════════════════════');
-    lines.push(`  ${isAr ? 'فاتورة' : 'FACTURE'} ${invoiceNum}`);
-    lines.push(`  ${isAr ? 'صدرت في' : 'Émise le'} ${invoiceDate}`);
+    lines.push(`  ${lb.invoice} ${invoiceNum}`);
+    lines.push(`  ${lb.issuedOn} ${invoiceDate}`);
     lines.push('════════════════════════════════════════');
     lines.push('');
     lines.push(`SMARTSWIKA`);
@@ -306,9 +315,9 @@ function buildInvoiceText(order, recipient, lang = 'fr') {
     lines.push(`smartswi9a@gmail.com`);
     lines.push('');
     lines.push('────────────────────────────────────────');
-    lines.push(`${isAr ? 'العميل' : 'Client'} : ${order.deliveryAddress?.name || '—'}`);
+    lines.push(`${lb.client} : ${order.deliveryAddress?.name || '—'}`);
     lines.push('');
-    lines.push(`${isAr ? 'المنتجات' : 'ARTICLES'} :`);
+    lines.push(`${lb.items} :`);
     (order.items || []).forEach(item => {
         const qty = Number(item.quantity) || 1;
         const price = Number(item.price) || 0;
@@ -316,15 +325,15 @@ function buildInvoiceText(order, recipient, lang = 'fr') {
         lines.push(`  - ${item.name}${v} (x${qty}) : ${price * qty} MAD`);
     });
     lines.push('');
-    lines.push(`Sous-total : ${order.subtotal || 0} MAD`);
-    if (Number(order.discount) > 0) lines.push(`Réduction : -${order.discount} MAD`);
+    lines.push(`${lb.subtotal} : ${order.subtotal || 0} MAD`);
+    if (Number(order.discount) > 0) lines.push(`${lb.discount} : -${order.discount} MAD`);
     if (Number(order.couponDiscount) > 0) lines.push(`Code ${order.couponCode} : -${order.couponDiscount} MAD`);
-    lines.push(`Livraison : ${order.deliveryFee || 0} MAD`);
-    lines.push(`TOTAL : ${order.total || 0} MAD`);
+    lines.push(`${lb.delivery} : ${order.deliveryFee || 0} MAD`);
+    lines.push(`${lb.total} : ${order.total || 0} MAD`);
     lines.push('');
-    lines.push(`${isAr ? 'الدفع عند الاستلام' : 'Paiement à la livraison'} - PAYÉ`);
+    lines.push(`${lb.cod} - ${lb.paid}`);
     lines.push('');
-    lines.push(isAr ? 'شكراً على ثقتكم!' : 'Merci pour votre confiance !');
+    lines.push(lb.thanks);
     lines.push('');
     lines.push('SMARTSWIKA');
     return lines.join('\n');
