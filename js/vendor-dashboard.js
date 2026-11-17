@@ -31,6 +31,8 @@ import {
     CATEGORY_GROUPS
 } from "./config.js";
 import { showToast, confirmAction } from "./ui-core.js";
+import { initLang } from "./utils.js";
+import { applyTranslations } from "./events.js";
 import {
     signVendorContract,
     computeContractTextHash,
@@ -323,9 +325,11 @@ function updateSidebarUI(profile) {
     const stockTab = document.querySelector('.v-nav-link[data-tab="stock"]');
     const shippingMethod = vendorInfo.shippingMethod;
     if (shippingEl) {
-        shippingEl.textContent = shippingMethod === 'dropoff' ? 'Mode logistique : Drop-off Livo'
-            : shippingMethod === 'fulfillment' ? 'Mode logistique : Fulfillment Livo'
-                : 'Mode logistique : à configurer';
+        shippingEl.textContent = shippingMethod === 'dropoff'
+            ? tr('vendor.shipping.dropoff', 'Mode logistique : Drop-off Livo')
+            : shippingMethod === 'fulfillment'
+                ? tr('vendor.shipping.fulfillment', 'Mode logistique : Fulfillment Livo')
+                : tr('vendor.shipping.unset', 'Mode logistique : à configurer');
         shippingEl.className = `v-shop-status ${shippingMethod === 'dropoff' || shippingMethod === 'fulfillment' ? 'approved' : 'pending'}`;
         shippingEl.style.display = 'block';
         shippingEl.style.margin = '0.65rem auto 0';
@@ -2124,7 +2128,27 @@ function renderVendorAccessStatus(profile) {
    INITIALISATION
    ============================================================ */
 document.addEventListener('DOMContentLoaded', async () => {
+    /* CRITIQUE : initLang() doit tourner AVANT applyLanguageDirection().
+       Sans lui, <html lang> reste "fr" (valeur figée dans le HTML) et
+       getCurrentLanguage() ignore la langue choisie par le vendeur :
+       tout le tableau de bord restait en français même en mode AR/EN.
+       initLang() lit ?lang= puis localStorage puis le navigateur, et
+       écrit lang + dir sur <html>. */
+    try { initLang(); } catch (e) { console.warn('[vendor-dashboard] initLang', e); }
+
     applyLanguageDirection();
+
+    /* Traduit les libellés fixes du squelette (menu latéral, titre, skip link).
+       Le contenu des onglets est rendu plus bas via tr(). */
+    try { applyTranslations(); } catch (e) { console.warn('[vendor-dashboard] applyTranslations', e); }
+
+    /* Titre de l onglet du navigateur. */
+    try {
+      const titleEl = document.querySelector('title');
+      const titleKey = 'vendorDashboardPageTitle';
+      const titleVal = tr(titleKey, null);
+      if (titleEl && titleVal && titleVal !== titleKey) titleEl.textContent = titleVal;
+    } catch (e) { /* non bloquant */ }
 
     /* Sélecteur de langue du tableau de bord vendeur.
        Le dashboard charge translations.js + translations-vendor.js et rend

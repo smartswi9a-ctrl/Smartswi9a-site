@@ -271,6 +271,17 @@ export function applyTranslations() {
     if (value && value !== key) el.setAttribute("placeholder", value);
   });
 
+  /* Système legacy du tableau de bord vendeur : data-i18n="vendor.nav.orders".
+     Ces attributs existaient dans vendor/dashboard.html mais AUCUN code ne
+     les appliquait, donc le menu restait en français en mode AR/EN.
+     On les traite ici pour unifier les deux systèmes. */
+  document.querySelectorAll("[data-i18n]").forEach((el) => {
+    const key = el.getAttribute("data-i18n");
+    if (!key) return;
+    const value = t(key);
+    if (value && value !== key) el.textContent = value;
+  });
+
   const logoVal = t("logoText");
   if (logoVal && logoVal !== "logoText") {
     document.querySelectorAll(".logo-text").forEach((el) => {
@@ -307,6 +318,25 @@ export function applyTranslations() {
     else if (path.endsWith("404.html")) titleKey = "pageNotFoundTitle";
     else if (path.endsWith("reset-password.html"))
       titleKey = "resetPasswordTitle";
+
+    /* Pages dont le <title> n était pas traduit (audit 2026-11-17).
+       Les URLs propres (/boutique, /panier...) n ont pas la même valeur
+       de pathname que les fichiers .html : on teste les deux formes. */
+    if (!titleKey) {
+      const stem = path.replace(/\.html$/, "").replace(/\/$/, "").split("/").pop();
+      const TITLE_BY_STEM = {
+        boutique: "shopPageTitle",
+        produit: "productPageTitle",
+        panier: "cartPageTitle",
+        blog: "blogPageTitle",
+        villesmaroc: "villesPageTitle",
+        villes: "villesPageTitle",
+        "vendor-login": "vendorLoginPageTitle",
+        "inscription-vendeur": "vendorSignupPageTitle",
+        dashboard: "vendorDashboardPageTitle",
+      };
+      if (TITLE_BY_STEM[stem]) titleKey = TITLE_BY_STEM[stem];
+    }
 
     if (titleKey) {
       const tVal = t(titleKey);
