@@ -299,6 +299,60 @@ function normalizeCityKey(raw) {
 }
 
 /* ============================================================
+   VENTE FLASH (audit 2026-11-16) — HELPERS SERVEUR
+   ------------------------------------------------------------
+   Recalcul du prix remise cote serveur. Le client ne doit jamais
+   pouvoir imposer un prix : `price` vient de son panier, donc on
+   reapplique la remise officielle ici.
+
+   Regles bornees (identiques a js/flash-sales.js, testees par
+   tests/flash-sales.test.cjs) :
+     - une remise ne rend jamais le prix negatif ;
+     - une remise ne depasse jamais le prix initial ;
+     - un pourcentage > 100 est borne a 100 ;
+     - une vente hors fenetre ou epuisee n est pas appliquee.
+
+   NOTE : pas d apostrophe dans ce bloc (voir README, regle 2).
+   ============================================================ */
+
+function isFlashSaleLiveServer(sale, nowMs) {
+  if (!sale || sale.status !== 'active') return false;
+  const toMs = (v) => {
+    if (!v) return null;
+    if (typeof v.toDate === 'function') return v.toDate().getTime();
+    if (v instanceof Date) return v.getTime();
+    const d = new Date(v);
+    return Number.isNaN(d.getTime()) ? null : d.getTime();
+  };
+  const start = toMs(sale.startsAt);
+  const end = toMs(sale.endsAt);
+  if (start == null || end == null) return false;
+  if (nowMs < start || nowMs > end) return false;
+  if (sale.maxQuantity != null && Number(sale.soldCount || 0) >= Number(sale.maxQuantity)) {
+    return false;
+  }
+  return true;
+}
+
+function applyServerFlashPrice(price, sale, nowMs = Date.now()) {
+  const base = Math.max(0, Number(price) || 0);
+  if (!isFlashSaleLiveServer(sale, nowMs)) {
+    return { finalPrice: base, discount: 0, percent: 0 };
+  }
+  const value = Math.max(0, Number(sale.discountValue) || 0);
+  let discount;
+  if (sale.discountType === 'percent') {
+    discount = Math.round((base * Math.min(value, 100)) / 100);
+  } else {
+    discount = Math.min(Math.round(value), base);
+  }
+  const finalPrice = Math.max(0, base - discount);
+  const percent = base > 0 ? Math.round((discount / base) * 100) : 0;
+  return { finalPrice, discount, percent };
+}
+
+
+/* ============================================================
    CORRECTIF C3 (audit 2026-11-16) â€” RAPPROCHEMENT TOLERANT DES VILLES
    ------------------------------------------------------------
    Livo renvoie des libelles qui varient d une synchronisation a une autre :
@@ -2882,6 +2936,39 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
       const productSnaps = await Promise.all(productRefs.map(ref => tx.get(ref)));
       const vendorIdsSet = new Set();
 
+      /* ============================================================
+         VENTE FLASH (audit 2026-11-16) : prechargement des ventes actives
+         ------------------------------------------------------------
+         Une seule lecture pour toutes les ventes actives, indexees par
+         productId. On retient la remise la plus avantageuse par produit.
+         Fait AVANT la boucle pour ne pas multiplier les get() dans la
+         transaction (limite Firestore et cout).
+         ============================================================ */
+      const flashSalesByProduct = new Map();
+      try {
+        const nowMs = Date.now();
+        const flashSnap = await tx.get(
+          db.collection('flash_sales').where('status', '==', 'active').limit(50)
+        );
+        const allSales = flashSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const liveSales = allSales.filter(s => isFlashSaleLiveServer(s, nowMs));
+        for (const sale of liveSales) {
+          const ids = Array.isArray(sale.productIds) ? sale.productIds.map(String) : [];
+          for (const pid of ids) {
+            const current = flashSalesByProduct.get(pid);
+            /* La remise la plus forte gagne. */
+            if (!current) { flashSalesByProduct.set(pid, sale); continue; }
+            const a = applyServerFlashPrice(1, sale, nowMs).percent;
+            const b = applyServerFlashPrice(1, current, nowMs).percent;
+            if (a > b) flashSalesByProduct.set(pid, sale);
+          }
+        }
+      } catch (e) {
+        /* Fail-open sur la vente flash : une panne de lecture ne doit pas
+           bloquer la vente. Le prix normal s applique alors. */
+        console.warn('[createCustomerOrder] vente flash illisible, prix normaux appliques:', e.message);
+      }
+
       for (let i = 0; i < productSnaps.length; i++) {
         if (!productSnaps[i].exists) throw new Error(`Produit introuvable.`);
         const pd = productSnaps[i].data();
@@ -2970,7 +3057,33 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
 
         data.salesCount = update.salesCount;
         productUpdates.set(item.productId, { ref: productRefs[i], data: update });
-        subtotal += price * qty;
+
+        /* ============================================================
+           VENTE FLASH (audit 2026-11-16) — recalcul SERVEUR du prix
+           ------------------------------------------------------------
+           Le client envoie `price` depuis son panier : champ non fiable.
+           On reapplique ici la remise flash active, en lisant la vente
+           dans la MEME transaction. Le client ne peut donc pas forger un
+           prix remise : soit la vente est active et le montant est
+           recalcule, soit elle ne l'est pas et le prix normal s'applique.
+           ============================================================ */
+        let unitPrice = price;
+        let flashApplied = null;
+        if (flashSalesByProduct.has(String(item.productId))) {
+          const sale = flashSalesByProduct.get(String(item.productId));
+          const computed = applyServerFlashPrice(price, sale);
+          if (computed.discount > 0) {
+            unitPrice = computed.finalPrice;
+            flashApplied = {
+              saleId: sale.id,
+              discountType: String(sale.discountType || ''),
+              discountValue: Number(sale.discountValue) || 0,
+              discountPerUnit: computed.discount
+            };
+          }
+        }
+
+        subtotal += unitPrice * qty;
         totalQty += qty;
         validatedItems.push({
           id: item.id,
@@ -2981,7 +3094,9 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
             : String(shippingMethodsByVendor.get(String(data.vendorId)) || ''),
           variant: item.variant,
           quantity: qty,
-          price,
+          price: unitPrice,
+          basePrice: price,
+          flashSale: flashApplied,
           name: String(data.nameFr || data.nameEn || 'Produit')
         });
       }

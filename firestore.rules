@@ -373,6 +373,57 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    /* ============================================================
+       VENTES FLASH (audit 2026-11-16)
+       ------------------------------------------------------------
+       Une vente flash applique une remise TEMPORAIRE et BORNEE sur un
+       ensemble de produits. Le prix final est recalcule cote serveur dans
+       createCustomerOrder : le client ne peut jamais imposer un prix
+       remise via cette collection.
+
+       - Lecture publique limitee aux ventes ACTIVES (le client n'a pas
+         besoin de voir les brouillons ni les ventes archivees).
+       - Un vendeur approuve ne cree/modifie que des ventes `scope:
+         'vendor'` sur SON uid, et ne peut pas toucher `soldCount`.
+       - L'admin plateforme a l'acces complet.
+       ============================================================ */
+
+    match /flash_sales/{saleId} {
+      allow read: if resource.data.get('status', '') == 'active' || isAdmin();
+
+      allow create: if isAdmin() || (
+        isApprovedVendor(request.auth.uid) &&
+        request.resource.data.scope == 'vendor' &&
+        request.resource.data.vendorId == request.auth.uid &&
+        request.resource.data.soldCount == 0 &&
+        request.resource.data.status == 'draft' &&
+        request.resource.data.productIds is list &&
+        request.resource.data.productIds.size() > 0 &&
+        request.resource.data.discountValue is number &&
+        request.resource.data.discountValue > 0 &&
+        request.resource.data.discountType in ['percent', 'fixed'] &&
+        !('endedAt' in request.resource.data)
+      );
+
+      allow update: if isAdmin() || (
+        isApprovedVendor(request.auth.uid) &&
+        resource.data.get('scope', '') == 'vendor' &&
+        resource.data.get('vendorId', '') == request.auth.uid &&
+        request.resource.data.vendorId == resource.data.vendorId &&
+        request.resource.data.scope == resource.data.scope &&
+        /* Un vendeur ne modifie pas le compteur de ventes. */
+        request.resource.data.get('soldCount', 0) == resource.data.get('soldCount', 0) &&
+        request.resource.data.discountValue is number &&
+        request.resource.data.discountValue > 0
+      );
+
+      allow delete: if isAdmin() || (
+        isApprovedVendor(request.auth.uid) &&
+        resource.data.get('scope', '') == 'vendor' &&
+        resource.data.get('vendorId', '') == request.auth.uid
+      );
+    }
+
     match /cities/{docId} {
       allow read: if true;
       allow write: if isAdmin();
