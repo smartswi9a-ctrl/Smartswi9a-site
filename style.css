@@ -4946,6 +4946,107 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
     font-weight: 600;
 }
 
+/* ============================================================
+   KOULCHI DIALK — FICHE PRODUIT (K4)
+   ============================================================ */
+
+.product-koulchi {
+    margin-top: 1rem;
+}
+
+.koulchi-offer {
+    border: 1px dashed var(--gold);
+    border-radius: var(--radius-md, 12px);
+    padding: 0.9rem 1rem;
+    background: linear-gradient(
+        135deg,
+        rgba(var(--gold-rgb), 0.06),
+        rgba(var(--gold-rgb), 0)
+    );
+}
+
+.koulchi-offer-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+}
+
+.koulchi-offer-badge {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--gold);
+}
+
+.koulchi-offer-price {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.1rem;
+}
+
+.koulchi-offer-price strong {
+    font-size: 1.15rem;
+    color: var(--gold);
+}
+
+.koulchi-offer-price small {
+    font-size: 0.72rem;
+    color: var(--text-light, #666);
+}
+
+.koulchi-offer-tiers {
+    display: flex;
+    gap: 0.4rem;
+    list-style: none;
+    margin: 0.6rem 0;
+    padding: 0;
+    flex-wrap: wrap;
+}
+
+.koulchi-offer-tier {
+    flex: 1 1 28%;
+    display: flex;
+    justify-content: space-between;
+    gap: 0.3rem;
+    border: 1px solid var(--border-gold, rgba(var(--gold-rgb), 0.3));
+    border-radius: 8px;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.72rem;
+    color: var(--text-light, #666);
+    background: #fff;
+}
+
+.koulchi-offer-tier strong {
+    color: var(--gold);
+}
+
+.koulchi-offer-hint {
+    font-size: 0.75rem;
+    color: var(--text-light, #666);
+    margin: 0.2rem 0 0.6rem;
+}
+
+.btn-koulchi-offer {
+    width: 100%;
+    border: 1px solid var(--gold);
+    background: var(--gold);
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.85rem;
+    border-radius: 999px;
+    padding: 0.55rem 0.9rem;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+}
+
+.btn-koulchi-offer:hover {
+    background: transparent;
+    color: var(--gold);
+}
+
 @media (max-width: 520px) {
     .koulchi-tier {
         flex: 1 1 100%;

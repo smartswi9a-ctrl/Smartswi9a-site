@@ -25,6 +25,7 @@ import {
   getProductVendorLabelSync,
 } from "./vendor-attribution.js";
 import { normalizeProductId } from "./domain/product-id.js";
+import { isKoulchiEligible, KOULCHI_TIERS } from "./koulchi.js";
 
 /* ============================================================ HELPERS LOCAUX ============================================================ */
 
@@ -400,6 +401,82 @@ function renderInfoSection(product) {
 
   const waBtn = document.getElementById("whatsappOrderBtn");
   if (waBtn) waBtn.dataset.productId = String(product.id);
+
+  renderKoulchiOffer(product);
+}
+
+/* ============================================================ Bloc Koulchi dialk (K4) ============================================================ */
+
+/**
+ * Affiche l offre de groupe sur la fiche produit.
+ * Le bloc reste masque si le produit n a pas de prix de groupe valide,
+ * s il possede des variantes (le prix de groupe est un prix produit)
+ * ou si le stock est nul. Aucune promesse n est affichee a tort.
+ * @param {object} product
+ */
+function renderKoulchiOffer(product) {
+  const host = document.getElementById("koulchiOffer");
+  if (!host) return;
+  if (!product) {
+    host.hidden = true;
+    host.innerHTML = "";
+    return;
+  }
+
+  const hasVariants =
+    Array.isArray(product.variants) && product.variants.length > 0;
+  const stock = Number(product.stock) || 0;
+  const groupPrice = Number(product.koulchiPrice);
+  const classicPrice = Number(product.price) || 0;
+
+  const eligible =
+    isKoulchiEligible(product) &&
+    !hasVariants &&
+    stock > 0 &&
+    Number.isFinite(groupPrice) &&
+    groupPrice > 0;
+
+  if (!eligible) {
+    host.hidden = true;
+    host.innerHTML = "";
+    return;
+  }
+
+  const tiers = KOULCHI_TIERS.slice()
+    .sort((a, b) => a.min - b.min)
+    .map(
+      (tier) =>
+        `<li class="koulchi-offer-tier"><span>${tier.min}+</span><strong>−${tier.percent} %</strong></li>`
+    )
+    .join("");
+
+  host.innerHTML = `<div class="koulchi-offer">
+      <div class="koulchi-offer-head">
+        <span class="koulchi-offer-badge">${t("koulchiProductTitle")}</span>
+        <span class="koulchi-offer-price">
+          <strong>${groupPrice} ${t("currency")}</strong>
+          <small>${t("koulchiProductPrice")} · ${classicPrice} ${t("currency")} ${t(
+    "koulchiProductInstead"
+  )}</small>
+        </span>
+      </div>
+      <ul class="koulchi-offer-tiers">${tiers}</ul>
+      <p class="koulchi-offer-hint">${t("koulchiProductHint")}</p>
+      <button type="button" class="btn-koulchi-offer" id="koulchiAddBtn">${t(
+        "koulchiAddToCart"
+      )}</button>
+    </div>`;
+
+  host.hidden = false;
+
+  const btn = host.querySelector("#koulchiAddBtn");
+  if (btn) {
+    btn.addEventListener("click", () => {
+      import("./cart.js").then((m) =>
+        m.addToCart(product.id, null, { mode: "koulchi" })
+      );
+    });
+  }
 }
 
 /* ============================================================ Bloc "Vendu par" ============================================================ */
@@ -518,6 +595,9 @@ function updateVariantDisplay() {
   const oldPriceEl = document.getElementById("productOldPrice");
   const stockEl = document.getElementById("productStockStatus");
   const addBtn = document.getElementById("addToCartBtn");
+
+  /* K4 : le prix de groupe est un prix produit, jamais par variante. */
+  if (currentProduct) renderKoulchiOffer(currentProduct);
 
   if (!currentVariant) {
     if (stockEl) {
