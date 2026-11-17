@@ -15,10 +15,17 @@
    C est exactement ce qui s est produit pour les drapeaux du
    selecteur de langue (police emoji absente de la version servie).
 
+   DEPUIS 2026-11-17 : MEME PROBLEME POUR translations.js
+   Les fichiers .js sont servis avec Cache-Control max-age=3600.
+   Un visiteur qui revenait dans l heure gardait l ANCIEN
+   translations.js : les nouvelles cles manquaient et t() affichait
+   la CLE BRUTE (ex. "couponApplied"). Le script hache donc aussi
+   translations.js -> /translations.<hash8>.js.
+
    CE SCRIPT
-     1. calcule le SHA256 de chaque source CSS ;
-     2. ecrit css/<nom>.<hash8>.css ;
-     3. reecrit les <link rel="stylesheet"> des pages HTML ;
+     1. calcule le SHA256 de chaque source (CSS + translations.js) ;
+     2. ecrit css/<nom>.<hash8>.css et /translations.<hash8>.js ;
+     3. reecrit les <link rel="stylesheet"> et <script src> des pages ;
      4. supprime les anciennes copies devenues orphelines.
 
    USAGE
@@ -81,6 +88,20 @@ for (const src of SOURCES) {
 }
 
 /* ---------------------------------------------
+   1bis. Hacher translations.js (meme probleme de cache)
+   --------------------------------------------- */
+
+const TRANSLATIONS_SRC = "translations.js";
+const TRANSLATIONS_ABS = path.join(ROOT, TRANSLATIONS_SRC);
+let translationsOut = null;
+
+if (fs.existsSync(TRANSLATIONS_ABS)) {
+  translationsOut = "translations." + hash8(TRANSLATIONS_ABS) + ".js";
+  if (!DRY) fs.copyFileSync(TRANSLATIONS_ABS, path.join(ROOT, translationsOut));
+  console.log("  " + TRANSLATIONS_SRC.padEnd(22) + " -> " + translationsOut);
+}
+
+/* ---------------------------------------------
    2. Reecrire les liens dans le HTML
    --------------------------------------------- */
 
@@ -96,6 +117,14 @@ for (const page of pages) {
     /* Remplace n importe quelle version hachee existante du meme fichier. */
     const re = new RegExp("/css/" + base + "\\.[0-9a-f]{8}\\.css", "g");
     html = html.replace(re, "/css/" + outName);
+  }
+
+  /* translations.js : meme traitement (script + preload eventuel). */
+  if (translationsOut) {
+    html = html.replace(
+      /\/translations(?:\.[0-9a-f]{8})?\.js(?:\?[^"'\s>]*)?/g,
+      "/" + translationsOut
+    );
   }
 
   /* Certaines pages n incluent PAS style-patches.css (ex. dashboard vendeur).
@@ -132,9 +161,23 @@ for (const file of fs.readdirSync(CSS_DIR)) {
   removed.push(file);
 }
 
+/* Copies hachees de translations.js devenues orphelines. */
+const trRemoved = [];
+if (translationsOut) {
+  for (const file of fs.readdirSync(ROOT)) {
+    if (!/^translations\.[0-9a-f]{8}\.js$/.test(file)) continue;
+    if (file === translationsOut) continue;
+    if (!DRY) fs.unlinkSync(path.join(ROOT, file));
+    trRemoved.push(file);
+  }
+}
+
 console.log("");
 if (removed.length) {
   console.log((DRY ? "A supprimer : " : "Supprime : ") + removed.join(", "));
+}
+if (trRemoved.length) {
+  console.log((DRY ? "A supprimer : " : "Supprime : ") + trRemoved.join(", "));
 }
 console.log((DRY ? "Simulation : " : "") + touched + " page(s) mise(s) a jour.");
 
@@ -161,5 +204,32 @@ for (const page of pages) {
   }
 }
 
-console.log(stale === 0 ? "OK — toutes les pages pointent vers le CSS a jour." : "ATTENTION — " + stale + " reference(s) perimee(s) restante(s).");
-process.exit(stale === 0 ? 0 : 1);
+/* Verifier qu aucune page ne garde une version perimee de translations.js. */
+let staleTrad = 0;
+if (translationsOut) {
+  for (const page of pages) {
+    let html = fs.readFileSync(page, "utf8");
+    if (DRY) {
+      html = html.replace(
+        /\/translations(?:\.[0-9a-f]{8})?\.js(?:\?[^"'\s>]*)?/g,
+        "/" + translationsOut
+      );
+    }
+    if (/\/translations\.js/.test(html)) staleTrad += 1;
+    const refs = html.match(/\/translations\.[0-9a-f]{8}\.js/g) || [];
+    for (const ref of refs) {
+      if (ref !== "/" + translationsOut) staleTrad += 1;
+    }
+  }
+}
+
+console.log(
+  stale === 0 && staleTrad === 0
+    ? "OK — toutes les pages pointent vers le CSS et les traductions a jour."
+    : "ATTENTION — " +
+        stale +
+        " reference(s) CSS perimee(s) et " +
+        staleTrad +
+        " reference(s) de traduction perimee(s)."
+);
+process.exit(stale === 0 && staleTrad === 0 ? 0 : 1);

@@ -520,11 +520,11 @@ function renderVariantsSection(product) {
 
   let html = "";
   const guideBtnHtml = product.hasSizeGuide
-    ? `<button class="size-guide-btn" id="openSizeGuideBtn">Guide des tailles (US/EU)</button>`
+    ? `<button class="size-guide-btn" id="openSizeGuideBtn">${t("sizeGuideTitle")}</button>`
     : "";
 
   if (sizes.length > 0) {
-    html += ` <div class="variant-options-group"> <div class="variant-label"> <span>Taille : <span id="selectedSizeLabel" style="color:var(--gold);">Sélectionnez</span></span> ${guideBtnHtml} </div> <div class="variant-buttons" id="sizeButtons"> ${sizes .map( (s) => `<button type="button" class="variant-btn" data-size="${escapeHTML( s )}">${escapeHTML(s)}</button>` ) .join("")} </div> </div> `;
+    html += ` <div class="variant-options-group"> <div class="variant-label"> <span>${t("sizeGuideSize")} : <span id="selectedSizeLabel" style="color:var(--gold);">${t("selectPlaceholder")}</span></span> ${guideBtnHtml} </div> <div class="variant-buttons" id="sizeButtons"> ${sizes .map( (s) => `<button type="button" class="variant-btn" data-size="${escapeHTML( s )}">${escapeHTML(s)}</button>` ) .join("")} </div> </div> `;
   }
 
   if (colors.length > 0) {
@@ -602,9 +602,9 @@ function updateVariantDisplay() {
   if (!currentVariant) {
     if (stockEl) {
       if (selectedSize && selectedColor) {
-        stockEl.innerHTML = `<span style="color:var(--danger);font-weight:600;">Combinaison indisponible</span>`;
+        stockEl.innerHTML = `<span style="color:var(--danger);font-weight:600;">${t("combinationUnavailable")}</span>`;
       } else {
-        stockEl.innerHTML = `<span style="color:var(--text-muted);">Sélectionnez les options</span>`;
+        stockEl.innerHTML = `<span style="color:var(--text-muted);">${t("selectOptions")}</span>`;
       }
     }
     if (addBtn) {
@@ -1104,15 +1104,15 @@ function attachProductEvents(product) {
 
       if (currentProduct.variants && currentProduct.variants.length > 0) {
         if (!selectedSize && currentProduct.variants.some((v) => v.size)) {
-          showToast("Veuillez choisir une taille");
+          showToast(t("chooseSize"));
           return;
         }
         if (!selectedColor && currentProduct.variants.some((v) => v.color)) {
-          showToast("Veuillez choisir une couleur");
+          showToast(t("chooseColor"));
           return;
         }
         if (!currentVariant) {
-          showToast("Cette combinaison est introuvable");
+          showToast(t("combinationNotFound"));
           return;
         }
         if (currentVariant.stock <= 0) {
