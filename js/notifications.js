@@ -368,7 +368,7 @@ export async function deleteNotification(notifId) {
   try {
     const notif = notificationsCache.find((n) => n.id === notifId);
     if (notif && isReviewRequest(notif)) {
-      showToast("Déposez d'abord votre avis");
+      showToast(t("reviewFirstRequired"));
       return;
     }
     await deleteDoc(doc(db, "notifications", notifId));
