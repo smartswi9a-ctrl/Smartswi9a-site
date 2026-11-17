@@ -32,6 +32,8 @@ import {
   getDiscountPercent,
   toDate,
 } from "./utils.js";
+/* Vente flash : remise temporaire appliquee par-dessus product.price. */
+import { applyFlashSales, getEffectivePrice, startFlashCountdown } from "./flash-sales.js";
 import {
   getProducts,
   setProducts,
@@ -242,6 +244,14 @@ export async function loadProductsFromFirestore() {
     if (snapshot.size > 0) {
       const raw = processSnapshot(snapshot);
       const products = await filterVendors(raw);
+      /* Vente flash : ajoute flashPrice/flashPercent sur les produits
+         concernes par une vente active. Fail-open : en cas d erreur, les
+         prix normaux restent en place. */
+      try {
+        await applyFlashSales(products);
+      } catch (e) {
+        console.warn("[products] ventes flash indisponibles :", e?.message);
+      }
       console.log(
         `[products] Chargé ${products.length} produit(s) approuvés (requête filtrée)`
       );
@@ -691,12 +701,19 @@ export async function renderProducts() {
     const name = escapeHTML(getProductName(p));
     const desc = escapeHTML(getProductDesc(p));
     const img = getProductImageUrl(p);
-    const price = p.price;
+    const price = getEffectivePrice(p);
     const oldPrice = p.oldPrice;
     const stock = Number(p.stock) || 0;
-    const isPromo = oldPrice && Number(oldPrice) > Number(price);
+    /* Vente flash (js/flash-sales.js) : remise temporaire prioritaire.
+       `flashPrice` est ajoute par applyFlashSales() ; le prix normal reste
+       dans `p.price` et sert de prix de reference barre. */
+    const hasFlash = Number.isFinite(p.flashPrice) && p.flashPrice > 0 && p.flashPrice < Number(p.price);
+    const flashEndsAt = p.flashEndsAt || null;
+    const isPromo = !hasFlash && oldPrice && Number(oldPrice) > Number(price);
     const isNew = p.isNew || false;
-    const discountPercent = getDiscountPercent(oldPrice, price);
+    const discountPercent = hasFlash
+      ? (p.flashPercent || 0)
+      : getDiscountPercent(oldPrice, price);
 
     const vendorInfo = getProductVendorLabelSync(p);
     const vendorOwner =
@@ -716,6 +733,19 @@ export async function renderProducts() {
       ? `<span class="badge" style="background:var(--info);color:#fff;font-size:0.6rem;padding:0.15rem 0.4rem;border-radius:30px;position:absolute;top:0.5rem;right:0.5rem;z-index:2;">⚙️ Options</span>`
       : "";
 
+    /* Badge vente flash : prioritaire sur le badge promo classique.
+       Affiche -X% + un compte a rebours court (donnees fetchhees). */
+    const flashBadgeHtml = hasFlash
+      ? `<span class="badge flash-badge" data-flash-ends="${escapeHTML(flashEndsAt ? new Date(flashEndsAt).toISOString() : "")}">⚡ -${discountPercent}%</span>`
+      : "";
+
+    /* Prix de reference barre : le prix normal quand une vente flash court,
+       sinon l ancien prix. */
+    const strikePrice = hasFlash ? Number(p.price) : (oldPrice ? Number(oldPrice) : 0);
+    const flashBannerHtml = hasFlash
+      ? `<div class="flash-card-countdown" data-flash-ends="${escapeHTML(flashEndsAt ? new Date(flashEndsAt).toISOString() : "")}">⚡ Vente flash <span class="flash-timer">--:--:--</span></div>`
+      : "";
+
     const r = stats[String(pid)] || { avg: null, count: 0 };
     const hasReviews = r.count > 0;
     const avgRating = hasReviews ? r.avg : "--";
@@ -730,10 +760,13 @@ export async function renderProducts() {
       ? !p.variants.some((v) => (Number(v.stock) || 0) > 0)
       : stock === 0;
 
-    html += ` <div class="product-card" data-id="${escapeHTML( String(pid) )}" data-slug="${escapeHTML(p.slug || "")}"> <div class="product-img"> <img src="${img}" alt="${name}" width="400" height="400" loading="lazy" onerror="this.onerror=null; this.src='${getFallbackImage( name )}'"> <button class="favorite-btn ${ isFav ? "is-fav" : "" }" data-id="${escapeHTML( String(pid) )}" aria-label="${favAriaLabel}">${isFav ? "❤️" : "🤍"}</button> ${optionsBadge} ${ isOutOfStock ? `<span class="badge badge-hot">${t( "outOfStock" )}</span>` : "" } ${ isPromo ? `<span class="badge badge-promo">-${discountPercent}%</span>` : "" } ${ isNew && !isOutOfStock && !isPromo ? `<span class="badge badge-new">${t( "trending" )}</span>` : "" } </div> <div class="product-body"> <div class="p-name">${name}</div> ${vendorBadgeHtml} <div class="p-desc">${desc}</div> <div class="p-stats">⭐ ${avgRating} <span style="color:var(--text-muted)">(${reviewCount})</span></div> <div class="p-footer"> <div class="p-price">${price} ${t("currency")} ${ oldPrice ? `<small>${oldPrice} ${t("currency")}</small>` : "" }</div> ${btnHtml} </div> </div> </div> `;
+    html += ` <div class="product-card${ hasFlash ? " has-flash" : "" }" data-id="${escapeHTML( String(pid) )}" data-slug="${escapeHTML(p.slug || "")}"> <div class="product-img"> <img src="${img}" alt="${name}" width="400" height="400" loading="lazy" onerror="this.onerror=null; this.src='${getFallbackImage( name )}'"> <button class="favorite-btn ${ isFav ? "is-fav" : "" }" data-id="${escapeHTML( String(pid) )}" aria-label="${favAriaLabel}">${isFav ? "❤️" : "🤍"}</button> ${optionsBadge} ${ isOutOfStock ? `<span class="badge badge-hot">${t( "outOfStock" )}</span>` : "" } ${flashBadgeHtml} ${ isPromo ? `<span class="badge badge-promo">-${discountPercent}%</span>` : "" } ${ isNew && !isOutOfStock && !isPromo && !hasFlash ? `<span class="badge badge-new">${t( "trending" )}</span>` : "" } </div> <div class="product-body"> ${flashBannerHtml} <div class="p-name">${name}</div> ${vendorBadgeHtml} <div class="p-desc">${desc}</div> <div class="p-stats">⭐ ${avgRating} <span style="color:var(--text-muted)">(${reviewCount})</span></div> <div class="p-footer"> <div class="p-price${ hasFlash ? " p-price-flash" : "" }">${price} ${t("currency")} ${ strikePrice > 0 ? `<small>${strikePrice} ${t("currency")}</small>` : "" }</div> ${btnHtml} </div> </div> </div> `;
   });
 
   grid.innerHTML = html;
+
+  /* Compte a rebours des ventes flash affichees sur cette page. */
+  startFlashCountdown();
 
   grid.querySelectorAll(".btn-choose-options").forEach((btn) => {
     btn.addEventListener("click", (e) => {

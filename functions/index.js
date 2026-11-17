@@ -3220,6 +3220,26 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
       productUpdates.forEach(u => tx.update(u.ref, u.data));
       tx.set(orderRef, orderData);
 
+      /* ============================================================
+         VENTE FLASH : increment du compteur de ventes
+         ------------------------------------------------------------
+         `soldCount` est un compteur SERVEUR : le client ne peut pas
+         l ecrire (regles Firestore). Il sert au quota `maxQuantity`.
+         Un increment par unite vendue, uniquement pour les ventes
+         reellement appliquees a cette commande.
+         ============================================================ */
+      const flashSalesToIncrement = new Map();
+      for (const item of validatedItems) {
+        if (!item.flashSale || !item.flashSale.saleId) continue;
+        const prev = flashSalesToIncrement.get(item.flashSale.saleId) || 0;
+        flashSalesToIncrement.set(item.flashSale.saleId, prev + Number(item.quantity || 0));
+      }
+      for (const [saleId, qty] of flashSalesToIncrement) {
+        tx.update(db.collection('flash_sales').doc(saleId), {
+          soldCount: FieldValue.increment(qty)
+        });
+      }
+
       // Vue cloisonnÃ©e par vendeur : aucun vendeur ne reÃ§oit les articles
       // des autres boutiques ni les totaux globaux de la commande.
       for (const vendorId of vendorList) {
