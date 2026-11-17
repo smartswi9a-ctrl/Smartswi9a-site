@@ -354,6 +354,175 @@ check("K7c : 10 articles -> plus de place, palier max", () => {
   assert.strictEqual(s.nextTier, null);
 });
 
+/* --------------------------------------------- K8 */
+console.log("\n--- K8 : panier a deux zones (remise volume 5% supprimee) ---");
+
+check("K8a : panier vide -> tout a zero", () => {
+  const z = api.computeCartZones([]);
+  assert.strictEqual(z.classicQty, 0);
+  assert.strictEqual(z.koulchiQty, 0);
+  assert.strictEqual(z.subtotal, 0);
+  assert.strictEqual(z.itemsTotal, 0);
+  assert.strictEqual(z.koulchiValid, false);
+});
+
+check("K8b : 3 articles classiques -> AUCUNE remise de 5%", () => {
+  const z = api.computeCartZones([
+    { mode: null, quantity: 3, classicUnitPrice: 100, koulchiUnitPrice: 90 },
+  ]);
+  assert.strictEqual(z.classicSubtotal, 300);
+  assert.strictEqual(z.koulchiDiscount, 0);
+  assert.strictEqual(z.totalDiscount, 0);
+  assert.strictEqual(z.itemsTotal, 300);
+  assert.strictEqual(
+    Object.prototype.hasOwnProperty.call(z, "volumeDiscount"),
+    false
+  );
+});
+
+check("K8c : zone Koulchi sous le minimum -> prix classique, jamais 0", () => {
+  const z = api.computeCartZones([
+    { mode: "koulchi", quantity: 2, classicUnitPrice: 100, koulchiUnitPrice: 95 },
+  ]);
+  assert.strictEqual(z.koulchiQty, 2);
+  assert.strictEqual(z.koulchiValid, false);
+  assert.strictEqual(z.percent, 0);
+  assert.strictEqual(z.koulchiDiscount, 0);
+  assert.strictEqual(z.koulchiSubtotalRaw, 200);
+  assert.strictEqual(z.koulchiSavings, 0);
+  assert.strictEqual(z.koulchiLines[0].effectiveUnitPrice, 100);
+});
+
+check("K8d : 3 articles Koulchi -> -2% sur le total de la zone", () => {
+  const z = api.computeCartZones([
+    { mode: "koulchi", quantity: 3, classicUnitPrice: 100, koulchiUnitPrice: 95 },
+  ]);
+  assert.strictEqual(z.koulchiValid, true);
+  assert.strictEqual(z.percent, 2);
+  assert.strictEqual(z.koulchiSubtotalRaw, 285);
+  assert.strictEqual(z.koulchiDiscount, 6);
+  assert.strictEqual(z.koulchiSubtotal, 279);
+  assert.strictEqual(z.koulchiSavings, 15);
+  assert.strictEqual(z.itemsTotal, 279);
+});
+
+check("K8e : 6 articles -> -5%, 9 articles -> -10%", () => {
+  const six = api.computeCartZones([
+    { mode: "koulchi", quantity: 6, classicUnitPrice: 100, koulchiUnitPrice: 90 },
+  ]);
+  assert.strictEqual(six.percent, 5);
+  assert.strictEqual(six.koulchiDiscount, 27);
+  const nine = api.computeCartZones([
+    { mode: "koulchi", quantity: 9, classicUnitPrice: 100, koulchiUnitPrice: 90 },
+  ]);
+  assert.strictEqual(nine.percent, 10);
+  assert.strictEqual(nine.koulchiDiscount, 81);
+});
+
+check("K8f : panier mixte -> deux sous-totaux, remise Koulchi seule", () => {
+  const z = api.computeCartZones([
+    { mode: null, quantity: 2, classicUnitPrice: 100, koulchiUnitPrice: 95 },
+    { mode: "koulchi", quantity: 3, classicUnitPrice: 100, koulchiUnitPrice: 95 },
+  ]);
+  assert.strictEqual(z.classicQty, 2);
+  assert.strictEqual(z.koulchiQty, 3);
+  assert.strictEqual(z.totalQty, 5);
+  assert.strictEqual(z.classicSubtotal, 200);
+  assert.strictEqual(z.koulchiSubtotalRaw, 285);
+  assert.strictEqual(z.subtotal, 485);
+  assert.strictEqual(z.koulchiDiscount, 6);
+  assert.strictEqual(z.itemsTotal, 479);
+});
+
+check("K8g : ligne Koulchi sans prix de groupe -> prix classique", () => {
+  const z = api.computeCartZones([
+    { mode: "koulchi", quantity: 3, classicUnitPrice: 100, koulchiUnitPrice: null },
+  ]);
+  assert.strictEqual(z.koulchiValid, true);
+  assert.strictEqual(z.percent, 2);
+  assert.strictEqual(z.koulchiSubtotalRaw, 300);
+  assert.strictEqual(z.koulchiLines[0].koulchiPriceUsable, false);
+  assert.strictEqual(z.koulchiLines[0].effectiveUnitPrice, 100);
+  assert.strictEqual(z.koulchiDiscount, 6);
+});
+
+check("K8h : prix de groupe superieur au prix normal -> refuse", () => {
+  const z = api.computeCartZones([
+    { mode: "koulchi", quantity: 3, classicUnitPrice: 100, koulchiUnitPrice: 120 },
+  ]);
+  assert.strictEqual(z.koulchiLines[0].effectiveUnitPrice, 100);
+  assert.strictEqual(z.koulchiSavings, 0);
+});
+
+check("K8i : 11 articles Koulchi -> zone invalide, prix classique", () => {
+  const z = api.computeCartZones([
+    { mode: "koulchi", quantity: 11, classicUnitPrice: 100, koulchiUnitPrice: 90 },
+  ]);
+  assert.strictEqual(z.koulchiValid, false);
+  assert.strictEqual(z.koulchiDiscount, 0);
+  assert.strictEqual(z.itemsTotal, 1100);
+});
+
+check("K8j : quantite nulle ignoree", () => {
+  const z = api.computeCartZones([
+    { mode: "koulchi", quantity: 0, classicUnitPrice: 100, koulchiUnitPrice: 90 },
+    { mode: null, quantity: 1, classicUnitPrice: 50, koulchiUnitPrice: 40 },
+  ]);
+  assert.strictEqual(z.koulchiQty, 0);
+  assert.strictEqual(z.classicQty, 1);
+  assert.strictEqual(z.subtotal, 50);
+});
+
+check("K8k : message palier 4 articles -> -5% dans 2 articles", () => {
+  const m = api.getKoulchiTierMessage(4, 380);
+  assert.strictEqual(m.currentPercent, 2);
+  assert.strictEqual(m.nextPercent, 5);
+  assert.strictEqual(m.missing, 2);
+  assert.strictEqual(m.gain, 11);
+});
+
+check("K8l : message palier max -> null", () => {
+  assert.strictEqual(api.getKoulchiTierMessage(10, 900), null);
+});
+
+check("K8m : message zone vide -> 3 articles pour -2%", () => {
+  const m = api.getKoulchiTierMessage(0, 0);
+  assert.strictEqual(m.currentPercent, 0);
+  assert.strictEqual(m.nextPercent, 2);
+  assert.strictEqual(m.missing, 3);
+  assert.strictEqual(m.gain, 0);
+});
+
+check("K8n : remise par ligne exacte, derniere ligne absorbe l arrondi", () => {
+  const z = api.computeCartZones([
+    { productId: "a", mode: "koulchi", quantity: 1, classicUnitPrice: 100, koulchiUnitPrice: 99 },
+    { productId: "b", mode: "koulchi", quantity: 1, classicUnitPrice: 100, koulchiUnitPrice: 99 },
+    { productId: "c", mode: "koulchi", quantity: 1, classicUnitPrice: 100, koulchiUnitPrice: 99 },
+  ]);
+  const lines = api.getKoulchiLineDisplay(z.koulchiLines, z.koulchiDiscount);
+  const sum = lines.reduce((s, l) => s + l.lineDiscount, 0);
+  assert.strictEqual(sum, z.koulchiDiscount);
+  assert.strictEqual(lines[0].unitPrice, 99);
+  assert.strictEqual(
+    z.koulchiDiscount - lines[0].lineDiscount - lines[1].lineDiscount,
+    lines[2].lineDiscount
+  );
+});
+
+check("K8o : regle metier unique, aucun cumul volume + Koulchi", () => {
+  const z = api.computeCartZones([
+    { mode: null, quantity: 5, classicUnitPrice: 100, koulchiUnitPrice: 90 },
+    { mode: "koulchi", quantity: 5, classicUnitPrice: 100, koulchiUnitPrice: 90 },
+  ]);
+  assert.strictEqual(z.totalDiscount, z.koulchiDiscount);
+  assert.strictEqual(z.percent, 2);
+  assert.strictEqual(z.classicSubtotal, 500);
+  assert.strictEqual(z.koulchiSubtotalRaw, 450);
+  assert.strictEqual(z.subtotal, 950);
+  assert.strictEqual(z.koulchiDiscount, 9);
+  assert.strictEqual(z.itemsTotal, 941);
+});
+
 /* --------------------------------------------- Resume */
 const pass = results.filter((r) => r.ok).length;
 const fail = results.length - pass;

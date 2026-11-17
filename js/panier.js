@@ -25,15 +25,25 @@ import {
   getCartSubtotal,
   getCartTotalItems,
   getCartSavings,
-  getCartDiscount,
   getCartDeliveryFee,
+  getCartZoneTotals,
   updateCartQuantity,
   removeFromCart,
   clearCart,
   checkout,
   updateCartBadge,
   calculateCouponDiscount,
+  setCartItemMode,
 } from "./cart.js";
+import {
+  KOULCHI_MIN_ITEMS,
+  KOULCHI_MAX_ITEMS,
+  KOULCHI_MAX_PER_PRODUCT,
+  KOULCHI_TIERS,
+  isKoulchiEligible,
+  getKoulchiTierMessage,
+  getKoulchiLineDisplay,
+} from "./koulchi.js";
 import { getCurrentUser } from "./auth.js";
 import { showToast, confirmAction } from "./ui-core.js";
 import { doc, getDoc } from "firebase/firestore";
@@ -229,29 +239,102 @@ function renderEmptyCart() {
 function renderFullCart(cart, products) {
   const totalItems = getCartTotalItems();
   const user = getCurrentUser();
+  const zone = getCartZoneTotals();
 
-  const itemsHtml = cart
-    .map((item) => {
-      const target = String(item.productId);
-      const product = products.find((p) => String(p.id) === target);
-      if (!product) return "";
-      return renderCartItem(product, item.quantity, item);
-    })
+  const classicItems = cart.filter((item) => item.mode !== "koulchi");
+  const koulchiItems = cart.filter((item) => item.mode === "koulchi");
+
+  const classicById = new Map(
+    zone.classicLines.map((line) => [line.itemId, line])
+  );
+  const koulchiDisplay = new Map(
+    getKoulchiLineDisplay(zone.koulchiLines, zone.koulchiDiscount).map(
+      (line) => [line.itemId, line]
+    )
+  );
+
+  const renderItem = (item, display) => {
+    const target = String(item.productId);
+    const product = products.find((p) => String(p.id) === target);
+    if (!product) return "";
+    return renderCartItem(product, item.quantity, item, display, zone);
+  };
+
+  const classicHtml = classicItems
+    .map((item) => renderItem(item, classicById.get(item.id)))
+    .join("");
+  const koulchiHtml = koulchiItems
+    .map((item) => renderItem(item, koulchiDisplay.get(item.id)))
     .join("");
 
-  return ` <div class="cart-page-header"> <h1 class="cart-page-title">${t( "cartTitle" )} <span class="cart-page-count">(${totalItems})</span></h1> </div> <div class="cart-page-grid"> <div class="cart-page-items"> <div class="cart-page-items-header"> <span>${t("cartItems")}</span> <button class="cart-page-clear-btn" data-action="cart:clear">${t( "cartClear" )}</button> </div> ${itemsHtml} <a href="/#produits" class="cart-page-continue-link">← ${t( "cartContinueShopping" )}</a> </div> <div class="cart-page-summary-column"> ${renderForm(user)} ${renderSummary()} <button class="cart-page-checkout-btn" id="cartPageCheckout" style="margin-top: 1.5rem;">${t( "cartCheckout" )}</button> </div> </div> `;
+  const classicBlock =
+    classicItems.length > 0
+      ? `<div class="cart-zone cart-zone--classic">
+          <div class="cart-zone-head">
+            <h2 class="cart-zone-title">${t("koulchiClassicZone")}</h2>
+            <span class="cart-zone-count">${zone.classicQty}</span>
+          </div>
+          ${classicHtml}
+          <div class="cart-zone-total"><span>${t(
+            "cartSubtotalLabel"
+          )}</span><span>${zone.classicSubtotal} MAD</span></div>
+        </div>`
+      : "";
+
+  return `<div class="cart-page-header">
+      <h1 class="cart-page-title">${t("cartTitle")} <span class="cart-page-count">(${totalItems})</span></h1>
+    </div>
+    <div class="cart-page-grid">
+      <div class="cart-page-items">
+        <div class="cart-page-items-header">
+          <span>${t("cartItems")}</span>
+          <button class="cart-page-clear-btn" data-action="cart:clear">${t(
+            "cartClear"
+          )}</button>
+        </div>
+        ${classicBlock}
+        ${renderKoulchiZone(koulchiHtml, zone)}
+        <a href="/#produits" class="cart-page-continue-link">← ${t(
+          "cartContinueShopping"
+        )}</a>
+      </div>
+      <div class="cart-page-summary-column">
+        ${renderForm(user)}
+        ${renderSummary()}
+        <button class="cart-page-checkout-btn" id="cartPageCheckout" style="margin-top: 1.5rem;">${t(
+          "cartCheckout"
+        )}</button>
+      </div>
+    </div>`;
 }
 
-function renderCartItem(product, quantity, item) {
+function renderCartItem(product, quantity, item, display, zone) {
   const pid = normalizeProductId(product.id);
   if (pid == null) return "";
 
   const name = escapeHTML(getProductName(product));
   const img = getProductImageUrl(product);
   const fallback = getFallbackImage(name);
-  const price = item.variant
-    ? Number(item.variant.price)
-    : Number(product.price);
+
+  /* K2 : le prix affiche vient de la zone (classique ou Koulchi), jamais
+     d une valeur stockee dans la ligne du panier. L affichage est donc
+     toujours egal au prix que le serveur facturera. */
+  const isKoulchi = item.mode === "koulchi";
+  const classicPrice = display
+    ? Number(display.classicUnitPrice) || 0
+    : item.variant
+    ? Number(item.variant.price) || 0
+    : Number(product.price) || 0;
+  const price =
+    display && Number.isFinite(Number(display.effectiveUnitPrice))
+      ? Number(display.effectiveUnitPrice)
+      : classicPrice;
+  const lineDiscount = display ? Number(display.lineDiscount) || 0 : 0;
+  const lineTotal =
+    display && Number.isFinite(Number(display.lineTotal))
+      ? Number(display.lineTotal)
+      : price * quantity;
+  const groupPriceActive = isKoulchi && !!display && display.koulchiPriceUsable;
   const oldPrice = Number(product.oldPrice) || 0;
 
   let maxStock = Number(product.stock) || 999;
@@ -265,8 +348,7 @@ function renderCartItem(product, quantity, item) {
     maxStock = v ? Number(v.stock) : 0;
   }
 
-  const isPromo = oldPrice > price && oldPrice > 0;
-  const lineTotal = price * quantity;
+  const isPromo = oldPrice > classicPrice && oldPrice > 0;
   const productUrl = `/produit?slug=${encodeURIComponent(product.slug || "")}`;
 
   let stockHtml =
@@ -286,8 +368,118 @@ function renderCartItem(product, quantity, item) {
     : escapeHTML(product.category || "");
 
   const safeDataId = escapeHTML(String(pid));
+  const safeItemId = escapeHTML(String(item.id || pid));
 
-  return ` <div class="cart-page-item" data-product-id="${safeDataId}"> <a href="${productUrl}" class="cart-page-item-img-link"><img src="${img}" alt="${name}" width="96" height="96" class="cart-page-item-img" onerror="this.onerror=null;this.src='${fallback}'"></a> <div class="cart-page-item-info"> <a href="${productUrl}" class="cart-page-item-name">${name}</a> ${variantText} <div class="cart-page-item-meta"> <span class="cart-item-category">${categoryLabel}</span> ${stockHtml} </div> <div class="cart-page-item-bottom"> <div class="cart-page-item-price"> ${ isPromo ? `<span class="cart-item-old-price">${oldPrice} MAD</span>` : "" } <span class="cart-item-current-price">${price} MAD</span> </div> <div class="cart-page-item-actions"> <button class="cart-page-qty-btn" data-action="cart:decrease" data-id="${safeDataId}">−</button> <input type="number" class="cart-page-qty-input" data-id="${safeDataId}" value="${quantity}" min="1" max="${ maxStock || 999 }"> <button class="cart-page-qty-btn" data-action="cart:increase" data-id="${safeDataId}">+</button> </div> <div class="cart-page-item-linetotal">${lineTotal} MAD</div> <button class="cart-page-remove-btn" data-action="cart:remove" data-id="${safeDataId}">✕</button> </div> </div> </div> `;
+  /* Bascule de zone : le bouton est disponible ou desactive AVANT le clic.
+     Un bouton grise explique la limite ; il n y a pas d erreur apres coup. */
+  let toggleHtml = "";
+  if (isKoulchi) {
+    toggleHtml = `<button type="button" class="cart-koulchi-toggle is-on" data-action="cart:to-classic" data-item-id="${safeItemId}">${t(
+      "koulchiMoveBack"
+    )}</button>`;
+  } else if (!item.variant && isKoulchiEligible(product)) {
+    const blocked = quantity > KOULCHI_MAX_PER_PRODUCT;
+    toggleHtml = `<button type="button" class="cart-koulchi-toggle" data-action="cart:to-koulchi" data-item-id="${safeItemId}"${
+      blocked ? " disabled" : ""
+    } title="${escapeHTML(
+      blocked ? t("koulchiMaxPerProduct") : t("koulchiMoveTo")
+    )}">${t("koulchiMoveTo")}</button>`;
+  }
+
+  return ` <div class="cart-zone-item cart-page-item${ isKoulchi ? " cart-page-item--koulchi" : "" }" data-product-id="${safeDataId}"> <a href="${productUrl}" class="cart-page-item-img-link"><img src="${img}" alt="${name}" width="96" height="96" class="cart-page-item-img" onerror="this.onerror=null;this.src='${fallback}'"></a> <div class="cart-page-item-info"> <a href="${productUrl}" class="cart-page-item-name">${name}</a> ${variantText} <div class="cart-page-item-meta"> <span class="cart-item-category">${categoryLabel}</span> ${stockHtml} </div> <div class="cart-page-item-bottom"> <div class="cart-page-item-price"> ${ groupPriceActive ? `<span class="cart-item-old-price">${classicPrice} MAD</span>` : isPromo ? `<span class="cart-item-old-price">${oldPrice} MAD</span>` : "" } <span class="cart-item-current-price">${price} MAD</span> ${ groupPriceActive ? `<span class="cart-koulchi-badge">Koulchi</span>` : "" } ${ lineDiscount > 0 ? `<span class="cart-koulchi-linediscount">−${lineDiscount} MAD</span>` : "" } </div> <div class="cart-page-item-actions"> <button class="cart-page-qty-btn" data-action="cart:decrease" data-item-id="${safeItemId}">−</button> <input type="number" class="cart-page-qty-input" data-item-id="${safeItemId}" value="${quantity}" min="1" max="${ maxStock || 999 }"> <button class="cart-page-qty-btn" data-action="cart:increase" data-item-id="${safeItemId}"${ isKoulchi && quantity >= KOULCHI_MAX_PER_PRODUCT ? ` disabled title="${escapeHTML(t("koulchiMaxPerProduct"))}"` : isKoulchi && zone && zone.koulchiQty >= KOULCHI_MAX_ITEMS ? ` disabled title="${escapeHTML(t("koulchiMaxItems"))}"` : "" }>+</button> </div> ${toggleHtml} <div class="cart-page-item-linetotal">${lineTotal} MAD</div> <button class="cart-page-remove-btn" data-action="cart:remove" data-item-id="${safeItemId}">✕</button> </div> </div> </div> `;
+}
+
+/* ============================================================ ZONE KOULCHI DIALK ============================================================ */
+
+/**
+ * Panneau de la zone groupe.
+ * Affiche les paliers, l avancement, le message d incitation et le
+ * detail des deux sous-totaux. Les limites sont expliquees AVANT le
+ * clic (boutons grises), jamais sous forme d erreur apres coup.
+ *
+ * @param {string} itemsHtml lignes deja rendues
+ * @param {object} zone resultat de getCartZoneTotals()
+ * @returns {string}
+ */
+function renderKoulchiZone(itemsHtml, zone) {
+  const qty = zone.koulchiQty;
+  const isActive = zone.koulchiValid;
+  const tierMsg = getKoulchiTierMessage(qty, zone.koulchiSubtotalRaw);
+
+  const tiers = KOULCHI_TIERS.slice()
+    .sort((a, b) => a.min - b.min)
+    .map((tier) => {
+      const reached = qty >= tier.min;
+      return `<li class="koulchi-tier${reached ? " is-reached" : ""}">
+          <span class="koulchi-tier-min">${tier.min}</span>
+          <span class="koulchi-tier-pct">−${tier.percent} %</span>
+        </li>`;
+    })
+    .join("");
+
+  let statusHtml = "";
+  if (qty === 0) {
+    statusHtml = `<p class="koulchi-status">${t("koulchiZoneEmpty")}</p>`;
+  } else if (!isActive) {
+    const missing = Math.max(0, KOULCHI_MIN_ITEMS - qty);
+    const nextPercent = tierMsg ? tierMsg.nextPercent : 2;
+    statusHtml = `<p class="koulchi-status is-warn">${t("koulchiMissing")
+      .replace("{n}", missing)
+      .replace("{p}", nextPercent)}</p>
+      <p class="koulchi-note">${t("koulchiNotActiveYet")}</p>`;
+  } else if (tierMsg) {
+    const gainText =
+      tierMsg.gain > 0
+        ? ` ${t("koulchiGain").replace("{g}", tierMsg.gain)}`
+        : "";
+    statusHtml = `<p class="koulchi-status is-ok">${t("koulchiNextTier")
+      .replace("{n}", tierMsg.missing)
+      .replace("{p}", tierMsg.nextPercent)}${gainText}</p>`;
+  } else {
+    statusHtml = `<p class="koulchi-status is-max">${t("koulchiMaxReached")}</p>`;
+  }
+
+  const totalsHtml =
+    qty > 0
+      ? `<div class="koulchi-totals">
+          <div class="koulchi-total-row"><span>${t(
+            "cartSubtotalLabel"
+          )}</span><span>${zone.koulchiSubtotalRaw} MAD</span></div>
+          ${
+            zone.koulchiDiscount > 0
+              ? `<div class="koulchi-total-row is-discount"><span>${t(
+                  "koulchiDiscountLabel"
+                ).replace("{p}", zone.percent)}</span><span>−${
+                  zone.koulchiDiscount
+                } MAD</span></div>`
+              : ""
+          }
+          ${
+            zone.koulchiSavings > 0
+              ? `<div class="koulchi-total-row is-saving"><span>${t(
+                  "koulchiSavingsLabel"
+                )}</span><span>−${zone.koulchiSavings} MAD</span></div>`
+              : ""
+          }
+          <div class="koulchi-total-row is-total"><span>${t(
+            "koulchiZoneTotal"
+          )}</span><span>${zone.koulchiSubtotal} MAD</span></div>
+        </div>`
+      : "";
+
+  return `<div class="cart-zone cart-zone--koulchi${
+    isActive ? " is-active" : ""
+  }">
+      <div class="cart-zone-head">
+        <h2 class="cart-zone-title">${t("koulchiZoneTitle")}</h2>
+        <span class="cart-zone-count">${qty}/${KOULCHI_MAX_ITEMS}</span>
+      </div>
+      <p class="koulchi-subtitle">${t("koulchiZoneSubtitle")}</p>
+      <ul class="koulchi-tiers">${tiers}</ul>
+      ${statusHtml}
+      ${itemsHtml ? `<div class="koulchi-items">${itemsHtml}</div>` : ""}
+      ${totalsHtml}
+    </div>`;
 }
 
 /* ============================================================ COUPON & RÉCAPITULATIF ============================================================ */
@@ -300,9 +492,10 @@ function renderCouponBlock() {
 }
 
 function renderSummary() {
-  const subtotal = getCartSubtotal();
+  const zone = getCartZoneTotals();
+  const subtotal = zone.subtotal;
   const savings = getCartSavings();
-  const volumeDiscount = getCartDiscount();
+  const koulchiDiscount = zone.koulchiDiscount;
   const deliveryFee = getCartDeliveryFee();
   const selectedCity = getSelectedCity();
 
@@ -314,10 +507,10 @@ function renderSummary() {
     saveAppliedCoupon();
   }
 
-  const totalDiscount = Math.min(volumeDiscount + couponDiscount, subtotal);
+  const totalDiscount = Math.min(koulchiDiscount + couponDiscount, subtotal);
   const total = Math.max(0, subtotal - totalDiscount + deliveryFee);
 
-  return ` <div class="cart-page-summary"> <h3 class="cart-page-summary-title">${t("cartSummary")}</h3> ${renderCouponBlock()} <div class="cart-page-summary-row"><span>${t( "cartSubtotalLabel" )}</span><span>${subtotal} MAD</span></div> ${ savings > 0 ? `<div class="cart-page-summary-row savings"><span>${t( "savingsLabel" )}</span><span>−${savings} MAD</span></div>` : "" } ${ volumeDiscount > 0 ? `<div class="cart-page-summary-row discount"><span>${t( "discountLabel" )}</span><span>−${volumeDiscount} MAD</span></div>` : "" } ${ couponDiscount > 0 ? `<div class="cart-page-summary-row discount"><span>${appliedCoupon.code}</span><span>−${couponDiscount} MAD</span></div>` : "" } <div class="cart-page-summary-row"> <span>${t("cartDeliveryLabel")}${renderDeliveryDelay(selectedCity)}</span> <span class="cart-delivery-value ${ selectedCity ? "" : "pending" }"> ${selectedCity ? `${deliveryFee} MAD` : t("cartSelectCity")} </span> </div> <div class="cart-page-summary-divider"></div> <div class="cart-page-summary-total"><span>${t( "cartTotalLabel" )}</span><span class="cart-page-total-value">${total} MAD</span></div> </div> `;
+  return ` <div class="cart-page-summary"> <h3 class="cart-page-summary-title">${t("cartSummary")}</h3> ${renderCouponBlock()} <div class="cart-page-summary-row"><span>${t( "cartSubtotalLabel" )}</span><span>${subtotal} MAD</span></div> ${ zone.koulchiQty > 0 ? `<div class="cart-page-summary-row koulchi-subrow"><span>${t( "koulchiSummaryDetail" ).replace("{n}", zone.koulchiQty).replace("{p}", zone.percent)}</span><span>${zone.koulchiSubtotal} MAD</span></div>` : "" } ${ savings > 0 ? `<div class="cart-page-summary-row savings"><span>${t( "savingsLabel" )}</span><span>−${savings} MAD</span></div>` : "" } ${ koulchiDiscount > 0 ? `<div class="cart-page-summary-row discount koulchi-summary-row"><span>${t( "koulchiDiscountLabel" ).replace("{p}", zone.percent)}</span><span>−${koulchiDiscount} MAD</span></div>` : "" } ${ couponDiscount > 0 ? `<div class="cart-page-summary-row discount"><span>${appliedCoupon.code}</span><span>−${couponDiscount} MAD</span></div>` : "" } <div class="cart-page-summary-row"> <span>${t("cartDeliveryLabel")}${renderDeliveryDelay(selectedCity)}</span> <span class="cart-delivery-value ${ selectedCity ? "" : "pending" }"> ${selectedCity ? `${deliveryFee} MAD` : t("cartSelectCity")} </span> </div> <div class="cart-page-summary-divider"></div> <div class="cart-page-summary-total"><span>${t( "cartTotalLabel" )}</span><span class="cart-page-total-value">${total} MAD</span></div> </div> `;
 }
 
 /* ============================================================
@@ -356,13 +549,13 @@ function refreshSummaryTotals() {
   }
 
   if (totalEl) {
-    const subtotal = getCartSubtotal();
-    const volumeDiscount = getCartDiscount();
+    const zone = getCartZoneTotals();
+    const subtotal = zone.subtotal;
     const deliveryFee = getCartDeliveryFee();
     const couponDiscount = appliedCoupon
       ? calculateCouponDiscount(appliedCoupon, subtotal, deliveryFee)
       : 0;
-    const totalDiscount = Math.min(volumeDiscount + couponDiscount, subtotal);
+    const totalDiscount = Math.min(zone.koulchiDiscount + couponDiscount, subtotal);
     totalEl.textContent = `${Math.max( 0, subtotal - totalDiscount + deliveryFee )} MAD`;
   }
 
@@ -566,16 +759,14 @@ function attachFullCartEvents() {
 
   container.querySelectorAll('[data-action="cart:increase"]').forEach((btn) => {
     btn.addEventListener("click", () => {
-      const id = btn.dataset.id;
-      const item = getCart().find((i) => String(i.productId) === String(id));
+      const item = getCart().find((i) => i.id === btn.dataset.itemId);
       if (item) updateCartQuantity(item.id, item.quantity + 1);
     });
   });
 
   container.querySelectorAll('[data-action="cart:decrease"]').forEach((btn) => {
     btn.addEventListener("click", () => {
-      const id = btn.dataset.id;
-      const item = getCart().find((i) => String(i.productId) === String(id));
+      const item = getCart().find((i) => i.id === btn.dataset.itemId);
       if (item && item.quantity > 1)
         updateCartQuantity(item.id, item.quantity - 1);
     });
@@ -585,20 +776,45 @@ function attachFullCartEvents() {
     input.addEventListener("change", () => {
       let val = parseInt(input.value) || 1;
       if (val < 1) val = 1;
-      const id = input.dataset.id;
-      const item = getCart().find((i) => String(i.productId) === String(id));
+      const item = getCart().find((i) => i.id === input.dataset.itemId);
       if (item) updateCartQuantity(item.id, val);
     });
   });
 
   container.querySelectorAll('[data-action="cart:remove"]').forEach((btn) => {
     btn.addEventListener("click", () => {
-      const id = btn.dataset.id;
-      const item = getCart().find((i) => String(i.productId) === String(id));
+      const item = getCart().find((i) => i.id === btn.dataset.itemId);
       if (item) {
         removeFromCart(item.id);
         showToast("Article retiré");
       }
+    });
+  });
+
+  /* K2 : bascule entre les deux zones. Le refus est explique, il ne
+     remplace jamais un bouton grise mais couvre un etat concurrent
+     (autre onglet, stock, limites atteintes entre deux rendus). */
+  container.querySelectorAll('[data-action="cart:to-koulchi"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const result = setCartItemMode(btn.dataset.itemId, "koulchi");
+      if (result.success) return;
+      const reasonKey =
+        result.reason === "maxItems"
+          ? "koulchiMaxItems"
+          : result.reason === "maxPerProduct"
+          ? "koulchiMaxPerProduct"
+          : result.reason === "variant"
+          ? "koulchiVariantExcluded"
+          : result.reason === "notEligible"
+          ? "koulchiNotEligible"
+          : "koulchiZoneEmpty";
+      showToast(t(reasonKey));
+    });
+  });
+
+  container.querySelectorAll('[data-action="cart:to-classic"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      setCartItemMode(btn.dataset.itemId, "classic");
     });
   });
 

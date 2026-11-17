@@ -35,8 +35,10 @@ export const CONFIG = {
         EMAIL: 'smartswi9a@gmail.com',
         URL: 'https://smartswika.ma',
         CURRENCY: 'MAD',
-        DISCOUNT_THRESHOLD: 3,
-        DISCOUNT_PERCENT: 5,
+        /* K2 : la remise volume de 5 % a 3 articles est SUPPRIMEE du site.
+           Le bareme commercial est desormais celui de Koulchi dialk :
+           2 % / 5 % / 10 % par paliers (js/koulchi.js). Ne pas reintroduire
+           de seuil de remise globale ici. */
         FREE_DELIVERY_THRESHOLD: 0,
         DELIVERY_FEE_BASE: 30,
         DELIVERY_FEE_PER_VENDOR_EXTRA: 0,

@@ -34,6 +34,11 @@ import {
 import { getCurrentUser } from "./auth.js";
 import { showToast } from "./ui-core.js";
 import { normalizeProductId } from "./domain/product-id.js";
+import {
+  computeCartZones,
+  canAddToKoulchi,
+  isKoulchiEligible,
+} from "./koulchi.js";
 
 /* ============================================================ NORMALISATION D'ID PRODUIT ============================================================ */
 
@@ -71,6 +76,7 @@ function consolidateOrderItems(items) {
       String(productId),
       variant?.size || "",
       variant?.color || "",
+      item.mode === "koulchi" ? "koulchi" : "",
     ]);
     const quantity = Math.floor(Number(item.quantity));
     if (!Number.isFinite(quantity) || quantity < 1) continue;
@@ -112,6 +118,7 @@ export function loadCart() {
           productId: normalizedPid,
           quantity: Math.max(1, Math.floor(Number(item.quantity))),
           variant: item.variant || null,
+          mode: item.mode === "koulchi" ? "koulchi" : null,
         };
       });
     setCart(cart);
@@ -224,6 +231,10 @@ function mergeCarts(localCart, firestoreCart) {
         merged[existingIdx].quantity,
         qty
       );
+      /* K2 : la zone Koulchi est une intention utilisateur : une synchro
+         ne doit jamais la faire disparaitre. On ne retrograde donc jamais
+         une ligne vers le classique pendant la fusion. */
+      if (fi.mode === "koulchi") merged[existingIdx].mode = "koulchi";
     } else {
       const normalizedPid = normalizeProductId(fi.productId);
       merged.push({
@@ -231,6 +242,7 @@ function mergeCarts(localCart, firestoreCart) {
         productId: normalizedPid,
         variant: fi.variant || null,
         quantity: qty,
+        mode: fi.mode === "koulchi" ? "koulchi" : null,
       });
     }
   });
@@ -475,20 +487,105 @@ export function updateCartQuantity(itemId, quantity) {
   saveCart();
 }
 
+/* ============================================================ ZONES DU PANIER (K2) ============================================================ */
+
+/**
+ * Bascule une ligne entre la zone classique et la zone Koulchi.
+ * Les garde-fous du panier groupe sont appliques ICI, avant le clic :
+ * le bouton est desactive avant, aucun message d erreur apres coup.
+ *
+ * @param {string} itemId identifiant de la ligne (item.id, pas productId)
+ * @param {string} mode "koulchi" ou "classic"
+ * @returns {{success:boolean, reason?:string, maxAddable?:number}}
+ */
+export function setCartItemMode(itemId, mode) {
+  const item = cart.find((i) => i.id === itemId);
+  if (!item) return { success: false, reason: "notFound" };
+
+  const nextMode = mode === "koulchi" ? "koulchi" : null;
+  if (!nextMode) {
+    delete item.mode;
+    saveCart();
+    return { success: true };
+  }
+
+  const product = getProducts().find(
+    (p) => String(p.id) === String(item.productId)
+  );
+  if (!product) return { success: false, reason: "notFound" };
+  /* Prix de groupe = prix produit : pas de variante, pas de Koulchi. */
+  if (item.variant) return { success: false, reason: "variant" };
+  if (!isKoulchiEligible(product)) {
+    return { success: false, reason: "notEligible" };
+  }
+
+  const others = buildZoneLines()
+    .filter((line) => line.mode === "koulchi" && line.itemId !== itemId)
+    .map((line) => ({ productId: line.productId, quantity: line.quantity }));
+  const check = canAddToKoulchi(others, item.productId, item.quantity);
+  if (!check.allowed) {
+    return {
+      success: false,
+      reason: check.reason,
+      maxAddable: check.maxAddable,
+    };
+  }
+
+  item.mode = "koulchi";
+  saveCart();
+  return { success: true };
+}
+
 /* ============================================================ CALCULS DU PANIER ============================================================ */
-export function getCartSubtotal() {
+
+/* K2 : un seul panier, deux zones.
+   La remise volume de 5 % a 3 articles a ete SUPPRIMEE du site : elle est
+   remplacee par les paliers Koulchi (2 % / 5 % / 10 %). Les prix unitaires
+   sont toujours recalcules depuis le catalogue, jamais lus dans la ligne. */
+
+/* Construit les lignes des deux zones a partir du panier courant. */
+function buildZoneLines() {
   const products = getProducts();
-  return cart.reduce((sum, item) => {
+  const lines = [];
+  for (const item of cart) {
     const p = products.find((pp) => String(pp.id) === String(item.productId));
-    if (!p) return sum;
+    if (!p) continue;
     /* Vente flash : le prix remise s applique aux produits sans variante.
        Les articles avec variante gardent le prix de la declinaison (la
        vente flash porte sur le produit, pas sur une variante precise). */
-    const price = item.variant
-      ? Number(item.variant.price)
-      : (Number.isFinite(p.flashPrice) && p.flashPrice > 0 ? p.flashPrice : (Number(p.price) || 0));
-    return sum + price * item.quantity;
-  }, 0);
+    const classicUnitPrice = item.variant
+      ? Number(item.variant.price) || 0
+      : Number.isFinite(p.flashPrice) && p.flashPrice > 0
+      ? p.flashPrice
+      : Number(p.price) || 0;
+    /* Le prix de groupe est un prix PRODUIT : les variantes en sont exclues
+       tant qu aucun prix de groupe par variante n existe. Fail-open : sans
+       prix valide, la ligne reste facturee au prix classique. */
+    const koulchiUnitPrice = item.variant ? null : p.koulchiPrice;
+    lines.push({
+      itemId: item.id,
+      productId: item.productId,
+      quantity: item.quantity,
+      mode: item.mode === "koulchi" ? "koulchi" : null,
+      classicUnitPrice,
+      koulchiUnitPrice,
+      variant: item.variant || null,
+    });
+  }
+  return lines;
+}
+
+/**
+ * Totaux des deux zones (classique + Koulchi).
+ * Source unique de verite pour l affichage et le recapitulatif.
+ * @returns {object}
+ */
+export function getCartZoneTotals() {
+  return computeCartZones(buildZoneLines());
+}
+
+export function getCartSubtotal() {
+  return getCartZoneTotals().subtotal;
 }
 
 export function getCartTotalItems() {
@@ -507,11 +604,14 @@ export function getCartSavings() {
   }, 0);
 }
 
+/**
+ * Remise totale sur les articles.
+ * K2 : la remise volume de 5 % a ete supprimee. Seule la remise de
+ * palier Koulchi subsiste, et uniquement sur la zone groupe.
+ * @returns {number}
+ */
 export function getCartDiscount() {
-  if (getCartTotalItems() >= CONFIG.SHOP.DISCOUNT_THRESHOLD) {
-    return Math.round(getCartSubtotal() * (CONFIG.SHOP.DISCOUNT_PERCENT / 100));
-  }
-  return 0;
+  return getCartZoneTotals().koulchiDiscount;
 }
 
 export function getCartDeliveryFee() {
@@ -723,11 +823,17 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
     if (!firebaseUser) return { success: false, error: "NO_USER" };
     const idToken = await firebaseUser.getIdToken();
     const requestBody = {
+      /* K2 : contrat de tarification explicite. Tant que le serveur ne
+         connait pas cette version, il applique l ancien bareme (5 %) ;
+         des qu il la connait, il applique les paliers Koulchi et ignore
+         la remise volume. Aucune fenetre de desaccord de prix. */
+      pricingVersion: 2,
       items: normalizedItems.map((item) => ({
         id: String(item.id),
         productId: String(item.productId),
         quantity: Number(item.quantity),
         variant: item.variant || null,
+        mode: item.mode === "koulchi" ? "koulchi" : null,
       })),
       deliveryInfo: {
         name: String(deliveryInfo?.name || ""),
@@ -857,7 +963,7 @@ function buildWhatsAppMessage(validatedItems, deliveryInfo, orderId, totals) {
   msg += `\n*${t("waItems")} :*\n${productList}\n\n`;
   msg += `${t("waSubtotal")} : ${totals.subtotal} MAD\n`;
   if (totals.discount > 0)
-    msg += `${t("waDiscount")} (-${CONFIG.SHOP.DISCOUNT_PERCENT}%) : -${ totals.discount } MAD\n`;
+    msg += `${t("waDiscount")} : -${ totals.discount } MAD\n`;
   if (totals.couponCode && totals.couponDiscount > 0)
     msg += `Code ${totals.couponCode} : -${totals.couponDiscount} MAD\n`;
   msg += `${t("waDelivery")} : ${totals.deliveryFee} MAD\n*${t("waTotal")} : ${ totals.total } MAD*\n\n${t("waThanks")}`;

@@ -288,3 +288,155 @@ export function getKoulchiState(lines) {
     remainingSlots: Math.max(0, KOULCHI_MAX_ITEMS - totals.itemCount),
   };
 }
+
+/* ---------------------------------------------
+   Panier a deux zones (K2)
+   --------------------------------------------- */
+
+/**
+ * Totaux d un panier a deux zones : classique + Koulchi.
+ *
+ * ENTREE : lignes
+ *   mode              "koulchi" pour la zone groupe, sinon classique
+ *   quantity          quantite de la ligne
+ *   classicUnitPrice  prix reellement facture hors Koulchi
+ *   koulchiUnitPrice  prix de groupe, ou null si le produit n en a pas
+ *
+ * REGLES
+ *   - la remise volume de 5 % a ete SUPPRIMEE du site : elle est
+ *     remplacee par les paliers Koulchi 2 % / 5 % / 10 % ;
+ *   - une zone Koulchi sous le minimum ou au-dessus du maximum est
+ *     facturee au prix classique : aucun prix ne devient 0 ;
+ *   - une ligne Koulchi sans prix de groupe valide est facturee au
+ *     prix classique (fail-open) ;
+ *   - un seul arrondi, sur le total de la zone.
+ *
+ * @param {Array} lines
+ * @returns {object}
+ */
+export function computeCartZones(lines) {
+  const list = Array.isArray(lines) ? lines : [];
+  const classicLines = [];
+  const koulchiSource = [];
+
+  for (const line of list) {
+    if (!line) continue;
+    const qty = Math.max(0, Math.floor(Number(line.quantity) || 0));
+    if (qty <= 0) continue;
+    const classicPrice = Math.max(0, Number(line.classicUnitPrice) || 0);
+    if (String(line.mode || "") === "koulchi") {
+      koulchiSource.push({ line, qty, classicPrice });
+    } else {
+      classicLines.push({
+        ...line,
+        quantity: qty,
+        effectiveUnitPrice: classicPrice,
+        koulchiPriceUsable: false,
+      });
+    }
+  }
+
+  const classicQty = classicLines.reduce((sum, line) => sum + line.quantity, 0);
+  const koulchiQty = koulchiSource.reduce((sum, entry) => sum + entry.qty, 0);
+  const koulchiValid =
+    koulchiQty >= KOULCHI_MIN_ITEMS && koulchiQty <= KOULCHI_MAX_ITEMS;
+
+  const koulchiLines = koulchiSource.map(({ line, qty, classicPrice }) => {
+    const groupPrice = Number(line.koulchiUnitPrice);
+    const usable =
+      koulchiValid && isValidKoulchiPrice(groupPrice, classicPrice);
+    return {
+      ...line,
+      quantity: qty,
+      effectiveUnitPrice: usable ? groupPrice : classicPrice,
+      koulchiPriceUsable: usable,
+    };
+  });
+
+  const totals = computeKoulchiTotals(
+    koulchiLines.map((line) => ({
+      quantity: line.quantity,
+      unitPrice: line.effectiveUnitPrice,
+    }))
+  );
+
+  const classicSubtotal = classicLines.reduce(
+    (sum, line) => sum + line.effectiveUnitPrice * line.quantity,
+    0
+  );
+  const koulchiSubtotalRaw = totals.subtotal;
+  const percent = koulchiValid ? totals.percent : 0;
+  const koulchiDiscount = koulchiValid ? totals.discount : 0;
+  const koulchiSubtotal = Math.max(0, koulchiSubtotalRaw - koulchiDiscount);
+  const koulchiSavings = koulchiLines.reduce((sum, line) => {
+    if (!line.koulchiPriceUsable) return sum;
+    const classicPrice = Math.max(0, Number(line.classicUnitPrice) || 0);
+    return sum + (classicPrice - line.effectiveUnitPrice) * line.quantity;
+  }, 0);
+
+  return {
+    classicQty,
+    koulchiQty,
+    totalQty: classicQty + koulchiQty,
+    koulchiValid,
+    percent,
+    nextTier: getNextKoulchiTier(koulchiQty),
+    classicSubtotal,
+    koulchiSubtotalRaw,
+    koulchiDiscount,
+    koulchiSubtotal,
+    koulchiSavings,
+    subtotal: classicSubtotal + koulchiSubtotalRaw,
+    totalDiscount: koulchiDiscount,
+    itemsTotal: Math.max(0, classicSubtotal + koulchiSubtotalRaw - koulchiDiscount),
+    classicLines,
+    koulchiLines,
+  };
+}
+
+/**
+ * Message d incitation pour le prochain palier.
+ * Le gain est estime sur le panier Koulchi ACTUEL : il ne promet jamais
+ * un montant calcule sur des articles qui ne sont pas encore ajoutes.
+ *
+ * @param {number} itemCount
+ * @param {number} subtotalRaw sous-total Koulchi avant remise
+ * @returns {{currentPercent:number,nextPercent:number,missing:number,gain:number}|null}
+ */
+export function getKoulchiTierMessage(itemCount, subtotalRaw) {
+  const n = Math.max(0, Math.floor(Number(itemCount) || 0));
+  const subtotal = Math.max(0, Number(subtotalRaw) || 0);
+  const next = getNextKoulchiTier(n);
+  if (!next) return null;
+  const currentPercent = getKoulchiPercent(n);
+  const gain =
+    next.percent > currentPercent
+      ? Math.round((subtotal * (next.percent - currentPercent)) / 100)
+      : 0;
+  return {
+    currentPercent,
+    nextPercent: next.percent,
+    missing: next.missing,
+    gain,
+  };
+}
+
+/**
+ * Remise par ligne pour l affichage.
+ * L entree attend des lignes portant effectiveUnitPrice ; la derniere
+ * ligne absorbe l arrondi pour que la somme reste exacte.
+ *
+ * @param {Array} lines lignes Koulchi calculees par computeCartZones
+ * @param {number} discountTotal remise de la zone
+ * @returns {Array}
+ */
+export function getKoulchiLineDisplay(lines, discountTotal) {
+  const list = Array.isArray(lines) ? lines : [];
+  return distributeKoulchiDiscount(
+    list.map((line) => ({
+      ...line,
+      unitPrice: Math.max(0, Number(line && line.effectiveUnitPrice) || 0),
+    })),
+    discountTotal
+  );
+}
