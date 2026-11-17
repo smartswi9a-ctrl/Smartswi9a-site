@@ -380,7 +380,7 @@ export async function resendVerificationEmail() {
     } catch (error) {
         logAuthError("resendVerificationEmail", error);
         if (error.code === "auth/too-many-requests") {
-            showToast("Trop de demandes, attendez quelques minutes");
+            showToast(t("tooManyRequests"));
         } else {
             showToast(t("error"));
         }
@@ -556,7 +556,7 @@ export async function requestPasswordReset(email) {
 
 export async function updateUserPassword(newPassword) {
     const user = auth.currentUser;
-    if (!user) throw new Error("Aucun utilisateur connecté");
+    if (!user) throw new Error(t("authNoUser"));
     await updatePassword(user, newPassword);
 }
 
