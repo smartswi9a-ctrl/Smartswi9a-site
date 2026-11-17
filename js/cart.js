@@ -37,6 +37,7 @@ import { normalizeProductId } from "./domain/product-id.js";
 import {
   computeCartZones,
   canAddToKoulchi,
+  canAddProductToKoulchi,
   isKoulchiEligible,
 } from "./koulchi.js";
 
@@ -335,7 +336,8 @@ export function updateCartBadge() {
 }
 
 /* ============================================================ AJOUTER AU PANIER ============================================================ */
-export async function addToCart(productId, variant = null) {
+export async function addToCart(productId, variant = null, options = {}) {
+  const mode = options && options.mode === "koulchi" ? "koulchi" : null;
   const user = getCurrentUser();
   if (!user) {
     showToast("🔒 " + t("loginRequired"));
@@ -393,6 +395,27 @@ export async function addToCart(productId, variant = null) {
     : Number(product.price) || 0;
   const itemId = generateItemId(pid, validVariant);
 
+  /* K4 : ajout depuis la fiche produit vers la zone groupe.
+     Toutes les bornes sont verifiees AVANT de toucher au panier. */
+  if (mode === "koulchi") {
+    const others = buildZoneLines()
+      .filter((line) => line.mode === "koulchi" && line.itemId !== itemId)
+      .map((line) => ({ productId: line.productId, quantity: line.quantity }));
+    const check = canAddProductToKoulchi(others, product, 1);
+    if (!check.allowed) {
+      const reasonKey =
+        check.reason === "maxItems"
+          ? "koulchiMaxItems"
+          : check.reason === "maxPerProduct"
+          ? "koulchiMaxPerProduct"
+          : check.reason === "variant"
+          ? "koulchiVariantExcluded"
+          : "koulchiNotEligible";
+      showToast(t(reasonKey));
+      return { success: false, reason: check.reason };
+    }
+  }
+
   const existing = cart.find((i) => i.id === itemId);
   const currentQty = existing ? existing.quantity : 0;
   const newQty = currentQty + 1;
@@ -408,6 +431,8 @@ export async function addToCart(productId, variant = null) {
 
   if (existing) {
     existing.quantity = newQty;
+    /* Une ligne = une zone : un ajout Koulchi bascule la ligne. */
+    if (mode === "koulchi") existing.mode = "koulchi";
   } else {
     cart.push({
       id: itemId,
@@ -420,11 +445,13 @@ export async function addToCart(productId, variant = null) {
           }
         : null,
       quantity: 1,
+      mode,
     });
   }
 
   saveCart();
-  showToast(t("addedToCart"));
+  showToast(t(mode === "koulchi" ? "koulchiAdded" : "addedToCart"));
+  return { success: true };
 }
 
 /* ============================================================ RETIRER / VIDER / QUANTITÉ ============================================================ */

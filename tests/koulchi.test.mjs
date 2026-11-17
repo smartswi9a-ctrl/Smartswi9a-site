@@ -523,6 +523,60 @@ check("K8o : regle metier unique, aucun cumul volume + Koulchi", () => {
   assert.strictEqual(z.itemsTotal, 941);
 });
 
+/* --------------------------------------------- K9 */
+console.log("\n--- K9 : ajout d un produit a la zone Koulchi ---");
+
+check("K9a : produit eligible, panier vide -> autorise", () => {
+  const r = api.canAddProductToKoulchi([], { id: "p1", price: 199, koulchiPrice: 189 }, 1);
+  assert.strictEqual(r.allowed, true);
+  assert.strictEqual(r.reason, null);
+});
+
+check("K9b : produit sans prix de groupe -> refuse", () => {
+  const r = api.canAddProductToKoulchi([], { id: "p1", price: 199 }, 1);
+  assert.strictEqual(r.allowed, false);
+  assert.strictEqual(r.reason, "notEligible");
+});
+
+check("K9c : produit a variantes -> refuse", () => {
+  const r = api.canAddProductToKoulchi(
+    [],
+    { id: "p1", price: 199, koulchiPrice: 189, variants: [{ size: "M", color: "noir" }] },
+    1
+  );
+  assert.strictEqual(r.allowed, false);
+  assert.strictEqual(r.reason, "variant");
+});
+
+check("K9d : 3 exemplaires deja presents -> refuse maxPerProduct", () => {
+  const r = api.canAddProductToKoulchi(
+    [{ productId: "p1", quantity: 3 }],
+    { id: "p1", price: 199, koulchiPrice: 189 },
+    1
+  );
+  assert.strictEqual(r.allowed, false);
+  assert.strictEqual(r.reason, "maxPerProduct");
+  assert.strictEqual(r.maxAddable, 0);
+});
+
+check("K9e : 10 articles au total -> refuse maxItems", () => {
+  const lines = [
+    { productId: "a", quantity: 3 },
+    { productId: "b", quantity: 3 },
+    { productId: "c", quantity: 3 },
+    { productId: "d", quantity: 1 },
+  ];
+  const r = api.canAddProductToKoulchi(lines, { id: "p1", price: 199, koulchiPrice: 189 }, 1);
+  assert.strictEqual(r.allowed, false);
+  assert.strictEqual(r.reason, "maxItems");
+});
+
+check("K9f : produit null -> refuse sans exception", () => {
+  const r = api.canAddProductToKoulchi([], null, 1);
+  assert.strictEqual(r.allowed, false);
+  assert.strictEqual(r.reason, "invalid");
+});
+
 /* --------------------------------------------- Resume */
 const pass = results.filter((r) => r.ok).length;
 const fail = results.length - pass;

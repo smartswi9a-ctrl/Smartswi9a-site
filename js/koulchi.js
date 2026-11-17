@@ -422,6 +422,29 @@ export function getKoulchiTierMessage(itemCount, subtotalRaw) {
 }
 
 /**
+ * Peut-on ajouter ce PRODUIT a la zone Koulchi ?
+ * Regroupe les trois conditions metier en un seul point :
+ *   - le produit doit porter un prix de groupe valide ;
+ *   - les produits a variantes en sont exclus (prix produit) ;
+ *   - les bornes 3/produit et 10/panier s appliquent.
+ *
+ * @param {Array} lines lignes Koulchi deja presentes
+ * @param {object} product produit du catalogue
+ * @param {number} qty quantite a ajouter
+ * @returns {{allowed:boolean, reason:string|null, maxAddable:number}}
+ */
+export function canAddProductToKoulchi(lines, product, qty = 1) {
+  if (!product) return { allowed: false, reason: "invalid", maxAddable: 0 };
+  if (Array.isArray(product.variants) && product.variants.length > 0) {
+    return { allowed: false, reason: "variant", maxAddable: 0 };
+  }
+  if (!isKoulchiEligible(product)) {
+    return { allowed: false, reason: "notEligible", maxAddable: 0 };
+  }
+  return canAddToKoulchi(lines, product.id, qty);
+}
+
+/**
  * Remise par ligne pour l affichage.
  * L entree attend des lignes portant effectiveUnitPrice ; la derniere
  * ligne absorbe l arrondi pour que la somme reste exacte.
