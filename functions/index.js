@@ -351,6 +351,32 @@ function applyServerFlashPrice(price, sale, nowMs = Date.now()) {
   return { finalPrice, discount, percent };
 }
 
+/* ============================================================
+   KOULCHI DIALK (K3) - BAREME SERVEUR
+   ------------------------------------------------------------
+   Doit rester IDENTIQUE a js/koulchi.js (source de verite client).
+   tests/koulchi-server.test.cjs compare les deux fichiers et echoue
+   si les bornes ou les paliers divergent.
+   Le serveur ne recoit jamais un prix du client : il relit
+   product.koulchiPrice dans la transaction et recalcule.
+   ============================================================ */
+const KOULCHI_MIN_ITEMS = 3;
+const KOULCHI_MAX_ITEMS = 10;
+const KOULCHI_TIERS = [
+  { min: 9, percent: 10 },
+  { min: 6, percent: 5 },
+  { min: 3, percent: 2 }
+];
+
+function getKoulchiPercentServer(itemCount) {
+  const n = Math.floor(Number(itemCount) || 0);
+  if (n < KOULCHI_MIN_ITEMS) return 0;
+  for (const tier of KOULCHI_TIERS) {
+    if (n >= tier.min) return tier.percent;
+  }
+  return 0;
+}
+
 
 /* ============================================================
    CORRECTIF C3 (audit 2026-11-16) â€” RAPPROCHEMENT TOLERANT DES VILLES
@@ -2866,6 +2892,10 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
       }
     }
 
+    /* K3 : pricingVersion 2 = nouveau bareme (Koulchi). Sans ce champ on
+       conserve l ancien bareme, uniquement pour les clients deja en cache. */
+    const pricingVersion = Math.max(0, Math.floor(Number(input.pricingVersion) || 0));
+
     const merged = new Map();
     for (const it of rawItems) {
       const productId = String(it?.productId ?? '').trim();
@@ -2876,10 +2906,13 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
       const v = it.variant && typeof it.variant === 'object'
         ? { size: String(it.variant.size || ''), color: String(it.variant.color || '') }
         : null;
-      const key = JSON.stringify([productId, v?.size || '', v?.color || '']);
+      /* K3 : la zone fait partie de la cle de fusion. Sans cela, une ligne
+         classique et une ligne Koulchi du meme produit fusionneraient. */
+      const mode = String(it?.mode || '') === 'koulchi' ? 'koulchi' : null;
+      const key = JSON.stringify([productId, v?.size || '', v?.color || '', mode || '']);
       const old = merged.get(key);
       if (old) old.quantity += qty;
-      else merged.set(key, { productId, quantity: qty, variant: v, id: String(it.id || productId) });
+      else merged.set(key, { productId, quantity: qty, variant: v, mode, id: String(it.id || productId) });
     }
     const items = [...merged.values()];
     const couponId = input.appliedCoupon?.id ? String(input.appliedCoupon.id) : null;
@@ -2888,7 +2921,8 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
       items: items.map(item => ({
         productId: item.productId,
         quantity: item.quantity,
-        variant: item.variant ? { size: item.variant.size || '', color: item.variant.color || '' } : null
+        variant: item.variant ? { size: item.variant.size || '', color: item.variant.color || '' } : null,
+        mode: item.mode || null
       })),
       delivery: {
         name: String(delivery.name || '').trim(),
@@ -2901,6 +2935,7 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
         email: String(delivery.email || decoded.email || '').trim(),
         note: String(delivery.note || '').trim()
       },
+      pricingVersion,
       couponId
     })).digest('hex');
 
@@ -3083,7 +3118,6 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
           }
         }
 
-        subtotal += unitPrice * qty;
         totalQty += qty;
         validatedItems.push({
           id: item.id,
@@ -3094,8 +3128,18 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
             : String(shippingMethodsByVendor.get(String(data.vendorId)) || ''),
           variant: item.variant,
           quantity: qty,
+          mode: item.mode || null,
           price: unitPrice,
           basePrice: price,
+          /* K3 : prix de groupe relu dans la transaction. Retenu seulement
+             s il est STRICTEMENT inferieur au meilleur prix deja obtenu,
+             pour ne jamais facturer plus cher en Koulchi. */
+          koulchiPrice: !item.variant
+            && Number.isFinite(Number(data.koulchiPrice))
+            && Number(data.koulchiPrice) > 0
+            && Number(data.koulchiPrice) < unitPrice
+              ? Number(data.koulchiPrice)
+              : null,
           flashSale: flashApplied,
           name: String(data.nameFr || data.nameEn || 'Produit')
         });
@@ -3138,7 +3182,44 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
       const deliveryFee = Math.max(0, Number(cityData.price) || 0);
 
       // M1 : rÃ©duction volume
-      const volumeDiscount = totalQty >= 3 ? Math.round(subtotal * 0.05) : 0;
+      /* ============================================================
+         K3 : KOULCHI DIALK - RECALCUL SERVEUR
+         ------------------------------------------------------------
+         La zone groupe est valide entre 3 et 10 articles. Le prix de
+         groupe a ete relu dans la transaction et retenu seulement s il
+         est strictement inferieur au meilleur prix (variante, flash).
+         Hors bornes ou prix invalide : prix normal, jamais 0.
+         La remise volume de 5 % est supprimee pour pricingVersion >= 2.
+         ============================================================ */
+      let koulchiZoneQty = 0;
+      for (const item of validatedItems) {
+        if (item.mode === 'koulchi') koulchiZoneQty += Number(item.quantity) || 0;
+      }
+      const koulchiZoneValid =
+        koulchiZoneQty >= KOULCHI_MIN_ITEMS && koulchiZoneQty <= KOULCHI_MAX_ITEMS;
+      const koulchiPercent =
+        pricingVersion >= 2 && koulchiZoneValid ? getKoulchiPercentServer(koulchiZoneQty) : 0;
+
+      let koulchiSubtotal = 0;
+      subtotal = 0;
+      for (const item of validatedItems) {
+        if (koulchiPercent > 0 && item.mode === 'koulchi' && item.koulchiPrice != null) {
+          item.price = item.koulchiPrice;
+        }
+        const lineTotal = (Number(item.price) || 0) * (Number(item.quantity) || 0);
+        subtotal += lineTotal;
+        if (koulchiPercent > 0 && item.mode === 'koulchi') koulchiSubtotal += lineTotal;
+      }
+      const koulchiDiscount =
+        koulchiPercent > 0 ? Math.round((koulchiSubtotal * koulchiPercent) / 100) : 0;
+
+      /* Ancien bareme conserve UNIQUEMENT pour les clients sans
+         pricingVersion (cache navigateur). Aucune fenetre de desaccord
+         entre le prix affiche et le prix facture dans les deux sens. */
+      const volumeDiscount = pricingVersion >= 2
+        ? 0
+        : (totalQty >= 3 ? Math.round(subtotal * 0.05) : 0);
+      const itemDiscount = koulchiDiscount + volumeDiscount;
 
       // C3 : coupon
       let couponData = null;
@@ -3181,7 +3262,7 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
         });
       }
 
-      const productDiscount = Math.min(subtotal, volumeDiscount + Math.max(0, couponDiscount - (couponData?.type === 'free_shipping' ? deliveryFee : 0)));
+      const productDiscount = Math.min(subtotal, itemDiscount + Math.max(0, couponDiscount - (couponData?.type === 'free_shipping' ? deliveryFee : 0)));
       const shippingDiscount = couponData?.type === 'free_shipping' ? Math.min(deliveryFee, couponDiscount) : 0;
       const total = Math.max(0, subtotal - productDiscount + deliveryFee - shippingDiscount);
 
@@ -3201,7 +3282,10 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
         status: 'pending',
         paymentStatus: 'unpaid',
         subtotal,
-        discount: volumeDiscount,
+        discount: itemDiscount,
+        koulchiDiscount,
+        koulchiPercent,
+        koulchiItemCount: koulchiZoneQty,
         couponId: couponData ? couponId : null,
         couponCode: couponData ? String(couponData.code || '') : null,
         couponDiscount,
@@ -3291,7 +3375,9 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
         orderId: orderRef.id,
         totals: {
           subtotal,
-          discount: volumeDiscount,
+          discount: itemDiscount,
+          koulchiDiscount,
+          koulchiPercent,
           couponCode: orderData.couponCode,
           couponDiscount,
           deliveryFee,
