@@ -107,7 +107,7 @@
     }
     </script>
 
-    <link rel="stylesheet" href="/css/style.83dbc78e.css">
+    <link rel="stylesheet" href="/css/style.d61faf66.css">
     <link rel="stylesheet" href="/css/style-patches.d5cecd38.css">
     <script src="/translations.js"></script>
 </head>
@@ -136,6 +136,7 @@
         </div>
         <ul class="nav-links" id="navLinks" role="menubar">
             <li role="none"><a href="#produits" role="menuitem" data-key="navProducts">Produits</a></li>
+            <li role="none"><a href="#koulchi" role="menuitem" data-key="navKoulchi">Koulchi dialk</a></li>
             <li role="none"><a href="#avantages" role="menuitem" data-key="navFeatures">Avantages</a></li>
             <li role="none"><a href="/blog" role="menuitem" data-key="navBlog">Blog</a></li>
             <li role="none"><a href="/villesmaroc.html" role="menuitem" data-key="navCities">Villes</a></li>
@@ -286,6 +287,8 @@
             <div class="flash-hero-track" id="flashHeroTrack" role="list" aria-label="Produits en vente flash"></div>
         </div>
     </section>
+
+    <section class="section koulchi-home" id="koulchiSection" aria-labelledby="koulchiHomeTitle" hidden></section>
 
     <section class="section" id="produits" aria-labelledby="productsTitle">
         <div class="products-wrap">
@@ -523,6 +526,7 @@
     <script src="/js/navbar.js"></script>
 
     <script type="module" src="/js/app.js"></script>
+    <script type="module" src="/js/koulchi-page.js"></script>
     <script type="module">
         import { initDynamicTestimonials } from '/js/testimonials.js';
         import { getProductsLoadedPromise } from '/js/store.js';

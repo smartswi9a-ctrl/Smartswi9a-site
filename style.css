@@ -5047,6 +5047,194 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
     color: var(--gold);
 }
 
+/* ============================================================
+   KOULCHI DIALK — FACADE COMMERCIALE ACCUEIL (K6)
+   ============================================================ */
+
+.koulchi-home {
+    background: linear-gradient(
+        180deg,
+        rgba(var(--gold-rgb), 0.06),
+        rgba(var(--gold-rgb), 0)
+    );
+}
+
+.koulchi-home-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 1rem;
+}
+
+.koulchi-home-head {
+    text-align: center;
+    margin-bottom: 0.6rem;
+}
+
+.koulchi-home-tag {
+    display: inline-block;
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--gold);
+    border: 1px solid var(--border-gold, rgba(var(--gold-rgb), 0.3));
+    border-radius: 999px;
+    padding: 0.2rem 0.7rem;
+    margin-bottom: 0.45rem;
+}
+
+.koulchi-home-rules {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: center;
+    flex-wrap: wrap;
+    list-style: none;
+    padding: 0;
+    margin: 0.6rem 0 1rem;
+}
+
+.koulchi-home-rules li {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    border: 1px solid var(--border-gold, rgba(var(--gold-rgb), 0.3));
+    border-radius: 10px;
+    padding: 0.3rem 0.7rem;
+    font-size: 0.8rem;
+    color: var(--text-light, #666);
+    background: #fff;
+}
+
+.koulchi-home-rules strong {
+    color: var(--gold);
+}
+
+.koulchi-chips {
+    display: flex;
+    gap: 0.4rem;
+    overflow-x: auto;
+    padding: 0.2rem 0 0.8rem;
+}
+
+.koulchi-chip {
+    border: 1px solid var(--border-gold, rgba(var(--gold-rgb), 0.3));
+    background: #fff;
+    color: var(--text);
+    border-radius: 999px;
+    padding: 0.3rem 0.85rem;
+    font-size: 0.78rem;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.2s, color 0.2s;
+}
+
+.koulchi-chip.is-active {
+    background: var(--gold);
+    border-color: var(--gold);
+    color: #fff;
+}
+
+.koulchi-home-track {
+    display: flex;
+    gap: 0.8rem;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    list-style: none;
+    padding: 0 0 0.6rem;
+    margin: 0;
+}
+
+.koulchi-card {
+    flex: 0 0 200px;
+    scroll-snap-align: start;
+}
+
+.koulchi-card-link {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    height: 100%;
+    text-decoration: none;
+    color: inherit;
+    background: #fff;
+    border: 1px solid var(--border-gold, rgba(var(--gold-rgb), 0.3));
+    border-radius: 12px;
+    padding: 0.6rem;
+    transition: box-shadow 0.2s, transform 0.2s;
+}
+
+.koulchi-card-link:hover {
+    box-shadow: 0 8px 20px rgba(var(--gold-rgb), 0.16);
+    transform: translateY(-2px);
+}
+
+.koulchi-card-badge {
+    position: absolute;
+    top: 0.5rem;
+    inset-inline-end: 0.5rem;
+    background: var(--gold);
+    color: #fff;
+    font-size: 0.68rem;
+    font-weight: 700;
+    border-radius: 999px;
+    padding: 0.1rem 0.45rem;
+}
+
+.koulchi-card-img {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
+    border-radius: 8px;
+    background: var(--bg, #f8f6f2);
+}
+
+.koulchi-card-name {
+    font-size: 0.82rem;
+    font-weight: 600;
+    line-height: 1.25;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.koulchi-card-prices {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+}
+
+.koulchi-card-prices strong {
+    color: var(--gold);
+    font-size: 1rem;
+}
+
+.koulchi-card-prices s {
+    font-size: 0.72rem;
+    color: var(--text-light, #666);
+}
+
+.koulchi-card-cta {
+    margin-top: auto;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--gold);
+}
+
+.koulchi-home-foot {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.8rem;
+    flex-wrap: wrap;
+    margin-top: 0.4rem;
+}
+
+.koulchi-home-rule-text {
+    font-size: 0.72rem;
+    color: var(--text-light, #666);
+}
+
 @media (max-width: 520px) {
     .koulchi-tier {
         flex: 1 1 100%;
