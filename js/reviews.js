@@ -249,15 +249,15 @@ export async function createReview(productId, { rating, title, comment, photoFil
   const numericRating = Number(rating);
   const cleanComment = String(comment || "").trim();
   if (!Number.isInteger(numericRating) || numericRating < 1 || numericRating > 5) {
-    throw new Error("Veuillez sélectionner une note.");
+    throw new Error(t("reviewRatingRequired"));
   }
-  if (!cleanComment) throw new Error("Veuillez écrire un commentaire.");
+  if (!cleanComment) throw new Error(t("reviewCommentRequired"));
 
   const check = await canUserReviewProduct(pid);
   if (!check.canReview) {
     if (check.reason === "already_reviewed") throw new Error(t("reviewAlreadyExists"));
     if (check.reason === "not_purchased") throw new Error(t("reviewOnlyAfterOrder"));
-    if (check.reason === "check_failed") throw new Error(t("error") || "Vérification impossible. Réessayez.");
+    if (check.reason === "check_failed") throw new Error(t("reviewCheckUnavailable"));
     throw new Error(t("loginRequired"));
   }
 
@@ -267,7 +267,7 @@ export async function createReview(productId, { rating, title, comment, photoFil
   try {
     for (let index = 0; index < files.length; index++) {
       const file = files[index];
-      if (!(file instanceof Blob)) throw new Error("Fichier photo invalide.");
+      if (!(file instanceof Blob)) throw new Error(t("reviewPhotoInvalid"));
       const safeName = String(file.name || "photo").replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 100);
       const path = "reviews/" + user.uid + "/" + String(pid) + "_" + Date.now() + "_" + index + "_" + safeName;
       const storageRef = ref(storage, path);
@@ -290,7 +290,7 @@ export async function createReview(productId, { rating, title, comment, photoFil
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok || result.success !== true) {
-      throw new Error(result.message || "Impossible de publier cet avis.");
+      throw new Error(result.message || t("reviewPublishFailed"));
     }
 
     if (check.orderId) {
@@ -711,7 +711,7 @@ export async function renderAdminReviews( containerId = "reviewsList", statusFil
           const result = await toggleFeaturedReview(btn.dataset.id);
           if (result.success) {
             showToast(
-              result.featured ? "Ajouté à l'accueil" : "Retiré de l'accueil"
+              result.featured ? t("reviewFeaturedAdded") : t("reviewFeaturedRemoved")
             );
             renderAdminReviews(containerId, statusFilter);
           } else {

@@ -139,35 +139,35 @@ function getAuthErrorMessage(error, context = "generic") {
         if (code === "auth/user-not-found") return t("userNotFound");
         if (code === "auth/wrong-password" || code === "auth/invalid-credential") return t("wrongPassword");
         if (code === "auth/too-many-requests") return t("tooManyRequests");
-        if (code === "auth/network-request-failed") return "Pas de connexion internet";
-        if (code === "auth/user-disabled") return "Ce compte a été désactivé";
-        if (code === "auth/requires-recent-login") return "Reconnectez-vous pour continuer";
-        if (code === "auth/multi-factor-auth-required") return "Vérification en deux étapes requise";
+        if (code === "auth/network-request-failed") return t("authNoInternet");
+        if (code === "auth/user-disabled") return t("authAccountDisabled");
+        if (code === "auth/requires-recent-login") return t("authRecentLogin");
+        if (code === "auth/multi-factor-auth-required") return t("authMfaRequired");
         return t("loginError");
     }
     if (context === "register") {
-        if (code === "auth/email-already-in-use") return "Cet email est déjà utilisé";
-        if (code === "auth/invalid-email") return "Email invalide";
-        if (code === "auth/weak-password") return "Mot de passe trop faible";
-        if (code === "auth/network-request-failed") return "Pas de connexion internet";
+        if (code === "auth/email-already-in-use") return t("authEmailInUse");
+        if (code === "auth/invalid-email") return t("authInvalidEmail");
+        if (code === "auth/weak-password") return t("authWeakPassword");
+        if (code === "auth/network-request-failed") return t("authNoInternet");
         if (code === "auth/too-many-requests") return t("tooManyRequests");
-        if (code === "auth/operation-not-allowed") return "Inscription désactivée (contactez le support)";
-        return "Erreur lors de la création du compte";
+        if (code === "auth/operation-not-allowed") return t("authRegisterDisabled");
+        return t("authRegisterFailed");
     }
     if (context === "reset") {
         if (code === "auth/user-not-found") return t("emailNotFound");
-        if (code === "auth/invalid-email") return "Email invalide";
+        if (code === "auth/invalid-email") return t("authInvalidEmail");
         if (code === "auth/too-many-requests") return t("rateLimitError");
-        if (code === "auth/network-request-failed") return "Pas de connexion internet";
+        if (code === "auth/network-request-failed") return t("authNoInternet");
         return t("resetError");
     }
     if (context === "social") {
         if (code === "auth/popup-closed-by-user") return t("socialPopupClosed");
-        if (code === "auth/popup-blocked") return "Popup bloquée. Autorisez les popups.";
+        if (code === "auth/popup-blocked") return t("authPopupBlocked");
         if (code === "auth/account-exists-with-different-credential") return t("socialAccountExists");
         if (code === "auth/cancelled-popup-request") return t("socialPopupClosed");
-        if (code === "auth/network-request-failed") return "Pas de connexion internet";
-        if (code === "auth/operation-not-allowed") return "Connexion désactivée (contactez le support)";
+        if (code === "auth/network-request-failed") return t("authNoInternet");
+        if (code === "auth/operation-not-allowed") return t("authLoginDisabled");
         return t("error");
     }
     return t("error");
@@ -175,15 +175,15 @@ function getAuthErrorMessage(error, context = "generic") {
 
 export async function registerWithFirebase(name, email, phone, dob, password) {
     if (!email || !isValidEmail(email)) {
-        showToast("Email invalide");
+        showToast(t("authInvalidEmail"));
         return { success: false, error: "invalid_email" };
     }
     if (!password || password.length < 6) {
-        showToast("Mot de passe trop faible (min 6 caractères)");
+        showToast(t("authPasswordMin6"));
         return { success: false, error: "weak_password" };
     }
     if (!name || name.trim().length < 2) {
-        showToast("Nom trop court");
+        showToast(t("authNameTooShort"));
         return { success: false, error: "invalid_name" };
     }
 
@@ -226,7 +226,7 @@ export async function registerWithFirebase(name, email, phone, dob, password) {
             console.warn("registerWithFirebase : compte Auth supprimé (profil Firestore échoué)");
         } catch (delErr) {
             logAuthError("registerWithFirebase (deleteUser fallback)", delErr);
-            showToast("Erreur d'inscription. Contactez le support.");
+            showToast(t("authSignupError"));
         }
         return { success: false, error: "profile_save_failed" };
     }
@@ -250,31 +250,31 @@ export async function registerWithFirebase(name, email, phone, dob, password) {
 
 export async function registerVendorWithFirebase(vendorData, password) {
     if (!vendorData?.email || !isValidEmail(vendorData.email)) {
-        throw new Error("Adresse e-mail invalide.");
+        throw new Error(t("authVendorEmailInvalid"));
     }
 
     const email = cleanEmail(vendorData.email);
     const current = auth.currentUser;
     const currentEmail = cleanEmail(current?.email || "");
     if (current && currentEmail && currentEmail !== email) {
-        throw new Error("Vous êtes connecté avec une autre adresse. Déconnectez-vous puis utilisez l'adresse du compte concerné.");
+        throw new Error(t("authVendorOtherAccount"));
     }
 
     const passwordIsValid = typeof password === "string" && password.length >= 8 && /[A-Za-z]/.test(password) && /\d/.test(password);
     if (!current && !passwordIsValid) {
-        throw new Error("Mot de passe invalide : 8 caractères minimum avec lettres et chiffres.");
+        throw new Error(t("authVendorPasswordInvalid"));
     }
 
     const shopName = (vendorData.shopName || "").trim();
-    if (shopName.length < 2 || shopName.length > 60) throw new Error("Nom de boutique invalide (2 à 60 caractères).");
-    if (!/^\+212[67]\d{8}$/.test(vendorData.phone || "")) throw new Error("Téléphone marocain invalide.");
+    if (shopName.length < 2 || shopName.length > 60) throw new Error(t("authVendorShopInvalid"));
+    if (!/^\+212[67]\d{8}$/.test(vendorData.phone || "")) throw new Error(t("authVendorPhoneInvalid"));
     const city = (vendorData.city || "").trim();
-    if (city.length < 2 || city.length > 80) throw new Error("Ville invalide.");
+    if (city.length < 2 || city.length > 80) throw new Error(t("authVendorCityInvalid"));
     const iceCin = (vendorData.iceCin || "").trim().toUpperCase();
     if (!(/^\d{15}$/.test(iceCin) || /^[A-Z]{1,3}\d{4,8}$/.test(iceCin))) {
-        throw new Error("ICE ou CIN invalide.");
+        throw new Error(t("authVendorIceInvalid"));
     }
-    if (!["dropoff", "fulfillment"].includes(vendorData.shippingMethod)) throw new Error("Mode de livraison invalide.");
+    if (!["dropoff", "fulfillment"].includes(vendorData.shippingMethod)) throw new Error(t("authVendorShippingInvalid"));
 
     let user = current;
     let createdHere = false;
@@ -294,7 +294,7 @@ export async function registerVendorWithFirebase(vendorData, password) {
             } catch (signInError) {
                 logAuthError("registerVendorWithFirebase (existing account sign-in)", signInError);
                 if (["auth/wrong-password", "auth/invalid-credential", "auth/invalid-login-credentials"].includes(signInError?.code)) {
-                    throw new Error("Cette adresse e-mail possède déjà un compte. Saisissez le mot de passe de ce compte ou connectez-vous d'abord.");
+                    throw new Error(t("authVendorHasAccount"));
                 }
                 throw signInError;
             }
@@ -303,19 +303,19 @@ export async function registerVendorWithFirebase(vendorData, password) {
 
     const uid = user.uid;
     const existingStatus = await getUserProfileStatus(uid);
-    if (existingStatus.error) throw new Error("Impossible de vérifier le profil existant. Réessayez dans quelques instants.");
+    if (existingStatus.error) throw new Error(t("authVendorProfileCheck"));
     const existingProfile = existingStatus.data || {};
 
     if (existingProfile.role === ROLES.ADMIN) {
-        throw new Error("Un compte administrateur ne peut pas être converti en compte vendeur.");
+        throw new Error(t("authVendorIsAdmin"));
     }
     if (existingProfile.role === ROLES.VENDOR) {
         const status = existingProfile.vendorInfo?.status;
-        if (status === VENDOR_STATUS.APPROVED) throw new Error("Ce compte possède déjà un accès vendeur approuvé. Connectez-vous au tableau de bord vendeur.");
-        throw new Error("Une demande vendeur existe déjà pour ce compte. Connectez-vous et contactez l'administration si elle est bloquée.");
+        if (status === VENDOR_STATUS.APPROVED) throw new Error(t("authVendorAlreadyApproved"));
+        throw new Error(t("authVendorRequestExists"));
     }
     if (existingProfile.role && existingProfile.role !== ROLES.USER) {
-        throw new Error("Le type de compte actuel ne permet pas une inscription vendeur.");
+        throw new Error(t("authVendorRoleBlocked"));
     }
 
     const profile = {
@@ -346,7 +346,7 @@ export async function registerVendorWithFirebase(vendorData, password) {
         if (createdHere) {
             try { await deleteUser(user); } catch (e) { logAuthError("registerVendorWithFirebase (cleanup new account)", e); }
         }
-        throw new Error("Impossible d'enregistrer la demande vendeur. Votre compte existant a été conservé ; réessayez.");
+        throw new Error(t("authVendorSaveFailed"));
     }
 
     if (!user.emailVerified) {
@@ -371,11 +371,11 @@ export async function registerVendorWithFirebase(vendorData, password) {
 
 export async function resendVerificationEmail() {
     const user = auth.currentUser;
-    if (!user) { showToast("Aucun utilisateur connecté"); return false; }
-    if (user.emailVerified) { showToast("Votre email est déjà vérifié"); return false; }
+    if (!user) { showToast(t("authNoUser")); return false; }
+    if (user.emailVerified) { showToast(t("authEmailAlreadyVerified")); return false; }
     try {
         await sendEmailVerification(user, { url: `${CONFIG.SHOP.URL}/`, handleCodeInApp: false });
-        showToast("Email de vérification renvoyé");
+        showToast(t("authVerificationSent"));
         return true;
     } catch (error) {
         logAuthError("resendVerificationEmail", error);
