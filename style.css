@@ -5235,6 +5235,32 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
     color: var(--text-light, #666);
 }
 
+/* ============================================================
+   DUO COMMERCIAL : VENTES FLASH + KOULCHI (K6b)
+   Cote a cote sur grand ecran seulement, pleine largeur sinon.
+   ============================================================ */
+
+.promo-duo {
+    display: grid;
+    gap: 1rem;
+}
+
+.promo-duo.is-empty {
+    display: none;
+}
+
+.promo-duo > .section {
+    margin: 0;
+    min-width: 0;
+}
+
+@media (min-width: 1100px) {
+    .promo-duo.is-pair {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        align-items: start;
+    }
+}
+
 @media (max-width: 520px) {
     .koulchi-tier {
         flex: 1 1 100%;
