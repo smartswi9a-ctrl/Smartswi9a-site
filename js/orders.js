@@ -133,12 +133,12 @@ function buildOrderEmailSubject(status, recipient, orderId, lang = 'fr') {
             cancelled: { client: `Commande annulée #${shortId} | Smartswika`, admin: null }
         },
         ar: {
-            pending:   { client: `تم استلام طلبك #${shortId} | سمارتسويكا`, admin: `طلب جديد #${shortId}` },
-            confirmed: { client: `تم تأكيد طلبك #${shortId} | سمارتسويكا`, admin: null },
-            shipping:  { client: `طلبك في الطريق #${shortId} | سمارتسويكا`, admin: null },
-            delivered: { client: `تم تسليم طلبك #${shortId} | سمارتسويكا`, admin: `تم التسليم #${shortId}` },
-            returned:  { client: `تم تسجيل الإرجاع #${shortId} | سمارتسويكا`, admin: `إرجاع #${shortId}` },
-            cancelled: { client: `تم إلغاء طلبك #${shortId} | سمارتسويكا`, admin: null }
+            pending:   { client: `تم استلام طلبك #${shortId} | سمارت سويقة`, admin: `طلب جديد #${shortId}` },
+            confirmed: { client: `تم تأكيد طلبك #${shortId} | سمارت سويقة`, admin: null },
+            shipping:  { client: `طلبك في الطريق #${shortId} | سمارت سويقة`, admin: null },
+            delivered: { client: `تم تسليم طلبك #${shortId} | سمارت سويقة`, admin: `تم التسليم #${shortId}` },
+            returned:  { client: `تم تسجيل الإرجاع #${shortId} | سمارت سويقة`, admin: `إرجاع #${shortId}` },
+            cancelled: { client: `تم إلغاء طلبك #${shortId} | سمارت سويقة`, admin: null }
         },
         en: {
             pending:   { client: `Order received #${shortId} | Smartswika`, admin: `New order #${shortId}` },
@@ -168,7 +168,7 @@ function buildOrderEmailText(order, status, recipient, lang = 'fr') {
     const delivered = { fr: `Votre commande #${shortId} est livrée !`, ar: `تم تسليم طلبك #${shortId}!`, en: `Your order #${shortId} has been delivered!` };
     const returned = { fr: `Le retour de votre commande #${shortId} a été enregistré.`, ar: `لقد سجلنا إرجاع طلبك #${shortId}.`, en: `Your order #${shortId} return has been recorded.` };
     const cancelled = { fr: `Votre commande #${shortId} a été annulée.`, ar: `تم إلغاء طلبك #${shortId}.`, en: `Your order #${shortId} has been cancelled.` };
-    const team = { fr: "L'équipe Smartswika", ar: "فريق سمارتسويكا", en: "Smartswika team" };
+    const team = { fr: "L'équipe Smartswika", ar: "فريق سمارت سويقة", en: "Smartswika team" };
     const map = { pending: thanks, confirmed, shipping, delivered, returned, cancelled };
     const message = map[status]?.[lang] || thanks[lang];
     let text = `${greetings[lang]} ${name},\n\n${message}\n\nArticles :\n`;
@@ -245,7 +245,7 @@ function buildInvoiceSubject(order, recipient, lang = 'fr') {
     const invoiceNum = getInvoiceNumber(order);
     const subjects = {
         fr: { client: `Votre facture ${invoiceNum} | Smartswika`, admin: `Facture ${invoiceNum} - Commande livrée` },
-        ar: { client: `فاتورتك ${invoiceNum} | سمارتسويكا`, admin: `فاتورة ${invoiceNum} - تم التسليم` },
+        ar: { client: `فاتورتك ${invoiceNum} | سمارت سويقة`, admin: `فاتورة ${invoiceNum} - تم التسليم` },
         en: { client: `Your invoice ${invoiceNum} | Smartswika`, admin: `Invoice ${invoiceNum} - Delivered` }
     };
     return (subjects[lang] || subjects.fr)[recipient] || subjects.fr.client;
@@ -260,7 +260,7 @@ function buildInvoiceHtml(order, recipient, lang = 'fr') {
     const invoiceDate = orderDate ? orderDate.toLocaleDateString(isRtl ? 'ar-MA' : (lang === 'en' ? 'en-GB' : 'fr-FR')) : '—';
     const labels = {
         fr: { invoice: 'FACTURE', issuedOn: 'Émise le', billedTo: 'FACTURÉ À', items: 'ARTICLES', product: 'Produit', qty: 'Qté', unitPrice: 'Prix unit.', lineTotal: 'Total', subtotal: 'Sous-total', volumeDiscount: 'Réduction volume', couponDiscount: 'Code promo', delivery: 'Livraison', total: 'TOTAL', paymentMethod: 'Mode de paiement', cod: 'Paiement à la livraison', paid: 'Payé', shopName: 'SMARTSWIKA', footer: 'Cet email tient lieu de facture. Aucune signature requise.' },
-        ar: { invoice: 'فاتورة', issuedOn: 'صدرت في', billedTo: 'فاتورة إلى', items: 'المنتجات', product: 'المنتج', qty: 'الكمية', unitPrice: 'سعر الوحدة', lineTotal: 'الإجمالي', subtotal: 'المجموع الفرعي', volumeDiscount: 'خصم الكمية', couponDiscount: 'كود الخصم', delivery: 'التوصيل', total: 'الإجمالي', paymentMethod: 'طريقة الدفع', cod: 'الدفع عند الاستلام', paid: 'مدفوع', shopName: 'سمارتسويكا', footer: 'هذا البريد بمثابة فاتورة. لا حاجة لتوقيع.' },
+        ar: { invoice: 'فاتورة', issuedOn: 'صدرت في', billedTo: 'فاتورة إلى', items: 'المنتجات', product: 'المنتج', qty: 'الكمية', unitPrice: 'سعر الوحدة', lineTotal: 'الإجمالي', subtotal: 'المجموع الفرعي', volumeDiscount: 'خصم الكمية', couponDiscount: 'كود الخصم', delivery: 'التوصيل', total: 'الإجمالي', paymentMethod: 'طريقة الدفع', cod: 'الدفع عند الاستلام', paid: 'مدفوع', shopName: 'سمارت سويقة', footer: 'هذا البريد بمثابة فاتورة. لا حاجة لتوقيع.' },
         en: { invoice: 'INVOICE', issuedOn: 'Issued on', billedTo: 'BILLED TO', items: 'ITEMS', product: 'Product', qty: 'Qty', unitPrice: 'Unit price', lineTotal: 'Total', subtotal: 'Subtotal', volumeDiscount: 'Volume discount', couponDiscount: 'Coupon code', delivery: 'Delivery', total: 'TOTAL', paymentMethod: 'Payment method', cod: 'Cash on delivery', paid: 'Paid', shopName: 'SMARTSWIKA', footer: 'This email serves as an invoice. No signature required.' }
     };
     const l = labels[lang] || labels.fr;
