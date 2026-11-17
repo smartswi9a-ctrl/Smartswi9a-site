@@ -118,7 +118,8 @@ async function init() {
            apparaitre en haut de page. Ne s affiche que s il existe au moins
            une vente active (sinon la section reste `hidden`). */
         try {
-          const { renderFlashHero } = await import("./flash-sales.js");
+          const { renderFlashHero, rememberFlashProducts } = await import("./flash-sales.js");
+          rememberFlashProducts(getProducts());
           await renderFlashHero(getProducts());
         } catch (e) {
           console.warn("[app] ventes flash accueil indisponibles :", e?.message);

@@ -32,7 +32,7 @@
 
 import { db } from "./firebase.js";
 import { collection, query, where, getDocs, limit } from "firebase/firestore";
-import { toDate } from "./utils.js";
+import { t, getLang, toDate } from "./utils.js";
 
 /* Cache memoire : evite de relire Firestore a chaque carte produit. */
 let _flashCache = { at: 0, sales: [] };
@@ -180,14 +180,14 @@ export function invalidateFlashSalesCache() {
 let _countdownTimer = null;
 
 function formatRemaining(ms) {
-  if (ms <= 0) return "Terminée";
+  if (ms <= 0) return t("flashEnded");
   const totalSec = Math.floor(ms / 1000);
   const d = Math.floor(totalSec / 86400);
   const h = Math.floor((totalSec % 86400) / 3600);
   const m = Math.floor((totalSec % 3600) / 60);
   const s = totalSec % 60;
   const pad = (n) => String(n).padStart(2, "0");
-  if (d > 0) return `${d}j ${pad(h)}:${pad(m)}:${pad(s)}`;
+  if (d > 0) return `${d}${t("flashDayShort")} ${pad(h)}:${pad(m)}:${pad(s)}`;
   return `${pad(h)}:${pad(m)}:${pad(s)}`;
 }
 
@@ -291,7 +291,15 @@ export async function renderFlashHero(products) {
 
   track.innerHTML = items.map((p) => {
     const img = pickImage(p);
-    const name = String(p.nameFr || p.nameEn || "Produit");
+    /* Le nom du produit suit la langue active (FR / AR / EN). */
+    const lang = getLang();
+    const name = String(
+      (lang === "ar" && p.nameAr) ||
+        (lang === "en" && p.nameEn) ||
+        p.nameFr ||
+        p.nameEn ||
+        "Produit"
+    );
     const slug = String(p.slug || p.id || "");
     const pct = Number(p.flashPercent) || 0;
     const nowPrice = Number(p.flashPrice) || 0;
@@ -305,9 +313,11 @@ export async function renderFlashHero(products) {
       const max = Number(sale.maxQuantity);
       const ratio = Math.min(100, Math.round((sold / max) * 100));
       const remaining = Math.max(0, max - sold);
+      /* Le libelle de stock suit la langue active. */
+      const stockLabel = remaining > 0 ? t("flashRemaining").replace("{n}", remaining) : t("flashSoldOut");
       progressHtml = `
         <div class="flash-item-progress" aria-hidden="true"><span style="width:${ratio}%"></span></div>
-        <div class="flash-item-stock">${remaining > 0 ? `Plus que ${remaining} disponible(s)` : "Épuisé"}</div>`;
+        <div class="flash-item-stock">${esc(stockLabel)}</div>`;
     }
 
     return `<a class="flash-item" role="listitem" href="/produit?slug=${encodeURIComponent(slug)}">
@@ -329,3 +339,37 @@ export async function renderFlashHero(products) {
   section.hidden = false;
   startFlashCountdown();
 }
+
+/* ============================================================
+   RE-RENDU AU CHANGEMENT DE LANGUE
+   ------------------------------------------------------------
+   Les libelles de la section flash sont generes en JS : ils ne sont
+   pas couverts par applyTranslations(). On re-rend donc la section
+   quand l utilisateur change de langue, avec la liste de produits
+   actuellement affichee.
+   ============================================================ */
+
+let _lastProducts = null;
+
+/**
+ * Memorise les produits pour permettre un re-rendu sans rechargement.
+ * @param {Array} products
+ * @returns {void}
+ */
+export function rememberFlashProducts(products) {
+  _lastProducts = Array.isArray(products) ? products : null;
+}
+
+/**
+ * Re-rend la section flash dans la langue courante.
+ * @returns {Promise<void>}
+ */
+export async function refreshFlashHeroLang() {
+  if (!_lastProducts) return;
+  await renderFlashHero(_lastProducts);
+}
+
+/* Re-rend la section dans la nouvelle langue (meme pattern que panier.js). */
+document.addEventListener("lang-changed", () => {
+  refreshFlashHeroLang();
+});
