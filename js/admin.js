@@ -1173,7 +1173,7 @@ function generateVariants() {
 function resetProductForm() {
     document.getElementById('productFormTitle').textContent = 'Ajouter un produit';
     document.getElementById('productEditId').value = '';
-    ['pNameFr', 'pNameAr', 'pNameEn', 'pSlug', 'pSku', 'pPrice', 'pOldPrice', 'pPurchasePrice', 'pStock', 'pRating', 'pDescFr', 'pDescAr', 'pDescEn', 'pFeaturesFr', 'pFeaturesAr', 'pFeaturesEn', 'pImg', 'pGallery', 'pVideo', 'pWeight', 'pLength', 'pWidth', 'pHeight', 'pSizes', 'pColors'].forEach(id => {
+    ['pNameFr', 'pNameAr', 'pNameEn', 'pSlug', 'pSku', 'pPrice', 'pOldPrice', 'pKoulchiPrice', 'pPurchasePrice', 'pStock', 'pRating', 'pDescFr', 'pDescAr', 'pDescEn', 'pFeaturesFr', 'pFeaturesAr', 'pFeaturesEn', 'pImg', 'pGallery', 'pVideo', 'pWeight', 'pLength', 'pWidth', 'pHeight', 'pSizes', 'pColors'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = '';
     });
@@ -1229,6 +1229,7 @@ async function editProduct(id) {
 
         document.getElementById('pPrice').value = p.price || '';
         document.getElementById('pOldPrice').value = p.oldPrice || '';
+        document.getElementById('pKoulchiPrice').value = p.koulchiPrice || '';
         document.getElementById('pPurchasePrice').value = p.purchasePrice || '';
         document.getElementById('pStock').value = p.stock || '';
         document.getElementById('pRating').value = p.ratingAvg || '';
@@ -1372,6 +1373,13 @@ async function saveProduct() {
         let finalSku = sku;
         if (!finalSku) finalSku = generateUniqueSku(category);
 
+        /* K5 : prix de groupe obligatoire et STRICTEMENT inferieur au prix. */
+        const koulchiPriceRaw = parseFloat(document.getElementById('pKoulchiPrice').value);
+        if (!Number.isFinite(koulchiPriceRaw) || koulchiPriceRaw <= 0 || koulchiPriceRaw >= priceBase) {
+            showToast('Prix Koulchi obligatoire et strictement inférieur au prix de vente.');
+            return;
+        }
+
         const finalPrice = priceBase;
 
         const productData = {
@@ -1379,6 +1387,7 @@ async function saveProduct() {
             slug, sku: finalSku, category,
             basePrice: priceBase, logisticsFee: 0, price: finalPrice,
             oldPrice: Math.max(0, parseFloat(document.getElementById('pOldPrice').value) || 0),
+            koulchiPrice: koulchiPriceRaw,
             purchasePrice: isNaN(purchasePriceRaw) ? 0 : purchasePriceRaw,
             stock: finalStock,
             ratingAvg: Math.min(5, Math.max(0, parseFloat(document.getElementById('pRating').value) || 0)),

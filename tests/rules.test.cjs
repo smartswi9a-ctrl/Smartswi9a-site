@@ -154,13 +154,47 @@ async function main() {
       status: "pending_admin_approval",
       nameFr: "New product",
       category: "smartphones-android",
-      price: 100
+      price: 100,
+      koulchiPrice: 90
     }));
     await assertFails(setDoc(doc(oldVendorDb, "products", "oldContractProduct"), {
       vendorId: "vendorOld",
       status: "pending_admin_approval",
       nameFr: "Old contract product",
+      price: 100,
+      koulchiPrice: 90
+    }));
+    /* K5 : le prix de groupe est obligatoire a la creation. */
+    await assertFails(setDoc(doc(vendorDb, "products", "missingKoulchi"), {
+      vendorId: "vendorA",
+      status: "pending_admin_approval",
+      nameFr: "Missing Koulchi",
+      category: "smartphones-android",
       price: 100
+    }));
+
+    /* K5 : prix de groupe (koulchiPrice). */
+    await assertSucceeds(setDoc(doc(vendorDb, "products", "koulchiProduct"), {
+      vendorId: "vendorA",
+      status: "pending_admin_approval",
+      nameFr: "Koulchi product",
+      category: "smartphones-android",
+      price: 100,
+      koulchiPrice: 90
+    }));
+    await assertFails(setDoc(doc(vendorDb, "products", "koulchiInvalid"), {
+      vendorId: "vendorA",
+      status: "pending_admin_approval",
+      nameFr: "Koulchi invalid",
+      category: "smartphones-android",
+      price: 100,
+      koulchiPrice: 120
+    }));
+    await assertSucceeds(updateDoc(doc(adminDb, "products", "koulchiProduct"), { status: "approved" }));
+    await assertFails(updateDoc(doc(vendorDb, "products", "koulchiProduct"), { koulchiPrice: 80 }));
+    await assertSucceeds(updateDoc(doc(vendorDb, "products", "koulchiProduct"), {
+      koulchiPrice: 80,
+      status: "pending_admin_approval"
     }));
 
     await assertSucceeds(getDoc(doc(buyerDb, "carts", "buyerA")));
