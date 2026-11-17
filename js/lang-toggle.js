@@ -70,6 +70,14 @@ function refreshPage() {
       console.warn("[lang-toggle] __onLangChange a échoué :", e && e.message);
     }
   }
+
+  /* Bandeau des pages légales : visible UNIQUEMENT hors français.
+     Les CGU ne sont pas traduites (validation juridique requise), on
+     informe donc le visiteur que seule la version FR fait foi. */
+  const notice = document.getElementById("legalLangNotice");
+  if (notice) {
+    notice.hidden = getLang() === "fr";
+  }
 }
 
 /**
