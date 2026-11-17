@@ -49,6 +49,26 @@
             background: #000; color: #fff; padding: 8px 12px; z-index: 10000;
         }
         .skip-link:focus { left: 8px; top: 8px; }
+
+        /* Sélecteur de langue FR / AR / EN du tableau de bord */
+        .v-lang-select {
+            margin-left: auto;
+            padding: .42rem .6rem;
+            border: 1px solid var(--border-gold);
+            border-radius: 8px;
+            background: var(--bg-card);
+            color: var(--text);
+            font: inherit;
+            font-size: .85rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .v-lang-select:focus {
+            outline: none;
+            border-color: var(--gold);
+            box-shadow: 0 0 0 3px rgba(165, 123, 46, .14);
+        }
+        [dir="rtl"] .v-lang-select { margin-left: 0; margin-right: auto; }
     </style>
 
     <!-- Traductions de base (chargées avant les modules ES) -->
@@ -126,6 +146,11 @@
                         aria-expanded="false"
                         aria-controls="vSidebar">☰</button>
                 <h1 class="v-page-title" id="vPageTitle" data-i18n="vendor.page.overview">Vue d'ensemble</h1>
+                <select id="langSelect" class="v-lang-select" data-aria-key="ariaLangChange" aria-label="Changer la langue">
+                    <option value="ar">🇲🇦 AR</option>
+                    <option value="fr" selected>🇫🇷 FR</option>
+                    <option value="en">🇬🇧 EN</option>
+                </select>
             </header>
 
             <!-- Zone de bannières (aria-live pour lecteurs d'écran) -->

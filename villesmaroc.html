@@ -208,7 +208,7 @@
     </style>
 </head>
 <body>
-    <a class="skip-link" href="#main">Aller au contenu</a>
+    <a class="skip-link" href="#main" data-key="skipToContent">Aller au contenu</a>
 
     <div class="toast" id="cartToast" role="status" aria-live="polite"></div>
     <div class="bg-particles" aria-hidden="true"></div>
@@ -264,7 +264,7 @@
         <div class="villes-hero">
             <span class="section-tag" data-key="villesTag">🗺️ Livraison Maroc</span>
             <h1 class="section-title" data-key="villesTitle">Toutes nos villes de livraison</h1>
-            <p class="section-sub" data-key="villesSub">Nous livrons partout au Maroc. Frais et délais selon votre ville.</p>
+            <p class="section-sub" data-key="villesSub" data-key="deliveryTagline">Nous livrons partout au Maroc. Frais et délais selon votre ville.</p>
         </div>
 
         <div class="villes-stats">
@@ -291,10 +291,10 @@
         </div>
 
         <div class="villes-count" id="villesCountText">Chargement...</div>
-        <div id="livoFeeStatus" class="villes-count" style="margin-top:-0.6rem;" aria-live="polite">Tarifs de livraison fournis par Livo</div>
+        <div id="livoFeeStatus" class="villes-count" style="margin-top:-0.6rem;" aria-live="polite" data-key="livofFeeNote">Tarifs de livraison fournis par Livo</div>
 
         <div id="villesError" class="villes-error" style="display:none;">
-            <p id="villesErrorText">Impossible de charger la liste des villes.</p>
+            <p id="villesErrorText" data-key="citiesLoadFailed">Impossible de charger la liste des villes.</p>
             <button type="button" id="villesRetryBtn">Réessayer</button>
         </div>
 

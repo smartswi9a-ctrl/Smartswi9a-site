@@ -104,9 +104,43 @@
             justify-content: center;
             flex-wrap: wrap;
         }
+        .error-lang-bar {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            z-index: 10;
+        }
+        .error-lang-bar select,
+        .legal-lang-bar select,
+        .login-lang-bar select {
+            padding: 0.5rem 0.7rem;
+            border: 1px solid var(--border-gold);
+            border-radius: 8px;
+            background: var(--bg-card);
+            color: var(--text);
+            font: inherit;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .error-lang-bar select:focus,
+        .legal-lang-bar select:focus,
+        .login-lang-bar select:focus {
+            outline: none;
+            border-color: var(--gold);
+            box-shadow: 0 0 0 3px rgba(165, 123, 46, 0.14);
+        }
+        [dir="rtl"] .error-lang-bar { right: auto; left: 1rem; }
     </style>
 </head>
 <body>
+    <div class="error-lang-bar">
+        <select id="langSelect" data-aria-key="ariaLangChange" aria-label="Changer la langue">
+            <option value="ar">🇲🇦 AR</option>
+            <option value="fr" selected>🇫🇷 FR</option>
+            <option value="en">🇬🇧 EN</option>
+        </select>
+    </div>
     <div class="error-box">
         <div class="error-code">404</div>
         <h1 class="error-title" data-key="pageNotFoundTitle">Oups ! Page introuvable</h1>
@@ -121,23 +155,18 @@
     <script src="/js/navbar.js"></script>
 
     <script type="module">
-        import { initLang, t } from '/js/utils.js';
-        import { applyTranslations } from '/js/events.js';
-
-        document.addEventListener('DOMContentLoaded', () => {
-            initLang();
-            applyTranslations();
-        });
+        import { initLangToggle } from '/js/lang-toggle.js';
+        initLangToggle();
     </script>
 
 <footer class="page-legal-footer" role="contentinfo">
     <nav class="footer-legal footer-legal--bar" aria-label="Informations légales">
-        <h3 class="footer-legal-title">Informations légales</h3>
+        <h3 class="footer-legal-title" data-key="footerLegalTitle">Informations légales</h3>
         <ul class="footer-legal-links">
-            <li><a href="/cgu-acheteur.html">CGU Acheteur</a></li>
-            <li><a href="/cgu-vendeur.html">CGU Vendeur</a></li>
-            <li><a href="/contrat-vendeur.html">Contrat Vendeur</a></li>
-            <li><a href="/politique-confidentialite.html">Politique de confidentialité</a></li>
+            <li><a href="/cgu-acheteur.html" data-key="footerLegalCguBuyer">CGU Acheteur</a></li>
+            <li><a href="/cgu-vendeur.html" data-key="footerLegalCguVendor">CGU Vendeur</a></li>
+            <li><a href="/contrat-vendeur.html" data-key="footerLegalContract">Contrat Vendeur</a></li>
+            <li><a href="/politique-confidentialite.html" data-key="footerLegalPrivacy">Politique de confidentialité</a></li>
         </ul>
     </nav>
 </footer>

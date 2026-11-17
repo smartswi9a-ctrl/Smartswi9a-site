@@ -83,14 +83,22 @@
 
     <nav id="navbar" style="background:#fff; border-bottom:1px solid #ddd; padding:1rem; text-align:center;">
         <a href="/" style="font-family:var(--font-secondary);font-size:1.5rem;font-weight:800;color:var(--gold);text-decoration:none;">SMARTSWIKA</a>
+        <div style="margin-top:.65rem;">
+            <select id="langSelect" data-aria-key="ariaLangChange" aria-label="Changer la langue"
+                    style="padding:.45rem .65rem;border:1px solid var(--border-gold);border-radius:8px;background:var(--bg-card);color:var(--text);font:inherit;font-size:.85rem;font-weight:600;cursor:pointer;">
+                <option value="ar">🇲🇦 AR</option>
+                <option value="fr" selected>🇫🇷 FR</option>
+                <option value="en">🇬🇧 EN</option>
+            </select>
+        </div>
     </nav>
 
     <main class="container" style="padding: 2rem 1rem; max-width: 800px; margin: 0 auto;">
 
         <div style="text-align: center; margin-bottom: 2rem;">
-            <h1 class="v-page-title" style="font-size:2rem;">🚀 Devenir Vendeur</h1>
-            <p style="color:var(--text-muted);">Rejoignez la marketplace et vendez vos produits partout au Maroc.</p>
-            <p><a href="/vendor-login.html">Déjà inscrit comme vendeur ? Se connecter à l’espace vendeur</a></p>
+            <h1 class="v-page-title" style="font-size:2rem;" data-key="signupTitle">🚀 Devenir Vendeur</h1>
+            <p style="color:var(--text-muted);" data-key="signupSub">Rejoignez la marketplace et vendez vos produits partout au Maroc.</p>
+            <p><a href="/vendor-login.html" data-key="signupAlreadyVendor">Déjà inscrit comme vendeur ? Se connecter à l’espace vendeur</a></p>
         </div>
 
         <form id="vendorSignupForm" class="vendor-form" method="post" action="#" autocomplete="on">
@@ -106,50 +114,53 @@
 
             <!-- Section 1 : Infos Boutique -->
             <div class="vendor-card">
-                <h2 class="vendor-card-title" style="margin-bottom:1rem;">🏪 Informations sur la boutique</h2>
+                <h2 class="vendor-card-title" style="margin-bottom:1rem;" data-key="signupShopSection">🏪 Informations sur la boutique</h2>
 
                 <div class="v-field">
-                    <label class="v-label" for="vShopName">Nom de la boutique *</label>
+                    <label class="v-label" for="vShopName" data-key="signupShopName">Nom de la boutique *</label>
                     <input type="text" id="vShopName" name="vShopName" class="v-input" required
                            minlength="2" maxlength="60"
                            autocomplete="organization"
+                           data-placeholder-key="signupShopNamePh"
                            placeholder="Ex: Boutique Tech Casablanca">
                 </div>
 
                 <div class="v-form-row">
                     <div class="v-field">
-                        <label class="v-label" for="vEmail">Email professionnel *</label>
+                        <label class="v-label" for="vEmail" data-key="signupProEmail">Email professionnel *</label>
                         <input type="email" id="vEmail" name="vEmail" class="v-input" required
                                autocomplete="email" inputmode="email"
                                placeholder="contact@boutique.com">
                     </div>
                     <div class="v-field">
-                        <label class="v-label" for="vPassword">Mot de passe du compte acheteur *</label>
+                        <label class="v-label" for="vPassword" data-key="signupBuyerPassword">Mot de passe du compte acheteur *</label>
                         <input type="password" id="vPassword" name="vPassword" class="v-input" required
                                minlength="8" maxlength="128"
                                autocomplete="new-password"
+                               data-placeholder-key="signupBuyerPasswordPh"
                                placeholder="Mot de passe du compte acheteur">
-                        <span class="v-hint">Pour un compte existant, saisissez le mot de passe acheteur afin de vérifier que vous êtes bien le titulaire.</span>
+                        <span class="v-hint" data-key="signupBuyerPasswordHint">Pour un compte existant, saisissez le mot de passe acheteur afin de vérifier que vous êtes bien le titulaire.</span>
                     </div>
                     <div class="v-field">
-                        <label class="v-label" for="vVendorPassword">Nouveau mot de passe vendeur *</label>
-                        <input type="password" id="vVendorPassword" name="vVendorPassword" class="v-input" required minlength="8" maxlength="128" autocomplete="new-password" placeholder="Min. 8 caractères (lettres + chiffres)">
-                        <span class="v-hint">Ce mot de passe permet de vous connecter à l’espace vendeur et de suivre votre demande en attente. Les fonctions de vente seront activées après approbation.</span>
+                        <label class="v-label" for="vVendorPassword" data-key="signupVendorPassword">Nouveau mot de passe vendeur *</label>
+                        <input type="password" id="vVendorPassword" name="vVendorPassword" class="v-input" required minlength="8" maxlength="128" autocomplete="new-password" data-placeholder-key="signupVendorPasswordPh" placeholder="Min. 8 caractères (lettres + chiffres)">
+                        <span class="v-hint" data-key="signupVendorPasswordHint">Ce mot de passe permet de vous connecter à l’espace vendeur et de suivre votre demande en attente. Les fonctions de vente seront activées après approbation.</span>
                     </div>
                 </div>
 
                 <div class="v-form-row">
                     <div class="v-field">
-                        <label class="v-label" for="vPhone">Téléphone (WhatsApp) *</label>
+                        <label class="v-label" for="vPhone" data-key="signupPhone">Téléphone (WhatsApp) *</label>
                         <input type="tel" id="vPhone" name="vPhone" class="v-input" required
                                autocomplete="tel" inputmode="tel"
                                placeholder="06XXXXXXXX ou +2126XXXXXXXX">
                     </div>
                     <div class="v-field">
-                        <label class="v-label" for="vCity">Ville *</label>
+                        <label class="v-label" for="vCity" data-key="signupCity">Ville *</label>
                         <input type="text" id="vCity" name="vCity" class="v-input" required
                                minlength="2" maxlength="80"
                                autocomplete="address-level2"
+                               data-placeholder-key="signupCityPh"
                                placeholder="Ex: Casablanca">
                     </div>
                 </div>
@@ -159,40 +170,41 @@
                     <input type="text" id="vIceCin" name="vIceCin" class="v-input" required
                            minlength="6" maxlength="15"
                            autocomplete="off"
+                           data-placeholder-key="signupIcePh"
                            placeholder="Numéro d'identification (ICE ou CIN)">
-                    <span class="v-hint">ICE pour les entreprises (15 chiffres), CIN pour les indépendants.</span>
+                    <span class="v-hint" data-key="signupIceHint">ICE pour les entreprises (15 chiffres), CIN pour les indépendants.</span>
                 </div>
             </div>
 
             <!-- Section 2 : Mode de livraison -->
             <div class="vendor-card">
-                <h2 class="vendor-card-title" style="margin-bottom:1rem;">🚚 Mode de livraison</h2>
-                <div class="v-choice-group" role="radiogroup" aria-label="Mode de livraison">
+                <h2 class="vendor-card-title" style="margin-bottom:1rem;" data-key="signupShippingSection">🚚 Mode de livraison</h2>
+                <div class="v-choice-group" role="radiogroup" aria-label="Mode de livraison" data-aria-key="signupShippingSection">
                     <label class="v-choice selected" id="choice-dropoff" tabindex="0" role="radio" aria-checked="true">
                         <input type="radio" name="vShipping" value="dropoff" checked hidden>
                         <div class="v-choice-title">📤 Drop-off</div>
-                        <div class="v-choice-desc">Vous préparez et déposez le colis chez Livo. (72h max).</div>
+                        <div class="v-choice-desc" data-key="signupDropoffDesc">Vous préparez et déposez le colis chez Livo. (72h max).</div>
                     </label>
 
                     <label class="v-choice" id="choice-fulfillment" tabindex="0" role="radio" aria-checked="false">
                         <input type="radio" name="vShipping" value="fulfillment" hidden>
                         <div class="v-choice-title">📥 Fulfillment</div>
-                        <div class="v-choice-desc">Vous envoyez votre stock chez Livo. On gère la livraison. (Frais de stockage).</div>
+                        <div class="v-choice-desc" data-key="signupFulfillmentDesc">Vous envoyez votre stock chez Livo. On gère la livraison. (Frais de stockage).</div>
                     </label>
                 </div>
             </div>
 
             <!-- Section 3 : Contrat -->
             <div class="vendor-card">
-                <h2 class="vendor-card-title" style="margin-bottom:1rem;">📜 Contrat de partenariat</h2>
-                <p style="font-size:0.9rem; color:var(--text-muted); margin-bottom:1rem;">
+                <h2 class="vendor-card-title" style="margin-bottom:1rem;" data-key="signupContractSection">📜 Contrat de partenariat</h2>
+                <p style="font-size:0.9rem; color:var(--text-muted); margin-bottom:1rem;" data-key="signupContractIntro">
                     Conformément à la législation, vous devez lire et accepter les conditions générales de vente (CGV) Vendeurs.
                 </p>
-                <button type="button" id="btnOpenContract" class="v-btn v-btn-secondary v-btn-block">
+                <button type="button" id="btnOpenContract" class="v-btn v-btn-secondary v-btn-block" data-key="signupReadContract">
                     📄 Lire et signer les CGV
                 </button>
                 <!-- H-i1 : aria-live pour lecteurs d'écran -->
-                <div id="contractStatus" role="status" aria-live="polite" style="margin-top:1rem; font-size:0.9rem; font-weight:700; color:var(--danger); text-align:center;">
+                <div id="contractStatus" role="status" aria-live="polite" style="margin-top:1rem; font-size:0.9rem; font-weight:700; color:var(--danger); text-align:center;" data-key="signupAwaitingSignature">
                     ⏳ En attente de signature
                 </div>
             </div>
@@ -201,14 +213,14 @@
             <div class="legal-consent" id="vendorLegalConsent" data-legal-consent="vendeur">
                 <input type="checkbox" id="acceptCguVendeur" name="acceptCguVendeur" required>
                 <label for="acceptCguVendeur">
-                    J'ai lu et j'accepte les
-                    <a href="/cgu-vendeur.html" target="_blank" rel="noopener noreferrer">CGU Vendeur</a>
-                    et le
-                    <a href="/contrat-vendeur.html" target="_blank" rel="noopener noreferrer">Contrat Vendeur</a>.
+                    <span data-key="signupAcceptRead">J'ai lu et j'accepte les</span>
+                    <a href="/cgu-vendeur.html" target="_blank" rel="noopener noreferrer" data-key="footerLegalCguVendor">CGU Vendeur</a>
+                    <span data-key="signupAcceptAnd">et le</span>
+                    <a href="/contrat-vendeur.html" target="_blank" rel="noopener noreferrer" data-key="footerLegalContract">Contrat Vendeur</a>.
                 </label>
             </div>
 
-            <button type="submit" id="btnSubmitVendor" class="v-btn v-btn-primary v-btn-large v-btn-block" disabled style="opacity:0.5;">
+            <button type="submit" id="btnSubmitVendor" class="v-btn v-btn-primary v-btn-large v-btn-block" disabled style="opacity:0.5;" data-key="signupSubmit">
                 ✅ Créer mon compte vendeur
             </button>
 
