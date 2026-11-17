@@ -172,7 +172,7 @@ service cloud.firestore {
         isApprovedVendor(request.auth.uid) &&
         request.resource.data.vendorId == request.auth.uid &&
         request.resource.data.status == 'pending_admin_approval' &&
-        request.resource.data.keys().hasAll(['nameFr', 'category', 'price', 'vendorId', 'status']) &&
+        request.resource.data.keys().hasAll(['nameFr', 'category', 'price', 'vendorId', 'status', 'koulchiPrice']) &&
         request.resource.data.nameFr is string &&
         request.resource.data.nameFr.size() >= 2 &&
         request.resource.data.nameFr.size() <= 200 &&
@@ -184,6 +184,12 @@ service cloud.firestore {
           (request.resource.data.basePrice is number && request.resource.data.basePrice >= 0)) &&
         (!('oldPrice' in request.resource.data) ||
           (request.resource.data.oldPrice is number && request.resource.data.oldPrice >= 0)) &&
+        /* K5 : prix de groupe OBLIGATOIRE. Il doit etre un nombre
+           strictement inferieur au prix de vente, sinon la fiche est refusee.
+           Le prix de groupe n est jamais deduit du prix : il est saisi. */
+        request.resource.data.koulchiPrice is number &&
+        request.resource.data.koulchiPrice > 0 &&
+        request.resource.data.koulchiPrice < request.resource.data.price &&
         (!('stock' in request.resource.data) ||
           (request.resource.data.stock is int && request.resource.data.stock >= 0)) &&
         (!('vendorName' in request.resource.data) ||
@@ -204,13 +210,13 @@ service cloud.firestore {
         (
           (
             request.resource.data.diff(resource.data).affectedKeys().hasAny([
-              'price', 'nameFr', 'nameEn', 'nameAr'
+              'price', 'nameFr', 'nameEn', 'nameAr', 'koulchiPrice'
             ]) &&
             request.resource.data.status == 'pending_admin_approval'
           ) ||
           (
             !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-              'price', 'nameFr', 'nameEn', 'nameAr'
+              'price', 'nameFr', 'nameEn', 'nameAr', 'koulchiPrice'
             ]) &&
             request.resource.data.status == resource.data.status
           )

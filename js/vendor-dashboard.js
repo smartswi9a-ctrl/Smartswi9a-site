@@ -456,6 +456,7 @@ function injectModals() {
                     <div class="v-field"><label class="v-label">Prix de vente (MAD) *</label><input type="number" id="vProdPrice" class="v-input" min="1" step="0.5"></div>
                     <div class="v-field"><label class="v-label">Ancien prix (MAD)</label><input type="number" id="vProdOldPrice" class="v-input" min="0" step="0.5"></div>
                 </div>
+                <div class="v-field"><label class="v-label">Prix Koulchi (MAD) *</label><input type="number" id="vProdKoulchiPrice" class="v-input" min="1" step="0.5"><small style="display:block;font-size:0.7rem;color:#8a8a8a;">Obligatoire, strictement inférieur au prix de vente.</small></div>
                 <div class="v-field">
                     <label class="v-label" for="vProdDeliveryMode">Mode de livraison *</label>
                     <select id="vProdDeliveryMode" class="v-input">
@@ -845,6 +846,7 @@ function openProductModal(product = null) {
     initializeVendorProductCategories(product?.category || '');
     document.getElementById('vProdPrice').value = product ? (product.price || '') : '';
     document.getElementById('vProdOldPrice').value = product ? (product.oldPrice || '') : '';
+    document.getElementById('vProdKoulchiPrice').value = product ? (product.koulchiPrice || '') : '';
     document.getElementById('vProdStock').value = product ? (product.stock ?? '1') : '1';
     const deliveryModeEl = document.getElementById('vProdDeliveryMode');
     if (deliveryModeEl) {
@@ -905,6 +907,7 @@ async function submitProduct() {
     const nameEn = (document.getElementById('vProdNameEn').value || '').trim();
     const price = parseFloat(document.getElementById('vProdPrice').value);
     const oldPrice = Math.max(0, parseFloat(document.getElementById('vProdOldPrice').value) || 0);
+    const koulchiPrice = parseFloat(document.getElementById('vProdKoulchiPrice').value);
     let stock = parseInt(document.getElementById('vProdStock').value, 10);
     const descFr = (document.getElementById('vProdDescFr').value || '').trim();
     const descAr = (document.getElementById('vProdDescAr').value || '').trim();
@@ -921,6 +924,7 @@ async function submitProduct() {
     if (!nameFr || nameFr.length < 2) { errEl.textContent = 'Nom (FR) requis (min 2 caractères).'; return; }
     if (!CATEGORY_GROUPS.some(group => group.id === parentCategory && group.children.some(child => child.id === category))) { errEl.textContent = 'Choisissez une catégorie et une sous-catégorie valides.'; return; }
     if (!Number.isFinite(price) || price <= 0) { errEl.textContent = 'Prix invalide.'; return; }
+    if (!Number.isFinite(koulchiPrice) || koulchiPrice <= 0 || koulchiPrice >= price) { errEl.textContent = 'Prix Koulchi obligatoire, strictement inférieur au prix de vente.'; return; }
     if (!Number.isFinite(stock) || stock < 0) { errEl.textContent = 'Stock invalide.'; return; }
     if (!currentProductIdEditing && !file) { errEl.textContent = 'Image requise.'; return; }
     if (file && file.size > 2 * 1024 * 1024) { errEl.textContent = 'Image trop lourde (max 2 Mo).'; return; }
@@ -1014,7 +1018,7 @@ async function submitProduct() {
             const snap = await getDoc(doc(db, "products", currentProductIdEditing));
             const oldData = snap.exists() ? snap.data() : {};
             const isStockOnly = oldData.nameFr === nameFr && oldData.nameAr === (nameAr || nameFr) && oldData.nameEn === (nameEn || nameFr) &&
-                Number(oldData.price) === price && Number(oldData.oldPrice || 0) === oldPrice && oldData.category === category &&
+                Number(oldData.price) === price && Number(oldData.oldPrice || 0) === oldPrice && Number(oldData.koulchiPrice || 0) === koulchiPrice && oldData.category === category &&
                 oldData.descFr === descFr && oldData.descAr === descAr && oldData.descEn === descEn &&
                 JSON.stringify(oldData.featuresFr || []) === JSON.stringify(featuresFr) &&
                 JSON.stringify(oldData.featuresAr || []) === JSON.stringify(featuresAr) &&
@@ -1034,7 +1038,7 @@ async function submitProduct() {
             } else {
                 await updateDoc(doc(db, "products", currentProductIdEditing), {
                     nameFr, nameAr: nameAr || nameFr, nameEn: nameEn || nameFr,
-                    category, price, basePrice: price, oldPrice, descFr, descAr, descEn,
+                    category, price, basePrice: price, oldPrice, koulchiPrice, descFr, descAr, descEn,
                     featuresFr, featuresAr, featuresEn, dimensions, variants, sizes, colors,
                     delivery_mode: deliveryMode,
                     hasSizeGuide: document.getElementById('vProdSizeGuide').checked,
@@ -1050,7 +1054,7 @@ async function submitProduct() {
             const productData = {
                 nameFr, nameAr: nameAr || nameFr, nameEn: nameEn || nameFr, slug,
                 sku: `VND-${String(ts).slice(-6)}`, category, basePrice: price, price,
-                oldPrice, purchasePrice: 0, stock,
+                oldPrice, koulchiPrice, purchasePrice: 0, stock,
                 delivery_mode: deliveryMode,
                 isNew: false, hasSizeGuide: document.getElementById('vProdSizeGuide').checked, dimensions,
                 variants, sizes, colors, descFr, descAr, descEn, featuresFr, featuresAr, featuresEn,
