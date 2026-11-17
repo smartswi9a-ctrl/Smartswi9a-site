@@ -28,6 +28,7 @@
    ============================================================ */
 
 import { registerVendorWithFirebase } from "./auth.js";
+import { initLangToggle } from "./lang-toggle.js";
 import { signVendorContract, computeContractTextHash } from "./vendor-contract.js";
 import { getContractText, buildTermsSnapshot } from "./vendor-contract-text.js";
 import { auth } from "./firebase.js";
@@ -303,6 +304,14 @@ function trapFocus(e) {
    INITIALISATION
    ============================================================ */
 document.addEventListener("DOMContentLoaded", () => {
+    /* Traductions FR / AR / EN : applique la langue choisie puis traduit
+       tous les [data-key], [data-placeholder-key] et [data-aria-key]. */
+    try {
+        initLangToggle();
+    } catch (e) {
+        console.warn("[vendor-signup] initLangToggle :", e && e.message);
+    }
+
     els.form = document.getElementById("vendorSignupForm");
     els.modal = document.getElementById("contractModal");
     els.contractText = document.getElementById("contractText");

@@ -262,6 +262,15 @@ export function applyTranslations() {
     if (value && value !== key) el.setAttribute("aria-label", value);
   });
 
+  /* Placeholders traduits : data-placeholder-key="maCle".
+     Permet de traduire les attributs placeholder, que data-key ne gère pas. */
+  document.querySelectorAll("[data-placeholder-key]").forEach((el) => {
+    const key = el.getAttribute("data-placeholder-key");
+    if (!key) return;
+    const value = t(key);
+    if (value && value !== key) el.setAttribute("placeholder", value);
+  });
+
   const logoVal = t("logoText");
   if (logoVal && logoVal !== "logoText") {
     document.querySelectorAll(".logo-text").forEach((el) => {

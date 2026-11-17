@@ -39,57 +39,65 @@
     .login-links a,.login-links button{padding:0;border:0;background:none;color:var(--gold);font:inherit;font-size:.85rem;font-weight:700;text-decoration:none;cursor:pointer}
     .login-links a:hover,.login-links button:hover{text-decoration:underline}
     .login-info{margin:1.1rem 0 0;padding:.85rem 1rem;border-radius:var(--radius-md);background:rgba(212,163,75,.09);color:var(--text-muted);font-size:.82rem;line-height:1.6}
+    .login-lang-select{padding:.45rem .65rem;border:1px solid var(--border-gold);border-radius:8px;background:var(--bg-card);color:var(--text);font:inherit;font-size:.85rem;font-weight:600;cursor:pointer}
+    .login-lang-select:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px rgba(165,123,46,.14)}
     .login-footer{padding:1rem;text-align:center;color:var(--text-dim);font-size:.78rem}
     [hidden]{display:none!important}
     @media(max-width:520px){.login-topbar{height:62px}.login-top-links a:first-child{display:none}.login-card{border-radius:var(--radius-lg)}.login-main{align-items:start;padding-top:clamp(1.5rem,8vh,3rem)}}
     @media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;scroll-behavior:auto!important}}
   </style>
   <script type="importmap">{"imports":{"firebase/app":"https://www.gstatic.com/firebasejs/11.0.0/firebase-app.js","firebase/auth":"https://www.gstatic.com/firebasejs/11.0.0/firebase-auth.js"}}</script>
+  <script src="/translations.js"></script>
 </head>
 <body class="vendor-login-page">
   <header class="login-topbar">
     <a href="/" class="logo" aria-label="Smartswika, accueil"><span class="logo-text">SMARTSWIKA</span></a>
     <nav class="login-top-links" aria-label="Navigation">
-      <a href="/boutique.html">Boutique</a>
-      <a href="/villesmaroc.html">Livraison</a>
-      <a href="/">Accueil</a>
+      <a href="/boutique.html" data-key="navShop">Boutique</a>
+      <a href="/villesmaroc.html" data-key="navDelivery">Livraison</a>
+      <a href="/" data-key="navHome">Accueil</a>
+      <select id="langSelect" class="login-lang-select" data-aria-key="ariaLangChange" aria-label="Changer la langue">
+        <option value="ar">🇲🇦 AR</option>
+        <option value="fr" selected>🇫🇷 FR</option>
+        <option value="en">🇬🇧 EN</option>
+      </select>
     </nav>
   </header>
   <main class="login-main">
     <section class="login-card" aria-labelledby="loginTitle">
-      <div class="login-card-kicker"><span aria-hidden="true">🏪</span> Espace vendeur</div>
+      <div class="login-card-kicker"><span aria-hidden="true">🏪</span> <span data-key="vendorSpace">Espace vendeur</span></div>
       <div id="loginView">
-        <h1 id="loginTitle">Bienvenue chez Smartswika</h1>
-        <p class="login-description">Connectez-vous avec l’adresse e-mail et le mot de passe utilisés pour votre compte vendeur.</p>
+        <h1 id="loginTitle" data-key="vendorLoginTitle">Bienvenue chez Smartswika</h1>
+        <p class="login-description" data-key="vendorLoginDesc">Connectez-vous avec l’adresse e-mail et le mot de passe utilisés pour votre compte vendeur.</p>
         <form id="vendorLoginForm">
-          <div class="login-field"><label for="email">Adresse e-mail</label><input id="email" name="email" type="email" autocomplete="username" inputmode="email" placeholder="vous@exemple.com" required></div>
-          <div class="login-field"><label for="password">Mot de passe</label><input id="password" name="password" type="password" autocomplete="current-password" placeholder="Votre mot de passe" required minlength="8"></div>
-          <button class="login-submit" id="submitBtn" type="submit">Se connecter <span aria-hidden="true">→</span></button>
+          <div class="login-field"><label for="email" data-key="vendorEmail">Adresse e-mail</label><input id="email" name="email" type="email" autocomplete="username" inputmode="email" placeholder="vous@exemple.com" required></div>
+          <div class="login-field"><label for="password" data-key="vendorPassword">Mot de passe</label><input id="password" name="password" type="password" autocomplete="current-password" placeholder="Votre mot de passe" data-placeholder-key="vendorPasswordPlaceholder" required minlength="8"></div>
+          <button class="login-submit" id="submitBtn" type="submit"><span data-key="vendorLoginBtn">Se connecter</span> <span aria-hidden="true">→</span></button>
           <p id="message" class="login-message" role="status" aria-live="polite"></p>
         </form>
-        <div class="login-links"><a href="/inscription-vendeur.html">Devenir vendeur</a><button id="showReset" type="button">Mot de passe oublié ?</button></div>
-        <p class="login-info">Après inscription, vous pouvez suivre votre demande. Les fonctions de vente sont activées après approbation du compte.</p>
+        <div class="login-links"><a href="/inscription-vendeur.html" data-key="vendorBecome">Devenir vendeur</a><button id="showReset" type="button" data-key="vendorForgot">Mot de passe oublié ?</button></div>
+        <p class="login-info" data-key="vendorLoginInfo">Après inscription, vous pouvez suivre votre demande. Les fonctions de vente sont activées après approbation du compte.</p>
       </div>
       <div id="resetView" hidden>
-        <h1 id="resetTitle">Réinitialiser le mot de passe</h1>
-        <p class="login-description">Saisissez l’adresse e-mail de votre compte. Firebase vous enverra un lien sécurisé pour choisir un nouveau mot de passe.</p>
+        <h1 id="resetTitle" data-key="vendorResetTitle">Réinitialiser le mot de passe</h1>
+        <p class="login-description" data-key="vendorResetDesc">Saisissez l’adresse e-mail de votre compte. Firebase vous enverra un lien sécurisé pour choisir un nouveau mot de passe.</p>
         <form id="resetForm">
-          <div class="login-field"><label for="resetEmail">Adresse e-mail</label><input id="resetEmail" type="email" autocomplete="email" inputmode="email" placeholder="vous@exemple.com" required></div>
-          <button class="login-submit" id="resetBtn" type="submit">Envoyer le lien</button>
+          <div class="login-field"><label for="resetEmail" data-key="vendorEmail">Adresse e-mail</label><input id="resetEmail" type="email" autocomplete="email" inputmode="email" placeholder="vous@exemple.com" required></div>
+          <button class="login-submit" id="resetBtn" type="submit" data-key="vendorSendLink">Envoyer le lien</button>
           <p id="resetMessage" class="login-message" role="status" aria-live="polite"></p>
         </form>
-        <div class="login-links"><button id="backToLogin" type="button">← Retour à la connexion</button></div>
+        <div class="login-links"><button id="backToLogin" type="button" data-key="vendorBackToLogin">← Retour à la connexion</button></div>
       </div>
     </section>
   </main>
-  <footer class="login-footer">© Smartswika · Espace vendeur
+  <footer class="login-footer">© Smartswika · <span data-key="vendorSpace">Espace vendeur</span>
       <nav class="footer-legal" aria-label="Informations légales">
-          <h3 class="footer-legal-title">Informations légales</h3>
+          <h3 class="footer-legal-title" data-key="footerLegalTitle">Informations légales</h3>
           <ul class="footer-legal-links">
-              <li><a href="/cgu-acheteur.html">CGU Acheteur</a></li>
-              <li><a href="/cgu-vendeur.html">CGU Vendeur</a></li>
-              <li><a href="/contrat-vendeur.html">Contrat Vendeur</a></li>
-              <li><a href="/politique-confidentialite.html">Politique de confidentialité</a></li>
+              <li><a href="/cgu-acheteur.html" data-key="footerLegalCguBuyer">CGU Acheteur</a></li>
+              <li><a href="/cgu-vendeur.html" data-key="footerLegalCguVendor">CGU Vendeur</a></li>
+              <li><a href="/contrat-vendeur.html" data-key="footerLegalContract">Contrat Vendeur</a></li>
+              <li><a href="/politique-confidentialite.html" data-key="footerLegalPrivacy">Politique de confidentialité</a></li>
           </ul>
       </nav>
   </footer>
@@ -98,6 +106,11 @@
     import { initializeApp } from 'firebase/app';
     import { getAuth, signInWithCustomToken, sendPasswordResetEmail } from 'firebase/auth';
     import { CONFIG } from '/js/config.js';
+    import { t } from '/js/utils.js';
+    import { initLangToggle } from '/js/lang-toggle.js';
+
+    initLangToggle();
+
     const app = initializeApp(CONFIG.FIREBASE);
     const auth = getAuth(app);
     const form = document.getElementById('vendorLoginForm');
@@ -106,6 +119,23 @@
     const resetView = document.getElementById('resetView');
     const loginView = document.getElementById('loginView');
     const resetMessage = document.getElementById('resetMessage');
+
+    /* Le libellé du bouton principal est un span traduit : on le remplace
+       au changement de langue sans casser la flèche décorative. */
+    function setSubmitLabel(key, fallback) {
+      button.innerHTML = '';
+      const span = document.createElement('span');
+      span.textContent = t(key) || fallback;
+      button.appendChild(span);
+      const arrow = document.createElement('span');
+      arrow.setAttribute('aria-hidden', 'true');
+      arrow.textContent = ' →';
+      button.appendChild(arrow);
+    }
+
+    window.__onLangChange = () => {
+      setSubmitLabel('vendorLoginBtn', 'Se connecter');
+    };
 
     document.getElementById('showReset').addEventListener('click', () => {
       const email = document.getElementById('email').value.trim();
@@ -125,32 +155,43 @@
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       if (button.disabled) return;
-      button.disabled = true; button.textContent = 'Vérification…'; message.textContent = '';
+      button.disabled = true;
+      button.textContent = t('vendorChecking') || 'Vérification…';
+      message.textContent = '';
       const email = document.getElementById('email').value.trim().toLowerCase();
       const password = document.getElementById('password').value;
       try {
         const response = await fetch('/api/loginVendor', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({email,password})});
         const result = await response.json().catch(() => ({}));
-        if (!response.ok || !result.success || !result.customToken) throw new Error(result.message || 'Connexion impossible. Vérifiez votre adresse e-mail et votre mot de passe.');
+        if (!response.ok || !result.success || !result.customToken) throw new Error(result.message || t('vendorLoginFailed'));
         await signInWithCustomToken(auth, result.customToken);
         window.location.replace('/vendor/dashboard.html');
       } catch (error) {
-        message.textContent = error?.message || 'Connexion impossible. Réessayez.';
-      } finally { button.disabled = false; button.innerHTML = 'Se connecter <span aria-hidden="true">→</span>'; }
+        message.textContent = error?.message || t('vendorLoginRetry') || 'Connexion impossible. Réessayez.';
+      } finally {
+        button.disabled = false;
+        setSubmitLabel('vendorLoginBtn', 'Se connecter');
+      }
     });
 
     document.getElementById('resetForm').addEventListener('submit', async (event) => {
       event.preventDefault();
       const resetButton = document.getElementById('resetBtn');
       const email = document.getElementById('resetEmail').value.trim().toLowerCase();
-      resetButton.disabled = true; resetButton.textContent = 'Envoi…'; resetMessage.classList.remove('success'); resetMessage.textContent = '';
+      resetButton.disabled = true;
+      resetButton.textContent = t('vendorSending') || 'Envoi…';
+      resetMessage.classList.remove('success');
+      resetMessage.textContent = '';
       try {
         await sendPasswordResetEmail(auth, email);
         resetMessage.classList.add('success');
-        resetMessage.textContent = 'Si un compte existe pour cette adresse, un e-mail de réinitialisation vient d’être envoyé. Vérifiez aussi vos courriers indésirables.';
+        resetMessage.textContent = t('vendorResetSent');
       } catch (error) {
-        resetMessage.textContent = error?.code === 'auth/invalid-email' ? 'Saisissez une adresse e-mail valide.' : 'Impossible d’envoyer le lien pour le moment. Réessayez dans quelques instants.';
-      } finally { resetButton.disabled = false; resetButton.textContent = 'Envoyer le lien'; }
+        resetMessage.textContent = error?.code === 'auth/invalid-email' ? t('vendorInvalidEmail') : t('vendorResetFailed');
+      } finally {
+        resetButton.disabled = false;
+        resetButton.textContent = t('vendorSendLink');
+      }
     });
   </script>
 </body>

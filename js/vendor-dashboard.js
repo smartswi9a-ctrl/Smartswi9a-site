@@ -2125,6 +2125,25 @@ function renderVendorAccessStatus(profile) {
    ============================================================ */
 document.addEventListener('DOMContentLoaded', async () => {
     applyLanguageDirection();
+
+    /* Sélecteur de langue du tableau de bord vendeur.
+       Le dashboard charge translations.js + translations-vendor.js et rend
+       son contenu via tr(). Changer de langue recharge la page pour que
+       TOUS les libellés (y compris ceux générés en JS) repartent dans la
+       nouvelle langue, sans risque d'état incohérent. */
+    const langSelect = document.getElementById('langSelect');
+    if (langSelect) {
+        langSelect.value = getCurrentLanguage();
+        langSelect.addEventListener('change', () => {
+            const next = langSelect.value;
+            if (!next || !LANGUAGES.includes(next)) return;
+            try { localStorage.setItem(CONFIG.STORAGE_KEYS.LANG, JSON.stringify(next)); } catch (_) { /* ignore */ }
+            document.documentElement.lang = next;
+            document.documentElement.dir = next === 'ar' ? 'rtl' : 'ltr';
+            window.location.reload();
+        });
+    }
+
     if (!authBound) {
         try { initAuthListener(); } catch (e) { console.warn('[vendor-dashboard] initAuthListener déjà appelé', e); }
         authBound = true;
