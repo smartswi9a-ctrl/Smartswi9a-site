@@ -121,7 +121,7 @@ function startEmailVerifyPolling() {
     }
     const verified = await checkEmailVerification();
     if (verified) {
-      showToast("Email vérifié !");
+      showToast(t("emailVerified"));
       await renderAccountContent();
       stopEmailVerifyPolling();
     }
@@ -245,7 +245,7 @@ function attachGlobalUIEvents() {
     if (user && user.needsVerification) {
       const verified = await checkEmailVerification();
       if (verified) {
-        showToast("Email vérifié ! Bienvenue !");
+        showToast(t("emailVerifiedWelcome"));
         renderAccountContent();
       }
     }
@@ -510,20 +510,19 @@ function attachVerifyEmailEvents() {
       }
 
       checkBtn.disabled = true;
-      checkBtn.textContent = "Vérification...";
+      checkBtn.textContent = t("emailVerifying");
 
       const verified = await checkEmailVerification();
 
       if (verified) {
-        showToast("Email vérifié ! Bienvenue !");
+        showToast(t("emailVerifiedWelcome"));
         await renderAccountContent();
       } else {
         if (msgEl) {
-          msgEl.textContent =
-            "Pas encore vérifié. Cliquez sur le lien dans votre email.";
+          msgEl.textContent = t("emailNotVerifiedYet");
           msgEl.style.color = "var(--gold)";
         }
-        checkBtn.textContent = "J'ai cliqué sur le lien - Vérifier maintenant";
+        checkBtn.textContent = t("emailCheckNow");
         checkBtn.disabled = false;
       }
     });
@@ -682,7 +681,7 @@ async function handleRegister() {
     return;
   }
   if (!isValidEmail(email)) {
-    showToast("Email invalide");
+    showToast(t("authInvalidEmail"));
     return;
   }
   if (password.length < 6) {
@@ -725,7 +724,7 @@ async function handleForgot() {
     return;
   }
   if (!isValidEmail(email)) {
-    showToast("Email invalide");
+    showToast(t("authInvalidEmail"));
     return;
   }
 

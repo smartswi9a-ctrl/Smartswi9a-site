@@ -1,6 +1,6 @@
 /* ============================================================ js/ui-core.js UI CORE - SMARTSWIKA Version 9.1.0 - Lot 51 : showToast auto-suffisante CHANGEMENTS v9.1.0 : - B-UI-4 (P0) : showToast() crée dynamiquement l'élément #cartToast s'il est absent du DOM, avec role="status" et aria-live="polite". Injecte les styles critiques une seule fois via une balise <style>. Corrige définitivement le bug des toasts invisibles sur les pages sans #cartToast (inscription-vendeur.html, vendor/dashboard.html, etc.). - Aucun changement de signature : showToast(msg, duration) reste identique. - Aucun autre export modifié. CHANGEMENTS v9.0.0 (rappel) : - confirmAction() : résolution de la promesse précédente, timeout de sécurité 120s. - openImageLightbox() : cleanup listener keydown. AUCUNE modification de signature : rétrocompatible 100 %. Module "bas niveau" SANS dépendances métier. Rôle : casser les cycles d'imports entre ui.js / cart.js / auth.js / orders.js. Fournit : toast, focus trap, modales, confirmAction, lightbox. ALERTE 1 : plus aucun commentaire de ligne (//) en début de ligne utile. Tout est en bloc. ============================================================ */
 
-import { escapeHTML } from "./utils.js";
+import { escapeHTML, t } from "./utils.js";
 
 /* ============================================================ TOAST (v9.1.0 : auto-suffisant) ============================================================ Affiche un message court en bas de l'écran. - Si #cartToast existe déjà dans le DOM (page avec HTML dédié), on l'utilise tel quel. - Sinon, on le crée à la volée et on injecte les styles nécessaires une seule fois. Cela garantit que TOUS les messages (succès, erreur, validation) sont visibles, même sur les pages qui n'ont pas prévu le conteneur. Un seul toast à la fois : un nouveau toast remplace le précédent. ============================================================ */
 let toastTimeout = null;
@@ -597,7 +597,7 @@ export async function copyToClipboard(text) {
   try {
     if (navigator.clipboard) {
       await navigator.clipboard.writeText(text);
-      showToast("Copié !");
+      showToast(t("copiedToClipboard"));
       return true;
     }
     const ta = document.createElement("textarea");
@@ -608,7 +608,7 @@ export async function copyToClipboard(text) {
     ta.select();
     document.execCommand("copy");
     ta.remove();
-    showToast("Copié !");
+    showToast(t("copiedToClipboard"));
     return true;
   } catch (e) {
     console.warn("Copie impossible :", e);
