@@ -114,6 +114,15 @@ async function init() {
     if (isHome) {
       console.log("[app] Rendu de la page d'accueil...");
       try {
+        /* Section ventes flash : rendue AVANT la grille produits pour
+           apparaitre en haut de page. Ne s affiche que s il existe au moins
+           une vente active (sinon la section reste `hidden`). */
+        try {
+          const { renderFlashHero } = await import("./flash-sales.js");
+          await renderFlashHero(getProducts());
+        } catch (e) {
+          console.warn("[app] ventes flash accueil indisponibles :", e?.message);
+        }
         renderCategoryFilters();
         renderSortOptions();
         await renderProducts();
