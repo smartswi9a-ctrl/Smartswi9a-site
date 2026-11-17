@@ -23,7 +23,7 @@ import {
   collection, doc, getDocs, addDoc, updateDoc, deleteDoc,
   query, where, limit, serverTimestamp
 } from "firebase/firestore";
-import { escapeHTML, toDate } from "./utils.js";
+import { escapeHTML, toDate, t } from "./utils.js";
 import { invalidateFlashSalesCache } from "./flash-sales.js";
 
 const MAX_VENDOR_FLASH = 50;
@@ -85,13 +85,13 @@ function renderVendorPicker(filter = "") {
   const list = _vfProducts || [];
   if (list.length === 0) {
     box.innerHTML = `<div style="padding:1rem;text-align:center;color:var(--text-muted);">
-      Aucun produit approuvé. Ajoutez et faites approuver des produits avant de lancer une vente flash.</div>`;
+      ${escapeHTML(t("vflashNoApprovedProducts"))}</div>`;
     return;
   }
   const needle = filter.trim().toLowerCase();
   const filtered = needle ? list.filter((p) => p.name.toLowerCase().includes(needle)) : list;
   if (filtered.length === 0) {
-    box.innerHTML = `<div style="padding:1rem;text-align:center;color:var(--text-muted);">Aucun produit ne correspond.</div>`;
+    box.innerHTML = `<div style="padding:1rem;text-align:center;color:var(--text-muted);">${escapeHTML(t("vflashNoMatch"))}</div>`;
     return;
   }
   box.innerHTML = filtered.map((p) => {
@@ -107,79 +107,85 @@ function renderVendorPicker(filter = "") {
       const id = e.target.getAttribute("data-vf-product");
       if (e.target.checked) _vfSelected.add(id); else _vfSelected.delete(id);
       const c = document.getElementById("vfSelectedCount");
-      if (c) c.textContent = `(${_vfSelected.size} sélectionné${_vfSelected.size > 1 ? "s" : ""})`;
+      if (c) c.textContent = `(${_vfSelected.size} ${escapeHTML(t("vflashSelected"))})`;
     });
   });
 }
 
 /* ---------------- Rendu principal de l onglet ---------------- */
 
+/* Le panneau est généré en JS : ses libellés ne passent pas par
+   applyTranslations(). On mémorise donc le conteneur pour pouvoir le
+   re-rendre quand le vendeur change de langue. */
+let _vfContainer = null;
+
 export async function renderVendorFlash(container) {
   if (!container) return;
+  _vfContainer = container;
+
   const uid = auth.currentUser?.uid;
   if (!uid) {
-    container.innerHTML = `<div style="padding:2rem;text-align:center;color:var(--text-muted);">Connexion requise.</div>`;
+    container.innerHTML = `<div style="padding:2rem;text-align:center;color:var(--text-muted);">${escapeHTML(t("vflashLoginRequired"))}</div>`;
     return;
   }
 
   container.innerHTML = `
     <div style="background:var(--card-bg,#fff);border:1px solid var(--border);border-radius:12px;padding:1.25rem;margin-bottom:1.5rem;">
-      <h3 style="margin:0 0 0.25rem;font-family:var(--font-secondary);color:var(--gold);">⚡ Créer une vente flash</h3>
+      <h3 style="margin:0 0 0.25rem;font-family:var(--font-secondary);color:var(--gold);">${escapeHTML(t("vflashCreateTitle"))}</h3>
       <p style="margin:0 0 1rem;font-size:0.85rem;color:var(--text-muted);">
-        La remise s'applique immédiatement sur vos produits sélectionnés, jusqu'à la date de fin.
-        Vous pouvez l'arrêter à tout moment.
+        ${escapeHTML(t("vflashCreateDesc"))}
       </p>
 
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:0.75rem;">
         <div>
-          <label style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:0.3rem;">Titre *</label>
-          <input type="text" id="vfTitle" maxlength="80" placeholder="Ex. Promo week-end -25%" style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:8px;">
+          <label style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:0.3rem;">${escapeHTML(t("vflashFieldTitle"))}</label>
+          <input type="text" id="vfTitle" maxlength="80" placeholder="${escapeHTML(t("vflashFieldTitlePh"))}" style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:8px;">
         </div>
         <div>
-          <label style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:0.3rem;">Remise *</label>
+          <label style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:0.3rem;">${escapeHTML(t("vflashFieldDiscount"))}</label>
           <select id="vfDiscountType" style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:8px;">
-            <option value="percent">Pourcentage (%)</option>
-            <option value="fixed">Montant fixe (MAD)</option>
+            <option value="percent">${escapeHTML(t("vflashDiscountPercent"))}</option>
+            <option value="fixed">${escapeHTML(t("vflashDiscountFixed"))}</option>
           </select>
         </div>
         <div>
-          <label style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:0.3rem;">Valeur *</label>
+          <label style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:0.3rem;">${escapeHTML(t("vflashFieldValue"))}</label>
           <input type="number" id="vfDiscountValue" min="1" step="1" value="20" style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:8px;">
         </div>
         <div>
-          <label style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:0.3rem;">Limite de ventes</label>
-          <input type="number" id="vfMaxQuantity" min="0" step="1" value="0" placeholder="0 = illimité" style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:8px;">
+          <label style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:0.3rem;">${escapeHTML(t("vflashFieldLimit"))}</label>
+          <input type="number" id="vfMaxQuantity" min="0" step="1" value="0" placeholder="${escapeHTML(t("vflashFieldLimitPh"))}" style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:8px;">
         </div>
         <div>
-          <label style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:0.3rem;">Début *</label>
+          <label style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:0.3rem;">${escapeHTML(t("vflashFieldStart"))}</label>
           <input type="datetime-local" id="vfStartsAt" style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:8px;">
         </div>
         <div>
-          <label style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:0.3rem;">Fin *</label>
+          <label style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:0.3rem;">${escapeHTML(t("vflashFieldEnd"))}</label>
           <input type="datetime-local" id="vfEndsAt" style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:8px;">
         </div>
       </div>
 
       <div style="margin-top:1rem;">
         <label style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:0.3rem;">
-          Produits concernés * <span id="vfSelectedCount" style="color:var(--gold);">(0 sélectionné)</span>
+          ${escapeHTML(t("vflashFieldProducts"))} <span id="vfSelectedCount" style="color:var(--gold);">${escapeHTML(t("vflashSelectedNone"))}</span>
         </label>
-        <input type="text" id="vfProductSearch" placeholder="🔍 Filtrer mes produits..." style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:8px;margin-bottom:0.4rem;">
+        <input type="text" id="vfProductSearch" placeholder="${escapeHTML(t("vflashFilterPh"))}" style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:8px;margin-bottom:0.4rem;">
         <div id="vfProductPicker" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:0.5rem;">
-          <div style="text-align:center;color:var(--text-muted);">⏳ Chargement...</div>
+          <div style="text-align:center;color:var(--text-muted);">${escapeHTML(t("loading"))}</div>
         </div>
       </div>
 
       <div id="vfMsg" style="margin-top:0.75rem;font-size:0.85rem;"></div>
 
       <div style="display:flex;gap:0.6rem;margin-top:1rem;flex-wrap:wrap;">
-        <button id="vfSaveBtn" type="button" style="background:var(--gold);color:#fff;border:none;padding:0.6rem 1.2rem;border-radius:8px;font-weight:600;cursor:pointer;">🚀 Lancer la vente flash</button>
-        <button id="vfResetBtn" type="button" style="background:transparent;border:1px solid var(--border);padding:0.6rem 1.2rem;border-radius:8px;cursor:pointer;">↺ Réinitialiser</button>
+        <button id="vfSaveBtn" type="button" style="background:var(--gold);color:#fff;border:none;padding:0.6rem 1.2rem;border-radius:8px;font-weight:600;cursor:pointer;">${escapeHTML(t("vflashLaunch"))}</button>
+        <button id="vfResetBtn" type="button" style="background:transparent;border:1px solid var(--border);padding:0.6rem 1.2rem;border-radius:8px;cursor:pointer;">${escapeHTML(t("vflashReset"))}</button>
       </div>
     </div>
 
-    <h3 style="font-family:var(--font-secondary);color:var(--gold);margin:0 0 0.75rem;">Mes ventes flash</h3>
-    <div id="vfList"><div style="text-align:center;color:var(--text-muted);">⏳ Chargement...</div></div>
+    <h3 style="font-family:var(--font-secondary);color:var(--gold);margin:0 0 0.75rem;">${escapeHTML(t("vflashMySales"))}</h3>
+    <div id="vfList"><div style="text-align:center;color:var(--text-muted);">${escapeHTML(t("loading"))}</div></div>
   `;
 
   /* Valeurs par defaut : maintenant -> +24h */
@@ -210,7 +216,7 @@ export async function renderVendorFlash(container) {
 
 async function saveVendorFlash() {
   const uid = auth.currentUser?.uid;
-  if (!uid) { setMsg("vfMsg", "Connexion requise."); return; }
+  if (!uid) { setMsg("vfMsg", t("vflashLoginRequired")); return; }
 
   const title = (document.getElementById("vfTitle")?.value || "").trim();
   const discountType = document.getElementById("vfDiscountType")?.value || "percent";
@@ -255,7 +261,7 @@ async function saveVendorFlash() {
     _vfSelected = new Set();
     document.getElementById("vfTitle").value = "";
     const c = document.getElementById("vfSelectedCount");
-    if (c) c.textContent = "(0 sélectionné)";
+    if (c) c.textContent = t("vflashSelectedNone");
     renderVendorPicker();
     await renderVendorFlashList();
   } catch (e) {
@@ -281,7 +287,7 @@ export async function renderVendorFlashList() {
 
     if (sales.length === 0) {
       box.innerHTML = `<div style="padding:1.5rem;text-align:center;color:var(--text-muted);border:1px dashed var(--border);border-radius:10px;">
-        Aucune vente flash. Créez-en une ci-dessus.</div>`;
+        ${escapeHTML(t("vflashNone"))}</div>`;
       return;
     }
 
@@ -365,9 +371,22 @@ export async function renderVendorFlashList() {
     });
   } catch (e) {
     console.error("[vendor-flash] liste :", e);
-    box.innerHTML = `<div style="color:var(--text-muted);">Erreur de chargement des ventes flash.</div>`;
+    box.innerHTML = `<div style="color:var(--text-muted);">${escapeHTML(t("vflashLoadError"))}</div>`;
   }
 }
 
 
+
+
+/* Re-rend le panneau des ventes flash quand le vendeur change de langue.
+   Le tableau de bord recharge la page au changement de langue, mais ce
+   garde-fou couvre le cas d un changement fait sans reload. */
+document.addEventListener("lang-changed", () => {
+  if (!_vfContainer) return;
+  try {
+    renderVendorFlash(_vfContainer);
+  } catch (e) {
+    console.warn("[vendor-flash] re-rendu langue :", e && e.message);
+  }
+});
 
