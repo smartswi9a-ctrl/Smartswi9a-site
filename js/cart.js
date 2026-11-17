@@ -269,7 +269,7 @@ export async function syncCartOnLogin() {
       const beforeCount = cart.length;
       cart = mergeCarts(cart, firestoreData.items);
       if (cart.length > beforeCount)
-        showToast("Panier synchronisé avec votre compte");
+        showToast(t("cartSynced"));
 
       if (firestoreData.selectedCity) {
         try {
@@ -362,14 +362,14 @@ export async function addToCart(productId, variant = null, options = {}) {
   /* B-cart-3 : refus si produit non 'approved'. */
   const ps = product.status;
   if (ps && ps !== "approved") {
-    showToast("Ce produit n'est pas disponible à la vente");
+    showToast(t("productNotForSale"));
     return;
   }
 
   const hasVariants =
     Array.isArray(product.variants) && product.variants.length > 0;
   if (hasVariants && !variant) {
-    showToast("Veuillez choisir votre taille et votre couleur");
+    showToast(t("chooseSizeColor"));
     window.location.href = `/produit?slug=${encodeURIComponent( product.slug || "" )}`;
     return;
   }
@@ -382,7 +382,7 @@ export async function addToCart(productId, variant = null, options = {}) {
         (v.color || "") === (variant.color || "")
     );
     if (!validVariant) {
-      showToast("Variante introuvable");
+      showToast(t("variantNotFound"));
       return;
     }
   }
@@ -480,7 +480,7 @@ export function updateCartQuantity(itemId, quantity) {
   if (!product) {
     cart = cart.filter((i) => i.id !== itemId);
     saveCart();
-    showToast("Ce produit n'est plus disponible, retiré du panier");
+    showToast(t("productRemovedFromCart"));
     return;
   }
 
@@ -500,7 +500,7 @@ export function updateCartQuantity(itemId, quantity) {
   if (Number.isFinite(maxStock) && maxStock === 0) {
     cart = cart.filter((i) => i.id !== itemId);
     saveCart();
-    showToast("Ce produit n'est plus disponible, retiré du panier");
+    showToast(t("productRemovedFromCart"));
     return;
   }
 
@@ -711,9 +711,9 @@ export function revalidateCartPrices() {
     setCart(cart);
     const priceChanges = changes.filter((c) => c.type === "price_changed");
     if (priceChanges.length > 0)
-      showToast(`${priceChanges.length} prix mis à jour dans votre panier`);
+      showToast(t("pricesUpdated").replace("{n}", priceChanges.length));
     if (changes.some((c) => c.type === "variant_removed"))
-      showToast("Des articles indisponibles ont été retirés.");
+      showToast(t("itemsUnavailableRemoved"));
 
     if (getCurrentUser()) saveCartToFirestoreImmediate();
   }
@@ -843,7 +843,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
   if (!user) return { success: false, error: "NO_USER" };
   const normalizedItems = consolidateOrderItems(items);
   if (!normalizedItems.length)
-    return { success: false, error: "Le panier est vide ou invalide." };
+    return { success: false, error: t("cartEmptyInvalid") };
   try {
     const { auth } = await import("./firebase.js");
     const firebaseUser = auth.currentUser;
@@ -893,7 +893,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
     if (!response.ok || result.success !== true)
       return {
         success: false,
-        error: result.message || "Création de commande impossible.",
+        error: result.message || t("orderCreateFailed"),
       };
     clearOrderRequestId();
     return {
@@ -906,7 +906,7 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
     console.error("Erreur création commande serveur :", error);
     return {
       success: false,
-      error: error.message || "Erreur réseau pendant la création de commande.",
+      error: error.message || t("orderNetworkError"),
     };
   }
 }
@@ -1045,14 +1045,14 @@ export async function cancelOrder(orderId) {
     if (!response.ok || result.success !== true)
       return {
         success: false,
-        error: result.message || "Annulation impossible.",
+        error: result.message || t("cancelFailed"),
       };
     return { success: true };
   } catch (error) {
     console.error("Erreur annulation commande serveur :", error);
     return {
       success: false,
-      error: error.message || "Erreur réseau pendant l’annulation.",
+      error: error.message || t("cancelNetworkError"),
     };
   }
 }
