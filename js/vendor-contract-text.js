@@ -114,7 +114,7 @@ export const CONTRACT_TEMPLATES = {
       .replaceAll("SMART SWI9A", "SMARTSWIKA")
       .replaceAll("Smart Swi9a", "Smartswika"),
     ar: (t) => CONTRACT_TEMPLATES["1.4.0"].ar(t)
-      .replaceAll("سمارت سويقة", "سمارتسويكا"),
+      .replaceAll("سمارت سويقة", "سمارت سويقة"),
     en: (t) => CONTRACT_TEMPLATES["1.4.0"].en(t)
       .replaceAll("SMART SWI9A", "SMARTSWIKA")
       .replaceAll("Smart Swi9a", "Smartswika"),
