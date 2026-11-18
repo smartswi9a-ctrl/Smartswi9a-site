@@ -24,13 +24,15 @@ const vm = require("node:vm");
 const ROOT = path.join(__dirname, "..");
 const LANGS = ["fr", "ar", "en"];
 
-/* --------------------------------------------- chargement */
+/* --------------------------------------------- chargement
+   On charge translations.js PUIS js/translations-vendor.js, qui complete
+   window.translations pour le dashboard vendeur et le contrat. */
 const sandbox = { window: {} };
-vm.runInNewContext(
-  fs.readFileSync(path.join(ROOT, "translations.js"), "utf8"),
-  sandbox,
-  { timeout: 5000 }
-);
+for (const file of ["translations.js", "js/translations-vendor.js"]) {
+  vm.runInNewContext(fs.readFileSync(path.join(ROOT, file), "utf8"), sandbox, {
+    timeout: 5000,
+  });
+}
 const translations = sandbox.window.translations;
 
 if (!translations || !translations.fr) {
@@ -43,19 +45,26 @@ const used = new Map(); /* cle -> Set(fichier) */
 
 function addKey(key, file) {
   if (!key) return;
+  /* Cle construite dynamiquement (ex. tr("vendor.field." + name)) : on ne
+     peut pas la verifier statiquement, on l ignore. */
+  if (key.endsWith(".")) return;
   if (!used.has(key)) used.set(key, new Set());
   used.get(key).add(file);
 }
 
 /* 1. Modules JS */
-const JS_EXCLUDE = ["translations-li", "translations-ve", "vendor-dashboard", "admin.js"];
+const JS_EXCLUDE = ["translations-li", "translations-ve"];
 for (const file of fs.readdirSync(path.join(ROOT, "js"))) {
   if (!file.endsWith(".js")) continue;
   if (JS_EXCLUDE.some((skip) => file.startsWith(skip))) continue;
   const src = fs.readFileSync(path.join(ROOT, "js", file), "utf8");
-  const re = /\bt\(\s*["']([A-Za-z0-9_]+)["']\s*\)/g;
+  const reT = /\bt\(\s*["']([A-Za-z0-9_]+)["']\s*\)/g;
   let m;
-  while ((m = re.exec(src))) addKey(m[1], "js/" + file);
+  while ((m = reT.exec(src))) addKey(m[1], "js/" + file);
+  /* Les modules vendeur utilisent tr("cle", "fallback") : le fallback est
+     du francais en dur, donc la cle DOIT exister en ar / en. */
+  const reTr = /\btr\(\s*["']([A-Za-z0-9_.]+)["']/g;
+  while ((m = reTr.exec(src))) addKey(m[1], "js/" + file);
 }
 
 /* 2. Pages HTML */
