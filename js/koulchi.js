@@ -40,16 +40,16 @@
 
 export const KOULCHI_MIN_ITEMS = 3;
 export const KOULCHI_MAX_ITEMS = 10;
-export const KOULCHI_MAX_PER_PRODUCT = 3;
+export const KOULCHI_MAX_PER_PRODUCT = 4;
 
 /**
  * Paliers de remise, du plus eleve au plus bas.
  * min = nombre d articles minimum pour declencher ce palier.
  */
 export const KOULCHI_TIERS = [
-  { min: 9, percent: 10 },
-  { min: 6, percent: 5 },
-  { min: 3, percent: 2 },
+  { min: 9, percent: 15 },
+  { min: 6, percent: 10 },
+  { min: 3, percent: 5 },
 ];
 
 /* ---------------------------------------------
