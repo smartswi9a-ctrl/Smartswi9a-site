@@ -42,13 +42,18 @@ const STATIC_PAGES = [
   { loc: "/koulchi", changefreq: "daily", priority: "0.9" },
   { loc: "/boutique", changefreq: "weekly", priority: "0.9" },
   { loc: "/blog", changefreq: "daily", priority: "0.8" },
-  { loc: "/villes", changefreq: "monthly", priority: "0.7" },
-  { loc: "/villesmaroc.html", changefreq: "monthly", priority: "0.7" },
-  { loc: "/inscription-vendeur.html", changefreq: "monthly", priority: "0.6" },
-  { loc: "/cgu-acheteur.html", changefreq: "yearly", priority: "0.3" },
-  { loc: "/cgu-vendeur.html", changefreq: "yearly", priority: "0.3" },
-  { loc: "/contrat-vendeur.html", changefreq: "yearly", priority: "0.3" },
-  { loc: "/politique-confidentialite.html", changefreq: "yearly", priority: "0.3" },
+  /* Audit 2026-11-18 : une seule URL par page, sans extension
+     (cleanUrls: true dans firebase.json).
+       - "/villes" renvoyait 404 en production ;
+       - "/villesmaroc.html" renvoyait 308 vers /villesmaroc.
+     Les deux ont ete retires : seule /villesmaroc est listee.
+     "/inscription-vendeur.html" est en noindex : une page noindex
+     ne doit jamais figurer dans le sitemap, elle est donc retiree. */
+  { loc: "/villesmaroc", changefreq: "monthly", priority: "0.7" },
+  { loc: "/cgu-acheteur", changefreq: "yearly", priority: "0.3" },
+  { loc: "/cgu-vendeur", changefreq: "yearly", priority: "0.3" },
+  { loc: "/contrat-vendeur", changefreq: "yearly", priority: "0.3" },
+  { loc: "/politique-confidentialite", changefreq: "yearly", priority: "0.3" },
 ];
 
 function parseArgs(argv) {

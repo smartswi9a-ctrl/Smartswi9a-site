@@ -216,11 +216,11 @@
       },
       {
         "source": "/villes",
-        "destination": "/villesmaroc.html"
+        "destination": "/villesmaroc"
       },
       {
         "source": "/villes.html",
-        "destination": "/villesmaroc.html"
+        "destination": "/villesmaroc"
       }
     ]
   },
