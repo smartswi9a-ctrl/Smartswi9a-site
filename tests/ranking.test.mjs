@@ -258,6 +258,24 @@ check("A7b : sans stockage, aucune exception", () => {
   assert.strictEqual(typeof snapshot.seed, "number");
 });
 
+/* --------------------------------------------- A8 */
+console.log("\n--- A8 : borne de stockage ---");
+
+check("A8a : etat sous la limite inchange", () => {
+  const state = { seed: 1, seedAt: NOW, events: { a: { click: { n: 1, t: NOW } } } };
+  const trimmed = api.trimRanking(state, 100);
+  assert.strictEqual(Object.keys(trimmed.events).length, 1);
+});
+
+check("A8b : au-dela de la limite, garde les plus recents", () => {
+  const events = {};
+  for (let i = 0; i < 5; i++) {
+    events["p" + i] = { click: { n: 1, t: NOW - i * DAY } };
+  }
+  const trimmed = api.trimRanking({ seed: 1, seedAt: NOW, events }, 2);
+  assert.deepStrictEqual(Object.keys(trimmed.events).sort(), ["p0", "p1"]);
+});
+
 /* --------------------------------------------- Resume */
 const pass = results.filter((r) => r.ok).length;
 const fail = results.length - pass;
