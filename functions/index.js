@@ -3134,7 +3134,10 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
           /* K3 : prix de groupe relu dans la transaction. Retenu seulement
              s il est STRICTEMENT inferieur au meilleur prix deja obtenu,
              pour ne jamais facturer plus cher en Koulchi. */
-          koulchiPrice: !item.variant
+          /* K3/K6b : pas de cumul vente flash + Koulchi. Un produit deja
+             remise en vente flash reste en vente flash (option A). */
+          koulchiPrice: !flashApplied
+            && !item.variant
             && Number.isFinite(Number(data.koulchiPrice))
             && Number(data.koulchiPrice) > 0
             && Number(data.koulchiPrice) < unitPrice

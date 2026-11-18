@@ -39,6 +39,7 @@ import {
   canAddToKoulchi,
   canAddProductToKoulchi,
   isKoulchiEligible,
+  isKoulchiBlockedByFlash,
 } from "./koulchi.js";
 
 /* ============================================================ NORMALISATION D'ID PRODUIT ============================================================ */
@@ -410,6 +411,8 @@ export async function addToCart(productId, variant = null, options = {}) {
           ? "koulchiMaxPerProduct"
           : check.reason === "variant"
           ? "koulchiVariantExcluded"
+          : check.reason === "flashSale"
+          ? "koulchiFlashExcluded"
           : "koulchiNotEligible";
       showToast(t(reasonKey));
       return { success: false, reason: check.reason };
@@ -542,6 +545,10 @@ export function setCartItemMode(itemId, mode) {
   if (!product) return { success: false, reason: "notFound" };
   /* Prix de groupe = prix produit : pas de variante, pas de Koulchi. */
   if (item.variant) return { success: false, reason: "variant" };
+  /* Pas de cumul avec une vente flash. */
+  if (isKoulchiBlockedByFlash(product)) {
+    return { success: false, reason: "flashSale" };
+  }
   if (!isKoulchiEligible(product)) {
     return { success: false, reason: "notEligible" };
   }
@@ -589,11 +596,15 @@ function buildZoneLines() {
        tant qu aucun prix de groupe par variante n existe. Fail-open : sans
        prix valide, la ligne reste facturee au prix classique. */
     const koulchiUnitPrice = item.variant ? null : p.koulchiPrice;
+    /* Pas de cumul vente flash + Koulchi : une ligne d un produit en vente
+       flash repasse en classique, elle ne compte donc ni dans la fenetre
+       3-10 ni dans la base de remise. */
+    const blockedByFlash = Number(p.flashPrice) > 0;
     lines.push({
       itemId: item.id,
       productId: item.productId,
       quantity: item.quantity,
-      mode: item.mode === "koulchi" ? "koulchi" : null,
+      mode: !blockedByFlash && item.mode === "koulchi" ? "koulchi" : null,
       classicUnitPrice,
       koulchiUnitPrice,
       variant: item.variant || null,
