@@ -37,7 +37,8 @@ import {
     countGroupedPickupArticles, invalidateGroupedPickupCache,
     GROUPED_PICKUP_CONTEXT_TTL_MS
 } from "./grouped-pickup.js";
-import { aggregateTraffic, computeOnline, dayKey } from "./analytics-core.js";
+import { aggregateTraffic, computeOnline, dayKey, buildTrafficSeries } from "./analytics-core.js";
+import { buildTrafficSvg } from "./traffic-chart.js";
 
 /* Ramassage groupé Livo (PR 7) — le Worker /create-pickup existe déjà côté
    cloudflare/workers/livo-proxy.js. Aucune clé API côté navigateur. */
@@ -220,6 +221,7 @@ function activateAdminPanel() {
    couverts par tests/analytics.test.mjs.
    ============================================================ */
 let trafficPresenceUnsub = null;
+let trafficEntriesCache = [];
 
 function setTrafficValue(id, value) {
     const el = document.getElementById(id);
@@ -302,6 +304,38 @@ function watchTrafficPresence() {
     }
 }
 
+function getTrafficPeriod() {
+    const sel = document.getElementById('trafficPeriod');
+    const n = sel ? Number(sel.value) : 30;
+    return Number.isFinite(n) && n > 0 ? n : 30;
+}
+
+/**
+ * Graphique du trafic : barres = vues, ligne = visiteurs uniques.
+ * Le SVG est genere par js/traffic-chart.js (module pur, teste).
+ */
+function renderTrafficChart(entries, days) {
+    const host = document.getElementById('trafficChart');
+    if (!host) return;
+
+    const series = buildTrafficSeries(entries, days, new Date());
+    host.innerHTML =
+        buildTrafficSvg(series) +
+        `<div style="display:flex;gap:1rem;font-size:0.8rem;color:var(--text-muted);margin-top:0.4rem;flex-wrap:wrap;">
+            <span><span style="display:inline-block;width:10px;height:10px;background:#a57b2e;border-radius:2px;margin-right:0.3rem;"></span>Vues</span>
+            <span><span style="display:inline-block;width:14px;height:2px;background:#1b2a4a;vertical-align:middle;margin-right:0.3rem;"></span>Visiteurs uniques</span>
+        </div>`;
+
+    const summary = document.getElementById('trafficChartSummary');
+    if (summary) {
+        const totalViews = series.reduce((s, d) => s + d.views, 0);
+        const maxViews = Math.max(0, ...series.map((d) => d.views));
+        summary.textContent =
+            'Total : ' + totalViews + ' vue(s) · pic : ' + maxViews + '/jour · moyenne : ' +
+            (totalViews / series.length).toFixed(1) + '/jour';
+    }
+}
+
 async function loadTrafficStats() {
     if (!document.getElementById('tab-traffic')) return;
 
@@ -309,6 +343,14 @@ async function loadTrafficStats() {
     if (btn && !btn.dataset.bound) {
         btn.dataset.bound = '1';
         btn.addEventListener('click', () => loadTrafficStats());
+    }
+
+    const periodSel = document.getElementById('trafficPeriod');
+    if (periodSel && !periodSel.dataset.bound) {
+        periodSel.dataset.bound = '1';
+        periodSel.addEventListener('change', () => {
+            renderTrafficChart(trafficEntriesCache, getTrafficPeriod());
+        });
     }
 
     try {
@@ -323,7 +365,9 @@ async function loadTrafficStats() {
             const data = d.data() || {};
             return { id: d.id, views: data.views, visitors: data.visitors };
         });
+        trafficEntriesCache = entries;
         renderTrafficTotals(aggregateTraffic(entries, new Date()));
+        renderTrafficChart(entries, getTrafficPeriod());
         renderTrafficDaily(entries);
     } catch (e) {
         console.warn('[admin] trafic :', e && e.message);

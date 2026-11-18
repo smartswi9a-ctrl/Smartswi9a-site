@@ -483,6 +483,21 @@
             </div>
 
             <div class="admin-form" style="margin-top:1rem;">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:0.6rem;">
+                    <h3 style="margin:0;">📈 Évolution du trafic</h3>
+                    <label style="font-size:0.85rem;color:var(--text-muted);">Période
+                        <select id="trafficPeriod" style="margin-left:0.4rem;padding:0.3rem 0.5rem;">
+                            <option value="14">14 jours</option>
+                            <option value="30" selected>30 jours</option>
+                            <option value="90">90 jours</option>
+                        </select>
+                    </label>
+                </div>
+                <div id="trafficChart"><p style="color:var(--text-muted);margin:0;">Chargement…</p></div>
+                <p id="trafficChartSummary" style="color:var(--text-muted);font-size:0.8rem;margin:0.5rem 0 0;"></p>
+            </div>
+
+            <div class="admin-form" style="margin-top:1rem;">
                 <h3>📊 14 derniers jours</h3>
                 <div id="trafficDailyTable" style="overflow-x:auto;"><p style="color:var(--text-muted);margin:0;">Chargement…</p></div>
             </div>

@@ -21,6 +21,7 @@ import {
   shouldRecordView,
   aggregateTraffic,
   computeOnline,
+  buildTrafficSeries,
   DAY_MS,
 } from "../js/analytics-core.js";
 
@@ -188,6 +189,35 @@ check("computeOnline : entrees invalides ignorees", () => {
 
 check("DAY_MS : 24 heures", () => {
   assert.strictEqual(DAY_MS, 86400000);
+});
+
+/* --------------------------------------------- serie du graphique */
+
+check("buildTrafficSeries : 14 points, du plus ancien a aujourd hui", () => {
+  const s = buildTrafficSeries(ENTRIES, 14, NOW);
+  assert.strictEqual(s.length, 14);
+  assert.strictEqual(s[13].date, "2026-11-18");
+  assert.strictEqual(s[12].date, "2026-11-17");
+});
+
+check("buildTrafficSeries : valeurs et jours vides a zero", () => {
+  const s = buildTrafficSeries(ENTRIES, 14, NOW);
+  assert.strictEqual(s[13].views, 5);
+  assert.strictEqual(s[13].visitors, 2);
+  assert.strictEqual(s[12].views, 3);
+  assert.strictEqual(s[0].views, 0);
+  assert.strictEqual(s[0].visitors, 0);
+});
+
+check("buildTrafficSeries : bornes 1 a 365", () => {
+  assert.strictEqual(buildTrafficSeries(ENTRIES, 0, NOW).length, 1);
+  assert.strictEqual(buildTrafficSeries(ENTRIES, 9999, NOW).length, 365);
+});
+
+check("buildTrafficSeries : entrees invalides ignorees", () => {
+  const s = buildTrafficSeries(null, 7, NOW);
+  assert.strictEqual(s.length, 7);
+  assert.strictEqual(s.every((d) => d.views === 0 && d.visitors === 0), true);
 });
 
 /* --------------------------------------------- resume */

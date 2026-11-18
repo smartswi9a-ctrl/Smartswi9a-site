@@ -179,6 +179,41 @@ export function aggregateTraffic(entries, now = new Date()) {
 }
 
 /**
+ * Construit une serie continue de N jours pour le graphique du dashboard.
+ * Les jours sans donnees sont completes par des zeros (le graphique ne
+ * doit jamais avoir de trou).
+ *
+ * @param {Array<{id:string, views:number, visitors:string[]}>} entries
+ * @param {number} [days] nombre de jours (1 a 365)
+ * @param {Date} [now]
+ * @returns {Array<{date:string, views:number, visitors:number}>}
+ */
+export function buildTrafficSeries(entries, days = 14, now = new Date()) {
+  const raw = Math.floor(Number(days));
+  const n = Number.isFinite(raw) ? Math.max(1, Math.min(365, raw)) : 14;
+  const list = Array.isArray(entries) ? entries : [];
+  const byId = new Map();
+
+  for (const entry of list) {
+    if (!entry) continue;
+    const id = String(entry.id || "");
+    if (!DAY_KEY_PATTERN.test(id)) continue;
+    byId.set(id, entry);
+  }
+
+  const keys = dayKeysBetween(new Date(now.getTime() - (n - 1) * DAY_MS), now);
+
+  return keys.map((date) => {
+    const doc = byId.get(date);
+    return {
+      date,
+      views: Math.max(0, Math.floor(Number(doc && doc.views) || 0)),
+      visitors: doc && Array.isArray(doc.visitors) ? doc.visitors.length : 0,
+    };
+  });
+}
+
+/**
  * Visiteurs en ligne : lastSeen dans la fenetre TTL.
  * @param {Array<{path:string, lastSeen:Date|number|object}>} presences
  * @param {Date} [now]
