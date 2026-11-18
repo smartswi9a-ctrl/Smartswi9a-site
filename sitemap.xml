@@ -25,43 +25,31 @@
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://smartswika.ma/villes</loc>
+    <loc>https://smartswika.ma/villesmaroc</loc>
     <lastmod>2026-11-18</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://smartswika.ma/villesmaroc.html</loc>
-    <lastmod>2026-11-18</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.7</priority>
-  </url>
-  <url>
-    <loc>https://smartswika.ma/inscription-vendeur.html</loc>
-    <lastmod>2026-11-18</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.6</priority>
-  </url>
-  <url>
-    <loc>https://smartswika.ma/cgu-acheteur.html</loc>
+    <loc>https://smartswika.ma/cgu-acheteur</loc>
     <lastmod>2026-11-18</lastmod>
     <changefreq>yearly</changefreq>
     <priority>0.3</priority>
   </url>
   <url>
-    <loc>https://smartswika.ma/cgu-vendeur.html</loc>
+    <loc>https://smartswika.ma/cgu-vendeur</loc>
     <lastmod>2026-11-18</lastmod>
     <changefreq>yearly</changefreq>
     <priority>0.3</priority>
   </url>
   <url>
-    <loc>https://smartswika.ma/contrat-vendeur.html</loc>
+    <loc>https://smartswika.ma/contrat-vendeur</loc>
     <lastmod>2026-11-18</lastmod>
     <changefreq>yearly</changefreq>
     <priority>0.3</priority>
   </url>
   <url>
-    <loc>https://smartswika.ma/politique-confidentialite.html</loc>
+    <loc>https://smartswika.ma/politique-confidentialite</loc>
     <lastmod>2026-11-18</lastmod>
     <changefreq>yearly</changefreq>
     <priority>0.3</priority>
