@@ -39,7 +39,7 @@ process.on("unhandledRejection", (reason, promise) => {
 // ---------------------------------------------------------------------------
 const STATIC_PAGES = [
   { loc: "/", changefreq: "daily", priority: "1.0" },
-  { loc: "/koulchi.html", changefreq: "daily", priority: "0.9" },
+  { loc: "/koulchi", changefreq: "daily", priority: "0.9" },
   { loc: "/boutique", changefreq: "weekly", priority: "0.9" },
   { loc: "/blog", changefreq: "daily", priority: "0.8" },
   { loc: "/villes", changefreq: "monthly", priority: "0.7" },
