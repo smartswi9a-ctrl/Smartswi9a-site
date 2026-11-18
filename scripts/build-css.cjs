@@ -114,6 +114,20 @@ if (fs.existsSync(VENDOR_I18N_ABS)) {
   );
 }
 
+/* admin.js etait charge avec une URL FIXE (`?v=20261116-pr88`). Comme les
+   .js sont mis en cache 1 a 4 h, le navigateur continuait d executer
+   l ANCIENNE version apres un deploiement : le panneau Trafic restait
+   bloque sur "Chargement..." sans aucune erreur. On versionne donc
+   admin.js par le hash de son contenu, comme les autres fichiers. */
+const ADMIN_JS_REL = "js/admin.js";
+const ADMIN_JS_ABS = path.join(ROOT, ADMIN_JS_REL);
+let adminJsVersion = null;
+
+if (fs.existsSync(ADMIN_JS_ABS)) {
+  adminJsVersion = hash8(ADMIN_JS_ABS);
+  console.log("  " + ADMIN_JS_REL.padEnd(22) + " -> ?v=" + adminJsVersion);
+}
+
 /* ---------------------------------------------
    2. Reecrire les liens dans le HTML
    --------------------------------------------- */
@@ -145,6 +159,14 @@ for (const page of pages) {
     html = html.replace(
       /\/js\/translations-vendor\.js(?:\?v=[0-9a-f]{8})?/g,
       "/js/translations-vendor.js?v=" + vendorI18nVersion
+    );
+  }
+
+  /* admin.js : meme versionnement (cache-busting de chaque deploiement). */
+  if (adminJsVersion) {
+    html = html.replace(
+      /\/js\/admin\.js(?:\?v=[0-9a-zA-Z._-]+)?/g,
+      "/js/admin.js?v=" + adminJsVersion
     );
   }
 
