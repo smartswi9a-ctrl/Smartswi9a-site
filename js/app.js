@@ -23,6 +23,7 @@ import { initBanners } from "./banner.js";
 import { attachEvents, applyTranslations } from "./events.js";
 import { loadNotifications } from "./notifications.js";
 import { initCategoriesMenuFromUrl } from "./categories-menu.js";
+import { initAnalytics } from "./analytics.js";
 
 /* ============================================================ GUARD GLOBAL : éviter les doubles initialisations auth ============================================================ Si app.js est inclus 2× (double balise, HMR), le 2ème init ne réattache pas le listener auth. Empêche le cumul. ============================================================ */
 if (
@@ -171,6 +172,12 @@ async function init() {
     }
     try {
       initCookieConsent();
+    } catch (e) {
+      /* no-op */
+    }
+    /* Mesure d audience : ne collecte que si les cookies sont acceptes. */
+    try {
+      initAnalytics();
     } catch (e) {
       /* no-op */
     }

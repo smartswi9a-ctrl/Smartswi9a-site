@@ -1017,10 +1017,18 @@ export function initCookieConsent() {
 
   document.getElementById("cookieAcceptBtn").addEventListener("click", () => {
     safeSetItem(key, "accepted");
+    /* La mesure d audience ecoute cet evenement pour demarrer tout de
+       suite (sans attendre un rechargement). */
+    document.dispatchEvent(
+      new CustomEvent("cookie-consent-changed", { detail: { value: "accepted" } })
+    );
     banner.remove();
   });
   document.getElementById("cookieDeclineBtn").addEventListener("click", () => {
     safeSetItem(key, "declined");
+    document.dispatchEvent(
+      new CustomEvent("cookie-consent-changed", { detail: { value: "declined" } })
+    );
     banner.remove();
   });
 }
