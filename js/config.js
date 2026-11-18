@@ -582,6 +582,7 @@ CATEGORY_GROUPS.forEach(group => {
 });
 
 export const SORT_OPTIONS = [
+    { value: 'relevance', label: 'sortRelevance' },
     { value: 'default', label: 'sortDefault' },
     { value: 'price-asc', label: 'sortPriceAsc' },
     { value: 'price-desc', label: 'sortPriceDesc' },
