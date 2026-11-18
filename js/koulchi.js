@@ -172,6 +172,33 @@ export function filterKoulchiProducts(products) {
   return products.filter(isKoulchiEligible);
 }
 
+/**
+ * Catalogue complet des offres groupees, pret a etre affiche.
+ * Centralise les conditions de la vitrine (page /koulchi ET facade de
+ * l accueil) pour qu elles ne divergent jamais :
+ *   - prix de groupe valide (koulchiPrice < price) ;
+ *   - produit approuve (status absent = produit historique, tolere) ;
+ *   - stock superieur a zero ;
+ *   - aucune variante (un seul prix par ligne de groupe) ;
+ *   - aucune vente flash en cours (aucun cumul).
+ *
+ * @param {Array} products catalogue brut
+ * @returns {Array} produits affichables dans Koulchi
+ */
+export function getKoulchiCatalog(products) {
+  return filterKoulchiProducts(products).filter((product) => {
+    if (!product) return false;
+    const status = product.status;
+    if (status && status !== "approved") return false;
+    if (Number(product.stock) <= 0) return false;
+    if (Array.isArray(product.variants) && product.variants.length > 0) {
+      return false;
+    }
+    if (isKoulchiBlockedByFlash(product)) return false;
+    return true;
+  });
+}
+
 
 /**
  * Repartit la remise sur chaque ligne, pour l AFFICHAGE uniquement.

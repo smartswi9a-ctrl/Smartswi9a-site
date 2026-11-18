@@ -589,6 +589,49 @@ check("K9g : produit en vente flash -> refuse (pas de cumul)", () => {
   assert.strictEqual(api.isKoulchiBlockedByFlash({ flashPrice: 0 }), false);
 });
 
+/* --------------------------------------------- Catalogue de la page /koulchi */
+
+check("C1 : getKoulchiCatalog garde les prix de groupe valides", () => {
+  const cat = api.getKoulchiCatalog([
+    { id: 1, price: 500, koulchiPrice: 450, stock: 5 },
+    { id: 2, price: 500, stock: 5 },
+    { id: 3, price: 500, koulchiPrice: 600, stock: 5 },
+    { id: 4, price: 500, koulchiPrice: 450, stock: 5 },
+  ]);
+  assert.deepStrictEqual(cat.map((p) => p.id), [1, 4]);
+});
+
+check("C2 : getKoulchiCatalog exclut stock 0 et variantes", () => {
+  const cat = api.getKoulchiCatalog([
+    { id: 1, price: 500, koulchiPrice: 450, stock: 0 },
+    { id: 2, price: 500, koulchiPrice: 450, stock: 3, variants: [{ size: "M" }] },
+    { id: 3, price: 500, koulchiPrice: 450, stock: 2 },
+  ]);
+  assert.deepStrictEqual(cat.map((p) => p.id), [3]);
+});
+
+check("C3 : getKoulchiCatalog exclut les ventes flash", () => {
+  const cat = api.getKoulchiCatalog([
+    { id: 1, price: 500, koulchiPrice: 450, stock: 5, flashPrice: 400 },
+    { id: 2, price: 500, koulchiPrice: 450, stock: 5, flashPrice: 0 },
+  ]);
+  assert.deepStrictEqual(cat.map((p) => p.id), [2]);
+});
+
+check("C4 : getKoulchiCatalog exclut les statuts non approuves", () => {
+  const cat = api.getKoulchiCatalog([
+    { id: 1, price: 500, koulchiPrice: 450, stock: 5, status: "pending" },
+    { id: 2, price: 500, koulchiPrice: 450, stock: 5, status: "approved" },
+    { id: 3, price: 500, koulchiPrice: 450, stock: 5 },
+  ]);
+  assert.deepStrictEqual(cat.map((p) => p.id), [2, 3]);
+});
+
+check("C5 : getKoulchiCatalog tolere une liste invalide", () => {
+  assert.deepStrictEqual(api.getKoulchiCatalog(null), []);
+  assert.deepStrictEqual(api.getKoulchiCatalog(undefined), []);
+});
+
 /* --------------------------------------------- Resume */
 const pass = results.filter((r) => r.ok).length;
 const fail = results.length - pass;

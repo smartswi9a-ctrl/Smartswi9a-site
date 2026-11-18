@@ -26,7 +26,7 @@ import {
 } from "./utils.js";
 import { getProducts, getProductsLoadedPromise } from "./store.js";
 import { getCategoryById } from "./config.js";
-import { filterKoulchiProducts, isKoulchiBlockedByFlash, KOULCHI_TIERS } from "./koulchi.js";
+import { getKoulchiCatalog, KOULCHI_TIERS } from "./koulchi.js";
 
 let activeCategory = "";
 
@@ -35,17 +35,7 @@ let activeCategory = "";
  * @returns {Array}
  */
 function eligibleProducts() {
-  return filterKoulchiProducts(getProducts()).filter((product) => {
-    if (!product) return false;
-    const status = product.status;
-    if (status && status !== "approved") return false;
-    if (Number(product.stock) <= 0) return false;
-    if (Array.isArray(product.variants) && product.variants.length > 0) {
-      return false;
-    }
-    if (isKoulchiBlockedByFlash(product)) return false;
-    return true;
-  });
+  return getKoulchiCatalog(getProducts());
 }
 
 /**
@@ -180,7 +170,12 @@ export function renderKoulchiHome() {
         .join("")}</ul>
       <div class="koulchi-home-foot">
         <span class="koulchi-home-rule-text">${t("koulchiHomeRules")}</span>
-        <a class="btn-secondary" href="/panier">${t("koulchiHomeCta")}</a>
+        <span class="koulchi-home-actions">
+          <a class="btn-secondary" href="/panier">${t("koulchiHomeCta")}</a>
+          <a class="btn-secondary koulchi-home-seeall" href="/koulchi.html">${t(
+            "koulchiHomeSeeAll"
+          )}</a>
+        </span>
       </div>
     </div>`;
 

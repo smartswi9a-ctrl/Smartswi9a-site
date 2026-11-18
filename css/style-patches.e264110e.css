@@ -2186,3 +2186,722 @@ html[dir="rtl"] .v-lang-select {
     padding: 0.9rem 0.95rem;
   }
 }
+
+/* ============================================================
+   PAGE DEDIEE AUX OFFRES GROUPEES (/koulchi.html)
+   ------------------------------------------------------------
+   Mecanique reprise des places de marche (AliExpress "Bundle
+   deals") : panier collant a gauche, bandeau de suggestions a
+   defilement horizontal, categories, tri, puis grille infinie.
+
+   Charte : le degrade or -> orange -> rouge ne sert QU ICI et sur
+   les deux blocs promo de l accueil. Les couleurs sont reutilisees
+   via les variables --promo-* definies pour .promo-duo, donc les
+   deux ecrans restent strictement coherents.
+   ============================================================ */
+
+.koulchi-page {
+  --promo-red: #e5321b;
+  --promo-red-dark: #bf1d0a;
+  --promo-orange: #ff7a1a;
+  --promo-ink: #17110c;
+  --promo-muted: #8a7f75;
+  --promo-line: rgba(23, 17, 12, 0.09);
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 1rem 1.1rem 3rem;
+}
+
+/* ---------------------------------------------- bandeau d accroche */
+
+.koulchi-hero {
+  margin: 0.4rem 0 1.4rem;
+  border-radius: 24px;
+  background: linear-gradient(
+    125deg,
+    var(--gold-light) 0%,
+    var(--gold) 45%,
+    var(--promo-orange) 78%,
+    var(--promo-red) 100%
+  );
+  box-shadow: 0 30px 60px -34px rgba(191, 29, 10, 0.55);
+  overflow: hidden;
+}
+
+.koulchi-hero-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  padding: 1.6rem 1.6rem 1.5rem;
+  color: #fff;
+}
+
+.koulchi-hero-tag {
+  display: inline-block;
+  padding: 0.28rem 0.8rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.koulchi-hero-title {
+  margin: 0.5rem 0 0.4rem;
+  font-family: var(--font-secondary);
+  font-size: clamp(1.7rem, 3vw, 2.4rem);
+  line-height: 1.1;
+  color: #fff;
+  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.22);
+}
+
+.koulchi-hero-sub {
+  margin: 0;
+  max-width: 62ch;
+  font-size: 0.92rem;
+  color: rgba(255, 255, 255, 0.94);
+}
+
+.koulchi-hero-tiers {
+  display: flex;
+  gap: 0.5rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.koulchi-hero-tiers li {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  min-width: 76px;
+  padding: 0.55rem 0.85rem;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 16px 30px -20px rgba(0, 0, 0, 0.55);
+}
+
+.koulchi-hero-tiers strong {
+  font-size: 1.15rem;
+  font-weight: 900;
+  color: var(--promo-ink);
+}
+
+.koulchi-hero-tiers span {
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: var(--promo-red);
+}
+
+/* ---------------------------------------------- mise en page */
+
+.koulchi-layout {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 1.4rem;
+  align-items: start;
+}
+
+.koulchi-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+/* ---------------------------------------------- panier a gauche */
+
+.koulchi-cart {
+  position: sticky;
+  top: 92px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding: 1.1rem;
+  border-radius: 20px;
+  border: 1px solid rgba(var(--gold-rgb), 0.25);
+  background: #fff;
+  box-shadow: 0 24px 50px -32px rgba(120, 88, 20, 0.5);
+}
+
+.koulchi-cart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.koulchi-cart-head h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--promo-ink);
+}
+
+.koulchi-cart-count {
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(var(--gold-rgb), 0.14);
+  color: var(--gold);
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.koulchi-cart-progress {
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(229, 50, 27, 0.12);
+  overflow: hidden;
+}
+
+.koulchi-cart-progress > span {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--promo-orange), var(--promo-red));
+  transition: width 0.25s ease;
+}
+
+.koulchi-cart-hint {
+  margin: 0;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--promo-red);
+}
+
+.koulchi-cart-lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.koulchi-cart-vide {
+  padding: 0.6rem 0;
+  font-size: 0.78rem;
+  color: var(--promo-muted);
+}
+
+.koulchi-cart-line {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.45rem;
+  padding-bottom: 0.45rem;
+  border-bottom: 1px dashed var(--promo-line);
+}
+
+.koulchi-cart-line img {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  object-fit: cover;
+  background: #f6ecdb;
+}
+
+.koulchi-cart-line-txt {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.koulchi-cart-line-txt span {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--promo-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.koulchi-cart-line-txt small {
+  font-size: 0.7rem;
+  color: var(--promo-red);
+  font-weight: 800;
+}
+
+.koulchi-cart-qty {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.koulchi-cart-qty button {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--promo-line);
+  background: #fff;
+  color: var(--promo-ink);
+  font-size: 0.85rem;
+  font-weight: 800;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.koulchi-cart-qty b {
+  min-width: 16px;
+  text-align: center;
+  font-size: 0.78rem;
+}
+
+.koulchi-cart-x {
+  border: 0;
+  background: transparent;
+  color: var(--promo-muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 0 0.15rem;
+}
+
+.koulchi-cart-totals {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--promo-line);
+  font-size: 0.8rem;
+  color: var(--promo-muted);
+}
+
+.koulchi-cart-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.koulchi-cart-row.is-saving {
+  color: var(--promo-red);
+  font-weight: 700;
+}
+
+.koulchi-cart-row.is-total {
+  margin-top: 0.2rem;
+  font-size: 1rem;
+  font-weight: 900;
+  color: var(--promo-ink);
+}
+
+.koulchi-cart-cta {
+  display: block;
+  padding: 0.6rem;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--gold-light), var(--gold));
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 800;
+  text-align: center;
+  text-decoration: none;
+  box-shadow: 0 14px 26px -16px rgba(120, 88, 20, 0.95);
+}
+
+.koulchi-cart-cta.is-disabled {
+  opacity: 0.45;
+  box-shadow: none;
+  pointer-events: none;
+}
+
+/* ---------------------------------------------- bandeau de suggestions */
+
+.koulchi-suggest {
+  padding: 1rem 1.1rem 0.9rem;
+  border-radius: 20px;
+  border: 1px solid var(--promo-line);
+  background: #fff;
+  box-shadow: 0 20px 44px -32px rgba(23, 17, 12, 0.5);
+}
+
+.koulchi-suggest-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.koulchi-suggest-head h2 {
+  margin: 0;
+  font-size: 1.02rem;
+  font-weight: 800;
+  color: var(--promo-ink);
+}
+
+.koulchi-suggest-arrows {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.koulchi-arrow {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--promo-line);
+  background: #fff;
+  color: var(--promo-ink);
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 8px 18px -14px rgba(23, 17, 12, 0.65);
+}
+
+.koulchi-arrow:hover {
+  border-color: rgba(229, 50, 27, 0.4);
+  color: var(--promo-red);
+}
+
+/* Exactement 4 cartes visibles sur grand ecran, comme les bandeaux
+   commerciaux : le reste defile aux fleches ou au doigt. */
+.koulchi-suggest-track {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: calc((100% - 2.25rem) / 4);
+  gap: 0.75rem;
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0.35rem;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(229, 50, 27, 0.35) transparent;
+}
+
+.koulchi-suggest-card {
+  scroll-snap-align: start;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.koulchi-suggest-media {
+  position: relative;
+  display: block;
+  aspect-ratio: 1 / 1;
+  border-radius: 14px;
+  overflow: hidden;
+  background: linear-gradient(160deg, #fff7f3, #ffe7dc);
+}
+
+.koulchi-suggest-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.35s ease;
+}
+
+.koulchi-suggest-card:hover .koulchi-suggest-media img {
+  transform: scale(1.06);
+}
+
+.koulchi-suggest-name {
+  font-size: 0.77rem;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--promo-ink);
+  text-decoration: none;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 1.95em;
+}
+
+.koulchi-suggest-prices {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3rem;
+}
+
+.koulchi-suggest-prices strong {
+  font-size: 1rem;
+  font-weight: 900;
+  color: var(--promo-red);
+  letter-spacing: -0.02em;
+}
+
+.koulchi-suggest-prices s {
+  font-size: 0.68rem;
+  color: var(--promo-muted);
+}
+
+/* ---------------------------------------------- categories et tri */
+
+.koulchi-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.koulchi-cats {
+  display: flex;
+  gap: 0.4rem;
+  overflow-x: auto;
+  padding-bottom: 0.2rem;
+  max-width: 100%;
+}
+
+.koulchi-cat {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border: 1px solid var(--promo-line);
+  border-radius: 999px;
+  padding: 0.36rem 0.85rem;
+  background: #fff;
+  color: #544a3f;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.koulchi-cat i {
+  font-style: normal;
+  font-size: 0.68rem;
+  color: var(--promo-muted);
+}
+
+.koulchi-cat.is-active {
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--promo-orange), var(--promo-red));
+  color: #fff;
+  box-shadow: 0 10px 20px -14px rgba(229, 50, 27, 0.9);
+}
+
+.koulchi-cat.is-active i {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.koulchi-sort {
+  padding: 0.42rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid var(--promo-line);
+  background: #fff;
+  color: var(--promo-ink);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.koulchi-count {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--promo-muted);
+  font-weight: 600;
+}
+
+/* ---------------------------------------------- grille infinie */
+
+.koulchi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.9rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.koulchi-tile {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--promo-line);
+  border-radius: 16px;
+  background: #fff;
+  overflow: hidden;
+  box-shadow: 0 12px 26px -20px rgba(23, 17, 12, 0.55);
+  transition: transform 0.18s ease, box-shadow 0.18s ease,
+    border-color 0.18s ease;
+}
+
+.koulchi-tile:hover {
+  transform: translateY(-5px);
+  border-color: rgba(229, 50, 27, 0.32);
+  box-shadow: 0 22px 34px -20px rgba(229, 50, 27, 0.42);
+}
+
+.koulchi-tile-media {
+  position: relative;
+  display: block;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  background: linear-gradient(160deg, #fffaf0, #f6ead4);
+}
+
+.koulchi-tile-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.35s ease;
+}
+
+.koulchi-tile:hover .koulchi-tile-media img {
+  transform: scale(1.06);
+}
+
+.koulchi-tile-off {
+  position: absolute;
+  top: 0.45rem;
+  left: 0.45rem;
+  padding: 0.26rem 0.5rem;
+  border-radius: 10px 10px 10px 2px;
+  background: linear-gradient(135deg, var(--promo-orange), var(--promo-red));
+  color: #fff;
+  font-size: 0.76rem;
+  font-weight: 900;
+  box-shadow: 0 8px 16px -8px rgba(229, 50, 27, 0.85);
+}
+
+.koulchi-tile-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  padding: 0.62rem 0.68rem 0.72rem;
+  flex: 1;
+}
+
+.koulchi-tile-name {
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--promo-ink);
+  text-decoration: none;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 2.1em;
+}
+
+.koulchi-tile-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.68rem;
+  color: var(--promo-muted);
+  line-height: 1.1;
+}
+
+.koulchi-tile-stars {
+  color: #ff9500;
+  font-weight: 800;
+}
+
+.koulchi-tile-stars i {
+  font-style: normal;
+  font-weight: 500;
+  color: var(--promo-muted);
+}
+
+.koulchi-tile-prices {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  margin-top: auto;
+}
+
+.koulchi-tile-prices strong {
+  font-size: 1.14rem;
+  font-weight: 900;
+  color: var(--promo-red);
+  letter-spacing: -0.02em;
+}
+
+.koulchi-tile-prices s {
+  font-size: 0.71rem;
+  color: var(--promo-muted);
+}
+
+.koulchi-tile-add {
+  margin-top: 0.35rem;
+  padding: 0.48rem 0.6rem;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--gold-light), var(--gold));
+  color: #fff;
+  font-size: 0.76rem;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 10px 20px -14px rgba(120, 88, 20, 0.95);
+}
+
+.koulchi-tile-add:hover {
+  filter: brightness(1.06);
+}
+
+.koulchi-tile-add:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.koulchi-sentinel {
+  height: 40px;
+}
+
+.koulchi-empty {
+  padding: 2.5rem 1rem;
+  text-align: center;
+  color: var(--promo-muted);
+  font-size: 0.92rem;
+}
+
+/* ---------------------------------------------- responsive */
+
+@media (max-width: 1199px) {
+  .koulchi-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1024px) {
+  .koulchi-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .koulchi-cart {
+    position: static;
+    order: 2;
+  }
+
+  .koulchi-main {
+    order: 1;
+  }
+}
+
+@media (max-width: 899px) {
+  .koulchi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .koulchi-suggest-track {
+    grid-auto-columns: calc((100% - 0.75rem) / 2);
+  }
+}
+
+@media (max-width: 640px) {
+  .koulchi-page {
+    padding: 0.6rem 0.8rem 2.5rem;
+  }
+
+  .koulchi-hero-inner {
+    padding: 1.15rem 1rem;
+  }
+
+  .koulchi-hero-tiers li {
+    min-width: 66px;
+    padding: 0.45rem 0.6rem;
+  }
+}
