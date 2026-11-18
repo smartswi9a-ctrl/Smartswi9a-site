@@ -44,6 +44,13 @@ import {
   KOULCHI_MAX_PER_PRODUCT,
 } from "./koulchi.js";
 
+/* Plafond du panier CLASSIQUE : 10 exemplaires par produit.
+   Le panier GROUPE (Koulchi) est borne a KOULCHI_MAX_PER_PRODUCT (4) et
+   a KOULCHI_MAX_ITEMS (10) au total. Les deux plafonds sont appliques
+   dans addToCart() et updateCartQuantity() : aucun autre chemin ne peut
+   les contourner. */
+export const CART_MAX_PER_PRODUCT = 10;
+
 /* ============================================================ NORMALISATION D'ID PRODUIT ============================================================ */
 
 /* ============================================================ ÉTAT LOCAL DU PANIER ============================================================ */
@@ -134,7 +141,16 @@ export function loadCart() {
     let restant = KOULCHI_MAX_ITEMS;
     cart = cart
       .map((item) => {
-        if (item.mode !== "koulchi") return item;
+        if (item.mode !== "koulchi") {
+          /* Panier classique : 10 exemplaires maximum par produit. */
+          return {
+            ...item,
+            quantity: Math.min(
+              Math.floor(Number(item.quantity) || 0),
+              CART_MAX_PER_PRODUCT
+            ),
+          };
+        }
         const q = Math.min(
           Math.floor(Number(item.quantity) || 0),
           KOULCHI_MAX_PER_PRODUCT,
@@ -453,6 +469,14 @@ export async function addToCart(productId, variant = null, options = {}) {
   const currentQty = existing ? existing.quantity : 0;
   const newQty = currentQty + 1;
 
+  /* Plafond de zone : 4 exemplaires en groupe, 10 en classique. */
+  const plafond =
+    mode === "koulchi" ? KOULCHI_MAX_PER_PRODUCT : CART_MAX_PER_PRODUCT;
+  if (newQty > plafond) {
+    showToast(t("cartMaxQty").replace("{n}", plafond));
+    return { success: false, reason: "maxPerProduct" };
+  }
+
   if (itemStock === 0) {
     showToast(t("outOfStock"));
     return;
@@ -538,6 +562,29 @@ export function updateCartQuantity(itemId, quantity) {
   }
 
   let newQty = Math.max(1, parseInt(quantity) || 1);
+
+  /* Plafond de zone : 4 exemplaires en groupe, 10 en classique.
+     On refuse la modification (plutot que de la rogner en silence)
+     pour que le client comprenne pourquoi le compteur ne bouge plus. */
+  const plafond =
+    item.mode === "koulchi" ? KOULCHI_MAX_PER_PRODUCT : CART_MAX_PER_PRODUCT;
+
+  if (newQty > plafond) {
+    showToast(t("cartMaxQty").replace("{n}", plafond));
+    return;
+  }
+
+  if (item.mode === "koulchi") {
+    const autres = cart
+      .filter((l) => l.mode === "koulchi" && l.id !== item.id)
+      .reduce((sum, l) => sum + (Number(l.quantity) || 0), 0);
+
+    if (autres + newQty > KOULCHI_MAX_ITEMS) {
+      showToast(t("koulchiMaxItems"));
+      return;
+    }
+  }
+
   if (Number.isFinite(maxStock) && newQty > maxStock) {
     newQty = maxStock;
     showToast(t("stockAvailable").replace("{n}", maxStock));
