@@ -102,6 +102,30 @@ node scripts/audit-livo-fees.cjs              # compare Livo ↔ site
 
 ---
 
+## Mesure d'audience (depuis le 2026-11-18)
+
+Deux dispositifs complémentaires :
+
+| Dispositif | Où | Données |
+|---|---|---|
+| **Dashboard interne** | `/admin` → onglet **📈 Trafic** | vues + visiteurs uniques (aujourd'hui / 7 j / 30 j / 12 mois), **en ligne maintenant**, visiteurs par page, 14 derniers jours |
+| **Cloudflare Web Analytics** | dashboard Cloudflare | pages vues, visiteurs, sources, pays, pages populaires |
+
+Collecte interne : **anonyme** (identifiant pseudonyme local), **uniquement après acceptation des cookies**, aucune IP, aucun nom. Collections Firestore : `analytics_daily` (lecture admin) et `presence` (battement toutes les 60 s, « en ligne » si vu il y a moins de 5 min).
+
+### Activer Cloudflare Web Analytics (une seule fois)
+
+1. Dashboard Cloudflare → **Analytics & Logs → Web Analytics**.
+2. **Add a site** → choisir `smartswika.ma` → **Enable**.
+3. Le domaine étant proxied par Cloudflare, le beacon est injecté automatiquement (aucun code à ajouter). Sinon, coller le snippet fourni dans le `<head>`.
+4. Les premières données apparaissent sous 5 à 10 minutes.
+
+### Limite de cache à connaître
+
+Les `.js` sont mis en cache (1 h via `firebase.json`, jusqu'à 4 h via Cloudflare selon le réglage de zone). Un visiteur déjà venu peut donc exécuter l'ancien JS jusqu'à expiration : ses visites des premières heures suivant un déploiement peuvent ne pas être comptées.
+
+---
+
 ## Règles à respecter
 
 1. **Aucun secret dans le dépôt.** Clés via `wrangler secret put` et Firebase Secret Manager.
