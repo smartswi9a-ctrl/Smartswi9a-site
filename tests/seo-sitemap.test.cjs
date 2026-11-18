@@ -113,6 +113,35 @@ verifie(
   !locs.some((l) => l.startsWith(SITE + "/inscription-vendeur"))
 );
 
+/* --------------------------------------------- 6. firebase.json */
+
+let hosting = null;
+
+try {
+  hosting = JSON.parse(fs.readFileSync(path.join(ROOT, "firebase.json"), "utf8")).hosting;
+  verifie("firebase.json : JSON valide", true);
+} catch (e) {
+  ko("firebase.json : JSON valide", e.message);
+}
+
+if (hosting) {
+  const redirects = Array.isArray(hosting.redirects) ? hosting.redirects : [];
+  const villesRedirect = redirects.find(
+    (r) => r.source === "/villes" && r.destination === "/villesmaroc"
+  );
+
+  verifie(
+    "firebase.json : /villes redirige en 301 vers /villesmaroc",
+    !!villesRedirect && Number(villesRedirect.type) === 301,
+    villesRedirect ? "type " + villesRedirect.type : "redirection absente"
+  );
+
+  verifie(
+    "firebase.json : cleanUrls actif (URLs sans .html)",
+    hosting.cleanUrls === true
+  );
+}
+
 /* --------------------------------------------- resume */
 
 console.log("\n" + verifications + " verification(s), " + echecs + " echec(s)");

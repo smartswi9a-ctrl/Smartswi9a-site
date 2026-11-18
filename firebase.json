@@ -97,6 +97,18 @@
         ]
       }
     ],
+    "redirects": [
+      {
+        "source": "/villes",
+        "destination": "/villesmaroc",
+        "type": 301
+      },
+      {
+        "source": "/villes.html",
+        "destination": "/villesmaroc",
+        "type": 301
+      }
+    ],
     "rewrites": [
       {
         "source": "/api/setVendorPassword",
@@ -213,14 +225,6 @@
       {
         "source": "/vendor/dashboard",
         "destination": "/vendor/dashboard.html"
-      },
-      {
-        "source": "/villes",
-        "destination": "/villesmaroc"
-      },
-      {
-        "source": "/villes.html",
-        "destination": "/villesmaroc"
       }
     ]
   },
