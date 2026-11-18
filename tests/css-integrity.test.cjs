@@ -225,5 +225,60 @@ if (!sectionGrille) {
   }
 }
 
+/* Garde-fou cible : les trois sections de contenu de l accueil.
+   Le 2026-11-18, .features-grid / .trust-badges / .about-grid etaient
+   en UNE colonne sans media query : ~3067 px de defilement a 1440 px.
+   On protege les nouveaux paliers. */
+const contenuDebut = patches.indexOf("13 bis. SECTIONS DE CONTENU");
+const contenuFin = patches.indexOf("14. TRUST BAR");
+const sectionContenu =
+  contenuDebut >= 0 && contenuFin > contenuDebut
+    ? patches.slice(contenuDebut, contenuFin)
+    : "";
+
+if (!sectionContenu) {
+  ko("section 13 bis (sections de contenu)", "introuvable dans style-patches.css");
+} else {
+  if (
+    /@media\s*\(min-width:\s*1100px\)\s*\{[\s\S]*?\.features-grid\s*\{[\s\S]{0,160}?repeat\(\s*3\s*,/.test(
+      sectionContenu
+    )
+  ) {
+    ok("engagements : 3 colonnes a partir de 1100px");
+  } else {
+    ko("engagements : 3 colonnes a partir de 1100px", "regle absente");
+  }
+
+  if (
+    /@media\s*\(min-width:\s*1100px\)\s*\{[\s\S]*?\.trust-badges\s*\{[\s\S]{0,160}?repeat\(\s*4\s*,/.test(
+      sectionContenu
+    )
+  ) {
+    ok("confiance : 4 colonnes a partir de 1100px");
+  } else {
+    ko("confiance : 4 colonnes a partir de 1100px", "regle absente");
+  }
+
+  if (
+    /@media\s*\(min-width:\s*640px\)\s*\{[\s\S]*?\.about-grid\s*\{[\s\S]{0,160}?repeat\(\s*2\s*,/.test(
+      sectionContenu
+    )
+  ) {
+    ok("qui sommes-nous : 2 colonnes a partir de 640px");
+  } else {
+    ko("qui sommes-nous : 2 colonnes a partir de 640px", "regle absente");
+  }
+
+  if (
+    /@media\s*\(max-width:\s*639px\)\s*\{[\s\S]*?\.features-grid\s*\{[\s\S]{0,160}?repeat\(\s*2\s*,/.test(
+      sectionContenu
+    )
+  ) {
+    ok("mobile : engagements sur 2 colonnes");
+  } else {
+    ko("mobile : engagements sur 2 colonnes", "regle absente");
+  }
+}
+
 console.log("\n" + verifications + " verification(s), " + echecs + " echec(s)");
 process.exit(echecs === 0 ? 0 : 1);

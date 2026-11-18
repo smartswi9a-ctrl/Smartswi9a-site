@@ -885,6 +885,140 @@ main#main {
 }
 
 /* ============================================================
+   13 bis. SECTIONS DE CONTENU DE L ACCUEIL
+   ------------------------------------------------------------
+   Audit du 2026-11-18. Les trois grilles (.features-grid,
+   .trust-badges, .about-grid) etaient en UNE SEULE COLONNE, sans
+   aucune media query. Mesures prod a 1440 px :
+     - engagements      : 6 cartes x 1168 px, section 1313 px ;
+     - confiance        : 4 cartes x 1168 px, section  923 px ;
+     - qui sommes-nous  : 4 cartes x 1168 px, section  831 px.
+   Soit ~3067 px de defilement pour trois blocs de contenu court.
+
+   Nouvelle mise en page :
+     engagements : 3 col. >= 1100 | 2 col. 640-1099 | 2 col. mobile
+     confiance   : 4 col. >= 1100 | 2 col. 640-1099 | 2 col. mobile
+     a-propos    : 2 col. >= 640  | 1 col. mobile (textes longs)
+   ============================================================ */
+
+/* Cartes de hauteur egale dans chaque rangee. */
+.feature-card,
+.trust-badge-item,
+.about-card {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+/* L icone reste centree malgre le passage en flex. */
+.feature-icon,
+.trust-badge-icon {
+    align-self: center;
+}
+
+/* ---------- Nos engagements (6 cartes) ---------- */
+
+@media (min-width: 1100px) {
+    .features-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 1.25rem;
+    }
+}
+
+@media (min-width: 640px) and (max-width: 1099px) {
+    .features-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1rem;
+    }
+}
+
+@media (max-width: 639px) {
+    .features-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.75rem;
+    }
+    .feature-card {
+        padding: 0.9rem 0.7rem;
+    }
+    .feature-icon {
+        margin-bottom: 0.5rem;
+    }
+    .feature-icon svg {
+        width: 30px;
+        height: 30px;
+    }
+    .feature-card h3 {
+        font-size: 0.95rem;
+        line-height: 1.2;
+    }
+    .feature-card p {
+        font-size: 0.78rem;
+        line-height: 1.35;
+    }
+}
+
+/* ---------- Achetez en toute confiance (4 cartes) ---------- */
+
+@media (min-width: 1100px) {
+    .trust-badges {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 1.25rem;
+    }
+}
+
+@media (min-width: 640px) and (max-width: 1099px) {
+    .trust-badges {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1rem;
+    }
+}
+
+@media (max-width: 639px) {
+    .trust-badges {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.75rem;
+    }
+    .trust-badge-item {
+        padding: 0.9rem 0.7rem;
+    }
+    .trust-badge-icon svg {
+        width: 30px;
+        height: 30px;
+    }
+    .trust-badge-item strong {
+        font-size: 0.85rem;
+    }
+    .trust-badge-item small {
+        font-size: 0.75rem;
+        line-height: 1.35;
+    }
+}
+
+/* ---------- Qui sommes-nous ? (4 textes longs) ---------- */
+
+@media (min-width: 640px) {
+    .about-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1.25rem;
+    }
+}
+
+@media (max-width: 639px) {
+    .about-grid {
+        gap: 0.85rem;
+    }
+    .about-card {
+        padding: 1.1rem;
+    }
+    .about-card h3 {
+        font-size: 1rem;
+    }
+    .about-card p {
+        font-size: 0.86rem;
+    }
+}
+
+/* ============================================================
    14. TRUST BAR
    ============================================================ */
 @media (max-width: 600px) {
