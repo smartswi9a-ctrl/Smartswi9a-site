@@ -138,8 +138,8 @@ async function init() {
         searchInput.placeholder =
           t("searchProductsPlaceholder") || "Rechercher un produit...";
 
-      const sortSelect = document.getElementById("sortSelect");
-      if (sortSelect) sortSelect.value = "default";
+      /* A1 : le selecteur de tri reflete le filtre reel (renderSortOptions),
+         ne jamais le forcer ici. */
 
       /* ============================================================ DETTE LOT 19 : cross-page category ============================================================ Lit ?cat=xxx de l'URL (ou sessionStorage fallback) et applique le filtre. Fix navigation /blog -> /?cat=xxx. Note : si ?cat présent, re-render filtered (~50-100ms). Négligeable en pratique. ============================================================ */
       try {

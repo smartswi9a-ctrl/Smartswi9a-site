@@ -193,7 +193,7 @@ export function resetFilters() {
     filters: {
       category: "all",
       search: "",
-      sort: "default",
+      sort: "relevance",
       inStock: false,
       promos: false,
       priceMin: 0,

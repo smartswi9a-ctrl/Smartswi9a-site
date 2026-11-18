@@ -68,7 +68,7 @@ const eventHandlers = {
     if (searchInput) searchInput.value = "";
 
     const sortSelect = document.getElementById("sortSelect");
-    if (sortSelect) sortSelect.value = "default";
+    if (sortSelect) sortSelect.value = "relevance";
 
     const { clearAllFilters } = await import("./products.js");
     clearAllFilters();
