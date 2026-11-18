@@ -36,7 +36,7 @@
     <link rel="modulepreload" href="/js/admin.js?v=20261116-pr88">
 
     <link rel="stylesheet" href="/css/style.2cf30d9d.css">
-    <link rel="stylesheet" href="/css/style-patches.7055ac5d.css">
+    <link rel="stylesheet" href="/css/style-patches.01de7bf5.css">
     <script src="/translations.5dadae0f.js"></script>
     <script src="/js/translations-livo.js" defer></script>
 
@@ -51,6 +51,16 @@
             border-radius: var(--radius-lg); box-shadow: var(--shadow-sm);
         }
         .admin-header h1 { font-family: var(--font-secondary); color: var(--gold); font-size: 1.5rem; margin: 0; }
+   /* Logo de l admin : aligne avec le titre (demande client 2026-11-18). */
+   .admin-logo {
+   width: 40px; height: 40px; border-radius: 10px; margin-right: 0.55rem;
+   vertical-align: middle; background: #fffdf6;
+   box-shadow: 0 2px 8px -4px rgba(120, 88, 20, 0.5);
+   }
+   @media (max-width: 640px) {
+   .admin-logo { width: 32px; height: 32px; border-radius: 8px; margin-right: 0.4rem; }
+   .admin-header h1 { font-size: 1.2rem; }
+   }
         .admin-user-info { display: flex; align-items: center; gap: 0.8rem; font-size: 0.85rem; color: var(--text-muted); flex-wrap: wrap; }
 
         .admin-tabs {
@@ -416,7 +426,7 @@
         <div class="admin-container" id="adminPanel" style="display:none;">
 
         <div class="admin-header">
-            <h1>⚙️ Administration Smartswika</h1>
+            <h1><img src="/assets/logo-64.png" alt="" width="40" height="40" class="admin-logo">⚙️ Administration Smartswika</h1>
             <div class="admin-user-info">
                 <span id="adminModeIndicator" style="font-size:0.8rem;font-weight:700;"></span>
                 <span id="adminUserEmail">—</span>
