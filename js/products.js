@@ -20,6 +20,11 @@ import {
   getCategoryById,
 } from "./config.js";
 import {
+  getRankingSnapshot,
+  sortByRelevance,
+  trackRankingEvent,
+} from "./ranking.js";
+import {
   t,
   escapeHTML,
   getProductName,
@@ -339,6 +344,9 @@ export function getFilteredProducts() {
     list = list.filter((p) => p.price <= filters.priceMax);
 
   switch (filters.sort) {
+    case "relevance":
+      list = sortByRelevance(list, getRankingSnapshot());
+      break;
     case "price-asc":
       list.sort((a, b) => a.price - b.price);
       break;
@@ -413,7 +421,28 @@ export function setSort(sort) {
 export function setSearch(search) {
   setFilters({ search });
   setPagination({ currentPage: 1 });
+  trackSearchInterest(search);
   renderProducts();
+}
+
+/* A1 : une recherche exprime un interet. On ne compte qu une fois par
+   terme (le champ est deja debounce a 300 ms) et on ignore les saisies
+   trop courtes pour rester pertinent. */
+let lastTrackedSearch = "";
+function trackSearchInterest(search) {
+  const term = String(search || "").trim().toLowerCase();
+  if (term.length < 3 || term === lastTrackedSearch) return;
+  lastTrackedSearch = term;
+  const matches = getProducts()
+    .filter((p) => {
+      const name = getProductName(p).toLowerCase();
+      const desc = getProductDesc(p).toLowerCase();
+      return name.includes(term) || desc.includes(term);
+    })
+    .slice(0, 20);
+  for (const product of matches) {
+    trackRankingEvent(product.id, "search");
+  }
 }
 
 /** Active/désactive le filtre "en stock" et re-render. */
@@ -886,7 +915,7 @@ export function renderSortOptions() {
   if (!select) return;
   if (!Array.isArray(SORT_OPTIONS) || SORT_OPTIONS.length === 0) return;
 
-  const currentValue = select.value || "default";
+  const currentValue = select.value || getFilters().sort || "relevance";
   let html = "";
   SORT_OPTIONS.forEach((opt) => {
     html += `<option value="${opt.value}">${t(opt.label)}</option>`;
@@ -936,6 +965,13 @@ export async function toggleFavorite(productId) {
 /** * Navigue vers la page détail d'un produit. * @param {string} slug */
 export function openProductPage(slug) {
   if (!slug) return;
+  /* A1 : l ouverture d une fiche est un signal d interet fort. */
+  try {
+    const product = getProducts().find((p) => p && p.slug === slug);
+    if (product) trackRankingEvent(product.id, "click");
+  } catch (e) {
+    /* classement local indisponible : la navigation reste prioritaire */
+  }
   window.location.href = `/produit?slug=${encodeURIComponent(slug)}`;
 }
 

@@ -768,6 +768,18 @@ export async function checkout( cartItems, deliveryInfo, appliedCoupon = null, w
   }
 
   const { orderId, totals, validatedItems } = result;
+
+  /* A1 : un achat confirme est le signal le plus fort du classement local. */
+  try {
+    const { trackRankingEvent } = await import("./ranking.js");
+    for (const item of Array.isArray(validatedItems) ? validatedItems : []) {
+      if (item && item.productId) {
+        trackRankingEvent(item.productId, "purchase", Number(item.quantity) || 1);
+      }
+    }
+  } catch (e) {
+    /* classement local indisponible : la commande n est pas bloquee */
+  }
   const msg = buildWhatsAppMessage(
     validatedItems,
     deliveryInfo,
