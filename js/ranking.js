@@ -50,6 +50,7 @@ export const RANKING_PROMO_WEIGHT = 1;
 export const RANKING_FULL_MS = 7 * 24 * 60 * 60 * 1000;
 export const RANKING_HALF_MS = 30 * 24 * 60 * 60 * 1000;
 export const RANKING_SEED_TTL_MS = 6 * 60 * 60 * 1000;
+export const RANKING_MAX_PRODUCTS = 100;
 
 function seedFrom(now) {
   return Math.floor(Number(now) / 1000) % 2147483647 || 1;
@@ -288,6 +289,31 @@ export function ensureSeed(state, now = Date.now()) {
   return base;
 }
 
+/**
+ * Borne la taille de l etat pour le stockage (local et Firestore).
+ * On garde les produits dont le dernier evenement est le plus recent.
+ * @param {object} state
+ * @param {number} max
+ * @returns {object}
+ */
+export function trimRanking(state, max = RANKING_MAX_PRODUCTS) {
+  const base = state && typeof state === "object" ? state : createEmptyRanking();
+  const entries = Object.entries(base.events || {});
+  const limit = Math.max(1, Math.floor(Number(max) || RANKING_MAX_PRODUCTS));
+  if (entries.length <= limit) return base;
+
+  const latest = (entry) => {
+    let stamp = 0;
+    for (const type of Object.keys(entry || {})) {
+      stamp = Math.max(stamp, Number(entry[type] && entry[type].t) || 0);
+    }
+    return stamp;
+  };
+
+  entries.sort((a, b) => latest(b[1]) - latest(a[1]));
+  return { ...base, events: Object.fromEntries(entries.slice(0, limit)) };
+}
+
 /* ---------------------------------------------
    Stockage local (le seul code impur du fichier).
    Hors navigateur (tests Node), ces fonctions sont inactives.
@@ -334,6 +360,15 @@ export function trackRankingEvent(productId, type, delta = 1, now = Date.now()) 
   const state = ensureSeed(loadRankingState(now), now);
   trackEvent(state, productId, type, now, delta);
   saveRankingState(state);
+  /* Signal pour la synchronisation (js/ranking-sync.js), sans coupler ce
+     module pur a Firestore. */
+  if (typeof document !== "undefined") {
+    try {
+      document.dispatchEvent(new CustomEvent("ranking-updated"));
+    } catch (e) {
+      /* environnement sans CustomEvent : on ignore */
+    }
+  }
   return state;
 }
 
