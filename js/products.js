@@ -282,8 +282,19 @@ export async function loadProductsFromJSON() {
   try {
     const res = await fetchWithRetry("/produits.json");
     const data = await res.json();
-    setProducts(Array.isArray(data) ? data : []);
-    return Array.isArray(data) ? data : [];
+    const products = Array.isArray(data) ? data : [];
+    /* Meme traitement que la voie Firestore : sans cela, un repli JSON
+       afficherait des prix sans les ventes flash actives. Fail-open. */
+    try {
+      await applyFlashSales(products);
+    } catch (e) {
+      console.warn(
+        "[products] ventes flash indisponibles (repli JSON) :",
+        e?.message
+      );
+    }
+    setProducts(products);
+    return products;
   } catch (e) {
     setProducts([]);
     return [];
