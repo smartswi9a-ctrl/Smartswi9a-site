@@ -422,6 +422,54 @@ export function computeCartZones(lines) {
 }
 
 /**
+ * Economies affichees par rapport aux prix barres (oldPrice).
+ *
+ * BUG corrige le 2026-11-18 : l ancien calcul (getCartSavings dans
+ * cart.js) comparait le prix barre au prix NORMAL du produit (p.price).
+ * Un article a 200 MAD vendu 190 MAD en Koulchi etait donc compte comme
+ * paye 200 : le recapitulatif affichait 581 MAD d economies alors que le
+ * client en economisait ~905. Le calcul doit se baser sur le prix
+ * REELLEMENT facture, c est-a-dire effectiveUnitPrice, produit par
+ * computeCartZones (prix flash ou prix Koulchi selon la zone).
+ *
+ * Deux garde-fous importants :
+ *   - la remise de palier (koulchiDiscount) n est PAS incluse ici : elle
+ *     est affichee sur sa propre ligne, elle ne doit jamais etre comptee
+ *     deux fois ;
+ *   - les lignes a variante sont ignorees : oldPrice est un prix PRODUIT,
+ *     il n a pas de sens face au prix d une declinaison.
+ *
+ * Invariant garanti : pour un panier dont tous les produits portent un
+ * oldPrice, somme(oldPrice x qty) - economies == zone.subtotal.
+ *
+ * @param {Array} lines lignes de zone (classicLines + koulchiLines)
+ * @param {Array} products catalogue courant
+ * @returns {number} total arrondi, en MAD
+ */
+export function computeDisplayedSavings(lines, products) {
+  const list = Array.isArray(lines) ? lines : [];
+  const catalogue = Array.isArray(products) ? products : [];
+  let savings = 0;
+
+  for (const line of list) {
+    if (!line || line.variant) continue;
+    const qty = Math.max(0, Math.floor(Number(line.quantity) || 0));
+    if (qty <= 0) continue;
+    const product = catalogue.find(
+      (p) => p && String(p.id) === String(line.productId)
+    );
+    if (!product) continue;
+    const paidPrice = Number(line.effectiveUnitPrice);
+    if (!Number.isFinite(paidPrice) || paidPrice < 0) continue;
+    const oldPrice = Number(product.oldPrice);
+    if (!Number.isFinite(oldPrice) || oldPrice <= paidPrice) continue;
+    savings += (oldPrice - paidPrice) * qty;
+  }
+
+  return Math.round(savings);
+}
+
+/**
  * Message d incitation pour le prochain palier.
  * Le gain est estime sur le panier Koulchi ACTUEL : il ne promet jamais
  * un montant calcule sur des articles qui ne sont pas encore ajoutes.
