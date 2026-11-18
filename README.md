@@ -75,6 +75,23 @@ cd cloudflare\workers
 npx wrangler deploy --config wrangler.worker-ip.toml
 ```
 
+### Deux cibles de déploiement (audit 2026-11-18)
+
+| Cible | URL | Déclencheur | Configuration |
+|---|---|---|---|
+| **Cloudflare Pages** | `https://smartswika.ma` (canonique) | **automatique** à chaque push sur `main` | `_headers`, `_redirects` |
+| **Firebase Hosting** | `https://smartswi9a-31063.web.app` | `firebase deploy --only hosting` | `firebase.json` |
+
+Conséquence à retenir : une redirection doit être déclarée **dans les
+deux** systèmes.
+
+- Les `redirects` / `rewrites` de `firebase.json` ne s'appliquent
+  **pas** au domaine canonique (servi par Cloudflare).
+- `_headers` / `_redirects` ne s'appliquent **qu'à** Cloudflare Pages.
+- `cleanUrls: true` côté Firebase : les URLs publiques sont sans
+  `.html` (`/koulchi`, `/villesmaroc`…), y compris pour les
+  canonicals et le sitemap.
+
 ### Outils Livo
 
 ```powershell
