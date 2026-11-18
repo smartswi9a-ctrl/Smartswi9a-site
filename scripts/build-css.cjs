@@ -101,6 +101,19 @@ if (fs.existsSync(TRANSLATIONS_ABS)) {
   console.log("  " + TRANSLATIONS_SRC.padEnd(22) + " -> " + translationsOut);
 }
 
+/* Meme probleme pour le dictionnaire vendeur, charge avec une URL fixe :
+   on ajoute un parametre ?v=<hash8> pour casser le cache a chaque modification. */
+const VENDOR_I18N_REL = "js/translations-vendor.js";
+const VENDOR_I18N_ABS = path.join(ROOT, VENDOR_I18N_REL);
+let vendorI18nVersion = null;
+
+if (fs.existsSync(VENDOR_I18N_ABS)) {
+  vendorI18nVersion = hash8(VENDOR_I18N_ABS);
+  console.log(
+    "  " + VENDOR_I18N_REL.padEnd(22) + " -> ?v=" + vendorI18nVersion
+  );
+}
+
 /* ---------------------------------------------
    2. Reecrire les liens dans le HTML
    --------------------------------------------- */
@@ -124,6 +137,14 @@ for (const page of pages) {
     html = html.replace(
       /\/translations(?:\.[0-9a-f]{8})?\.js(?:\?[^"'\s>]*)?/g,
       "/" + translationsOut
+    );
+  }
+
+  /* Dictionnaire vendeur : version en query string. */
+  if (vendorI18nVersion) {
+    html = html.replace(
+      /\/js\/translations-vendor\.js(?:\?v=[0-9a-f]{8})?/g,
+      "/js/translations-vendor.js?v=" + vendorI18nVersion
     );
   }
 
@@ -219,6 +240,15 @@ if (translationsOut) {
     const refs = html.match(/\/translations\.[0-9a-f]{8}\.js/g) || [];
     for (const ref of refs) {
       if (ref !== "/" + translationsOut) staleTrad += 1;
+    }
+    if (vendorI18nVersion) {
+      const vendorRefs =
+        html.match(/\/js\/translations-vendor\.js(?:\?v=[0-9a-f]{8})?/g) || [];
+      for (const ref of vendorRefs) {
+        if (ref !== "/js/translations-vendor.js?v=" + vendorI18nVersion) {
+          staleTrad += 1;
+        }
+      }
     }
   }
 }

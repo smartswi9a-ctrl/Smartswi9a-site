@@ -17,6 +17,14 @@
     "payout.pending": "En attente",
     "payout.rejected": "Rejeté",
     "payout.cancelled": "Annulé",
+    "payout.sent": "Envoyé",
+    "payout.completed": "Terminé",
+    "vendor.stock.pickupTitle": "Ramassage de stock Livo",
+    "vendor.stock.approvedCount": "produit(s) validé(s) prêt(s) à être expédié(s)",
+    "vendor.stock.requestPickup": "Demander un ramassage",
+    "vendor.error.authNotReady": "Session non initialisée. Redirection vers l'accueil...",
+    "vendor.error.notVendor": "Ce compte n'est pas un compte vendeur. Redirection...",
+    "vendor.error.profileMissing": "Profil vendeur introuvable. Contactez le support.",
 
     /* --- Product statuses (badges dashboard vendeur) --- */
     "product.status.approved": "Approuvé",
@@ -69,6 +77,14 @@
     "payout.pending": "قيد الانتظار",
     "payout.rejected": "مرفوض",
     "payout.cancelled": "ملغى",
+    "payout.sent": "تم الإرسال",
+    "payout.completed": "مكتمل",
+    "vendor.stock.pickupTitle": "استلام المخزون عبر ليفو",
+    "vendor.stock.approvedCount": "منتج/منتجات معتمدة جاهزة للإرسال",
+    "vendor.stock.requestPickup": "طلب استلام",
+    "vendor.error.authNotReady": "الجلسة غير مهيأة. إعادة التوجيه إلى الصفحة الرئيسية...",
+    "vendor.error.notVendor": "هذا الحساب ليس حساب بائع. إعادة التوجيه...",
+    "vendor.error.profileMissing": "ملف البائع غير موجود. اتصل بالدعم.",
 
     /* --- Product statuses --- */
     "product.status.approved": "مقبول",
@@ -119,6 +135,14 @@
     "payout.pending": "Pending",
     "payout.rejected": "Rejected",
     "payout.cancelled": "Cancelled",
+    "payout.sent": "Sent",
+    "payout.completed": "Completed",
+    "vendor.stock.pickupTitle": "Livo stock pickup",
+    "vendor.stock.approvedCount": "approved product(s) ready to ship",
+    "vendor.stock.requestPickup": "Request a pickup",
+    "vendor.error.authNotReady": "Session not ready. Redirecting to the home page...",
+    "vendor.error.notVendor": "This account is not a vendor account. Redirecting...",
+    "vendor.error.profileMissing": "Vendor profile missing. Contact support.",
 
     /* --- Product statuses --- */
     "product.status.approved": "Approved",
