@@ -36,6 +36,7 @@ import { showToast } from "./ui-core.js";
 import { normalizeProductId } from "./domain/product-id.js";
 import {
   computeCartZones,
+  computeDisplayedSavings,
   canAddToKoulchi,
   canAddProductToKoulchi,
   isKoulchiEligible,
@@ -707,16 +708,22 @@ export function getCartTotalItems() {
   return cart.reduce((sum, item) => sum + (item.quantity || 0), 0);
 }
 
+/* Economies affichees : prix barre (oldPrice) moins le prix REELLEMENT
+   facture. Le calcul vit dans koulchi.js (computeDisplayedSavings) car il
+   doit lire effectiveUnitPrice, c est-a-dire le prix de la zone (prix
+   flash, prix Koulchi) et non p.price.
+
+   BUG corrige le 2026-11-18 : l ancien calcul utilisait p.price, donc les
+   economies Koulchi (prix de groupe) n apparaissaient pas dans le
+   recapitulatif : la ligne affichait 581 MAD au lieu de ~905. La remise de
+   palier reste affichee sur sa propre ligne (getCartDiscount) et n est
+   jamais incluse ici. */
 export function getCartSavings() {
-  const products = getProducts();
-  return cart.reduce((sum, item) => {
-    if (item.variant) return sum;
-    const p = products.find((pp) => String(pp.id) === String(item.productId));
-    if (p && p.oldPrice && Number(p.oldPrice) > Number(p.price)) {
-      return sum + (Number(p.oldPrice) - Number(p.price)) * item.quantity;
-    }
-    return sum;
-  }, 0);
+  const zone = getCartZoneTotals();
+  return computeDisplayedSavings(
+    [...zone.classicLines, ...zone.koulchiLines],
+    getProducts()
+  );
 }
 
 /**
