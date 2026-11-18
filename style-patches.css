@@ -918,11 +918,27 @@ main#main {
 
 /* ============================================================
    16. PROMO BANNER MARQUEE
+   ------------------------------------------------------------
+   Sur mobile, le marquee (padding-left: 100% + animation) coupait
+   le texte des deux cotes : a 390 px, le texte de 355 px etait
+   positionne de -65 a 290 (mesure prod du 2026-11-18). Il tient
+   pourtant dans 370 px utiles : on desactive donc le defilement,
+   on centre le texte et on retire le masque lateral.
    ============================================================ */
 @media (max-width: 480px) {
     .navbar-promo-banner {
         font-size: 0.7rem;
-        padding: 0.25rem 0.6rem;
+        padding: 0.3rem 0.55rem;
+        white-space: normal;
+        line-height: 1.3;
+        mask-image: none;
+        -webkit-mask-image: none;
+    }
+    .navbar-promo-banner .marquee-text {
+        display: block;
+        padding-left: 0;
+        animation: none;
+        white-space: normal;
     }
 }
 
@@ -1840,6 +1856,29 @@ html[dir="rtl"] .v-lang-select {
   font-size: clamp(1.35rem, 2.2vw, 1.75rem);
   color: var(--promo-ink);
   line-height: 1.15;
+}
+
+/* Titre cliquable vers la page dediee (demande client 2026-11-18).
+   Le h2 reste dans le lien pour conserver aria-labelledby de la
+   section (#koulchiHomeTitle). */
+#koulchiSection .koulchi-home-title-link {
+  display: inline-block;
+  color: inherit;
+  text-decoration: none;
+  border-radius: 8px;
+}
+
+#koulchiSection .koulchi-home-title-link:hover .section-title,
+#koulchiSection .koulchi-home-title-link:focus-visible .section-title {
+  color: var(--gold);
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
+}
+
+#koulchiSection .koulchi-home-title-link:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
 }
 
 #koulchiSection .koulchi-home-head .section-sub {

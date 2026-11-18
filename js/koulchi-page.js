@@ -160,7 +160,7 @@ export function renderKoulchiHome() {
   section.innerHTML = `<div class="koulchi-home-inner" id="koulchi">
       <div class="koulchi-home-head">
         <span class="koulchi-home-tag">${t("koulchiHomeTag")}</span>
-        <h2 class="section-title" id="koulchiHomeTitle">${t("koulchiHomeTitle")}</h2>
+        <a class="koulchi-home-title-link" href="/koulchi.html"><h2 class="section-title" id="koulchiHomeTitle">${t("koulchiHomeTitle")}</h2></a>
         <p class="section-sub">${t("koulchiHomeSubtitle")}</p>
       </div>
       <ul class="koulchi-home-rules">${rules}</ul>

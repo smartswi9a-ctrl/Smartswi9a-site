@@ -642,7 +642,12 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
 /* ============================================================
    BANNIÈRE PROMO (marquee)
    ============================================================ */
+/* Le bandeau est un LIEN vers /koulchi.html (demande client
+   2026-11-18) : display block + pas de soulignement pour garder
+   l apparence de bandeau, avec un etat hover/focus visible. */
 .navbar-promo-banner {
+    display: block;
+    text-decoration: none;
     background: linear-gradient(90deg, var(--gold), #7d5a1d);
     color: #ffffff;
     text-align: center;
@@ -656,6 +661,18 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
     mask-image: linear-gradient(90deg, transparent 0%, black 8%, black 92%, transparent 100%);
     -webkit-mask-image: linear-gradient(90deg, transparent 0%, black 8%, black 92%, transparent 100%);
     line-height: 1.3;
+}
+
+.navbar-promo-banner:hover,
+.navbar-promo-banner:focus-visible {
+    filter: brightness(1.07);
+}
+
+/* Le focus par defaut du site est un contour or : invisible sur le
+   degrade or, on force donc un contour blanc. */
+.navbar-promo-banner:focus-visible {
+    outline: 2px solid #ffffff;
+    outline-offset: -2px;
 }
 
 .navbar-promo-banner .marquee-text {
