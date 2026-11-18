@@ -345,7 +345,17 @@ export function trackRankingEvent(productId, type, delta = 1, now = Date.now()) 
 export function getRankingSnapshot(now = Date.now()) {
   const loaded = loadRankingState(now);
   const withSeed = ensureSeed(loaded, now);
-  if (withSeed !== loaded) saveRankingState(withSeed);
+  /* On persiste aussi le PREMIER passage : sans cela la graine serait
+     recalculee a chaque rechargement et l ordre des ex aequo changerait. */
+  let stored = null;
+  if (hasStorage()) {
+    try {
+      stored = localStorage.getItem(RANKING_STORAGE_KEY);
+    } catch (e) {
+      stored = null;
+    }
+  }
+  if (withSeed !== loaded || !stored) saveRankingState(withSeed);
   return withSeed;
 }
 
