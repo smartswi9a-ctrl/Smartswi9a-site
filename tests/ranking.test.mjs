@@ -236,6 +236,28 @@ check("A6e : etat nul -> etat vide valide", () => {
   assert.strictEqual(typeof state.seed, "number");
 });
 
+/* --------------------------------------------- A7 */
+console.log("\n--- A7 : stockage de la graine ---");
+
+check("A7a : la graine est persistee des le premier passage", () => {
+  const store = new Map();
+  globalThis.localStorage = {
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => store.set(k, String(v)),
+    removeItem: (k) => store.delete(k),
+  };
+  const first = api.getRankingSnapshot(NOW);
+  assert.strictEqual(store.has(api.RANKING_STORAGE_KEY), true);
+  const second = api.getRankingSnapshot(NOW + 1000);
+  assert.strictEqual(second.seed, first.seed);
+  delete globalThis.localStorage;
+});
+
+check("A7b : sans stockage, aucune exception", () => {
+  const snapshot = api.getRankingSnapshot(NOW);
+  assert.strictEqual(typeof snapshot.seed, "number");
+});
+
 /* --------------------------------------------- Resume */
 const pass = results.filter((r) => r.ok).length;
 const fail = results.length - pass;
