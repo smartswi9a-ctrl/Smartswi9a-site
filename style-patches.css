@@ -1378,11 +1378,6 @@ p, h1, h2, h3, h4, h5, h6 {
    synchronise depuis Livo pour la ville selectionnee (24h / 48h / 72h).
    Style discret : pastille doree, taille reduite, sans gras.
    ============================================================ */
-.cart-delivery-delay {
-  display: inline-block;
-  margin-left: 0.4rem;
-  padding: 0.05rem 0.4rem;
-
 /* ============================================================
    SECTION VENTES FLASH — ACCUEIL (audit 2026-11-16)
    ------------------------------------------------------------
@@ -1610,15 +1605,6 @@ p, h1, h2, h3, h4, h5, h6 {
   .flash-hero-track { grid-auto-columns: minmax(150px, 1fr); gap: 0.7rem; }
 }
 
-  border-radius: 999px;
-  background: rgba(165, 123, 46, 0.12);
-  color: var(--gold, #a57b2e);
-  font-size: 0.72rem;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-  vertical-align: middle;
-  white-space: nowrap;
-}
 
 
 
