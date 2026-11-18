@@ -142,6 +142,33 @@ if (hosting) {
   );
 }
 
+/* --------------------------------------------- 7. Cloudflare Pages */
+
+/* Le domaine canonique smartswika.ma est servi par Cloudflare Pages
+   (presence de _headers), pas par Firebase Hosting : les reglages de
+   firebase.json ne s y appliquent pas. Les redirections doivent donc
+   exister dans _redirects. */
+const cheminsHeaders = path.join(ROOT, "_headers");
+const cheminsRedirects = path.join(ROOT, "_redirects");
+
+if (fs.existsSync(cheminsHeaders)) {
+  verifie("Cloudflare Pages : _redirects present", fs.existsSync(cheminsRedirects));
+
+  const redirectsTxt = fs.existsSync(cheminsRedirects)
+    ? fs.readFileSync(cheminsRedirects, "utf8")
+    : "";
+
+  verifie(
+    "Cloudflare Pages : /villes -> /villesmaroc 301",
+    /^\/villes\s+\/villesmaroc\s+301\s*$/m.test(redirectsTxt)
+  );
+
+  verifie(
+    "Cloudflare Pages : /villes.html -> /villesmaroc 301",
+    /^\/villes\.html\s+\/villesmaroc\s+301\s*$/m.test(redirectsTxt)
+  );
+}
+
 /* --------------------------------------------- resume */
 
 console.log("\n" + verifications + " verification(s), " + echecs + " echec(s)");
