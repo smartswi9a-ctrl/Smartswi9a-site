@@ -1,0 +1,15 @@
+# ============================================================
+# _redirects - Cloudflare Pages
+# ------------------------------------------------------------
+# Le domaine canonique https://smartswika.ma est servi par
+# Cloudflare Pages (le dossier contient deja _headers). Les
+# "redirects" de firebase.json ne concernent que *.web.app :
+# ils ne sont PAS appliques au domaine canonique.
+#
+# Audit du 2026-11-18 : /villes repondait 404 (le rewrite
+# Firebase ne prenait pas avec cleanUrls). Les anciennes URLs de
+# la page Villes redirigent vers l URL reellement servie.
+# ============================================================
+
+/villes /villesmaroc 301
+/villes.html /villesmaroc 301
