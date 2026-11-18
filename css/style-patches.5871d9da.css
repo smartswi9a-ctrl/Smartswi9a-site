@@ -1,15 +1,15 @@
 /* ============================================================
    STYLE-PATCHES.CSS - SMARTSWIKA
-   Version 2.1.0 — Fix Étoiles Avis, Design AliExpress, Témoignages
+   Version 2.1.0 â€” Fix Ã‰toiles Avis, Design AliExpress, TÃ©moignages
    ============================================================ */
 
 /* ============================================================
-   0. POLICES ARABES ÉLÉGANTES
+   0. POLICES ARABES Ã‰LÃ‰GANTES
    ============================================================ */
 @import url('https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Cairo:wght@400;600;700;800&display=swap');
 
 /* ============================================================
-   1. NAVBAR — FIX MOBILE / TABLETTE
+   1. NAVBAR â€” FIX MOBILE / TABLETTE
    ============================================================ */
 @media screen and (max-width: 900px) {
 
@@ -125,7 +125,7 @@
 }
 
 /* ============================================================
-   1b. ANIMATION BURGER → CROIX QUAND OUVERT
+   1b. ANIMATION BURGER â†’ CROIX QUAND OUVERT
    ============================================================ */
 .burger-btn.open span:nth-child(1) {
     transform: rotate(45deg) translate(5px, 5px) !important;
@@ -138,7 +138,7 @@
 }
 
 /* ============================================================
-   1c. LOGO ARABE — POLICE AMIRI
+   1c. LOGO ARABE â€” POLICE AMIRI
    ============================================================ */
 html[lang="ar"] .logo-text,
 html[dir="rtl"] .logo-text {
@@ -201,7 +201,7 @@ html[dir="rtl"] .cart-page-form-title {
 }
 
 /* ============================================================
-   2. MENU MOBILE — FIX COMPLET
+   2. MENU MOBILE â€” FIX COMPLET
    ============================================================ */
 @media screen and (max-width: 900px) {
 
@@ -263,7 +263,7 @@ html[dir="rtl"] .cart-page-form-title {
 }
 
 /* ============================================================
-   3. BANNIÈRE IMAGE
+   3. BANNIÃˆRE IMAGE
    ============================================================ */
 .newphoto-banner-wrapper {
     max-width: var(--container-max);
@@ -414,7 +414,7 @@ main#main {
    ============================================================ */
 
 /* ------------------------------------------------------------
-   FIX PRIX BARRÉ
+   FIX PRIX BARRÃ‰
    ------------------------------------------------------------ */
 .product-old-price {
     position: relative !important;
@@ -463,7 +463,7 @@ main#main {
 }
 
 /* ------------------------------------------------------------
-   CONTENEUR FIXE (Aspect-Ratio 1:1) ET VIDÉO ENTIÈREMENT VISIBLE
+   CONTENEUR FIXE (Aspect-Ratio 1:1) ET VIDÃ‰O ENTIÃˆREMENT VISIBLE
    ------------------------------------------------------------ */
 .product-main-img-wrapper {
     width: 100% !important;
@@ -745,7 +745,7 @@ main#main {
 }
 
 /* ============================================================
-   12. BANNIÈRES CARROUSELS
+   12. BANNIÃˆRES CARROUSELS
    ============================================================ */
 @media (max-width: 768px) {
     .banners-section {
@@ -925,7 +925,7 @@ p, h1, h2, h3, h4, h5, h6 {
 }
 
 /* ============================================================
-   21. MINIATURE VIDÉO (Galerie produit)
+   21. MINIATURE VIDÃ‰O (Galerie produit)
    ============================================================ */
 .thumb-video {
     position: relative !important;
@@ -986,7 +986,7 @@ p, h1, h2, h3, h4, h5, h6 {
 }
 
 /* ============================================================
-   22. SYSTÈME D'ÉTOILES POUR LES AVIS (Formulaire)
+   22. SYSTÃˆME D'Ã‰TOILES POUR LES AVIS (Formulaire)
    ============================================================ */
 .review-star-input {
     display: inline-flex;
@@ -997,7 +997,7 @@ p, h1, h2, h3, h4, h5, h6 {
 }
 
 .review-star-input .star {
-    color: var(--text-dim); /* Gris par défaut */
+    color: var(--text-dim); /* Gris par dÃ©faut */
     transition: color 0.15s ease, transform 0.1s ease;
     user-select: none;
 }
@@ -1009,7 +1009,7 @@ p, h1, h2, h3, h4, h5, h6 {
     transform: scale(1.1);
 }
 
-/* Sélectionné (Clic) */
+/* SÃ©lectionnÃ© (Clic) */
 .review-star-input .star.active {
     color: var(--gold) !important;
 }
@@ -1085,7 +1085,7 @@ p, h1, h2, h3, h4, h5, h6 {
 }
 
 /* ============================================================
-   25. DESIGN DES TÉMOIGNAGES (2 Colonnes + RTL)
+   25. DESIGN DES TÃ‰MOIGNAGES (2 Colonnes + RTL)
    ============================================================ */
 
 /* Grille responsive de la page d'accueil */
@@ -1108,7 +1108,7 @@ p, h1, h2, h3, h4, h5, h6 {
     }
 }
 
-/* Carte Témoignage */
+/* Carte TÃ©moignage */
 .testimonial-card {
     display: flex;
     flex-direction: row;
@@ -1171,7 +1171,7 @@ p, h1, h2, h3, h4, h5, h6 {
     line-height: 1.3;
 }
 
-/* Colonne Contenu (Étoiles, Nom, Avis) */
+/* Colonne Contenu (Ã‰toiles, Nom, Avis) */
 .testimonial-content-col {
     flex: 1;
     padding: 1.2rem;
@@ -1237,7 +1237,7 @@ p, h1, h2, h3, h4, h5, h6 {
     overflow: hidden;
 }
 
-/* ✅ RTL - Arabe (Inverser les colonnes) */
+/* âœ… RTL - Arabe (Inverser les colonnes) */
 [dir="rtl"] .testimonial-card {
     flex-direction: row-reverse;
 }
@@ -1256,7 +1256,7 @@ p, h1, h2, h3, h4, h5, h6 {
     justify-content: flex-end;
 }
 
-/* ✅ Responsive (Mobile) */
+/* âœ… Responsive (Mobile) */
 @media (max-width: 600px) {
     .testimonial-img-col {
         width: 110px;
@@ -1278,14 +1278,14 @@ p, h1, h2, h3, h4, h5, h6 {
 /* ============================================================
    LOG
    ============================================================ */
-/* style-patches.css v2.1.0 — Fix Étoiles Avis, Design AliExpress, Témoignages */
+/* style-patches.css v2.1.0 â€” Fix Ã‰toiles Avis, Design AliExpress, TÃ©moignages */
 
 /* ============================================================
-   VENTE FLASH — AFFICHAGE CLIENT (audit 2026-11-16)
+   VENTE FLASH â€” AFFICHAGE CLIENT (audit 2026-11-16)
    ------------------------------------------------------------
-   Inspiré des places de marché (AliExpress / Temu) : badge pulsant,
-   bandeau compte à rebours, prix remisé en évidence, prix barré.
-   Toutes les valeurs sont bornées et testées côté serveur.
+   InspirÃ© des places de marchÃ© (AliExpress / Temu) : badge pulsant,
+   bandeau compte Ã  rebours, prix remisÃ© en Ã©vidence, prix barrÃ©.
+   Toutes les valeurs sont bornÃ©es et testÃ©es cÃ´tÃ© serveur.
    ============================================================ */
 .flash-badge {
   position: absolute;
@@ -1308,7 +1308,7 @@ p, h1, h2, h3, h4, h5, h6 {
   50%      { transform: scale(1.06); box-shadow: 0 4px 14px rgba(249, 112, 28, 0.65); }
 }
 
-/* Bandeau compte à rebours en haut du corps de carte */
+/* Bandeau compte Ã  rebours en haut du corps de carte */
 .flash-card-countdown {
   display: flex;
   align-items: center;
@@ -1332,7 +1332,7 @@ p, h1, h2, h3, h4, h5, h6 {
   background: rgba(194, 65, 12, 0.12);
 }
 
-/* Prix remisé : mis en avant, prix de référence barré */
+/* Prix remisÃ© : mis en avant, prix de rÃ©fÃ©rence barrÃ© */
 .p-price.p-price-flash {
   color: #c2410c;
   font-weight: 800;
@@ -1345,13 +1345,13 @@ p, h1, h2, h3, h4, h5, h6 {
   margin-left: 0.35rem;
 }
 
-/* Carte en vente flash : liseré discret */
+/* Carte en vente flash : liserÃ© discret */
 .product-card.has-flash {
   border-color: rgba(249, 112, 28, 0.45);
   box-shadow: 0 0 0 1px rgba(249, 112, 28, 0.25);
 }
 
-/* Pastille de délai dans le panier (correctif C13) */
+/* Pastille de dÃ©lai dans le panier (correctif C13) */
 .cart-delivery-delay {
   display: inline-block;
   margin-left: 0.4rem;
@@ -1374,16 +1374,16 @@ p, h1, h2, h3, h4, h5, h6 {
 /* ============================================================
    DELAI DE LIVRAISON REEL PAR VILLE (correctif C13)
    ------------------------------------------------------------
-   Affiche sous le libelle « Livraison » du panier le delai exact
+   Affiche sous le libelle Â« Livraison Â» du panier le delai exact
    synchronise depuis Livo pour la ville selectionnee (24h / 48h / 72h).
    Style discret : pastille doree, taille reduite, sans gras.
    ============================================================ */
 /* ============================================================
-   SECTION VENTES FLASH — ACCUEIL (audit 2026-11-16)
+   SECTION VENTES FLASH â€” ACCUEIL (audit 2026-11-16)
    ------------------------------------------------------------
    Charte respectee : or #a57b2e sur ivoire, Playfair pour le titre,
    rouge sombre #b03a2e reserve au compte a rebours.
-   Aucun orange criard. Aucun liseré agressif.
+   Aucun orange criard. Aucun liserÃ© agressif.
    La section est `hidden` par defaut : le JS l'affiche seulement
    s il existe au moins une vente active.
    ============================================================ */
@@ -1609,28 +1609,28 @@ p, h1, h2, h3, h4, h5, h6 {
 
 
 /* ============================================================
-   DRAPEAUX DU SELECTEUR DE LANGUE — images SVG
+   DRAPEAUX DU SELECTEUR DE LANGUE â€” images SVG
    ------------------------------------------------------------
-   Les drapeaux emoji (🇲🇦 🇫🇷 🇬🇧) ne s'affichent PAS de façon
+   Les drapeaux emoji (ðŸ‡²ðŸ‡¦ ðŸ‡«ðŸ‡· ðŸ‡¬ðŸ‡§) ne s'affichent PAS de faÃ§on
    fiable : sous Windows la police Segoe UI Emoji ne contient pas
    les glyphes "regional indicator", et le navigateur retombe sur
-   les initiales du pays -> l'utilisateur voit « FR FR » au lieu
+   les initiales du pays -> l'utilisateur voit Â« FR FR Â» au lieu
    du drapeau.
 
-   Solution : de vraies images SVG dans /assets/, posées en
-   background-image par langue. Fonctionne partout, sans dépendre
-   d'une police emoji installée.
+   Solution : de vraies images SVG dans /assets/, posÃ©es en
+   background-image par langue. Fonctionne partout, sans dÃ©pendre
+   d'une police emoji installÃ©e.
 
    Astuce de positionnement : on garde les <option> avec le code
-   langue seul (AR / FR / EN) et on réserve un espace à gauche du
-   select pour le drapeau correspondant à la langue ACTIVE.
+   langue seul (AR / FR / EN) et on rÃ©serve un espace Ã  gauche du
+   select pour le drapeau correspondant Ã  la langue ACTIVE.
    ============================================================ */
 select#langSelect,
 .legal-lang-select,
 .login-lang-select,
 .v-lang-select,
 #langSelect {
-  /* Espace réservé au drapeau dessiné en background. */
+  /* Espace rÃ©servÃ© au drapeau dessinÃ© en background. */
   padding-left: 34px !important;
   background-repeat: no-repeat !important;
   background-position: 10px center !important;
@@ -1638,8 +1638,8 @@ select#langSelect,
   background-color: #ffffff;
 }
 
-/* Drapeau selon la langue actuellement sélectionnée.
-   [dir] est posé sur <html> par setLang() / initLangToggle(). */
+/* Drapeau selon la langue actuellement sÃ©lectionnÃ©e.
+   [dir] est posÃ© sur <html> par setLang() / initLangToggle(). */
 html[lang="ar"] select#langSelect,
 html[lang="ar"] .legal-lang-select,
 html[lang="ar"] .login-lang-select,
@@ -1661,7 +1661,7 @@ html[lang="en"] .v-lang-select {
   background-image: url("/assets/flag-gb.svg") !important;
 }
 
-/* En RTL le drapeau passe à droite. */
+/* En RTL le drapeau passe Ã  droite. */
 html[dir="rtl"] select#langSelect,
 html[dir="rtl"] .legal-lang-select,
 html[dir="rtl"] .login-lang-select,
@@ -1671,6 +1671,518 @@ html[dir="rtl"] .v-lang-select {
   background-position: right 10px center !important;
 }
 
-/* La liste déroulante ouverte ne peut pas afficher d'image : on y
-   remet les drapeaux emoji en secours, et à défaut le code langue
-   reste lisible. Aucun risque : le code est toujours présent. */
+/* La liste dÃ©roulante ouverte ne peut pas afficher d'image : on y
+   remet les drapeaux emoji en secours, et Ã  dÃ©faut le code langue
+   reste lisible. Aucun risque : le code est toujours prÃ©sent. */
+
+/* ============================================================
+   VITRINE COMMERCIALE â€” KOULCHI (achat groupe) + VENTES FLASH
+   ------------------------------------------------------------
+   Direction artistique inspiree des places de marche asiatiques
+   (AliExpress / Temu) : contraste eleve, bandeau degrade, prix en
+   rouge, badge de remise massif et preuve sociale (etoiles + ventes).
+
+   Charte respectee :
+     - l or (#a57b2e) reste la signature de Koulchi (bandeau, tag) ;
+     - le rouge/orange signale uniquement l urgence commerciale
+       (remise, prix, compte a rebours) ;
+     - tout est scope sous #koulchiSection / #flashSection, donc le
+       reste du site n est pas touche.
+   ============================================================ */
+
+.promo-duo {
+  --promo-red: #e5321b;
+  --promo-red-dark: #bf1d0a;
+  --promo-orange: #ff7a1a;
+  --promo-ink: #17110c;
+  --promo-muted: #8a7f75;
+  --promo-line: rgba(23, 17, 12, 0.09);
+  gap: 1.25rem;
+}
+
+/* ---------------------------------------------- KOULCHI (gauche) */
+
+#koulchiSection .koulchi-home-inner {
+  max-width: none;
+  padding: 0 0 1rem;
+  border-radius: 22px;
+  border: 1px solid rgba(var(--gold-rgb), 0.22);
+  background: #fff;
+  box-shadow: 0 26px 60px -38px rgba(120, 88, 20, 0.55),
+    0 1px 0 rgba(var(--gold-rgb), 0.06);
+  overflow: hidden;
+}
+
+#koulchiSection .koulchi-home-head {
+  position: relative;
+  text-align: center;
+  margin: 0 0 0.85rem;
+  padding: 1.05rem 1.2rem 1.1rem;
+  background: linear-gradient(135deg, #fffdf6 0%, #fdf3dd 48%, #f8e6bd 100%);
+  border-bottom: 1px solid rgba(var(--gold-rgb), 0.22);
+}
+
+#koulchiSection .koulchi-home-head::after {
+  content: "";
+  position: absolute;
+  inset: -40% -10% auto auto;
+  width: 190px;
+  height: 190px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(var(--gold-rgb), 0.22),
+    rgba(var(--gold-rgb), 0) 68%
+  );
+  pointer-events: none;
+}
+
+#koulchiSection .koulchi-home-tag {
+  margin-bottom: 0.5rem;
+  padding: 0.28rem 0.8rem;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--gold-light), var(--gold));
+  color: #fff;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  box-shadow: 0 8px 18px -12px rgba(120, 88, 20, 0.9);
+}
+
+#koulchiSection .koulchi-home-head .section-title {
+  margin: 0.15rem 0 0.25rem;
+  font-size: clamp(1.35rem, 2.2vw, 1.75rem);
+  color: var(--promo-ink);
+  line-height: 1.15;
+}
+
+#koulchiSection .koulchi-home-head .section-sub {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--promo-muted);
+}
+
+#koulchiSection .koulchi-home-rules {
+  margin: 0 auto 0.9rem;
+  padding: 0 1.1rem;
+  gap: 0.45rem;
+}
+
+#koulchiSection .koulchi-home-rules li {
+  border: 0;
+  border-radius: 999px;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: #f4efe3;
+  color: #6b5a3a;
+  box-shadow: inset 0 0 0 1px rgba(var(--gold-rgb), 0.18);
+}
+
+#koulchiSection .koulchi-home-rules li:nth-child(1) {
+  background: #f6ecd4;
+  color: #7a5c17;
+}
+
+#koulchiSection .koulchi-home-rules li:nth-child(2) {
+  background: #ffe9d3;
+  color: #a8410f;
+  box-shadow: inset 0 0 0 1px rgba(255, 122, 26, 0.28);
+}
+
+#koulchiSection .koulchi-home-rules li:nth-child(3) {
+  background: linear-gradient(135deg, var(--promo-orange), var(--promo-red));
+  color: #fff;
+  box-shadow: 0 8px 18px -12px rgba(229, 50, 27, 0.9);
+}
+
+#koulchiSection .koulchi-home-rules li strong {
+  color: inherit;
+  font-weight: 800;
+}
+#koulchiSection .koulchi-chips {
+  padding: 0 1.1rem 0.75rem;
+}
+
+#koulchiSection .koulchi-chip {
+  border: 1px solid var(--promo-line);
+  border-radius: 999px;
+  padding: 0.32rem 0.8rem;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: #544a3f;
+  background: #fff;
+}
+
+#koulchiSection .koulchi-chip.is-active {
+  border-color: var(--gold);
+  background: linear-gradient(135deg, var(--gold-light), var(--gold));
+  color: #fff;
+}
+
+#koulchiSection .koulchi-home-track {
+  padding: 0 1.1rem 0.4rem;
+  gap: 0.75rem;
+}
+
+#koulchiSection .koulchi-card {
+  flex: 0 0 178px;
+}
+
+#koulchiSection .koulchi-card-link {
+  gap: 0.3rem;
+  padding: 0.5rem 0.5rem 0.6rem;
+  border: 1px solid var(--promo-line);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 12px 26px -20px rgba(23, 17, 12, 0.55);
+  transition: transform 0.18s ease, box-shadow 0.18s ease,
+    border-color 0.18s ease;
+}
+
+#koulchiSection .koulchi-card-link:hover {
+  transform: translateY(-5px);
+  border-color: rgba(var(--gold-rgb), 0.4);
+  box-shadow: 0 22px 34px -20px rgba(120, 88, 20, 0.45);
+}
+
+#koulchiSection .koulchi-card-img {
+  border-radius: 12px;
+  background: linear-gradient(160deg, #fffaf0, #f6ead4);
+  transition: transform 0.35s ease;
+}
+
+#koulchiSection .koulchi-card-link:hover .koulchi-card-img {
+  transform: scale(1.05);
+}
+
+#koulchiSection .koulchi-card-badge {
+  top: 0.45rem;
+  inset-inline-start: 0.45rem;
+  inset-inline-end: auto;
+  padding: 0.26rem 0.5rem;
+  border-radius: 10px 10px 10px 2px;
+  background: linear-gradient(135deg, var(--promo-orange), var(--promo-red));
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  box-shadow: 0 8px 16px -8px rgba(229, 50, 27, 0.85);
+}
+
+#koulchiSection .koulchi-card-name {
+  font-size: 0.79rem;
+  font-weight: 600;
+  color: var(--promo-ink);
+  min-height: 2.05em;
+}
+
+#koulchiSection .koulchi-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.67rem;
+  color: var(--promo-muted);
+  line-height: 1.1;
+}
+
+#koulchiSection .koulchi-card-stars {
+  color: #ff9500;
+  font-weight: 800;
+}
+
+#koulchiSection .koulchi-card-stars i {
+  color: var(--promo-muted);
+  font-style: normal;
+  font-weight: 500;
+}
+
+#koulchiSection .koulchi-card-prices {
+  gap: 0.35rem;
+  margin-top: 0.1rem;
+}
+
+#koulchiSection .koulchi-card-prices strong {
+  font-size: 1.05rem;
+  font-weight: 900;
+  color: var(--promo-red);
+  letter-spacing: -0.02em;
+}
+
+#koulchiSection .koulchi-card-prices s {
+  font-size: 0.72rem;
+  color: var(--promo-muted);
+}
+
+#koulchiSection .koulchi-card-cta {
+  display: block;
+  margin-top: 0.15rem;
+  padding: 0.38rem 0.5rem;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--gold-light), var(--gold));
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-align: center;
+  letter-spacing: 0.01em;
+  box-shadow: 0 8px 16px -12px rgba(120, 88, 20, 0.95);
+}
+
+#koulchiSection .koulchi-home-foot {
+  padding: 0.85rem 1.1rem 0;
+  border-top: 1px dashed rgba(var(--gold-rgb), 0.25);
+  margin-top: 0.35rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+#koulchiSection .koulchi-home-rule-text {
+  font-size: 0.72rem;
+  color: var(--promo-muted);
+}
+
+#koulchiSection .koulchi-home-foot .btn-secondary {
+  border: 0;
+  border-radius: 999px;
+  padding: 0.45rem 1rem;
+  background: linear-gradient(135deg, var(--gold-light), var(--gold));
+  color: #fff;
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-decoration: none;
+  box-shadow: 0 10px 20px -14px rgba(120, 88, 20, 0.95);
+}
+/* ---------------------------------------------- FLASH (droite) */
+
+#flashSection .flash-hero {
+  padding: 0;
+}
+
+#flashSection .flash-hero-inner {
+  max-width: none;
+  margin: 0;
+  padding: 0 0 1rem;
+  border: 0;
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: 0 26px 60px -34px rgba(229, 50, 27, 0.5),
+    0 1px 0 rgba(229, 50, 27, 0.05);
+  overflow: hidden;
+}
+
+#flashSection .flash-hero-head {
+  position: relative;
+  margin: 0 0 0.9rem;
+  padding: 1.05rem 1.2rem;
+  align-items: center;
+  background: linear-gradient(
+    120deg,
+    var(--promo-orange) 0%,
+    var(--promo-red) 55%,
+    var(--promo-red-dark) 100%
+  );
+  color: #fff;
+  overflow: hidden;
+}
+
+#flashSection .flash-hero-head::after {
+  content: "";
+  position: absolute;
+  inset: -70% -8% auto auto;
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.3),
+    rgba(255, 255, 255, 0) 66%
+  );
+  pointer-events: none;
+}
+
+#flashSection .flash-hero-badge {
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  color: #fff;
+  padding: 0.28rem 0.7rem;
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+}
+
+#flashSection .flash-hero-title {
+  color: #fff;
+  font-size: clamp(1.45rem, 2.5vw, 1.95rem);
+  margin: 0.4rem 0 0.15rem;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.22);
+}
+
+#flashSection .flash-hero-sub {
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 0.82rem;
+  max-width: 34ch;
+}
+
+#flashSection .flash-hero-deal {
+  display: inline-block;
+  margin-top: 0.45rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--promo-red);
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  box-shadow: 0 10px 22px -14px rgba(0, 0, 0, 0.55);
+}
+
+#flashSection .flash-hero-timer {
+  position: relative;
+  z-index: 1;
+  align-items: flex-end;
+  gap: 0.3rem;
+}
+
+#flashSection .flash-hero-timer-label {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.66rem;
+  font-weight: 700;
+}
+
+#flashSection .flash-hero-timer-value {
+  background: #fff;
+  color: var(--promo-red);
+  border: 0;
+  border-radius: 12px;
+  padding: 0.28rem 0.8rem;
+  font-size: 1.42rem;
+  box-shadow: 0 12px 24px -14px rgba(0, 0, 0, 0.6);
+}
+#flashSection .flash-hero-track {
+  padding: 0 1.15rem 0.45rem;
+  gap: 0.75rem;
+  grid-auto-columns: minmax(158px, 1fr);
+  scrollbar-color: rgba(229, 50, 27, 0.35) transparent;
+}
+
+#flashSection .flash-hero-track::-webkit-scrollbar-thumb {
+  background: rgba(229, 50, 27, 0.35);
+}
+
+#flashSection .flash-item {
+  border: 1px solid var(--promo-line);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 12px 26px -20px rgba(23, 17, 12, 0.55);
+  transition: transform 0.18s ease, box-shadow 0.18s ease,
+    border-color 0.18s ease;
+}
+
+#flashSection .flash-item:hover {
+  transform: translateY(-5px);
+  border-color: rgba(229, 50, 27, 0.35);
+  box-shadow: 0 22px 34px -18px rgba(229, 50, 27, 0.42);
+}
+
+#flashSection .flash-item-img {
+  background: linear-gradient(160deg, #fff7f3, #ffe7dc);
+}
+
+#flashSection .flash-item-img img {
+  transition: transform 0.35s ease;
+}
+
+#flashSection .flash-item:hover .flash-item-img img {
+  transform: scale(1.06);
+}
+
+#flashSection .flash-item-pct {
+  top: 0.45rem;
+  left: 0.45rem;
+  padding: 0.26rem 0.5rem;
+  border-radius: 10px 10px 10px 2px;
+  background: linear-gradient(135deg, var(--promo-orange), var(--promo-red));
+  font-size: 0.78rem;
+  font-weight: 900;
+  box-shadow: 0 8px 16px -8px rgba(229, 50, 27, 0.85);
+}
+
+#flashSection .flash-item-body {
+  padding: 0.6rem 0.65rem 0.7rem;
+  gap: 0.22rem;
+}
+
+#flashSection .flash-item-name {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--promo-ink);
+}
+
+#flashSection .flash-item-prices {
+  gap: 0.35rem;
+}
+
+#flashSection .flash-item-now {
+  font-size: 1.16rem;
+  font-weight: 900;
+  color: var(--promo-red);
+  letter-spacing: -0.02em;
+}
+
+#flashSection .flash-item-was {
+  font-size: 0.71rem;
+  color: var(--promo-muted);
+}
+
+#flashSection .flash-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.67rem;
+  color: var(--promo-muted);
+  line-height: 1.1;
+}
+
+#flashSection .flash-item-stars {
+  color: #ff9500;
+  font-weight: 800;
+}
+
+#flashSection .flash-item-progress {
+  margin-top: 0.2rem;
+  background: rgba(229, 50, 27, 0.14);
+}
+
+#flashSection .flash-item-progress > span {
+  background: linear-gradient(90deg, #ff9a3d, var(--promo-red));
+}
+
+#flashSection .flash-item-stock {
+  color: var(--promo-red);
+  font-size: 0.66rem;
+  font-weight: 700;
+}
+
+/* ---------------------------------------------- petits ecrans */
+
+@media (max-width: 640px) {
+  #koulchiSection .koulchi-card {
+    flex: 0 0 152px;
+  }
+
+  #flashSection .flash-hero-track {
+    grid-auto-columns: minmax(146px, 1fr);
+    padding: 0 0.9rem 0.4rem;
+  }
+
+  #koulchiSection .koulchi-home-track {
+    padding: 0 0.9rem 0.4rem;
+  }
+
+  #flashSection .flash-hero-head,
+  #koulchiSection .koulchi-home-head {
+    padding: 0.9rem 0.95rem;
+  }
+}
