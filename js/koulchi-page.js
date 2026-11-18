@@ -26,7 +26,7 @@ import {
 } from "./utils.js";
 import { getProducts, getProductsLoadedPromise } from "./store.js";
 import { getCategoryById } from "./config.js";
-import { filterKoulchiProducts, KOULCHI_TIERS } from "./koulchi.js";
+import { filterKoulchiProducts, isKoulchiBlockedByFlash, KOULCHI_TIERS } from "./koulchi.js";
 
 let activeCategory = "";
 
@@ -43,6 +43,7 @@ function eligibleProducts() {
     if (Array.isArray(product.variants) && product.variants.length > 0) {
       return false;
     }
+    if (isKoulchiBlockedByFlash(product)) return false;
     return true;
   });
 }

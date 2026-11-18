@@ -41,6 +41,7 @@ import {
   KOULCHI_MAX_PER_PRODUCT,
   KOULCHI_TIERS,
   isKoulchiEligible,
+  isKoulchiBlockedByFlash,
   getKoulchiTierMessage,
   getKoulchiLineDisplay,
 } from "./koulchi.js";
@@ -379,7 +380,11 @@ function renderCartItem(product, quantity, item, display, zone) {
     toggleHtml = `<button type="button" class="cart-koulchi-toggle is-on" data-action="cart:to-classic" data-item-id="${safeItemId}">${t(
       "koulchiMoveBack"
     )}</button>`;
-  } else if (!item.variant && isKoulchiEligible(product)) {
+  } else if (
+    !item.variant &&
+    isKoulchiEligible(product) &&
+    !isKoulchiBlockedByFlash(product)
+  ) {
     const blocked = quantity > KOULCHI_MAX_PER_PRODUCT;
     toggleHtml = `<button type="button" class="cart-koulchi-toggle" data-action="cart:to-koulchi" data-item-id="${safeItemId}"${
       blocked ? " disabled" : ""
@@ -809,6 +814,8 @@ function attachFullCartEvents() {
           ? "koulchiMaxPerProduct"
           : result.reason === "variant"
           ? "koulchiVariantExcluded"
+          : result.reason === "flashSale"
+          ? "koulchiFlashExcluded"
           : result.reason === "notEligible"
           ? "koulchiNotEligible"
           : "koulchiZoneEmpty";

@@ -422,10 +422,23 @@ export function getKoulchiTierMessage(itemCount, subtotalRaw) {
 }
 
 /**
+ * Un produit en vente flash est-il exclu de Koulchi ?
+ * Decision commerciale (A1/K6) : les deux mecanismes ne se cumulent pas.
+ * Un produit deja remise en vente flash reste en vente flash.
+ * @param {object} product
+ * @returns {boolean}
+ */
+export function isKoulchiBlockedByFlash(product) {
+  if (!product) return false;
+  return Number(product.flashPrice) > 0;
+}
+
+/**
  * Peut-on ajouter ce PRODUIT a la zone Koulchi ?
- * Regroupe les trois conditions metier en un seul point :
+ * Regroupe les conditions metier en un seul point :
  *   - le produit doit porter un prix de groupe valide ;
  *   - les produits a variantes en sont exclus (prix produit) ;
+ *   - les produits en vente flash en sont exclus (pas de cumul) ;
  *   - les bornes 3/produit et 10/panier s appliquent.
  *
  * @param {Array} lines lignes Koulchi deja presentes
@@ -437,6 +450,9 @@ export function canAddProductToKoulchi(lines, product, qty = 1) {
   if (!product) return { allowed: false, reason: "invalid", maxAddable: 0 };
   if (Array.isArray(product.variants) && product.variants.length > 0) {
     return { allowed: false, reason: "variant", maxAddable: 0 };
+  }
+  if (isKoulchiBlockedByFlash(product)) {
+    return { allowed: false, reason: "flashSale", maxAddable: 0 };
   }
   if (!isKoulchiEligible(product)) {
     return { allowed: false, reason: "notEligible", maxAddable: 0 };

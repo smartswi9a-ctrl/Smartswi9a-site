@@ -577,6 +577,18 @@ check("K9f : produit null -> refuse sans exception", () => {
   assert.strictEqual(r.reason, "invalid");
 });
 
+check("K9g : produit en vente flash -> refuse (pas de cumul)", () => {
+  const r = api.canAddProductToKoulchi(
+    [],
+    { id: "p1", price: 199, koulchiPrice: 189, flashPrice: 150 },
+    1
+  );
+  assert.strictEqual(r.allowed, false);
+  assert.strictEqual(r.reason, "flashSale");
+  assert.strictEqual(api.isKoulchiBlockedByFlash({ flashPrice: 150 }), true);
+  assert.strictEqual(api.isKoulchiBlockedByFlash({ flashPrice: 0 }), false);
+});
+
 /* --------------------------------------------- Resume */
 const pass = results.filter((r) => r.ok).length;
 const fail = results.length - pass;

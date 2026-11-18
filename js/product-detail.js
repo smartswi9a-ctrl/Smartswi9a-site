@@ -25,7 +25,7 @@ import {
   getProductVendorLabelSync,
 } from "./vendor-attribution.js";
 import { normalizeProductId } from "./domain/product-id.js";
-import { isKoulchiEligible, KOULCHI_TIERS } from "./koulchi.js";
+import { isKoulchiEligible, isKoulchiBlockedByFlash, KOULCHI_TIERS } from "./koulchi.js";
 
 /* ============================================================ HELPERS LOCAUX ============================================================ */
 
@@ -431,6 +431,7 @@ function renderKoulchiOffer(product) {
 
   const eligible =
     isKoulchiEligible(product) &&
+    !isKoulchiBlockedByFlash(product) &&
     !hasVariants &&
     stock > 0 &&
     Number.isFinite(groupPrice) &&

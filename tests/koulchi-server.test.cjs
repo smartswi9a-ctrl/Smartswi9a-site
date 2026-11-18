@@ -82,14 +82,19 @@ check("S2b : le serveur ignore tout prix Koulchi envoye par le client", () => {
 });
 
 check("S2c : le prix de groupe n est retenu que s il est inferieur", () => {
-  const body = block(SERVER, "koulchiPrice: !item.variant", "flashSale: flashApplied");
+  const body = block(SERVER, "koulchiPrice: !flashApplied", "flashSale: flashApplied");
   assert.strictEqual(/< unitPrice/.test(body), true);
   assert.strictEqual(/: null/.test(body), true);
 });
 
 check("S2d : les variantes sont exclues du prix de groupe", () => {
-  const body = block(SERVER, "koulchiPrice: !item.variant", "flashSale: flashApplied");
+  const body = block(SERVER, "koulchiPrice: !flashApplied", "flashSale: flashApplied");
   assert.strictEqual(/!item\.variant/.test(body), true);
+});
+
+check("S2e : un produit en vente flash est exclu de Koulchi", () => {
+  const body = block(SERVER, "koulchiPrice: !flashApplied", "flashSale: flashApplied");
+  assert.strictEqual(/!flashApplied/.test(body), true);
 });
 
 /* --------------------------------------------- S3 : remise volume */
