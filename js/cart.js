@@ -40,6 +40,8 @@ import {
   canAddProductToKoulchi,
   isKoulchiEligible,
   isKoulchiBlockedByFlash,
+  KOULCHI_MAX_ITEMS,
+  KOULCHI_MAX_PER_PRODUCT,
 } from "./koulchi.js";
 
 /* ============================================================ NORMALISATION D'ID PRODUIT ============================================================ */
@@ -123,6 +125,30 @@ export function loadCart() {
           mode: item.mode === "koulchi" ? "koulchi" : null,
         };
       });
+
+    /* K-70 : les lignes GROUPEES sont bornees par la regle commerciale
+       (4 exemplaires par produit, 10 articles au total). Un panier
+       enregistre avant ce changement peut contenir 8 exemplaires du
+       meme produit : on le recale ici, sinon la quantite depasse la
+       limite et la remise de palier est refusee sans explication. */
+    let restant = KOULCHI_MAX_ITEMS;
+    cart = cart
+      .map((item) => {
+        if (item.mode !== "koulchi") return item;
+        const q = Math.min(
+          Math.floor(Number(item.quantity) || 0),
+          KOULCHI_MAX_PER_PRODUCT,
+          Math.max(0, restant)
+        );
+        restant -= Math.max(0, q);
+        return { ...item, quantity: q };
+      })
+      .filter((item) => Number(item.quantity) > 0);
+
+    /* On persiste l etat recale (8 -> 4) : la prochaine ouverture du
+       panier repart ainsi d un panier valide, sans recalcul surprise. */
+    safeSetItem(getCartStorageKey(), cart);
+
     setCart(cart);
   } catch (e) {
     console.warn("Erreur chargement panier :", e);
@@ -143,14 +169,11 @@ export function saveCart() {
 }
 
 /* ============================================================ VIDER LE PANIER LOCAL ============================================================ */
-function clearLocalCart() {
-  cart = [];
-  safeSetItem(getCartStorageKey(), cart);
-  setCart(cart);
-  updateCartBadge();
-  safeRemoveItem(CONFIG.STORAGE_KEYS.ABANDONED_CART);
-  document.dispatchEvent(new CustomEvent("cart-updated"));
-}
+/* Pas de purge automatique du panier local : une perte de session
+   (visiteur non connecte, jeton expire, deconnexion) declenchait un
+   auth-updated sans utilisateur et effacait le panier en cours. On se
+   contente desormais de relire la cle correspondante (voir le listener
+   auth-updated). Le vidage explicite reste possible via clearCart(). */
 
 /* ============================================================ FIRESTORE SYNC ============================================================ */
 async function saveCartToFirestoreImmediate() {
@@ -304,7 +327,10 @@ if (typeof document !== "undefined") {
       loadCart();
       await syncCartOnLogin();
     } else {
-      clearLocalCart();
+      /* Aucun utilisateur : on relit la cle anonyme. Surtout PAS de
+         vidage ici (ancien comportement) : une session qui expire ou
+         une deconnexion ne doit jamais detruire le panier en cours. */
+      loadCart();
     }
   });
 }
@@ -397,10 +423,14 @@ export async function addToCart(productId, variant = null, options = {}) {
   const itemId = generateItemId(pid, validVariant);
 
   /* K4 : ajout depuis la fiche produit vers la zone groupe.
-     Toutes les bornes sont verifiees AVANT de toucher au panier. */
+     Toutes les bornes sont verifiees AVANT de toucher au panier.
+     IMPORTANT : on compte TOUTES les lignes groupees, y compris celle
+     du meme produit. L ancien filtre (itemId !== itemId) excluait la
+     ligne existante : la limite de 4 exemplaires par produit n etait
+     donc jamais atteinte et un client pouvait monter a 8. */
   if (mode === "koulchi") {
     const others = buildZoneLines()
-      .filter((line) => line.mode === "koulchi" && line.itemId !== itemId)
+      .filter((line) => line.mode === "koulchi")
       .map((line) => ({ productId: line.productId, quantity: line.quantity }));
     const check = canAddProductToKoulchi(others, product, 1);
     if (!check.allowed) {

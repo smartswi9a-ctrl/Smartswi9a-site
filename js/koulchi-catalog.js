@@ -408,8 +408,7 @@ function renderCart() {
 
 async function handleAdd(btn) {
   const id = btn.getAttribute("data-add");
-  if (!id || btn.disabled) return;
-  btn.disabled = true;
+  if (!id) return;
 
   await addToCart(id, null, { mode: "koulchi" });
 
@@ -420,19 +419,23 @@ async function handleAdd(btn) {
 
   renderCart();
 
-  if (!inCart) {
-    btn.disabled = false;
-    return;
-  }
+  if (!inCart) return;
 
+  /* Retour visuel sans desactiver le bouton : un client qui clique
+     trois fois d affilee doit ajouter trois exemplaires (les bornes
+     4/produit et 10/panier sont verifiees par addToCart). */
   const label = btn.querySelector("span");
-  const previous = label ? label.textContent : "";
-  if (label) label.textContent = t("koulchiPageAdded");
+  if (!label) return;
 
-  setTimeout(() => {
-    if (label) label.textContent = previous;
-    btn.disabled = false;
-  }, 1100);
+  if (!btn.dataset.libelle) btn.dataset.libelle = label.textContent;
+  label.textContent = t("koulchiPageAdded");
+
+  clearTimeout(Number(btn.dataset.minuterie || 0));
+  btn.dataset.minuterie = String(
+    setTimeout(() => {
+      label.textContent = btn.dataset.libelle;
+    }, 900)
+  );
 }
 
 function handleQty(action, id) {

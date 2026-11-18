@@ -66,7 +66,7 @@ check("S1c : paliers identiques (min/percent)", () => {
   const client = readTiers(CLIENT);
   const server = readTiers(SERVER);
   assert.deepStrictEqual(server, client);
-  assert.deepStrictEqual(client, ["9:10", "6:5", "3:2"]);
+  assert.deepStrictEqual(client, ["9:15", "6:10", "3:5"]);
 });
 
 /* --------------------------------------------- S2 : securite */

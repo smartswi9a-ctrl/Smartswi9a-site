@@ -177,6 +177,34 @@ async function revalidateCoupon(silent = false) {
 }
 
 /* ============================================================ RENDU PRINCIPAL ============================================================ */
+/**
+ * Verifie les bornes des lignes GROUPEES avant de changer une quantite.
+ * Le panier classique n est pas concerne (seul le stock s applique).
+ * @param {object} item ligne du panier
+ * @param {number} cible nouvelle quantite souhaitee
+ * @returns {boolean} true si la modification est autorisee
+ */
+function quantiteKoulchiAutorisee(item, cible) {
+  if (!item || item.mode !== "koulchi") return true;
+
+  const q = Math.floor(Number(cible) || 0);
+  if (q > KOULCHI_MAX_PER_PRODUCT) {
+    showToast(t("koulchiMaxPerProduct"));
+    return false;
+  }
+
+  const autres = getCart()
+    .filter((l) => l.mode === "koulchi" && l.id !== item.id)
+    .reduce((sum, l) => sum + (Number(l.quantity) || 0), 0);
+
+  if (autres + q > KOULCHI_MAX_ITEMS) {
+    showToast(t("koulchiMaxItems"));
+    return false;
+  }
+
+  return true;
+}
+
 function renderCartPage(options = {}) {
   const { skipSuggestions = false } = options;
   const container = document.getElementById("cartPageContent");
@@ -393,7 +421,7 @@ function renderCartItem(product, quantity, item, display, zone) {
     )}">${t("koulchiMoveTo")}</button>`;
   }
 
-  return ` <div class="cart-zone-item cart-page-item${ isKoulchi ? " cart-page-item--koulchi" : "" }" data-product-id="${safeDataId}"> <a href="${productUrl}" class="cart-page-item-img-link"><img src="${img}" alt="${name}" width="96" height="96" class="cart-page-item-img" onerror="this.onerror=null;this.src='${fallback}'"></a> <div class="cart-page-item-info"> <a href="${productUrl}" class="cart-page-item-name">${name}</a> ${variantText} <div class="cart-page-item-meta"> <span class="cart-item-category">${categoryLabel}</span> ${stockHtml} </div> <div class="cart-page-item-bottom"> <div class="cart-page-item-price"> ${ groupPriceActive ? `<span class="cart-item-old-price">${classicPrice} MAD</span>` : isPromo ? `<span class="cart-item-old-price">${oldPrice} MAD</span>` : "" } <span class="cart-item-current-price">${price} MAD</span> ${ groupPriceActive ? `<span class="cart-koulchi-badge">Koulchi</span>` : "" } ${ lineDiscount > 0 ? `<span class="cart-koulchi-linediscount">−${lineDiscount} MAD</span>` : "" } </div> <div class="cart-page-item-actions"> <button class="cart-page-qty-btn" data-action="cart:decrease" data-item-id="${safeItemId}">−</button> <input type="number" class="cart-page-qty-input" data-item-id="${safeItemId}" value="${quantity}" min="1" max="${ maxStock || 999 }"> <button class="cart-page-qty-btn" data-action="cart:increase" data-item-id="${safeItemId}"${ isKoulchi && quantity >= KOULCHI_MAX_PER_PRODUCT ? ` disabled title="${escapeHTML(t("koulchiMaxPerProduct"))}"` : isKoulchi && zone && zone.koulchiQty >= KOULCHI_MAX_ITEMS ? ` disabled title="${escapeHTML(t("koulchiMaxItems"))}"` : "" }>+</button> </div> ${toggleHtml} <div class="cart-page-item-linetotal">${lineTotal} MAD</div> <button class="cart-page-remove-btn" data-action="cart:remove" data-item-id="${safeItemId}">✕</button> </div> </div> </div> `;
+  return ` <div class="cart-zone-item cart-page-item${ isKoulchi ? " cart-page-item--koulchi" : "" }" data-product-id="${safeDataId}"> <a href="${productUrl}" class="cart-page-item-img-link"><img src="${img}" alt="${name}" width="96" height="96" class="cart-page-item-img" onerror="this.onerror=null;this.src='${fallback}'"></a> <div class="cart-page-item-info"> <a href="${productUrl}" class="cart-page-item-name">${name}</a> ${variantText} <div class="cart-page-item-meta"> <span class="cart-item-category">${categoryLabel}</span> ${stockHtml} </div> <div class="cart-page-item-bottom"> <div class="cart-page-item-price"> ${ groupPriceActive ? `<span class="cart-item-old-price">${classicPrice} MAD</span>` : isPromo ? `<span class="cart-item-old-price">${oldPrice} MAD</span>` : "" } <span class="cart-item-current-price">${price} MAD</span> ${ groupPriceActive ? `<span class="cart-koulchi-badge">Koulchi</span>` : "" } ${ lineDiscount > 0 ? `<span class="cart-koulchi-linediscount">−${lineDiscount} MAD</span>` : "" } </div> <div class="cart-page-item-actions"> <button class="cart-page-qty-btn" data-action="cart:decrease" data-item-id="${safeItemId}">−</button> <input type="number" class="cart-page-qty-input" data-item-id="${safeItemId}" value="${quantity}" min="1" max="${ isKoulchi ? Math.min(KOULCHI_MAX_PER_PRODUCT, maxStock || 999) : maxStock || 999 }"> <button class="cart-page-qty-btn" data-action="cart:increase" data-item-id="${safeItemId}"${ isKoulchi && quantity >= KOULCHI_MAX_PER_PRODUCT ? ` disabled title="${escapeHTML(t("koulchiMaxPerProduct"))}"` : isKoulchi && zone && zone.koulchiQty >= KOULCHI_MAX_ITEMS ? ` disabled title="${escapeHTML(t("koulchiMaxItems"))}"` : "" }>+</button> </div> ${toggleHtml} <div class="cart-page-item-linetotal">${lineTotal} MAD</div> <button class="cart-page-remove-btn" data-action="cart:remove" data-item-id="${safeItemId}">✕</button> </div> </div> </div> `;
 }
 
 /* ============================================================ ZONE KOULCHI DIALK ============================================================ */
@@ -769,7 +797,9 @@ function attachFullCartEvents() {
   container.querySelectorAll('[data-action="cart:increase"]').forEach((btn) => {
     btn.addEventListener("click", () => {
       const item = getCart().find((i) => i.id === btn.dataset.itemId);
-      if (item) updateCartQuantity(item.id, item.quantity + 1);
+      if (!item) return;
+      if (!quantiteKoulchiAutorisee(item, item.quantity + 1)) return;
+      updateCartQuantity(item.id, item.quantity + 1);
     });
   });
 
@@ -786,7 +816,12 @@ function attachFullCartEvents() {
       let val = parseInt(input.value) || 1;
       if (val < 1) val = 1;
       const item = getCart().find((i) => i.id === input.dataset.itemId);
-      if (item) updateCartQuantity(item.id, val);
+      if (!item) return;
+      if (!quantiteKoulchiAutorisee(item, val)) {
+        input.value = item.quantity;
+        return;
+      }
+      updateCartQuantity(item.id, val);
     });
   });
 

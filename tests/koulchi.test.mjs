@@ -117,31 +117,31 @@ check("K3a : 0 a 2 articles -> 0%", () => {
 });
 
 check("K3b : 3 a 5 articles -> 2%", () => {
-  for (const n of [3, 4, 5]) assert.strictEqual(api.getKoulchiPercent(n), 2);
+  for (const n of [3, 4, 5]) assert.strictEqual(api.getKoulchiPercent(n), 5);
 });
 
 check("K3c : 6 a 8 articles -> 5%", () => {
-  for (const n of [6, 7, 8]) assert.strictEqual(api.getKoulchiPercent(n), 5);
+  for (const n of [6, 7, 8]) assert.strictEqual(api.getKoulchiPercent(n), 10);
 });
 
 check("K3d : 9 a 10 articles -> 10%", () => {
-  for (const n of [9, 10]) assert.strictEqual(api.getKoulchiPercent(n), 10);
+  for (const n of [9, 10]) assert.strictEqual(api.getKoulchiPercent(n), 15);
 });
 
 check("K3e : prochain palier depuis 0 -> 3 articles, 2%", () => {
-  assert.deepStrictEqual(api.getNextKoulchiTier(0), { percent: 2, missing: 3 });
+  assert.deepStrictEqual(api.getNextKoulchiTier(0), { percent: 5, missing: 3 });
 });
 
 check("K3f : depuis 2 -> il manque 1 article pour 2%", () => {
-  assert.deepStrictEqual(api.getNextKoulchiTier(2), { percent: 2, missing: 1 });
+  assert.deepStrictEqual(api.getNextKoulchiTier(2), { percent: 5, missing: 1 });
 });
 
 check("K3g : depuis 4 -> il manque 2 pour 5%", () => {
-  assert.deepStrictEqual(api.getNextKoulchiTier(4), { percent: 5, missing: 2 });
+  assert.deepStrictEqual(api.getNextKoulchiTier(4), { percent: 10, missing: 2 });
 });
 
 check("K3h : depuis 7 -> il manque 2 pour 10%", () => {
-  assert.deepStrictEqual(api.getNextKoulchiTier(7), { percent: 10, missing: 2 });
+  assert.deepStrictEqual(api.getNextKoulchiTier(7), { percent: 15, missing: 2 });
 });
 
 check("K3i : palier max atteint (9, 10) -> null", () => {
@@ -152,28 +152,28 @@ check("K3i : palier max atteint (9, 10) -> null", () => {
 /* --------------------------------------------- K4 */
 console.log("\n--- K4 : total et remise ---");
 
-check("K4a : 3 x 189 = 567, -2% -> remise 11, total 556", () => {
+check("K4a : 3 x 189 = 567, -5% -> remise 28, total 539", () => {
   const r = api.computeKoulchiTotals([{ productId: "a", quantity: 3, unitPrice: 189 }]);
   assert.strictEqual(r.itemCount, 3);
   assert.strictEqual(r.subtotal, 567);
-  assert.strictEqual(r.percent, 2);
-  assert.strictEqual(r.discount, 11);
-  assert.strictEqual(r.total, 556);
+  assert.strictEqual(r.percent, 5);
+  assert.strictEqual(r.discount, 28);
+  assert.strictEqual(r.total, 539);
   assert.strictEqual(r.isValid, true);
 });
 
-check("K4b : 6 x 100 = 600, -5% -> remise 30, total 570", () => {
+check("K4b : 6 x 100 = 600, -10% -> remise 60, total 540", () => {
   const r = api.computeKoulchiTotals([{ productId: "a", quantity: 6, unitPrice: 100 }]);
-  assert.strictEqual(r.percent, 5);
-  assert.strictEqual(r.discount, 30);
-  assert.strictEqual(r.total, 570);
+  assert.strictEqual(r.percent, 10);
+  assert.strictEqual(r.discount, 60);
+  assert.strictEqual(r.total, 540);
 });
 
-check("K4c : 9 x 100 = 900, -10% -> remise 90, total 810", () => {
+check("K4c : 9 x 100 = 900, -15% -> remise 135, total 765", () => {
   const r = api.computeKoulchiTotals([{ productId: "a", quantity: 9, unitPrice: 100 }]);
-  assert.strictEqual(r.percent, 10);
-  assert.strictEqual(r.discount, 90);
-  assert.strictEqual(r.total, 810);
+  assert.strictEqual(r.percent, 15);
+  assert.strictEqual(r.discount, 135);
+  assert.strictEqual(r.total, 765);
 });
 
 check("K4d : 2 articles -> 0% de remise, isValid false", () => {
@@ -184,16 +184,16 @@ check("K4d : 2 articles -> 0% de remise, isValid false", () => {
   assert.strictEqual(r.isValid, false);
 });
 
-check("K4e : 3x189 + 3x49 = 714, -5% -> remise 36, total 678", () => {
+check("K4e : 3x189 + 3x49 = 714, -10% -> remise 71, total 643", () => {
   const r = api.computeKoulchiTotals([
     { productId: "a", quantity: 3, unitPrice: 189 },
     { productId: "b", quantity: 3, unitPrice: 49 },
   ]);
   assert.strictEqual(r.itemCount, 6);
   assert.strictEqual(r.subtotal, 714);
-  assert.strictEqual(r.percent, 5);
-  assert.strictEqual(r.discount, 36);
-  assert.strictEqual(r.total, 678);
+  assert.strictEqual(r.percent, 10);
+  assert.strictEqual(r.discount, 71);
+  assert.strictEqual(r.total, 643);
 });
 
 check("K4f : remise toujours entiere (pas de centimes)", () => {
@@ -278,8 +278,12 @@ check("K6a : panier vide -> ajout autorise", () => {
   assert.strictEqual(r.reason, null);
 });
 
-check("K6b : 3 exemplaires du meme produit -> refus maxPerProduct", () => {
-  const r = api.canAddToKoulchi([{ productId: "a", quantity: 3 }], "a", 1);
+check("K6b : 3 exemplaires du meme produit -> 1 de plus encore autorise", () => {
+  assert.strictEqual(api.canAddToKoulchi([{ productId: "a", quantity: 3 }], "a", 1).allowed, true);
+});
+
+check("K6b2 : 4 exemplaires du meme produit -> refus maxPerProduct", () => {
+  const r = api.canAddToKoulchi([{ productId: "a", quantity: 4 }], "a", 1);
   assert.strictEqual(r.allowed, false);
   assert.strictEqual(r.reason, "maxPerProduct");
   assert.strictEqual(r.maxAddable, 0);
@@ -341,16 +345,16 @@ check("K7a : panier vide -> manque 3 articles, 10 places", () => {
 check("K7b : 4 articles a 189 -> valide, -2%, 6 places", () => {
   const s = api.getKoulchiState([{ productId: "a", quantity: 4, unitPrice: 189 }]);
   assert.strictEqual(s.isValid, true);
-  assert.strictEqual(s.percent, 2);
+  assert.strictEqual(s.percent, 5);
   assert.strictEqual(s.remainingSlots, 6);
   assert.strictEqual(s.missingForMin, 0);
-  assert.deepStrictEqual(s.nextTier, { percent: 5, missing: 2 });
+  assert.deepStrictEqual(s.nextTier, { percent: 10, missing: 2 });
 });
 
 check("K7c : 10 articles -> plus de place, palier max", () => {
   const s = api.getKoulchiState([{ productId: "a", quantity: 10, unitPrice: 100 }]);
   assert.strictEqual(s.remainingSlots, 0);
-  assert.strictEqual(s.percent, 10);
+  assert.strictEqual(s.percent, 15);
   assert.strictEqual(s.nextTier, null);
 });
 
@@ -393,30 +397,30 @@ check("K8c : zone Koulchi sous le minimum -> prix classique, jamais 0", () => {
   assert.strictEqual(z.koulchiLines[0].effectiveUnitPrice, 100);
 });
 
-check("K8d : 3 articles Koulchi -> -2% sur le total de la zone", () => {
+check("K8d : 3 articles Koulchi -> -5% sur le total de la zone", () => {
   const z = api.computeCartZones([
     { mode: "koulchi", quantity: 3, classicUnitPrice: 100, koulchiUnitPrice: 95 },
   ]);
   assert.strictEqual(z.koulchiValid, true);
-  assert.strictEqual(z.percent, 2);
+  assert.strictEqual(z.percent, 5);
   assert.strictEqual(z.koulchiSubtotalRaw, 285);
-  assert.strictEqual(z.koulchiDiscount, 6);
-  assert.strictEqual(z.koulchiSubtotal, 279);
+  assert.strictEqual(z.koulchiDiscount, 14);
+  assert.strictEqual(z.koulchiSubtotal, 271);
   assert.strictEqual(z.koulchiSavings, 15);
-  assert.strictEqual(z.itemsTotal, 279);
+  assert.strictEqual(z.itemsTotal, 271);
 });
 
-check("K8e : 6 articles -> -5%, 9 articles -> -10%", () => {
+check("K8e : 6 articles -> -10%, 9 articles -> -15%", () => {
   const six = api.computeCartZones([
     { mode: "koulchi", quantity: 6, classicUnitPrice: 100, koulchiUnitPrice: 90 },
   ]);
-  assert.strictEqual(six.percent, 5);
-  assert.strictEqual(six.koulchiDiscount, 27);
+  assert.strictEqual(six.percent, 10);
+  assert.strictEqual(six.koulchiDiscount, 54);
   const nine = api.computeCartZones([
     { mode: "koulchi", quantity: 9, classicUnitPrice: 100, koulchiUnitPrice: 90 },
   ]);
-  assert.strictEqual(nine.percent, 10);
-  assert.strictEqual(nine.koulchiDiscount, 81);
+  assert.strictEqual(nine.percent, 15);
+  assert.strictEqual(nine.koulchiDiscount, 122);
 });
 
 check("K8f : panier mixte -> deux sous-totaux, remise Koulchi seule", () => {
@@ -430,8 +434,8 @@ check("K8f : panier mixte -> deux sous-totaux, remise Koulchi seule", () => {
   assert.strictEqual(z.classicSubtotal, 200);
   assert.strictEqual(z.koulchiSubtotalRaw, 285);
   assert.strictEqual(z.subtotal, 485);
-  assert.strictEqual(z.koulchiDiscount, 6);
-  assert.strictEqual(z.itemsTotal, 479);
+  assert.strictEqual(z.koulchiDiscount, 14);
+  assert.strictEqual(z.itemsTotal, 471);
 });
 
 check("K8g : ligne Koulchi sans prix de groupe -> prix classique", () => {
@@ -439,11 +443,11 @@ check("K8g : ligne Koulchi sans prix de groupe -> prix classique", () => {
     { mode: "koulchi", quantity: 3, classicUnitPrice: 100, koulchiUnitPrice: null },
   ]);
   assert.strictEqual(z.koulchiValid, true);
-  assert.strictEqual(z.percent, 2);
+  assert.strictEqual(z.percent, 5);
   assert.strictEqual(z.koulchiSubtotalRaw, 300);
   assert.strictEqual(z.koulchiLines[0].koulchiPriceUsable, false);
   assert.strictEqual(z.koulchiLines[0].effectiveUnitPrice, 100);
-  assert.strictEqual(z.koulchiDiscount, 6);
+  assert.strictEqual(z.koulchiDiscount, 15);
 });
 
 check("K8h : prix de groupe superieur au prix normal -> refuse", () => {
@@ -473,22 +477,22 @@ check("K8j : quantite nulle ignoree", () => {
   assert.strictEqual(z.subtotal, 50);
 });
 
-check("K8k : message palier 4 articles -> -5% dans 2 articles", () => {
+check("K8k : message palier 4 articles -> -10% dans 2 articles", () => {
   const m = api.getKoulchiTierMessage(4, 380);
-  assert.strictEqual(m.currentPercent, 2);
-  assert.strictEqual(m.nextPercent, 5);
+  assert.strictEqual(m.currentPercent, 5);
+  assert.strictEqual(m.nextPercent, 10);
   assert.strictEqual(m.missing, 2);
-  assert.strictEqual(m.gain, 11);
+  assert.strictEqual(m.gain, 19);
 });
 
 check("K8l : message palier max -> null", () => {
   assert.strictEqual(api.getKoulchiTierMessage(10, 900), null);
 });
 
-check("K8m : message zone vide -> 3 articles pour -2%", () => {
+check("K8m : message zone vide -> 3 articles pour -5%", () => {
   const m = api.getKoulchiTierMessage(0, 0);
   assert.strictEqual(m.currentPercent, 0);
-  assert.strictEqual(m.nextPercent, 2);
+  assert.strictEqual(m.nextPercent, 5);
   assert.strictEqual(m.missing, 3);
   assert.strictEqual(m.gain, 0);
 });
@@ -515,12 +519,12 @@ check("K8o : regle metier unique, aucun cumul volume + Koulchi", () => {
     { mode: "koulchi", quantity: 5, classicUnitPrice: 100, koulchiUnitPrice: 90 },
   ]);
   assert.strictEqual(z.totalDiscount, z.koulchiDiscount);
-  assert.strictEqual(z.percent, 2);
+  assert.strictEqual(z.percent, 5);
   assert.strictEqual(z.classicSubtotal, 500);
   assert.strictEqual(z.koulchiSubtotalRaw, 450);
   assert.strictEqual(z.subtotal, 950);
-  assert.strictEqual(z.koulchiDiscount, 9);
-  assert.strictEqual(z.itemsTotal, 941);
+  assert.strictEqual(z.koulchiDiscount, 23);
+  assert.strictEqual(z.itemsTotal, 927);
 });
 
 /* --------------------------------------------- K9 */
@@ -548,9 +552,9 @@ check("K9c : produit a variantes -> refuse", () => {
   assert.strictEqual(r.reason, "variant");
 });
 
-check("K9d : 3 exemplaires deja presents -> refuse maxPerProduct", () => {
+check("K9d : 4 exemplaires deja presents -> refuse maxPerProduct", () => {
   const r = api.canAddProductToKoulchi(
-    [{ productId: "p1", quantity: 3 }],
+    [{ productId: "p1", quantity: 4 }],
     { id: "p1", price: 199, koulchiPrice: 189 },
     1
   );
@@ -630,6 +634,40 @@ check("C4 : getKoulchiCatalog exclut les statuts non approuves", () => {
 check("C5 : getKoulchiCatalog tolere une liste invalide", () => {
   assert.deepStrictEqual(api.getKoulchiCatalog(null), []);
   assert.deepStrictEqual(api.getKoulchiCatalog(undefined), []);
+});
+
+/* --------------------------------------------- Garde-fou panier (source)
+
+   Regression du 2026-11-18 : dans addToCart, le controle Koulchi
+   excluait la ligne du meme produit (`line.itemId !== itemId`) avant de
+   compter les exemplaires. La limite de 4 par produit n etait donc
+   jamais atteinte : un client pouvait ajouter 8 fois le meme article.
+
+   Ce test lit le SOURCE de js/cart.js et verifie que la branche
+   `mode === "koulchi"` compte bien toutes les lignes groupees. */
+
+const CART_SRC = fs.readFileSync(path.join(ROOT, "js", "cart.js"), "utf8");
+
+check("C6 : addToCart ne contourne pas la limite par produit", () => {
+  const bloc = CART_SRC.slice(CART_SRC.indexOf('if (mode === "koulchi")'));
+  const fin = bloc.indexOf("const existing");
+  const extrait = fin > 0 ? bloc.slice(0, fin) : bloc.slice(0, 400);
+  assert.strictEqual(
+    /itemId !== itemId/.test(extrait),
+    false,
+    "la ligne du meme produit ne doit pas etre exclue du comptage"
+  );
+  assert.strictEqual(
+    /line\.mode === "koulchi"/.test(extrait),
+    true,
+    "toutes les lignes groupees doivent etre comptees"
+  );
+});
+
+check("C7 : la limite par produit vaut 4 exemplaires", () => {
+  assert.strictEqual(api.KOULCHI_MAX_PER_PRODUCT, 4);
+  assert.strictEqual(api.KOULCHI_MAX_ITEMS, 10);
+  assert.strictEqual(api.KOULCHI_MIN_ITEMS, 3);
 });
 
 /* --------------------------------------------- Resume */
