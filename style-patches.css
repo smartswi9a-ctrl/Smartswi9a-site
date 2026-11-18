@@ -774,28 +774,113 @@ main#main {
 
 /* ============================================================
    13. PRODUITS - Grille
+   ------------------------------------------------------------
+   Mesures relevees sur la prod AVANT ce changement (2026-11-18) :
+     - 1440 px : 2 x 551 px (cartes enormes, 2 produits par ligne) ;
+     - 768 px  : 2 x 328 px ;
+     - 390 px  : 2 x 149 px, nom tronque, footer sur 2 lignes ;
+     - 360 px  : 2 x 134 px, footer sur 3 lignes.
+   Cible : 4 colonnes sur desktop, 3 sur tablette, 2 colonnes
+   densifiees sur mobile (nom sur 2 lignes, description masquee).
    ============================================================ */
+
+/* Desktop : 4 colonnes (vitrine type marketplace). */
+@media (min-width: 1100px) {
+    .products-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 1rem;
+    }
+    /* Cartes plus etroites : on resserre ce qui deborderait. */
+    .product-body {
+        padding: 0.7rem;
+    }
+    .flash-card-countdown {
+        font-size: 0.66rem;
+        padding: 0.2rem 0.4rem;
+        gap: 0.25rem;
+    }
+}
+
+/* Tablette / petit desktop : 3 colonnes. */
+@media (min-width: 768px) and (max-width: 1099px) {
+    .products-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+/* Mobile : 2 colonnes densifiees. */
 @media (max-width: 480px) {
     .products-grid {
-        grid-template-columns: repeat(2, 1fr) !important;
-        gap: 0.7rem;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 0.5rem;
     }
+    /* Padding reduit : rend ~20 px de largeur utile aux cartes. */
     .products-wrap {
-        padding: 1rem;
+        padding: 0.45rem;
         border-radius: var(--radius-md);
     }
-    .product-body {
-        padding: 0.65rem;
+    #produits {
+        padding-left: 0.5rem;
+        padding-right: 0.5rem;
     }
+    .product-body {
+        padding: 0.5rem;
+    }
+    /* Nom sur 2 lignes au lieu d une ligne tronquee. */
     .p-name {
-        font-size: 0.82rem;
+        font-size: 0.78rem;
+        line-height: 1.25;
+        white-space: normal;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        text-overflow: clip;
+        min-height: 0;
+    }
+    /* Description masquee : elle poussait prix et bouton hors de la carte. */
+    .p-desc {
+        display: none;
+    }
+    .p-stats {
+        font-size: 0.62rem;
+        margin-bottom: 0.35rem;
+    }
+    .p-footer {
+        gap: 0.25rem;
     }
     .p-price {
-        font-size: 0.9rem;
+        font-size: 0.85rem;
+        gap: 0.2rem;
+    }
+    .p-price small {
+        font-size: 0.62rem;
     }
     .btn-add-to-cart {
-        padding: 0.25rem 0.55rem;
-        font-size: 0.65rem;
+        padding: 0.2rem 0.45rem;
+        font-size: 0.62rem;
+    }
+    .badge {
+        font-size: 0.55rem;
+        padding: 0.12rem 0.4rem;
+        top: 0.35rem;
+        left: 0.35rem;
+    }
+    .favorite-btn {
+        width: 26px;
+        height: 26px;
+        font-size: 0.78rem;
+        top: 0.35rem;
+        right: 0.35rem;
+    }
+    .flash-card-countdown {
+        font-size: 0.6rem;
+        padding: 0.15rem 0.3rem;
+        gap: 0.2rem;
+        margin-bottom: 0.3rem;
+    }
+    .flash-card-countdown .flash-timer {
+        font-size: 0.6rem;
     }
 }
 

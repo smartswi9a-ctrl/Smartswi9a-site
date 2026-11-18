@@ -170,5 +170,60 @@ for (const selecteur of [".flash-hero-track", ".flash-hero-badge", ".flash-item"
   }
 }
 
+/* Garde-fou cible : la grille produits doit rester responsive.
+   Le 2026-11-18, les cartes mesuraient 551 px sur desktop (2 par ligne)
+   et 149 px sur mobile (nom tronque). Les paliers 4 / 3 / 2 colonnes sont
+   devenus une regle d affichage : on les protege ici, comme la section
+   flash. Une suppression accidentelle d une media query repassera
+   silencieusement en 2 colonnes partout sur desktop. */
+const prodDebut = patches.indexOf("13. PRODUITS - Grille");
+const prodFin = patches.indexOf("14. TRUST BAR");
+const sectionGrille =
+  prodDebut >= 0 && prodFin > prodDebut ? patches.slice(prodDebut, prodFin) : "";
+
+if (!sectionGrille) {
+  ko("section 13 (grille produits)", "introuvable dans style-patches.css");
+} else {
+  if (
+    /@media\s*\(min-width:\s*1100px\)\s*\{[\s\S]*?repeat\(\s*4\s*,/.test(
+      sectionGrille
+    )
+  ) {
+    ok("grille desktop : 4 colonnes a partir de 1100px");
+  } else {
+    ko("grille desktop : 4 colonnes a partir de 1100px", "regle absente");
+  }
+
+  if (
+    /@media\s*\(min-width:\s*768px\)\s*and\s*\(max-width:\s*1099px\)/.test(
+      sectionGrille
+    ) &&
+    /repeat\(\s*3\s*,/.test(sectionGrille)
+  ) {
+    ok("grille tablette : 3 colonnes de 768 a 1099px");
+  } else {
+    ko("grille tablette : 3 colonnes de 768 a 1099px", "regle absente");
+  }
+
+  if (
+    /@media\s*\(max-width:\s*480px\)\s*\{[\s\S]*?repeat\(\s*2\s*,/.test(
+      sectionGrille
+    )
+  ) {
+    ok("grille mobile : 2 colonnes conservees");
+  } else {
+    ko("grille mobile : 2 colonnes conservees", "regle absente");
+  }
+
+  if (!/repeat\(\s*1\s*,/.test(sectionGrille)) {
+    ok("grille produits : aucune colonne unique (mobile dense)");
+  } else {
+    ko(
+      "grille produits : aucune colonne unique (mobile dense)",
+      "repeat(1, ...) detecte"
+    );
+  }
+}
+
 console.log("\n" + verifications + " verification(s), " + echecs + " echec(s)");
 process.exit(echecs === 0 ? 0 : 1);
