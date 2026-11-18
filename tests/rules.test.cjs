@@ -17,6 +17,7 @@ const {
   updateDoc,
   arrayUnion,
   increment,
+  serverTimestamp,
   Timestamp
 } = require("firebase/firestore");
 const { ref, uploadBytes } = require("firebase/storage");
@@ -251,6 +252,47 @@ async function main() {
 
     // Type non-image refuse meme si le chemin est valide.
     await assertFails(uploadBytes(ref(vendorStorage, "vendors/vendorA/products/gallery/1700000000002_notimage.txt"), new Uint8Array([1, 2, 3]), { contentType: "text/plain" }));
+
+    /* --------------------------------------------- MESURE D AUDIENCE */
+    const anonDb = env.unauthenticatedContext().firestore();
+    const todayKey = new Date().toISOString().slice(0, 10);
+
+    await assertSucceeds(setDoc(doc(anonDb, "analytics_daily", todayKey), {
+      views: increment(1),
+      visitors: arrayUnion("visitor-aaaa-1111"),
+      updatedAt: serverTimestamp()
+    }, { merge: true }));
+
+    await assertFails(setDoc(doc(anonDb, "analytics_daily", "pas-une-date"), {
+      views: increment(1),
+      visitors: arrayUnion("visitor-aaaa-1111"),
+      updatedAt: serverTimestamp()
+    }, { merge: true }));
+
+    await assertFails(setDoc(doc(anonDb, "analytics_daily", todayKey), {
+      views: increment(1),
+      visitors: arrayUnion("visitor-aaaa-1111"),
+      updatedAt: serverTimestamp(),
+      ip: "1.2.3.4"
+    }, { merge: true }));
+
+    await assertFails(getDoc(doc(anonDb, "analytics_daily", todayKey)));
+    await assertSucceeds(getDoc(doc(adminDb, "analytics_daily", todayKey)));
+
+    await assertSucceeds(setDoc(doc(anonDb, "presence", "visitor-aaaa-1111"), {
+      lastSeen: serverTimestamp(),
+      sessionId: "session-aaaa-1111",
+      path: "/koulchi"
+    }, { merge: true }));
+
+    await assertFails(setDoc(doc(anonDb, "presence", "visitor-aaaa-1111"), {
+      lastSeen: serverTimestamp(),
+      sessionId: "session-aaaa-1111",
+      path: "/" + "x".repeat(200)
+    }, { merge: true }));
+
+    await assertFails(getDoc(doc(anonDb, "presence", "visitor-aaaa-1111")));
+    await assertSucceeds(getDoc(doc(adminDb, "presence", "visitor-aaaa-1111")));
 
     console.log("PASS: Firestore and Storage authorization scenarios");
   } finally {

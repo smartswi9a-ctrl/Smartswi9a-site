@@ -426,6 +426,7 @@
 
         <div class="admin-tabs">
             <button class="active" data-tab="dashboard">📊 Tableau de bord</button>
+            <button data-tab="traffic">📈 Trafic</button>
             <button data-tab="products">📦 Produits</button>
             <button data-tab="orders">📋 Commandes</button>
             <button data-tab="preparation">🏬 Préparation Commandes</button>
@@ -453,6 +454,42 @@
                 <div class="admin-stat-card"><span class="stat-value" id="statRevenue">—</span><span class="stat-label">💰 Chiffre d'affaires</span></div>
                 <div class="admin-stat-card"><span class="stat-value" id="statCities">—</span><span class="stat-label">🏙️ Villes</span></div>
             </div>
+        </div>
+
+        <div class="admin-content" id="tab-traffic">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;">
+                <h2 style="font-family:var(--font-secondary);color:var(--gold);margin:0;">📈 Trafic du site</h2>
+                <button class="admin-btn" id="trafficRefreshBtn" type="button">🔄 Actualiser</button>
+            </div>
+
+            <div class="admin-stats" style="margin-bottom:1rem;">
+                <div class="admin-stat-card"><span class="stat-value" id="trafficOnlineNow">—</span><span class="stat-label">🟢 En ligne maintenant</span></div>
+                <div class="admin-stat-card"><span class="stat-value" id="trafficTodayViews">—</span><span class="stat-label">👁️ Vues aujourd'hui</span></div>
+                <div class="admin-stat-card"><span class="stat-value" id="trafficTodayVisitors">—</span><span class="stat-label">👤 Visiteurs aujourd'hui</span></div>
+            </div>
+
+            <div class="admin-stats" style="margin-bottom:1.5rem;">
+                <div class="admin-stat-card"><span class="stat-value" id="trafficWeekViews">—</span><span class="stat-label">📅 7 j — vues</span></div>
+                <div class="admin-stat-card"><span class="stat-value" id="trafficWeekVisitors">—</span><span class="stat-label">📅 7 j — visiteurs</span></div>
+                <div class="admin-stat-card"><span class="stat-value" id="trafficMonthViews">—</span><span class="stat-label">🗓️ 30 j — vues</span></div>
+                <div class="admin-stat-card"><span class="stat-value" id="trafficMonthVisitors">—</span><span class="stat-label">🗓️ 30 j — visiteurs</span></div>
+                <div class="admin-stat-card"><span class="stat-value" id="trafficYearViews">—</span><span class="stat-label">📆 12 mois — vues</span></div>
+                <div class="admin-stat-card"><span class="stat-value" id="trafficYearVisitors">—</span><span class="stat-label">📆 12 mois — visiteurs</span></div>
+            </div>
+
+            <div class="admin-form">
+                <h3>🟢 Visiteurs en ligne par page</h3>
+                <div id="trafficOnlinePages"><p style="color:var(--text-muted);margin:0;">Chargement…</p></div>
+            </div>
+
+            <div class="admin-form" style="margin-top:1rem;">
+                <h3>📊 14 derniers jours</h3>
+                <div id="trafficDailyTable" style="overflow-x:auto;"><p style="color:var(--text-muted);margin:0;">Chargement…</p></div>
+            </div>
+
+            <p style="color:var(--text-muted);font-size:0.8rem;margin-top:1rem;">
+                Mesure anonyme : aucun cookie publicitaire, aucune IP, aucun nom. Seuls les visiteurs ayant accepté les cookies sont comptés.
+            </p>
         </div>
 
         <div class="admin-content" id="tab-products">

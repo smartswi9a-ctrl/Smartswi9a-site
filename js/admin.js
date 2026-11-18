@@ -11,7 +11,8 @@ import {
 import {
     collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
     query, where, writeBatch, Timestamp, serverTimestamp, getCountFromServer,
-    orderBy, limit, startAfter, increment, addDoc, deleteField, runTransaction
+    orderBy, limit, startAfter, increment, addDoc, deleteField, runTransaction,
+    onSnapshot, documentId
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import {
@@ -36,6 +37,7 @@ import {
     countGroupedPickupArticles, invalidateGroupedPickupCache,
     GROUPED_PICKUP_CONTEXT_TTL_MS
 } from "./grouped-pickup.js";
+import { aggregateTraffic, computeOnline, dayKey } from "./analytics-core.js";
 
 /* Ramassage groupé Livo (PR 7) — le Worker /create-pickup existe déjà côté
    cloudflare/workers/livo-proxy.js. Aucune clé API côté navigateur. */
@@ -206,6 +208,128 @@ function activateAdminPanel() {
     loadAllData();
     initAdminAlerts();
     attachChartListeners();
+    loadTrafficStats();
+}
+
+/* ============================================================
+   TRAFIC DU SITE — MESURE ANONYME
+   ------------------------------------------------------------
+   Sources : analytics_daily/{AAAA-MM-JJ} (vues + identifiants
+   pseudonymes) et presence/{visitorId} (lastSeen).
+   Les calculs de periodes vivent dans js/analytics-core.js et sont
+   couverts par tests/analytics.test.mjs.
+   ============================================================ */
+let trafficPresenceUnsub = null;
+
+function setTrafficValue(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = String(value);
+}
+
+function renderTrafficTotals(totals) {
+    setTrafficValue('trafficTodayViews', totals.today.views);
+    setTrafficValue('trafficTodayVisitors', totals.today.visitors);
+    setTrafficValue('trafficWeekViews', totals.week.views);
+    setTrafficValue('trafficWeekVisitors', totals.week.visitors);
+    setTrafficValue('trafficMonthViews', totals.month.views);
+    setTrafficValue('trafficMonthVisitors', totals.month.visitors);
+    setTrafficValue('trafficYearViews', totals.year.views);
+    setTrafficValue('trafficYearVisitors', totals.year.visitors);
+}
+
+function renderTrafficOnline(presences) {
+    const ttl = CONFIG.ANALYTICS.LIVE_TTL_MS;
+    const online = computeOnline(presences, new Date(), ttl);
+    setTrafficValue('trafficOnlineNow', online.count);
+
+    const el = document.getElementById('trafficOnlinePages');
+    if (!el) return;
+
+    if (online.pages.length === 0) {
+        el.innerHTML = '<p style="color:var(--text-muted);margin:0;">Personne en ligne pour le moment.</p>';
+        return;
+    }
+
+    el.innerHTML =
+        '<ul style="margin:0;padding-left:1.1rem;">' +
+        online.pages
+            .map((p) => `<li><strong>${p.count}</strong> visiteur(s) — ${escapeHTML(p.path)}</li>`)
+            .join('') +
+        '</ul>';
+}
+
+function renderTrafficDaily(entries) {
+    const el = document.getElementById('trafficDailyTable');
+    if (!el) return;
+
+    const byId = new Map((entries || []).map((e) => [e.id, e]));
+    const th = 'style="text-align:left;padding:0.35rem 0.5rem;border-bottom:1px solid var(--border);"';
+    const td = 'style="padding:0.3rem 0.5rem;border-bottom:1px solid var(--border);"';
+    const rows = [];
+
+    for (let i = 13; i >= 0; i--) {
+        const key = dayKey(new Date(Date.now() - i * 86400000));
+        const doc = byId.get(key);
+        const views = doc ? Math.max(0, Number(doc.views) || 0) : 0;
+        const visitors = doc && Array.isArray(doc.visitors) ? doc.visitors.length : 0;
+        rows.push(`<tr><td ${td}>${key}</td><td ${td}>${views}</td><td ${td}>${visitors}</td></tr>`);
+    }
+
+    el.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+        <thead><tr><th ${th}>Jour (UTC)</th><th ${th}>Vues</th><th ${th}>Visiteurs</th></tr></thead>
+        <tbody>${rows.join('')}</tbody></table>`;
+}
+
+function watchTrafficPresence() {
+    if (trafficPresenceUnsub) return;
+    try {
+        const q = query(collection(db, 'presence'), limit(300));
+        trafficPresenceUnsub = onSnapshot(
+            q,
+            (snap) => {
+                const presences = snap.docs.map((d) => {
+                    const data = d.data() || {};
+                    return { path: data.path, lastSeen: data.lastSeen };
+                });
+                renderTrafficOnline(presences);
+            },
+            (err) => {
+                console.warn('[admin] presence :', err && err.message);
+            }
+        );
+    } catch (e) {
+        console.warn('[admin] presence indisponible :', e && e.message);
+    }
+}
+
+async function loadTrafficStats() {
+    if (!document.getElementById('tab-traffic')) return;
+
+    const btn = document.getElementById('trafficRefreshBtn');
+    if (btn && !btn.dataset.bound) {
+        btn.dataset.bound = '1';
+        btn.addEventListener('click', () => loadTrafficStats());
+    }
+
+    try {
+        const snap = await getDocs(
+            query(
+                collection(db, 'analytics_daily'),
+                orderBy(documentId(), 'desc'),
+                limit(400)
+            )
+        );
+        const entries = snap.docs.map((d) => {
+            const data = d.data() || {};
+            return { id: d.id, views: data.views, visitors: data.visitors };
+        });
+        renderTrafficTotals(aggregateTraffic(entries, new Date()));
+        renderTrafficDaily(entries);
+    } catch (e) {
+        console.warn('[admin] trafic :', e && e.message);
+    }
+
+    watchTrafficPresence();
 }
 
 function showLoginBox() {
@@ -343,6 +467,7 @@ function initAdmin() {
             else if (tab === 'orders') { await loadOrders(); if (auth.currentUser) await refreshGroupedPickupCounter(); }
             else if (tab === 'preparation') await loadWarehousePrep();
             else if (tab === 'livo') await loadLivoTab();
+            else if (tab === 'traffic') await loadTrafficStats();
             else if (tab === 'coupons') await loadCoupons();
             /* Onglet Ventes Flash : module separe (js/admin-flash.js) pour ne
                pas aggraver ce fichier. Import dynamique : le module n est

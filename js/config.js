@@ -56,7 +56,8 @@ export const CONFIG = {
         VENDOR_MODE: 'swi9a_vendor_mode',
         VISITOR_ID: 'swi9a_visitor_id',
         SESSION_ID: 'swi9a_session_id',
-        ANALYTICS_CONSENT: 'swi9a_analytics_consent'
+        ANALYTICS_CONSENT: 'swi9a_analytics_consent',
+        ANALYTICS_LAST: 'swi9a_analytics_last'
     },
     PRODUCTS: { PER_PAGE: 8, DEFAULT_RATING: 4.8, MAX_REVIEW_PHOTOS: 5 },
     BLOG: { PER_PAGE: 6, MAX_TITLE_LENGTH: 120, MAX_EXCERPT_LENGTH: 250, MAX_CONTENT_LENGTH: 50000, CATEGORIES: [] },
