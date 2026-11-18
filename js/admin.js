@@ -297,6 +297,13 @@ function watchTrafficPresence() {
             },
             (err) => {
                 console.warn('[admin] presence :', err && err.message);
+                const el = document.getElementById('trafficOnlinePages');
+                if (el) {
+                    el.innerHTML =
+                        '<p style="color:var(--danger);margin:0;">Présence indisponible' +
+                        (err && err.code ? ' (' + escapeHTML(String(err.code)) + ')' : '') +
+                        '.</p>';
+                }
             }
         );
     } catch (e) {
@@ -371,6 +378,16 @@ async function loadTrafficStats() {
         renderTrafficDaily(entries);
     } catch (e) {
         console.warn('[admin] trafic :', e && e.message);
+        /* Message visible : sans cela le panneau restait bloque sur
+           "Chargement..." et le probleme etait invisible. */
+        const msg =
+            '<p style="color:var(--danger);margin:0;">Statistiques indisponibles' +
+            (e && e.code ? ' (' + escapeHTML(String(e.code)) + ')' : '') +
+            '.</p>';
+        ['trafficChart', 'trafficDailyTable', 'trafficOnlinePages'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.innerHTML = msg;
+        });
     }
 
     watchTrafficPresence();
