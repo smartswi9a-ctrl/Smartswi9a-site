@@ -50,16 +50,16 @@
             background: var(--bg-card); border: 1px solid var(--border-gold);
             border-radius: var(--radius-lg); box-shadow: var(--shadow-sm);
         }
-        .admin-header h1 { font-family: var(--font-secondary); color: var(--gold); font-size: 1.5rem; margin: 0; }
+        .admin-header h1 { font-family: var(--font-secondary); color: var(--gold); font-size: 1.5rem; margin: 0; display: flex; align-items: center; gap: 0.55rem; }
    /* Logo de l admin : aligne avec le titre (demande client 2026-11-18). */
    .admin-logo {
-   width: 40px; height: 40px; border-radius: 10px; margin-right: 0.55rem;
-   vertical-align: middle; background: #fffdf6;
+   width: 40px; height: 40px; border-radius: 10px; flex: 0 0 auto;
+   background: #fffdf6;
    box-shadow: 0 2px 8px -4px rgba(120, 88, 20, 0.5);
    }
    @media (max-width: 640px) {
-   .admin-logo { width: 32px; height: 32px; border-radius: 8px; margin-right: 0.4rem; }
-   .admin-header h1 { font-size: 1.2rem; }
+   .admin-logo { width: 32px; height: 32px; border-radius: 8px; }
+   .admin-header h1 { font-size: 1.2rem; gap: 0.4rem; }
    }
         .admin-user-info { display: flex; align-items: center; gap: 0.8rem; font-size: 0.85rem; color: var(--text-muted); flex-wrap: wrap; }
 
