@@ -63,11 +63,34 @@ function renderCard(product) {
   const url = `/produit?slug=${encodeURIComponent(product.slug || "")}`;
   const safeId = escapeHTML(String(product.id ?? ""));
 
+  /* Preuve sociale facon marketplace : etoiles et nombre de ventes.
+     Rien n est affiche si la donnee manque (pas de « 0 vendu »). */
+  const sold = Math.round(Number(product.salesCount) || 0);
+  const rating = Number(product.ratingAvg) || 0;
+  const reviews = Math.round(Number(product.ratingCount) || 0);
+  const metaHtml =
+    sold > 0 || rating > 0
+      ? `<span class="koulchi-card-meta">${
+          rating > 0
+            ? `<span class="koulchi-card-stars">★ ${rating.toFixed(1)}${
+                reviews > 0 ? ` <i>(${reviews})</i>` : ""
+              }</span>`
+            : ""
+        }${
+          sold > 0
+            ? `<span class="koulchi-card-sold">${escapeHTML(
+                t("soldCount").replace("{n}", sold)
+              )}</span>`
+            : ""
+        }</span>`
+      : "";
+
   return `<li class="koulchi-card" role="listitem" data-product-id="${safeId}">
       <a class="koulchi-card-link" href="${url}">
         <span class="koulchi-card-badge">−${percent} %</span>
         <img class="koulchi-card-img" src="${img}" alt="${name}" width="160" height="160" loading="lazy" onerror="this.onerror=null;this.src='${fallback}'">
         <span class="koulchi-card-name">${name}</span>
+        ${metaHtml}
         <span class="koulchi-card-prices">
           <strong>${groupPrice} ${t("currency")}</strong>
           <s>${classicPrice} ${t("currency")}</s>

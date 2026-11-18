@@ -289,6 +289,24 @@ export async function renderFlashHero(products) {
     timerEl.setAttribute("data-flash-ends", new Date(nearestEnd).toISOString());
   }
 
+  /* Pastille « Jusqu a -X % » dans le bandeau : on affiche la remise la
+     plus forte de la selection, comme les bandeaux des marketplaces.
+     Creee une seule fois puis mise a jour a chaque rendu. */
+  const maxPct = items.reduce(
+    (max, p) => Math.max(max, Number(p.flashPercent) || 0),
+    0
+  );
+  const titreBloc = section.querySelector(".flash-hero-title-wrap");
+  if (titreBloc && maxPct > 0) {
+    let deal = titreBloc.querySelector(".flash-hero-deal");
+    if (!deal) {
+      deal = document.createElement("span");
+      deal.className = "flash-hero-deal";
+      titreBloc.appendChild(deal);
+    }
+    deal.textContent = t("upToOff").replace("{p}", maxPct);
+  }
+
   track.innerHTML = items.map((p) => {
     const img = pickImage(p);
     /* Le nom du produit suit la langue active (FR / AR / EN). */
@@ -304,6 +322,24 @@ export async function renderFlashHero(products) {
     const pct = Number(p.flashPercent) || 0;
     const nowPrice = Number(p.flashPrice) || 0;
     const wasPrice = Number(p.price) || 0;
+
+    /* Preuve sociale (etoiles + ventes), affichee seulement si presente. */
+    const soldCount = Math.round(Number(p.salesCount) || 0);
+    const ratingAvg = Number(p.ratingAvg) || 0;
+    const metaHtml =
+      soldCount > 0 || ratingAvg > 0
+        ? `<div class="flash-item-meta">${
+            ratingAvg > 0
+              ? `<span class="flash-item-stars">★ ${ratingAvg.toFixed(1)}</span>`
+              : ""
+          }${
+            soldCount > 0
+              ? `<span>${esc(
+                  t("soldCount").replace("{n}", soldCount)
+                )}</span>`
+              : ""
+          }</div>`
+        : "";
 
     /* Barre de progression si un quota est defini sur la vente. */
     let progressHtml = "";
@@ -331,6 +367,7 @@ export async function renderFlashHero(products) {
           <span class="flash-item-now">${nowPrice} MAD</span>
           ${wasPrice > nowPrice ? `<span class="flash-item-was">${wasPrice} MAD</span>` : ""}
         </div>
+        ${metaHtml}
         ${progressHtml}
       </div>
     </a>`;
