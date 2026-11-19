@@ -557,14 +557,17 @@ service cloud.firestore {
        authentifiee), lecture reservee aux administrateurs.
        ============================================================ */
 
+    /* Ecriture analytics_daily : deux flux distincts.
+       - vue anonyme (tous les visiteurs) : { views, updatedAt }
+       - vue consentie (visiteurs uniques) : { visitors, updatedAt }
+       Chaque champ est donc optionnel, mais valide s il est present. */
     function analyticsWriteValid() {
-      return request.resource.data.keys().hasOnly(['views', 'visitors', 'updatedAt']) &&
-        request.resource.data.views is int &&
-        request.resource.data.views >= 0 &&
-        request.resource.data.views <= 1000000 &&
-        request.resource.data.visitors is list &&
-        request.resource.data.visitors.size() <= 20000 &&
-        request.resource.data.updatedAt == request.time;
+      /* Firestore Rules ne connait pas `const` : on utilise `let`. */
+      let d = request.resource.data;
+      return d.keys().hasOnly(['views', 'visitors', 'updatedAt']) &&
+        (!d.keys().hasAny(['views']) || (d.views is int && d.views >= 0 && d.views <= 1000000)) &&
+        (!d.keys().hasAny(['visitors']) || (d.visitors is list && d.visitors.size() <= 20000)) &&
+        d.updatedAt == request.time;
     }
 
     function presenceWriteValid() {
