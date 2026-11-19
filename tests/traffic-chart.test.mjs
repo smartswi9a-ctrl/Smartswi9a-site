@@ -94,6 +94,14 @@ check("buildTrafficSvg : options de taille", () => {
   assert.ok(svg.includes('viewBox="0 0 400 160"'));
 });
 
+/* Le navigateur rejette height="auto" sur un <svg> (attribut de longueur) :
+   "Expected length, auto". La hauteur auto doit passer par le style. */
+check("buildTrafficSvg : hauteur auto en CSS, jamais en attribut", () => {
+  const svg = buildTrafficSvg(SERIES);
+  assert.strictEqual(/<svg[^>]*height="auto"/.test(svg), false);
+  assert.strictEqual(/style="[^"]*height:auto/.test(svg), true);
+});
+
 /* --------------------------------------------- resume */
 
 const pass = verifications - echecs;

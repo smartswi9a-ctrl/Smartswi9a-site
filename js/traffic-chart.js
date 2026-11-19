@@ -108,7 +108,7 @@ export function buildTrafficSvg(series, options = {}) {
     })
     .join("");
 
-  return `<svg xmlns="${SVG_NS}" viewBox="0 0 ${W} ${H}" width="100%" height="auto" role="img" aria-label="Evolution des vues et des visiteurs uniques sur ${data.length} jours" style="display:block;">
+  return `<svg xmlns="${SVG_NS}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Evolution des vues et des visiteurs uniques sur ${data.length} jours" style="display:block;width:100%;height:auto;">
             <title>Evolution du trafic sur ${data.length} jours</title>
             ${grid.join("")}
             ${bars}
