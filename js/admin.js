@@ -4083,8 +4083,9 @@ async function renderPickupRequestsAdmin() {
             const detail = items.map((i, index) => {
                 const declared = Number(i.quantity) || 0;
                 const received = Number.isFinite(Number(i.receivedQuantity)) ? Number(i.receivedQuantity) : declared;
+                const variant = [i.size, i.color].filter(Boolean).join(' / ');
                 return `<li style="margin-bottom:.3rem;">
-                    ${escapeHTML(i.name || '—')} — déclaré : <strong>${declared}</strong> ·
+                    ${escapeHTML(i.name || '—')}${variant ? ` <em>(${escapeHTML(variant)})</em>` : ''} — déclaré : <strong>${declared}</strong> ·
                     reçu : <input type="number" min="0" max="${declared}" step="1" value="${received}"
                         data-pickup-qty="${escapeHTML(d.id)}" data-index="${index}"
                         style="width:64px;padding:.1rem .3rem;border:1px solid var(--border);border-radius:6px;">

@@ -119,6 +119,22 @@ export const CONTRACT_TEMPLATES = {
       .replaceAll("SMART SWI9A", "SMARTSWIKA")
       .replaceAll("Smart Swi9a", "Smartswika"),
   },
+  // Version 1.6.0 : mode entrepot unique, SKU et etiquettes obligatoires.
+  // L article 4 remplace l ancien choix dropoff/fulfillment.
+  "1.6.0": {
+    fr: (t) => CONTRACT_TEMPLATES["1.5.0"].fr(t).replace(
+      /Article 4 — Expédition[\s\S]*?(?=Article 5 — Paiement)/,
+      "Article 4 — Stock, SKU et étiquetage Le Vendeur stocke obligatoirement ses produits à l'entrepôt Smartswika. Il crée une demande de ramassage dans son espace vendeur ; l'administration enregistre la quantité réellement reçue et approuve la demande. Aucun produit ne peut être publié avant cette approbation. À l'approbation, un SKU unique est attribué à chaque ligne de ramassage (une ligne = une variante taille/couleur) ; le Vendeur imprime les étiquettes fournies par la Plateforme (nom, SKU, code-barres Code 128) et colle une étiquette par unité. Le SKU est figé dans la fiche produit. Livo ne récupère les colis qu'à l'entrepôt pour les livrer aux acheteurs. "
+    ),
+    ar: (t) => CONTRACT_TEMPLATES["1.5.0"].ar(t).replace(
+      /المادة 4 — الشحن[\s\S]*?(?=المادة 5 — الدفع)/,
+      "المادة 4 — المخزون وSKU والملصقات يخزن البائع منتجاته إلزامياً في مستودع Smart Swika. ينشئ طلب استلام من مساحة البائع؛ تسجل الإدارة الكمية المستلمة فعلياً وتوافق على الطلب. لا يمكن نشر أي منتج قبل هذه الموافقة. عند الموافقة يُمنح SKU فريد لكل سطر استلام (سطر واحد = متغير مقاس/لون)؛ يطبع البائع الملصقات التي توفرها المنصة (الاسم، SKU، رمز شريطي Code 128) ويلصق ملصقاً واحداً لكل وحدة. يكون SKU ثابتاً في بطاقة المنتج. لا يستلم Livo الطرود إلا من المستودع لتوصيلها إلى المشترين. "
+    ),
+    en: (t) => CONTRACT_TEMPLATES["1.5.0"].en(t).replace(
+      /Article 4 — Shipping[\s\S]*?(?=Article 5 — Payment)/,
+      "Article 4 — Stock, SKU and labelling The Vendor must store its products in the Smartswika warehouse. It creates a pickup request in its vendor space; the administration records the quantity actually received and approves the request. No product may be published before this approval. On approval, a unique SKU is assigned to each pickup line (one line = one size/colour variant); the Vendor prints the labels provided by the Platform (name, SKU, Code 128 barcode) and sticks one label per unit. The SKU is locked in the product record. Livo only collects parcels at the warehouse to deliver them to buyers. "
+    ),
+  },
 };
 
 /* ============================================================ API PUBLIQUE ============================================================ */

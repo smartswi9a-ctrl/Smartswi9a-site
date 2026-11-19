@@ -62,7 +62,7 @@ const LOGIN_MAX_FAILURES = 8;
    avec "Falsification détectée".
    ============================================================ */
 const OFFICIAL_VENDOR_CONFIG = {
-  CONTRACT_VERSION: '1.5.0',
+  CONTRACT_VERSION: '1.6.0',
   COMMISSION_RATE: 0.07,
   COMMISSION_RATE_MIN: 0.05,
   COMMISSION_RATE_MAX: 0.15,
@@ -728,10 +728,10 @@ function getContractText(lang, version, snapshot) {
   // La version 1.3.0 reprend strictement le contrat Livo 1.2.0,
   // avec le nouveau domaine. Les gabarits 1.1.0 et 1.2.0 restent intacts
   // afin de préserver les empreintes des contrats déjà signés.
-  const sourceVersion = ["1.3.0", "1.4.0", "1.5.0"].includes(version) ? "1.2.0" : version;
+  const sourceVersion = ["1.3.0", "1.4.0", "1.5.0", "1.6.0"].includes(version) ? "1.2.0" : version;
   const t = templates[sourceVersion] || templates["1.2.0"];
   let text = t[lang] ? t[lang](snapshot) : t["fr"](snapshot);
-  if (["1.4.0", "1.5.0"].includes(version)) {
+  if (["1.4.0", "1.5.0", "1.6.0"].includes(version)) {
     const clauses = {
       fr: `Article 6 — Retours
 Les frais de retour sont facturés séparément à chaque Vendeur selon le montant réel communiqué par le transporteur ou, à défaut, validé par l'administration. Aucun frais n'est débité avant l'enregistrement et la validation de ce montant. Les retours répétés peuvent entraîner une révision du statut du Vendeur.`,
@@ -748,8 +748,25 @@ Return fees are charged separately to each Vendor based on the actual amount pro
     const language = clauses[lang] ? lang : "fr";
     text = text.replace(patterns[language], clauses[language]);
     text = text.replaceAll("smartswi9a.top", "smartswika.ma");
-    if (version === "1.5.0") {
+    if (version === "1.5.0" || version === "1.6.0") {
       text = text.replaceAll("SMART SWI9A", "SMARTSWIKA").replaceAll("Smart Swi9a", "Smartswika").replaceAll("Ø³Ù…Ø§Ø±Øª Ø³ÙˆÙŠÙ‚Ø©", "Ø³Ù…Ø§Ø±ØªØ³ÙˆÙŠÙƒØ§");
+    }
+    if (version === "1.6.0") {
+      const stockClauses = {
+        fr: `Article 4 — Stock, SKU et étiquetage
+Le Vendeur stocke obligatoirement ses produits à l'entrepôt Smartswika. Il crée une demande de ramassage dans son espace vendeur ; l'administration enregistre la quantité réellement reçue et approuve la demande. Aucun produit ne peut être publié avant cette approbation. À l'approbation, un SKU unique est attribué à chaque ligne de ramassage (une ligne = une variante taille/couleur) ; le Vendeur imprime les étiquettes fournies par la Plateforme (nom, SKU, code-barres Code 128) et colle une étiquette par unité. Le SKU est figé dans la fiche produit. Livo ne récupère les colis qu'à l'entrepôt pour les livrer aux acheteurs.`,
+        ar: `المادة 4 — المخزون وSKU والملصقات
+يخزن البائع منتجاته إلزامياً في مستودع Smart Swika. ينشئ طلب استلام من مساحة البائع؛ تسجل الإدارة الكمية المستلمة فعلياً وتوافق على الطلب. لا يمكن نشر أي منتج قبل هذه الموافقة. عند الموافقة يُمنح SKU فريد لكل سطر استلام (سطر واحد = متغير مقاس/لون)؛ يطبع البائع الملصقات التي توفرها المنصة (الاسم، SKU، رمز شريطي Code 128) ويلصق ملصقاً واحداً لكل وحدة. يكون SKU ثابتاً في بطاقة المنتج. لا يستلم Livo الطرود إلا من المستودع لتوصيلها إلى المشترين.`,
+        en: `Article 4 — Stock, SKU and labelling
+The Vendor must store its products in the Smartswika warehouse. It creates a pickup request in its vendor space; the administration records the quantity actually received and approves the request. No product may be published before this approval. On approval, a unique SKU is assigned to each pickup line (one line = one size/colour variant); the Vendor prints the labels provided by the Platform (name, SKU, Code 128 barcode) and sticks one label per unit. The SKU is locked in the product record. Livo only collects parcels at the warehouse to deliver them to buyers.`
+      };
+      const stockPatterns = {
+        fr: /Article 4 — Expédition\n[\s\S]*?(?=\n\nArticle 5 — Paiement)/,
+        ar: /المادة 4 — الشحن\n[\s\S]*?(?=\n\nالمادة 5 — الدفع)/,
+        en: /Article 4 — Shipping\n[\s\S]*?(?=\n\nArticle 5 — Payment)/
+      };
+      const stockLang = stockClauses[lang] ? lang : "fr";
+      text = text.replace(stockPatterns[stockLang], stockClauses[stockLang]);
     }
     text = text.replace(/\s+/g, " ").trim();
     return text;
