@@ -40,6 +40,14 @@ import {
 import { aggregateTraffic, computeOnline, dayKey, buildTrafficSeries } from "./analytics-core.js";
 import { buildTrafficSvg } from "./traffic-chart.js";
 
+/* admin.html ne charge pas app.js : personne ne resoudrait appReadyPromise
+   (avertissement "timeout (10s)" en console). On utilise le contrat window
+   deja expose par store.js — aucun import, donc aucune casse si un module
+   en cache est plus ancien. */
+if (typeof window !== "undefined" && typeof window._appReadyResolve === "function") {
+    try { window._appReadyResolve(); } catch (e) { /* sans consequence */ }
+}
+
 /* Ramassage groupé Livo (PR 7) — le Worker /create-pickup existe déjà côté
    cloudflare/workers/livo-proxy.js. Aucune clé API côté navigateur. */
 const LIVO_PICKUP_ENDPOINT = '/create-pickup';
@@ -451,6 +459,13 @@ async function handleLogin() {
    ============================================================ */
 function initAdmin() {
     onAuthStateChanged(auth, async (user) => {
+        /* admin.html ne passe pas par initAuth() : on libere la promesse
+           partagee des le premier etat d authentification connu, pour
+           eviter l avertissement "timeout (10s)". Appel via window :
+           si auth.js en cache est plus ancien, on ignore simplement. */
+        if (typeof window !== "undefined" && typeof window.__swi9aResolveAuthReady === "function") {
+            try { window.__swi9aResolveAuthReady(); } catch (e) { /* sans consequence */ }
+        }
         if (user) {
             if (!user.emailVerified && user.providerData?.[0]?.providerId === 'password') {
                 currentAdmin = null;
