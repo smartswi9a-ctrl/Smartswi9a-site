@@ -190,10 +190,17 @@ indique pourquoi il n'est pas traité et ce qu'il faudrait pour le faire.
 
 | # | Dette | Pourquoi elle n'est pas traitée | Coût actuel |
 |---|---|---|---|
-| 1 | **`delivery_mode` absent des items de commande** | L'ajouter exige de modifier `createCustomerOrder` (`functions/index.js`) **puis de redéployer les Cloud Functions** ; à faire lors d'une intervention planifiée sur les functions, pas isolément. | Le badge « Mode » de l'admin dérive le mode depuis la collection `products`, avec un cache partagé de 30 s (1 lecture produits par rendu admin, pas par commande). |
 | 2 | **Statut `SHIPPING` déprécié mais conservé** | Des commandes anciennes le portent encore ; il n'est plus jamais produit par l'UI. | Quelques branches de compatibilité dans `orders.js`/`utils.js`. À supprimer quand plus aucune commande ne le porte. |
 | 3 | **`analytics_daily` sans purge** | Les documents sont agrégés par jour (1 doc/jour) : volume négligeable. | Croissance linéaire, ~365 docs/an. |
 | 5 | **Modules JS non versionnés** | `auth.js`, `analytics.js`, `ui.js`… sont importés en relatif : les versionner demanderait un build qui réécrit les imports (récursion de hash). | Compensé par `Cache-Control: no-cache` (voir plus haut). |
+
+La dette 1 (`delivery_mode` absent des items) est **résolue le 2026-11-19** :
+`createCustomerOrder` écrit `delivery_mode` sur chaque item de commande
+(`smartswika_warehouse` ou `dropoff`, figé au moment de l'achat). Le badge
+« Mode » et la préparation entrepôt lisent ce champ en priorité ; le repli sur
+la collection `products` ne sert plus qu'aux commandes antérieures et n'est
+chargé que si au moins un item ne porte pas le champ. Cloud Functions
+redéployées.
 
 La dette 4 (`presence` sans TTL) est **résolue le 2026-11-19** : chaque
 battement écrit `expireAt = maintenant + 7 jours`, et une politique TTL

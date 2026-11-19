@@ -746,14 +746,7 @@ async function loadWarehousePrep() {
     container.innerHTML = `<div class="admin-loading">⏳ Chargement de la préparation...</div>`;
 
     try {
-        // 1) Produits stockés à l'entrepôt : source de vérité du filtre.
-        const productsSnap = await getDocs(query(collection(db, "products"), limit(1000)));
-        const warehouseProductIds = new Set();
-        productsSnap.forEach(d => {
-            if (d.data().delivery_mode === 'smartswika_warehouse') warehouseProductIds.add(d.id);
-        });
-
-        // 2) Commandes en attente ou confirmées.
+        // 1) Commandes en attente ou confirmees.
         const ordersSnap = await getDocs(query(
             collection(db, "orders"),
             where("status", "in", ["pending", "confirmed"]),
@@ -761,11 +754,26 @@ async function loadWarehousePrep() {
         ));
         const orders = ordersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-        // 3) Ne garder que les commandes dont TOUS les produits vivent à l'entrepôt.
+        // 2) Repli produits : uniquement si une commande ancienne ne porte
+        //    pas encore delivery_mode sur ses items.
+        const needsProductFallback = orders.some(order =>
+            (Array.isArray(order.items) ? order.items : []).some(item => !item.delivery_mode)
+        );
+        const warehouseProductIds = new Set();
+        if (needsProductFallback) {
+            const productsSnap = await getDocs(query(collection(db, "products"), limit(1000)));
+            productsSnap.forEach(d => {
+                if (d.data().delivery_mode === 'smartswika_warehouse') warehouseProductIds.add(d.id);
+            });
+        }
+
+        // 3) Ne garder que les commandes dont TOUS les articles vivent a l entrepot.
         cachedWarehousePrepOrders = orders.filter(order => {
             const items = Array.isArray(order.items) ? order.items : [];
             if (!items.length) return false;
-            return items.every(item => warehouseProductIds.has(String(item.productId)));
+            return items.every(item => item.delivery_mode
+                ? item.delivery_mode === 'smartswika_warehouse'
+                : warehouseProductIds.has(String(item.productId)));
         }).sort((a, b) => {
             const ta = toDate(a.createdAt)?.getTime?.() || 0;
             const tb = toDate(b.createdAt)?.getTime?.() || 0;

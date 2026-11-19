@@ -1337,15 +1337,12 @@ export async function updatePaymentStatus(orderId, newStatus) {
    ADMIN : RENDRE LES COMMANDES
    ============================================================ */
 /* ============================================================
-   DELIVERY_MODE DES PRODUITS (badge Mode admin — Gap A, PR 3/6)
-   DETTE ASSUMEE (documentee dans README > Dette technique) : les
-   items de commande ne portent pas delivery_mode, car l'ajouter
-   exige de modifier createCustomerOrder cote Cloud Functions puis
-   de redeployer les functions. On derive donc le mode depuis les
-   produits, avec un cache de 30 s base sur une promesse partagee :
-   deux rendus concurrents declenchent un seul fetch. Le cout reel
-   est d'une lecture de la collection products toutes les 30 s, sur
-   l'ecran admin uniquement.
+   DELIVERY_MODE DES COMMANDES (badge Mode admin)
+   Depuis le 2026-11-19, createCustomerOrder fige delivery_mode sur
+   chaque item. Le badge lit ce champ en priorite. Le repli sur la
+   collection products (cache 30 s) ne sert plus qu aux commandes
+   creees avant cette date ; il n est charge que si au moins un item
+   ne porte pas le champ.
    ============================================================ */
 let productDeliveryModesPromise = null;
 let productDeliveryModesLoadedAt = 0;
@@ -1411,12 +1408,15 @@ export async function renderAdminOrders(containerId = 'ordersList') {
         }
     }));
 
-    /* Dette assumee (README > Dette technique) : delivery_mode n'est pas
-       stocke sur les items de commande. L'ajouter demande de modifier
-       createCustomerOrder (Cloud Functions) puis de redeployer : a faire
-       lors d'une prochaine intervention sur functions/index.js, pas isolement.
-       Cout actuel : une lecture products par rendu admin, mise en cache 30 s. */
-    const productDeliveryModes = await loadProductDeliveryModes();
+    /* Les nouvelles commandes portent delivery_mode sur chaque item
+       (createCustomerOrder). Le repli produits ne sert plus qu aux
+       commandes anciennes : on ne le charge que si necessaire. */
+    const needsProductFallback = adminOrdersCache.some(order =>
+        (Array.isArray(order.items) ? order.items : []).some(item => !item.delivery_mode)
+    );
+    const productDeliveryModes = needsProductFallback
+        ? await loadProductDeliveryModes()
+        : new Map();
 
     let html = `<div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
         <button id="refreshAdminOrdersBtn" class="admin-btn-secondary" style="font-size:0.8rem;">Rafraîchir</button>
@@ -1531,9 +1531,10 @@ export async function renderAdminOrders(containerId = 'ordersList') {
             const isWarehouseItem = (item) => {
                 if (orderMode === 'smartswika_warehouse') return true;
                 if (orderMode === 'dropoff') return false;
-                // Les items ne portent pas delivery_mode (dette assumee, voir
-                // README > Dette technique) : on derive donc le mode depuis le
-                // produit (cache 30 s).
+                /* Champ fige sur l item depuis createCustomerOrder. */
+                if (item.delivery_mode === 'smartswika_warehouse') return true;
+                if (item.delivery_mode === 'dropoff') return false;
+                /* Repli : commandes creees avant l ajout du champ. */
                 return productDeliveryModes.get(String(item.productId)) === 'smartswika_warehouse';
             };
             const warehouseFlags = modeItems.map(isWarehouseItem);
