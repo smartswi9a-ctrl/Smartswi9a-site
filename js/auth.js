@@ -54,6 +54,24 @@ export const authReadyPromise = new Promise((resolve) => {
     };
 });
 
+/**
+ * Resout authReadyPromise sans passer par initAuth().
+ * Utile sur les pages qui gerent l auth elles-memes (admin.html).
+ * Idempotent : un second appel ne fait rien.
+ */
+export function resolveAuthReady() {
+    if (authReadyResolve) {
+        authReadyResolve();
+        authReadyResolve = null;
+    }
+}
+
+/* Contrat window pour les pages qui n appellent pas initAuth() (admin.html).
+   Expose sans import : un module en cache plus ancien ne casse rien. */
+if (typeof window !== "undefined") {
+    window.__swi9aResolveAuthReady = resolveAuthReady;
+}
+
 export function isAuthReady() {
     return authReady;
 }
