@@ -24,6 +24,8 @@ import {
   computeOnline,
   buildTrafficSeries,
   DAY_MS,
+  PRESENCE_TTL_MS,
+  presenceExpireAt,
 } from "../js/analytics-core.js";
 
 let verifications = 0;
@@ -256,6 +258,24 @@ check("collecte : vues anonymes pour tous, identifiant seulement si consentement
   const posConsent = init[0].indexOf("hasAnalyticsConsent()");
   assert.ok(posAnon >= 0, "trackAnonymousView doit etre appelee dans initAnalytics");
   assert.ok(posConsent > posAnon, "la vue anonyme doit preceder le test de consentement");
+});
+
+/* --------------------------------------------- expiration des presences */
+
+check("presenceExpireAt : maintenant + 7 jours", () => {
+  const now = 1700000000000;
+  assert.strictEqual(presenceExpireAt(now), now + PRESENCE_TTL_MS);
+});
+
+check("presenceExpireAt : duree personnalisee", () => {
+  assert.strictEqual(presenceExpireAt(1000, 5000), 6000);
+});
+
+check("presenceExpireAt : entree invalide -> retenue par defaut", () => {
+  const before = Date.now();
+  const expire = presenceExpireAt("pas-un-nombre", -1);
+  assert.ok(expire >= before + PRESENCE_TTL_MS);
+  assert.ok(expire <= Date.now() + PRESENCE_TTL_MS);
 });
 
 /* --------------------------------------------- resume */

@@ -14,6 +14,11 @@
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
 
+/* Retenue d une presence avant purge par la politique TTL Firestore.
+   7 jours : tres au-dela de la fenetre "en ligne" (5 min), donc un
+   document encore actif n est jamais candidat a la suppression. */
+export const PRESENCE_TTL_MS = 7 * DAY_MS;
+
 const DAY_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
@@ -252,4 +257,25 @@ export function computeOnline(
     .sort((a, b) => b.count - a.count || a.path.localeCompare(b.path));
 
   return { count, pages };
+}
+
+/**
+ * Date d expiration d une presence, utilisee par la politique TTL
+ * Firestore sur presence.expireAt.
+ *
+ * Pourquoi un champ dedie : le TTL Firestore prend la valeur du champ
+ * comme date d expiration, sans decalage. Mettre le TTL sur lastSeen
+ * rendrait chaque document "deja expire" et pourrait supprimer un
+ * visiteur actif entre deux battements de coeur.
+ *
+ * @param {number} nowMs horodatage courant en millisecondes
+ * @param {number} [ttlMs] retenue, 7 jours par defaut
+ * @returns {number} horodatage d expiration en millisecondes
+ */
+export function presenceExpireAt(nowMs, ttlMs = PRESENCE_TTL_MS) {
+  const now = Number(nowMs);
+  const ttl = Number(ttlMs);
+  const base = Number.isFinite(now) && now > 0 ? now : Date.now();
+  const duree = Number.isFinite(ttl) && ttl > 0 ? ttl : PRESENCE_TTL_MS;
+  return base + duree;
 }

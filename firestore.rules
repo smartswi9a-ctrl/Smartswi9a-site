@@ -556,6 +556,8 @@ service cloud.firestore {
        ------------------------------------------------------------
        analytics_daily : compteurs agreges par jour (anonymes).
        presence        : battement de coeur par visiteur (TTL 5 min).
+       Le champ expireAt (now + 7 jours) pilote la purge automatique
+       par la politique TTL Firestore, voir docs/runbooks.
 
        Aucune donnee personnelle : identifiant pseudonyme, chemin de
        page, horodatage. Pas d IP, pas de nom, pas d email.
@@ -577,14 +579,23 @@ service cloud.firestore {
     }
 
     function presenceWriteValid() {
-      return request.resource.data.keys().hasOnly(['lastSeen', 'sessionId', 'path']) &&
-        request.resource.data.lastSeen == request.time &&
-        request.resource.data.sessionId is string &&
-        request.resource.data.sessionId.size() >= 8 &&
-        request.resource.data.sessionId.size() <= 64 &&
-        request.resource.data.path is string &&
-        request.resource.data.path.size() >= 1 &&
-        request.resource.data.path.size() <= 120;
+      let d = request.resource.data;
+      /* expireAt est optionnel pour rester compatible avec un onglet
+         ouvert pendant le deploiement, mais toujours valide s il est
+         present : timestamp futur, borne a 8 jours. */
+      let expireOk = !d.keys().hasAny(['expireAt']) ||
+        (d.expireAt is timestamp &&
+         d.expireAt > request.time &&
+         d.expireAt < request.time + duration.value(8, 'd'));
+      return d.keys().hasOnly(['lastSeen', 'sessionId', 'path', 'expireAt']) &&
+        expireOk &&
+        d.lastSeen == request.time &&
+        d.sessionId is string &&
+        d.sessionId.size() >= 8 &&
+        d.sessionId.size() <= 64 &&
+        d.path is string &&
+        d.path.size() >= 1 &&
+        d.path.size() <= 120;
     }
 
     match /analytics_daily/{dateId} {

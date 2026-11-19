@@ -311,6 +311,30 @@ async function main() {
       path: "/" + "x".repeat(200)
     }, { merge: true }));
 
+    /* expireAt : champ TTL. Une date future proche (7 jours) est acceptee. */
+    await assertSucceeds(setDoc(doc(anonDb, "presence", "visitor-ttl-2222"), {
+      lastSeen: serverTimestamp(),
+      sessionId: "session-ttl-2222",
+      path: "/",
+      expireAt: Timestamp.fromMillis(Date.now() + 7 * 24 * 60 * 60 * 1000)
+    }, { merge: true }));
+
+    /* Date passee : refusee (le document expirerait immediatement). */
+    await assertFails(setDoc(doc(anonDb, "presence", "visitor-ttl-3333"), {
+      lastSeen: serverTimestamp(),
+      sessionId: "session-ttl-3333",
+      path: "/",
+      expireAt: Timestamp.fromMillis(Date.now() - 60 * 1000)
+    }, { merge: true }));
+
+    /* Date trop lointaine (30 jours, borne 8 jours) : refusee. */
+    await assertFails(setDoc(doc(anonDb, "presence", "visitor-ttl-4444"), {
+      lastSeen: serverTimestamp(),
+      sessionId: "session-ttl-4444",
+      path: "/",
+      expireAt: Timestamp.fromMillis(Date.now() + 30 * 24 * 60 * 60 * 1000)
+    }, { merge: true }));
+
     await assertFails(getDoc(doc(anonDb, "presence", "visitor-aaaa-1111")));
     await assertSucceeds(getDoc(doc(adminDb, "presence", "visitor-aaaa-1111")));
 
