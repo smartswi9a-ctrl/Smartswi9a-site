@@ -43,8 +43,18 @@ const ROOT = path.resolve(__dirname, "..");
 const CSS_DIR = path.join(ROOT, "css");
 const DRY = process.argv.includes("--dry-run");
 
-/* Sources CSS a versionner. */
-const SOURCES = ["style.css", "style-patches.css"];
+/* Sources CSS a versionner. `out` = nom de base du fichier hache. */
+const SOURCES = [
+  { src: "style.css", out: "style" },
+  { src: "style-patches.css", out: "style-patches" },
+  { src: "css/legal.css", out: "legal" },
+];
+
+/* Nom de base utilise dans /css/<base>.<hash>.css pour une source. */
+function outBase(src) {
+  const entry = SOURCES.find((s) => s.src === src);
+  return entry ? entry.out : src.replace(/\.css$/, "");
+}
 
 /* Pages HTML qui referencent le CSS (toute la racine + vendor/). */
 function listHtml(dir, acc) {
@@ -70,15 +80,14 @@ if (!fs.existsSync(CSS_DIR)) fs.mkdirSync(CSS_DIR, { recursive: true });
 
 const mapping = {}; /* "style.css" -> "style.138d2b5f.css" */
 
-for (const src of SOURCES) {
+for (const { src, out } of SOURCES) {
   const abs = path.join(ROOT, src);
   if (!fs.existsSync(abs)) {
     console.warn("  [skip] source absente : " + src);
     continue;
   }
   const h = hash8(abs);
-  const base = src.replace(/\.css$/, "");
-  const outName = base + "." + h + ".css";
+  const outName = out + "." + h + ".css";
   const outAbs = path.join(CSS_DIR, outName);
 
   mapping[src] = outName;
@@ -140,10 +149,15 @@ for (const page of pages) {
   const before = html;
 
   for (const [src, outName] of Object.entries(mapping)) {
-    const base = src.replace(/\.css$/, "");
+    const base = outBase(src);
     /* Remplace n importe quelle version hachee existante du meme fichier. */
     const re = new RegExp("/css/" + base + "\\.[0-9a-f]{8}\\.css", "g");
     html = html.replace(re, "/css/" + outName);
+
+    /* Remplace aussi la reference NON hachee (/css/legal.css), qui ne doit
+       plus jamais etre servie : elle serait cachee 1 an sans version. */
+    const plainRe = new RegExp("/css/" + base + "\\.css(\\?[^\"'\\s>]*)?", "g");
+    html = html.replace(plainRe, "/css/" + outName);
   }
 
   /* translations.js : meme traitement (script + preload eventuel). */
@@ -198,7 +212,7 @@ const keep = new Set(Object.values(mapping));
 const removed = [];
 
 for (const file of fs.readdirSync(CSS_DIR)) {
-  if (!/^style(-patches)?\.[0-9a-f]{8}\.css$/.test(file)) continue;
+  if (!/^(style(-patches)?|legal)\.[0-9a-f]{8}\.css$/.test(file)) continue;
   if (keep.has(file)) continue;
   if (!DRY) fs.unlinkSync(path.join(CSS_DIR, file));
   removed.push(file);
@@ -232,18 +246,20 @@ for (const page of pages) {
   let html = fs.readFileSync(page, "utf8");
   if (DRY) {
     for (const [src, outName] of Object.entries(mapping)) {
-      const base = src.replace(/\.css$/, "");
+      const base = outBase(src);
       const re = new RegExp("/css/" + base + "\\.[0-9a-f]{8}\\.css", "g");
       html = html.replace(re, "/css/" + outName);
     }
   }
   for (const [src, outName] of Object.entries(mapping)) {
-    const base = src.replace(/\.css$/, "");
+    const base = outBase(src);
     const re = new RegExp("/css/" + base + "\\.([0-9a-f]{8})\\.css", "g");
     let m;
     while ((m = re.exec(html))) {
       if (m[1] !== outName.replace(/^.*\.([0-9a-f]{8})\.css$/, "$1")) stale++;
     }
+    /* Une reference non hachee (/css/legal.css) est aussi perimee. */
+    if (html.includes("/css/" + base + ".css")) stale++;
   }
 }
 
