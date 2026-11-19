@@ -1338,10 +1338,14 @@ export async function updatePaymentStatus(orderId, newStatus) {
    ============================================================ */
 /* ============================================================
    DELIVERY_MODE DES PRODUITS (badge Mode admin — Gap A, PR 3/6)
-   Les items de commande ne portent pas encore delivery_mode (voir
-   TODO PR 3.5). On derive donc le mode depuis les produits, avec un
-   cache de 30 s base sur une promesse partagee : deux rendus
-   concurrents declenchent un seul fetch.
+   DETTE ASSUMEE (documentee dans README > Dette technique) : les
+   items de commande ne portent pas delivery_mode, car l'ajouter
+   exige de modifier createCustomerOrder cote Cloud Functions puis
+   de redeployer les functions. On derive donc le mode depuis les
+   produits, avec un cache de 30 s base sur une promesse partagee :
+   deux rendus concurrents declenchent un seul fetch. Le cout reel
+   est d'une lecture de la collection products toutes les 30 s, sur
+   l'ecran admin uniquement.
    ============================================================ */
 let productDeliveryModesPromise = null;
 let productDeliveryModesLoadedAt = 0;
@@ -1407,9 +1411,11 @@ export async function renderAdminOrders(containerId = 'ordersList') {
         }
     }));
 
-    // TODO PR 3.5 : ajouter delivery_mode aux items dans functions/index.js
-    // (createCustomerOrder, validatedItems) pour supprimer ce fetch et rendre
-    // le badge instantané. Coût actuel : 1 lecture products par rendu admin (cache 30 s).
+    /* Dette assumee (README > Dette technique) : delivery_mode n'est pas
+       stocke sur les items de commande. L'ajouter demande de modifier
+       createCustomerOrder (Cloud Functions) puis de redeployer : a faire
+       lors d'une prochaine intervention sur functions/index.js, pas isolement.
+       Cout actuel : une lecture products par rendu admin, mise en cache 30 s. */
     const productDeliveryModes = await loadProductDeliveryModes();
 
     let html = `<div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
@@ -1525,8 +1531,9 @@ export async function renderAdminOrders(containerId = 'ordersList') {
             const isWarehouseItem = (item) => {
                 if (orderMode === 'smartswika_warehouse') return true;
                 if (orderMode === 'dropoff') return false;
-                // Les items ne portent pas encore delivery_mode (cf. TODO PR 3.5) :
-                // on derive donc le mode depuis le produit (cache 30 s).
+                // Les items ne portent pas delivery_mode (dette assumee, voir
+                // README > Dette technique) : on derive donc le mode depuis le
+                // produit (cache 30 s).
                 return productDeliveryModes.get(String(item.productId)) === 'smartswika_warehouse';
             };
             const warehouseFlags = modeItems.map(isWarehouseItem);

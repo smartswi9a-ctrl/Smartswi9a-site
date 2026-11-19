@@ -129,9 +129,17 @@ Conséquence pratique : **le nombre de vues reflète tout le trafic** (y compris
 3. Le domaine étant proxied par Cloudflare, le beacon est injecté automatiquement (aucun code à ajouter). Sinon, coller le snippet fourni dans le `<head>`.
 4. Les premières données apparaissent sous 5 à 10 minutes.
 
-### Limite de cache à connaître
+### Politique de cache (mise à jour du 2026-11-19)
 
-Les `.js` sont mis en cache (1 h via `firebase.json`, jusqu'à 4 h via Cloudflare selon le réglage de zone). Un visiteur déjà venu peut donc exécuter l'ancien JS jusqu'à expiration : ses visites des premières heures suivant un déploiement peuvent ne pas être comptées.
+| Ressource | En-tête | Effet |
+|---|---|---|
+| `*.js` | `Cache-Control: no-cache` | revalidation ETag avant chaque usage (`304`) : **un correctif est visible immédiatement** |
+| `css/*.css` | `immutable`, 1 an | ces fichiers sont hachés par `build-css.cjs` |
+| `*.html` | `max-age=0, must-revalidate` | toujours frais |
+
+Ce réglage a demandé **deux actions côté Cloudflare** (zone) : `Browser Cache TTL = Respect Existing Headers`, sinon la zone réécrit le `Cache-Control` d'origine en `max-age=14400`.
+
+Les points d'entrée versionnés (`admin.js?v=<hash>`, `translations.<hash>.js`) restent la première ligne de défense ; le `no-cache` couvre les modules importés en relatif (`auth.js`, `analytics.js`, `ui.js`…), qui n'ont pas de jeton.
 
 ---
 
@@ -155,3 +163,22 @@ Les `.js` sont mis en cache (1 h via `firebase.json`, jusqu'à 4 h via Cloudflar
 - **Catalogue produits vide** : le site est en cours de construction.
 - Les sections « Avis » et « Témoignages » se masquent tant qu'il n'y a
   aucun avis `featured`.
+
+---
+
+## Dette technique connue (revue du 2026-11-19)
+
+Ces points sont **assumés et documentés** — ce ne sont pas des oublis. Chacun
+indique pourquoi il n'est pas traité et ce qu'il faudrait pour le faire.
+
+| # | Dette | Pourquoi elle n'est pas traitée | Coût actuel |
+|---|---|---|---|
+| 1 | **`delivery_mode` absent des items de commande** | L'ajouter exige de modifier `createCustomerOrder` (`functions/index.js`) **puis de redéployer les Cloud Functions** ; à faire lors d'une intervention planifiée sur les functions, pas isolément. | Le badge « Mode » de l'admin dérive le mode depuis la collection `products`, avec un cache partagé de 30 s (1 lecture produits par rendu admin, pas par commande). |
+| 2 | **Statut `SHIPPING` déprécié mais conservé** | Des commandes anciennes le portent encore ; il n'est plus jamais produit par l'UI. | Quelques branches de compatibilité dans `orders.js`/`utils.js`. À supprimer quand plus aucune commande ne le porte. |
+| 3 | **`analytics_daily` sans purge** | Les documents sont agrégés par jour (1 doc/jour) : volume négligeable. | Croissance linéaire, ~365 docs/an. |
+| 4 | **`presence` sans TTL** | Les entrées expirées sont ignorées par `computeOnline` (seuil 5 min). | Quelques documents par visiteur consenti ; une politique TTL Firestore sur `lastSeen` suffirait. |
+| 5 | **Modules JS non versionnés** | `auth.js`, `analytics.js`, `ui.js`… sont importés en relatif : les versionner demanderait un build qui réécrit les imports (récursion de hash). | Compensé par `Cache-Control: no-cache` (voir plus haut). |
+
+Les TODO/FIXME historiques qui référençaient des lots de PR terminés ont été
+soit vérifiés comme résolus (décrément de stock au checkout, ancrage
+`trackingStartedAt`), soit convertis en lignes de ce tableau.

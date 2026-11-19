@@ -65,9 +65,11 @@ export const CONFIG = {
     ORDERS: {
         CANCELLABLE_HOURS: 4,
         /* Workflow de livraison enrichi (PR 8.1).
-           SHIPPING est DÉPRÉCIÉ : conservé pour les commandes legacy et pour
-           functions/index.js (trackingStartedAt posé dessus — TODO PR 8.2),
-           mais plus jamais produit par l'UI. */
+           SHIPPING est DÉPRÉCIÉ : conservé pour les commandes legacy, mais
+           plus jamais produit par l'UI. Côté serveur, l'ancrage du déblocage
+           du crédit vendeur lit `trackingStartedAt` avec un repli explicite
+           sur createdAt/updatedAt (functions/index.js, resolveCreditUnlockBase),
+           donc l'absence de ce champ sur une ancienne commande est gérée. */
         STATUS: {
             PENDING:          'pending',
             CONFIRMED:        'confirmed',
