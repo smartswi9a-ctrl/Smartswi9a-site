@@ -3255,3 +3255,63 @@ html[lang="ar"] #langSelect { background-image: url("/assets/flag-ma.svg"); }
         background-size: 16px 12px;
     }
 }
+/* ============================================================
+   FOOTER LEGAL (present sur toutes les pages)
+   ------------------------------------------------------------
+   Deplace depuis css/legal.css : cette feuille n est chargee que
+   sur les 4 pages legales, donc les regles ne s appliquaient pas
+   a l accueil ni aux autres pages. style-patches.css est charge
+   partout (verifie par build-css.cjs).
+   Taille = celle du copyright (0.75rem), demande client du
+   2026-11-19.
+   ============================================================ */
+.site-footer .footer-legal,
+.page-legal-footer .footer-legal {
+    margin-top: 1.1rem;
+    text-align: center;
+}
+
+.site-footer .footer-legal-title,
+.page-legal-footer .footer-legal-title {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--gold, #b8860b);
+    margin: 0 0 0.5rem;
+}
+
+.site-footer .footer-legal-links,
+.page-legal-footer .footer-legal-links {
+    list-style: none;
+    margin: 0 auto;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.35rem 1.25rem;
+    max-width: 640px;
+}
+
+.site-footer .footer-legal-links li,
+.page-legal-footer .footer-legal-links li {
+    margin: 0;
+}
+
+.site-footer .footer-legal-links a,
+.page-legal-footer .footer-legal-links a {
+    font-size: 0.75rem;
+    color: inherit;
+    opacity: 0.85;
+    text-decoration: none;
+}
+
+.site-footer .footer-legal-links a:hover,
+.site-footer .footer-legal-links a:focus-visible,
+.page-legal-footer .footer-legal-links a:hover,
+.page-legal-footer .footer-legal-links a:focus-visible {
+    opacity: 1;
+    color: var(--gold, #b8860b);
+    text-decoration: underline;
+}
+
