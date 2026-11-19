@@ -183,6 +183,10 @@ function showError(type) {
     if (loadingEl) loadingEl.style.display = 'none';
     if (contentEl) contentEl.style.display = 'none';
 
+    /* Une page d'erreur ne doit jamais etre indexee : sans ?v= validé,
+       /boutique n'a aucun contenu propre. */
+    setMeta('name', 'robots', 'noindex, follow');
+
     if (titleEl && textEl) {
         if (type === 'suspended') {
             titleEl.textContent = t('boutiqueSuspended') || 'Boutique momentanément indisponible';

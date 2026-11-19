@@ -40,7 +40,11 @@ process.on("unhandledRejection", (reason, promise) => {
 const STATIC_PAGES = [
   { loc: "/", changefreq: "daily", priority: "1.0" },
   { loc: "/koulchi", changefreq: "daily", priority: "0.9" },
-  { loc: "/boutique", changefreq: "weekly", priority: "0.9" },
+  /* /boutique est VOLONTAIREMENT absent : cette page est parametree
+     (/boutique?v=<uid vendeur>) et affiche "Boutique introuvable" sans
+     parametre. Les boutiques vendeurs sont decouvertes par liens et
+     desindexees en cas d erreur (boutique.js -> robots noindex).
+     Audit fonctionnel 2026-11-19. */
   { loc: "/blog", changefreq: "daily", priority: "0.8" },
   /* Audit 2026-11-18 : une seule URL par page, sans extension
      (cleanUrls: true dans firebase.json).

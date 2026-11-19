@@ -375,7 +375,13 @@ service cloud.firestore {
     }
 
     match /coupons/{docId} {
-      allow read: if true;
+      /* Un visiteur doit pouvoir verifier UN code precis (getDoc) pour
+         l appliquer a son panier : `get` reste public. En revanche
+         `list` (enumeration de la collection) est reserve a l admin,
+         sinon n importe qui peut aspirer tous les codes promo.
+         Audit fonctionnel 2026-11-19. */
+      allow get: if true;
+      allow list: if isAdmin();
       allow write: if isAdmin();
     }
 

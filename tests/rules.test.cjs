@@ -314,6 +314,15 @@ async function main() {
     await assertFails(getDoc(doc(anonDb, "presence", "visitor-aaaa-1111")));
     await assertSucceeds(getDoc(doc(adminDb, "presence", "visitor-aaaa-1111")));
 
+    /* --------------------------------------------- CODES PROMO */
+    /* Lecture ciblee publique : le client verifie un code precis (getDoc). */
+    await assertSucceeds(getDoc(doc(anonDb, "coupons", "PROMO10")));
+
+    /* Enumeration de la collection : refusee aux anonymes, admin seulement.
+       (Sinon n importe qui peut aspirer tous les codes promo.) */
+    await assertFails(getDocs(query(collection(anonDb, "coupons"))));
+    await assertSucceeds(getDocs(query(collection(adminDb, "coupons"))));
+
     console.log("PASS: Firestore and Storage authorization scenarios");
   } finally {
     await env.cleanup();
