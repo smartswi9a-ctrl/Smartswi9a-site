@@ -54,6 +54,7 @@ let authBound = false;
 let cachedWithdrawals = [];
 let cachedWalletTransactions = [];
 let cachedProducts = [];
+let cachedPickupRequests = [];
 let cachedOrders = [];
 let currentProductIdEditing = null;
 let ordersLastDoc = null;
@@ -446,6 +447,16 @@ function injectModals() {
                 <button class="modal-close" id="closeProductModal">✕</button>
                 <h2 id="vProductModalTitle" style="font-family:var(--font-secondary);color:var(--gold);text-align:center;margin-bottom:1rem;">Nouveau produit</h2>
                 <input type="hidden" id="vProdId" value="">
+                <div class="v-field">
+                    <label class="v-label" for="vProdPickupRequest">Stock réceptionné à l'entrepôt *</label>
+                    <select id="vProdPickupRequest" class="v-input">
+                        <option value="">Aucun ramassage approuvé</option>
+                    </select>
+                    <small style="display:block;font-size:0.72rem;color:var(--text-muted);margin-top:0.25rem;">
+                        Obligatoire : le produit doit être physiquement reçu à l'entrepôt Smart Swika.
+                        Demandez un ramassage dans l'onglet Stock et attendez l'approbation admin.
+                    </small>
+                </div>
                 <div class="v-field"><label class="v-label">Nom du produit (Français) *</label><input type="text" id="vProdNameFr" class="v-input" placeholder="Ex: Montre connectée"></div>
                 <div class="v-field"><label class="v-label">Nom du produit (Arabe)</label><input type="text" id="vProdNameAr" class="v-input" placeholder="ساعة ذكية"></div>
                 <div class="v-field"><label class="v-label">Nom du produit (Anglais)</label><input type="text" id="vProdNameEn" class="v-input" placeholder="Smartwatch"></div>
@@ -504,13 +515,13 @@ function injectModals() {
                 <button class="modal-close" id="closePickupModal">&#10005;</button>
                 <h2 style="font-family:var(--font-secondary);color:var(--gold);text-align:center;margin-bottom:0.5rem;">Demander un ramassage</h2>
                 <p style="text-align:center;font-size:0.82rem;color:var(--text-muted);margin-bottom:1.2rem;">
-                    Livo vient chercher vos colis a l'adresse de votre boutique. Selectionnez les produits a envoyer,
+                    Smart Swika organise le ramassage de votre stock vers son entrepôt. Selectionnez les produits a envoyer,
                     indiquez la date souhaitee au format JJ/MM/AAAA et ajoutez un commentaire si besoin.
                 </p>
                 <div class="v-field">
                     <label class="v-label">Produits a envoyer *</label>
                     <div id="vPickupProducts" style="max-height:260px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:0.5rem;"></div>
-                    <span class="v-hint">Choisissez les produits et la quantite de chaque article a remettre a Livo.</span>
+                    <span class="v-hint">Choisissez les produits et la quantite de chaque article a remettre a Smart Swika.</span>
                 </div>
                 <div class="v-field">
                     <label class="v-label" for="vPickupDate">Date de ramassage souhaitee (JJ/MM/AAAA) *</label>
@@ -824,9 +835,37 @@ function updateWarehouseInfoVisibility() {
     if (addressEl) addressEl.textContent = parts.join(' · ');
 }
 
-function openProductModal(product = null) {
+async function loadPickupRequests() {
+    try {
+        const snap = await getDocs(query(
+            collection(db, 'vendor_pickup_requests'),
+            where('vendorId', '==', currentUserUid),
+            limit(50)
+        ));
+        cachedPickupRequests = snap.docs
+            .map(d => ({ id: d.id, ...d.data() }))
+            .sort((a, b) => String(b.createdAt?.seconds || 0).localeCompare(String(a.createdAt?.seconds || 0)));
+    } catch (e) {
+        console.warn('[vendor-dashboard] demandes de ramassage :', e);
+        cachedPickupRequests = [];
+    }
+    return cachedPickupRequests;
+}
+
+async function openProductModal(product = null) {
     const modal = document.getElementById('vProductModal');
     if (!modal) return;
+
+    /* Verrou : pas de produit sans ramassage approuve (stock a l entrepot). */
+    if (!product) {
+        await loadPickupRequests();
+        const approved = cachedPickupRequests.filter(r => r.status === 'approved');
+        if (!approved.length) {
+            showToast('Demandez d abord un ramassage et attendez l approbation admin.', 6000);
+            return;
+        }
+    }
+
     currentProductIdEditing = product ? product.id : null;
 
     const titleEl = document.getElementById('vProductModalTitle');
@@ -835,6 +874,28 @@ function openProductModal(product = null) {
     if (submitBtn) submitBtn.textContent = product ? 'Mettre à jour' : 'Envoyer pour validation';
 
     document.getElementById('vProdId').value = product ? product.id : '';
+    const pickupSel = document.getElementById('vProdPickupRequest');
+    if (pickupSel) {
+        const approved = cachedPickupRequests.filter(r => r.status === 'approved');
+        pickupSel.innerHTML = approved.length
+            ? approved.map(r => {
+                const items = Array.isArray(r.items) ? r.items : [];
+                const label = items.map(i => `${i.name} (${i.quantity})`).join(', ');
+                return `<option value="${escapeHTML(r.id)}">${escapeHTML(label || r.id)}</option>`;
+            }).join('')
+            : '<option value="">Aucun ramassage approuvé</option>';
+        if (product?.pickupRequestId) pickupSel.value = product.pickupRequestId;
+        pickupSel.disabled = !!product;
+        pickupSel.onchange = () => {
+            const req = cachedPickupRequests.find(r => r.id === pickupSel.value);
+            const first = req && Array.isArray(req.items) ? req.items[0] : null;
+            if (!first) return;
+            const nameEl = document.getElementById('vProdNameFr');
+            const stockEl = document.getElementById('vProdStock');
+            if (nameEl && !nameEl.value.trim()) nameEl.value = first.name || '';
+            if (stockEl) stockEl.value = String((req.items || []).reduce((s, i) => s + (Number(i.quantity) || 0), 0));
+        };
+    }
     document.getElementById('vProdNameFr').value = product ? (product.nameFr || '') : '';
     document.getElementById('vProdNameAr').value = product ? (product.nameAr || '') : '';
     document.getElementById('vProdNameEn').value = product ? (product.nameEn || '') : '';
@@ -1001,6 +1062,12 @@ async function submitProduct() {
         const featuresAr = linesFromProductField('vProdFeaturesAr');
         const featuresEn = linesFromProductField('vProdFeaturesEn');
         const deliveryMode = getProductDeliveryMode();
+        const pickupSel = document.getElementById('vProdPickupRequest');
+        const pickupRequestId = pickupSel ? pickupSel.value : '';
+        if (!currentProductIdEditing && !pickupRequestId) {
+            errEl.textContent = 'Sélectionnez un ramassage approuvé : le stock doit être reçu à l’entrepôt avant de créer le produit.';
+            return;
+        }
 
         btn.textContent = 'Enregistrement...';
         const vendorName = (currentVendor?.vendorInfo?.shopName || currentVendor?.name || 'Vendeur').slice(0, 60);
@@ -1032,6 +1099,8 @@ async function submitProduct() {
                     category, price, basePrice: price, oldPrice, koulchiPrice, descFr, descAr, descEn,
                     featuresFr, featuresAr, featuresEn, dimensions, variants, sizes, colors,
                     delivery_mode: deliveryMode,
+                    pickupRequestId: oldData.pickupRequestId || pickupRequestId,
+                    warehouse_received: true,
                     hasSizeGuide: document.getElementById('vProdSizeGuide').checked,
                     img: newImageUrl || oldData.img || '', gallery, stock,
                     vendorName, status: PRODUCT_STATUS.PENDING_ADMIN_APPROVAL, updatedAt: serverTimestamp()
@@ -1047,6 +1116,8 @@ async function submitProduct() {
                 sku: `VND-${String(ts).slice(-6)}`, category, basePrice: price, price,
                 oldPrice, koulchiPrice, purchasePrice: 0, stock,
                 delivery_mode: deliveryMode,
+                pickupRequestId,
+                warehouse_received: true,
                 isNew: false, hasSizeGuide: document.getElementById('vProdSizeGuide').checked, dimensions,
                 variants, sizes, colors, descFr, descAr, descEn, featuresFr, featuresAr, featuresEn,
                 img: newImageUrl, gallery, vendorId: currentUserUid, vendorName,
@@ -1755,35 +1826,125 @@ async function submitPickupRequest() {
 
 async function renderStock(container) {
     const shippingMethod = currentVendor?.vendorInfo?.shippingMethod;
-
     if (shippingMethod !== 'fulfillment') {
-        container.innerHTML = renderEmptyState('📦', 'Mode Drop-off',
-            "Déposez les colis de vos commandes chez Livo après leur confirmation. Cet espace de gestion du stock est réservé aux vendeurs en mode Fulfillment.");
+        container.innerHTML = renderEmptyState('📦', 'Mode logistique non configuré',
+            "Contactez l'administration pour activer le mode entrepôt Smart Swika.");
         return;
     }
 
-    if (!cachedProducts.length) {
-        try { await loadVendorProducts(); } catch (_) { /* ignore */ }
-    }
+    await loadPickupRequests();
 
-    const approved = (cachedProducts || []).filter(p => p && p.status === PRODUCT_STATUS.APPROVED).length;
+    const statusLabel = {
+        pending: '⏳ En attente de validation admin',
+        approved: '✅ Approuvée — stock réceptionné',
+        rejected: '❌ Refusée'
+    };
+    const requestsHtml = cachedPickupRequests.length
+        ? cachedPickupRequests.map(r => {
+            const items = Array.isArray(r.items) ? r.items : [];
+            const detail = items.map(i => `${escapeHTML(i.name)} × ${Number(i.quantity) || 0}`).join(', ');
+            return `<div style="border:1px solid var(--border);border-radius:8px;padding:.6rem;margin-bottom:.5rem;">
+                <strong>${statusLabel[r.status] || escapeHTML(String(r.status || ''))}</strong>
+                <div style="font-size:.82rem;color:var(--text-muted);margin-top:.2rem;">${detail}</div>
+                <div style="font-size:.75rem;color:var(--text-muted);">Date souhaitée : ${escapeHTML(String(r.desiredDate || '—'))}</div>
+            </div>`;
+        }).join('')
+        : '<p style="color:var(--text-muted);margin:0;">Aucune demande pour le moment.</p>';
 
     container.innerHTML = `
         <div class="v-card">
-            <h3 class="v-card-title">${escapeHTML(tr('vendor.stock.pickupTitle', 'Ramassage de stock Livo'))}</h3>
-            <p style="color:var(--text-muted);font-size:0.9rem;line-height:1.6;">
-                ${escapeHTML(tr('vendor.stock.empty.desc', "Envoyez vos produits chez Livo pour que nous gérions la livraison."))}
+            <h3 class="v-card-title">📦 Ramassage vers l'entrepôt Smart Swika</h3>
+            <p style="color:var(--text-muted);font-size:.9rem;line-height:1.6;margin:0;">
+                Déclarez les produits et quantités à remettre à Smart Swika. Après validation par l'administration,
+                le stock est réceptionné à l'entrepôt ; vous pourrez alors créer la fiche produit.
+                <strong>Aucun produit ne peut être ajouté avant cette approbation.</strong>
             </p>
-            <p style="color:var(--text-muted);font-size:0.82rem;">
-                ${approved} ${escapeHTML(tr('vendor.stock.approvedCount', 'produit(s) validé(s) prêt(s) à être expédié(s)'))}
-            </p>
-            <button type="button" id="vPickupRequestBtn" class="v-btn v-btn-primary" style="margin-top:1rem;">
-                ${escapeHTML(tr('vendor.stock.requestPickup', 'Demander un ramassage'))}
-            </button>
+        </div>
+
+        <div class="v-card" style="margin-top:1rem;">
+            <h3 class="v-card-title">Mes demandes</h3>
+            ${requestsHtml}
+        </div>
+
+        <div class="v-card" style="margin-top:1rem;">
+            <h3 class="v-card-title">Nouvelle demande de ramassage</h3>
+            <div id="vPickupRows"></div>
+            <button type="button" id="vPickupAddRow" class="v-btn v-btn-secondary" style="margin-top:.5rem;">＋ Ajouter un produit</button>
+
+            <div class="v-field" style="margin-top:1rem;">
+                <label class="v-label" for="vPickupDate">Date de ramassage souhaitée (JJ/MM/AAAA) *</label>
+                <input type="text" id="vPickupDate" class="v-input" inputmode="numeric" placeholder="25/05/2026" maxlength="10" autocomplete="off">
+            </div>
+            <div class="v-field">
+                <label class="v-label" for="vPickupComment">Commentaire (optionnel)</label>
+                <textarea id="vPickupComment" class="v-input" rows="3" maxlength="500" placeholder="Adresse, horaire, accès..."></textarea>
+            </div>
+            <div id="vPickupError" style="color:var(--danger);font-size:.85rem;min-height:1.2rem;"></div>
+            <button type="button" id="vPickupSmartSubmitBtn" class="v-btn v-btn-primary v-btn-block">Envoyer la demande à Smart Swika</button>
         </div>
     `;
 
-    document.getElementById('vPickupRequestBtn')?.addEventListener('click', openPickupModal);
+    const rows = document.getElementById('vPickupRows');
+    addPickupRow(rows);
+    document.getElementById('vPickupAddRow')?.addEventListener('click', () => addPickupRow(rows));
+    document.getElementById('vPickupSmartSubmitBtn')?.addEventListener('click', submitSmartPickupRequest);
+}
+
+function addPickupRow(rows, name = '', qty = '') {
+    if (!rows || rows.children.length >= 50) return;
+    const row = document.createElement('div');
+    row.className = 'v-pickup-row';
+    row.style.cssText = 'display:grid;grid-template-columns:2fr 90px 36px;gap:.4rem;margin-bottom:.4rem;';
+    row.innerHTML = `<input class="v-input v-pickup-name" type="text" maxlength="120" placeholder="Nom du produit" value="${escapeHTML(name)}">
+        <input class="v-input v-pickup-qty" type="number" min="1" step="1" placeholder="Qté" value="${escapeHTML(String(qty))}">
+        <button type="button" class="v-btn v-btn-secondary" aria-label="Retirer">✕</button>`;
+    row.querySelector('button').addEventListener('click', () => row.remove());
+    rows.appendChild(row);
+}
+
+async function submitSmartPickupRequest() {
+    const errEl = document.getElementById('vPickupError');
+    const btn = document.getElementById('vPickupSmartSubmitBtn');
+    const items = [...document.querySelectorAll('#vPickupRows .v-pickup-row')]
+        .map(row => ({
+            name: row.querySelector('.v-pickup-name')?.value.trim() || '',
+            quantity: parseInt(row.querySelector('.v-pickup-qty')?.value, 10)
+        }))
+        .filter(i => i.name);
+
+    if (!items.length) { if (errEl) errEl.textContent = 'Ajoutez au moins un produit.'; return; }
+    if (items.some(i => !Number.isInteger(i.quantity) || i.quantity < 1)) {
+        if (errEl) errEl.textContent = 'Indiquez une quantité valide pour chaque produit.';
+        return;
+    }
+    const date = document.getElementById('vPickupDate')?.value.trim() || '';
+    if (!isValidPickupDate(date)) {
+        if (errEl) errEl.textContent = 'Date invalide : format JJ/MM/AAAA, date non passée.';
+        return;
+    }
+    const comment = document.getElementById('vPickupComment')?.value.trim() || '';
+
+    if (btn) { btn.disabled = true; btn.textContent = 'Envoi...'; }
+    try {
+        await addDoc(collection(db, 'vendor_pickup_requests'), {
+            vendorId: currentUserUid,
+            vendorName: (currentVendor?.vendorInfo?.shopName || currentVendor?.name || 'Vendeur').slice(0, 120),
+            status: 'pending',
+            items,
+            desiredDate: date,
+            comment,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+        });
+        showToast('Demande de ramassage envoyée. En attente de validation admin.');
+        cachedPickupRequests = [];
+        await renderStock(document.getElementById('vTabContent'));
+    } catch (e) {
+        console.error('[vendor-dashboard] demande ramassage :', e);
+        if (errEl) errEl.textContent = 'Erreur : ' + (e.message || 'inconnue');
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Envoyer la demande à Smart Swika'; }
+    }
 }
 
 /* Statuts de retrait : 'paid' (ancien) est aliasé en 'completed'. */

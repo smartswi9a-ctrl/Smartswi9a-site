@@ -4057,6 +4057,80 @@ function applyVendorFilters() {
     });
 
     renderVendorsList(filtered);
+    renderPickupRequestsAdmin();
+}
+
+/* Demandes de ramassage vendeur : validation admin obligatoire avant
+   toute creation de produit. */
+async function renderPickupRequestsAdmin() {
+    const container = document.getElementById('adminPickupRequests');
+    if (!container) return;
+    container.innerHTML = '<div class="admin-loading">Chargement des demandes de ramassage...</div>';
+    try {
+        const snap = await getDocs(query(
+            collection(db, 'vendor_pickup_requests'),
+            where('status', '==', 'pending'),
+            limit(100)
+        ));
+        if (snap.empty) {
+            container.innerHTML = '<div class="admin-empty">Aucune demande de ramassage en attente.</div>';
+            return;
+        }
+        const cards = snap.docs.map(d => {
+            const r = d.data() || {};
+            const items = Array.isArray(r.items) ? r.items : [];
+            const detail = items.map(i => `<li>${escapeHTML(i.name || '—')} × ${Number(i.quantity) || 0}</li>`).join('');
+            return `<div class="admin-list-item" style="flex-direction:column;align-items:stretch;padding:.8rem;margin-bottom:.5rem;">
+                <div style="display:flex;justify-content:space-between;gap:.5rem;flex-wrap:wrap;">
+                    <strong>${escapeHTML(r.vendorName || r.vendorId || 'Vendeur')}</strong>
+                    <span style="font-size:.8rem;color:var(--text-muted);">Date : ${escapeHTML(String(r.desiredDate || '—'))}</span>
+                </div>
+                <ul style="margin:.4rem 0;padding-left:1.1rem;font-size:.85rem;">${detail || '<li>—</li>'}</ul>
+                ${r.comment ? `<div style="font-size:.8rem;color:var(--text-muted);">${escapeHTML(r.comment)}</div>` : ''}
+                <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:.5rem;">
+                    <button class="admin-btn" data-pickup-approve="${escapeHTML(d.id)}">✅ Approuver le ramassage</button>
+                    <button class="admin-btn" data-pickup-reject="${escapeHTML(d.id)}" style="background:var(--danger);border-color:var(--danger);color:#fff;">❌ Refuser</button>
+                </div>
+            </div>`;
+        }).join('');
+        container.innerHTML = `<h3 style="font-family:var(--font-secondary);color:var(--gold);margin:0 0 .6rem;">📦 Demandes de ramassage en attente</h3>${cards}`;
+        container.querySelectorAll('[data-pickup-approve]').forEach(btn => {
+            btn.addEventListener('click', () => reviewPickupRequest(btn.dataset.pickupApprove, 'approved', btn));
+        });
+        container.querySelectorAll('[data-pickup-reject]').forEach(btn => {
+            btn.addEventListener('click', () => reviewPickupRequest(btn.dataset.pickupReject, 'rejected', btn));
+        });
+    } catch (e) {
+        console.error('[admin] demandes de ramassage :', e);
+        container.innerHTML = '<div class="admin-empty" style="color:var(--danger);">Impossible de charger les demandes de ramassage.</div>';
+    }
+}
+
+async function reviewPickupRequest(requestId, status, btn) {
+    if (!requestId || !['approved', 'rejected'].includes(status)) return;
+    const ok = await confirmAction(
+        status === 'approved'
+            ? 'Confirmer que le stock a bien été reçu à l’entrepôt Smart Swika ?'
+            : 'Refuser cette demande de ramassage ?',
+        { title: 'Demande de ramassage', confirmText: status === 'approved' ? 'Approuver' : 'Refuser' }
+    );
+    if (!ok) return;
+    if (btn) btn.disabled = true;
+    try {
+        await updateDoc(doc(db, 'vendor_pickup_requests', requestId), {
+            status,
+            reviewedAt: Timestamp.now(),
+            reviewedBy: currentAdmin ? currentAdmin.uid : '',
+            updatedAt: Timestamp.now()
+        });
+        showToast(status === 'approved' ? 'Ramassage approuvé. Le vendeur peut créer le produit.' : 'Demande refusée.');
+        await renderPickupRequestsAdmin();
+    } catch (e) {
+        console.error('[admin] revue ramassage :', e);
+        showToast('Impossible de mettre à jour la demande.');
+    } finally {
+        if (btn) btn.disabled = false;
+    }
 }
 
 function renderVendorsList(vendors) {

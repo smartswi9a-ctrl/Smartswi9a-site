@@ -181,6 +181,7 @@ Les points d'entrée versionnés (`admin.js?v=<hash>`, `translations.<hash>.js`)
 | Mesure d'audience : vues anonymes pour tous, uniques sous consentement | 2026-11-19 | deux flux distincts, voir « Mesure d'audience ». |
 | Vente flash : publication directe par le vendeur, sans validation admin | 2026-11-16 | `firestore.rules` / `flash_sales`, voir le commentaire dans les règles. |
 | **Mode logistique unique : entrepôt Smart Swika** (dropoff supprimé) | 2026-11-19 | Le vendeur stocke son stock à l'entrepôt (dépôt ou ramassage sur demande). `createCustomerOrder` fige `delivery_mode = smartswika_warehouse` ; l'inscription, la fiche produit et l'admin n'offrent plus de choix `dropoff`. Livo ne récupère les colis qu'à l'entrepôt. |
+| **Ramassage approuvé obligatoire avant création produit** | 2026-11-19 | Le vendeur crée une demande `vendor_pickup_requests` (statut pending). Seul l'admin peut l'approuver. `firestore.rules` refuse la création produit sans `warehouse_received = true` et une demande approuvée du même vendeur. |
 
 ---
 

@@ -24,6 +24,16 @@ service cloud.firestore {
       );
     }
 
+    /* Une demande de ramassage approuvee par l admin est obligatoire pour
+       creer un produit vendeur. La demande doit appartenir au vendeur. */
+    function pickupApproved(requestId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/vendor_pickup_requests/$(requestId)) &&
+        get(/databases/$(database)/documents/vendor_pickup_requests/$(requestId)).data.vendorId == request.auth.uid &&
+        get(/databases/$(database)/documents/vendor_pickup_requests/$(requestId)).data.status == 'approved';
+    }
+
+
     /* Version de contrat courante : source unique de verite (config/app).
        Aucune version semver ne doit etre codee en dur dans ce fichier. */
     function currentContractVersion() {
@@ -195,6 +205,10 @@ service cloud.firestore {
         (!('vendorName' in request.resource.data) ||
           (request.resource.data.vendorName is string &&
            request.resource.data.vendorName.size() <= 120)) &&
+        request.resource.data.get('warehouse_received', false) == true &&
+        request.resource.data.get('pickupRequestId', '') is string &&
+        request.resource.data.pickupRequestId.size() >= 10 &&
+        pickupApproved(request.resource.data.pickupRequestId) &&
         !('salesCount' in request.resource.data) &&
         !('ratingAvg' in request.resource.data) &&
         !('ratingCount' in request.resource.data)
@@ -234,6 +248,32 @@ service cloud.firestore {
        Création et annulation client via Cloud Functions seulement.
        Le client ne peut donc jamais modifier stockDeducted.
        ============================================================ */
+
+    /* ============================================================
+       DEMANDES DE RAMASSAGE VENDEUR
+       Le vendeur cree une demande (statut pending) ; seul l admin
+       peut l approuver. La creation produit exige une demande
+       approuvee (voir pickupApproved dans /products).
+       ============================================================ */
+    match /vendor_pickup_requests/{requestId} {
+      allow read: if isAdmin() ||
+        (isSignedIn() && resource.data.vendorId == request.auth.uid);
+
+      allow create: if isApprovedVendor(request.auth.uid) &&
+        request.resource.data.vendorId == request.auth.uid &&
+        request.resource.data.status == 'pending' &&
+        request.resource.data.items is list &&
+        request.resource.data.items.size() > 0 &&
+        request.resource.data.items.size() <= 50 &&
+        request.resource.data.desiredDate is string &&
+        request.resource.data.desiredDate.size() == 10 &&
+        (!('comment' in request.resource.data) ||
+          (request.resource.data.comment is string &&
+           request.resource.data.comment.size() <= 500)) &&
+        request.resource.data.createdAt == request.time;
+
+      allow update, delete: if isAdmin();
+    }
 
     match /orders/{orderId} {
       // Les commandes globales contiennent les coordonnées de livraison.

@@ -58,6 +58,14 @@ async function main() {
       });
       await setDoc(doc(db, "products", "publicProduct"), { status: "approved", vendorId: "vendorA", nameFr: "Public" });
       await setDoc(doc(db, "products", "privateProduct"), { status: "pending_admin_approval", vendorId: "vendorA", nameFr: "Private" });
+      /* Demande de ramassage approuvee, prerequis a la creation produit. */
+      await setDoc(doc(db, "vendor_pickup_requests", "pickupVendorA"), {
+        vendorId: "vendorA",
+        status: "approved",
+        items: [{ name: "New product", quantity: 10 }],
+        desiredDate: "2026-12-01",
+        createdAt: Timestamp.now()
+      });
       await setDoc(doc(db, "orders", "multiOrder"), {
         userId: "buyerA",
         vendorIds: ["vendorA", "vendorB"],
@@ -157,7 +165,9 @@ async function main() {
       nameFr: "New product",
       category: "smartphones-android",
       price: 100,
-      koulchiPrice: 90
+      koulchiPrice: 90,
+      warehouse_received: true,
+      pickupRequestId: "pickupVendorA"
     }));
     await assertFails(setDoc(doc(oldVendorDb, "products", "oldContractProduct"), {
       vendorId: "vendorOld",
@@ -182,7 +192,9 @@ async function main() {
       nameFr: "Koulchi product",
       category: "smartphones-android",
       price: 100,
-      koulchiPrice: 90
+      koulchiPrice: 90,
+      warehouse_received: true,
+      pickupRequestId: "pickupVendorA"
     }));
     await assertFails(setDoc(doc(vendorDb, "products", "koulchiInvalid"), {
       vendorId: "vendorA",
