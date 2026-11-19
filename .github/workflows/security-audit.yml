@@ -31,7 +31,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for file in js/*.js cloudflare/workers/*.js; do
+          for file in js/*.js js/domain/*.js cloudflare/workers/*.js; do
             node --input-type=module --check < "$file"
           done
 
@@ -41,8 +41,11 @@ jobs:
           node -e "JSON.parse(require('fs').readFileSync('firestore.indexes.json','utf8'))"
           node -e "JSON.parse(require('fs').readFileSync('functions/package.json','utf8'))"
 
-      - name: Test vendor architecture consistency
-        run: node tests/vendor-architecture.test.cjs
+      # Toute la chaine npm test tourne en CI : 21 suites hors ligne (aucun
+      # reseau, aucune dependance). Les regles Firestore/Storage restent
+      # testees separement dans l emulateur, juste apres.
+      - name: Run offline test suites
+        run: npm test
 
       - name: Install Firebase CLI and rules test dependencies
         run: |

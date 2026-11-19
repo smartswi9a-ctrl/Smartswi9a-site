@@ -75,6 +75,11 @@ cd cloudflare\workers
 npx wrangler deploy --config wrangler.worker-ip.toml
 ```
 
+La CI (`static-and-rules`) exécute `npm test` — **21 suites hors ligne**, aucune
+dépendance, aucun réseau — puis les règles Firestore/Storage dans l'émulateur.
+Une suite qui échoue bloque la PR. `tests/rules.test.cjs` reste hors de
+`npm test` car il exige l'émulateur ; la CI l'exécute séparément.
+
 ### Deux cibles de déploiement (audit 2026-11-18)
 
 | Cible | URL | Déclencheur | Configuration |
