@@ -1018,7 +1018,7 @@ async function submitProduct() {
                 JSON.stringify(oldData.sizes || []) === JSON.stringify(sizes) &&
                 JSON.stringify(oldData.colors || []) === JSON.stringify(colors) &&
                 JSON.stringify(oldData.dimensions || {}) === JSON.stringify(dimensions) &&
-                (oldData.delivery_mode === 'smartswika_warehouse' ? 'smartswika_warehouse' : 'dropoff') === deliveryMode &&
+                oldData.delivery_mode === 'smartswika_warehouse' &&
                 !!oldData.hasSizeGuide === document.getElementById('vProdSizeGuide').checked &&
                 (!file || newImageUrl === oldData.img) && galleryFiles.length === 0;
 
@@ -1883,6 +1883,99 @@ async function renderWallet(container) {
     if (btn && canWithdraw) btn.addEventListener('click', openWithdrawModal);
 }
 
+/* ============================================================
+   GUIDE VENDEUR (onglet Guide)
+   Manuel du modele en vigueur depuis le 2026-11-19 : stock a
+   l entrepot Smart Swika, Livo livre aux acheteurs.
+   Contenu statique, aucune lecture Firestore.
+   ============================================================ */
+function renderGuide(container) {
+    const card = 'class="v-card" style="margin-top:1rem;"';
+    const list = 'style="line-height:1.75;padding-left:1.2rem;margin:0;"';
+    container.innerHTML = `
+        <div class="v-card">
+            <h3 class="v-card-title">📘 Guide vendeur Smart Swika</h3>
+            <p style="color:var(--text-muted);line-height:1.7;margin:0;">
+                Depuis le <strong>19 novembre 2026</strong>, tout le stock vendeur est stocké à
+                l'entrepôt Smart Swika. Livo récupère les colis à l'entrepôt et les livre aux
+                acheteurs. Vous ne gérez ni expédition, ni transporteur, ni remise en main propre.
+            </p>
+        </div>
+
+        <div ${card}>
+            <h3 class="v-card-title">1. Le modèle en 3 étapes</h3>
+            <ol ${list}>
+                <li><strong>Publiez vos produits</strong> (prix, stock réel, photos).</li>
+                <li><strong>Envoyez le stock à l'entrepôt</strong> : dépôt direct ou ramassage organisé avec l'équipe.</li>
+                <li><strong>Smart Swika stocke et prépare</strong> ; Livo livre l'acheteur partout au Maroc.</li>
+            </ol>
+        </div>
+
+        <div ${card}>
+            <h3 class="v-card-title">2. Compte et contrat</h3>
+            <ul ${list}>
+                <li>Inscription sur <strong>Inscription vendeur</strong> : boutique, téléphone, ville, ICE ou CIN.</li>
+                <li>Lecture et <strong>signature du contrat</strong> obligatoires ; la signature est horodatée et associée à une empreinte du texte.</li>
+                <li>Le compte doit être <strong>approuvé</strong> par l'administration avant publication.</li>
+                <li>Si le contrat change, une bannière de <strong>re-signature</strong> apparaît : signez pour continuer à vendre.</li>
+            </ul>
+        </div>
+
+        <div ${card}>
+            <h3 class="v-card-title">3. Publier un produit</h3>
+            <p style="margin:0 0 .4rem;">Onglet <strong>Mes produits</strong> → <strong>Nouveau produit</strong> :</p>
+            <ul ${list}>
+                <li>Nom en français (arabe / anglais recommandés), catégorie et sous-catégorie.</li>
+                <li>Prix de vente et <strong>prix Koulchi</strong> strictement inférieur.</li>
+                <li><strong>Stock réel</strong> disponible à l'entrepôt.</li>
+                <li>Au moins une photo (JPEG, PNG ou WebP, 2 Mo max).</li>
+                <li>Description et caractéristiques. Variantes (taille, couleur) via <strong>Créer les variantes</strong>.</li>
+            </ul>
+            <p style="margin:.6rem 0 0;color:var(--text-muted);">Toute création ou modification repasse en <strong>validation admin</strong> avant publication.</p>
+        </div>
+
+        <div ${card}>
+            <h3 class="v-card-title">4. Envoyer le stock à l'entrepôt</h3>
+            <ul ${list}>
+                <li>Le <strong>mode entrepôt est obligatoire</strong> : l'expédition directe par le vendeur n'existe plus.</li>
+                <li><strong>Dépôt direct</strong> à l'adresse affichée dans la fiche produit, ou</li>
+                <li><strong>ramassage</strong> : contactez l'équipe (WhatsApp / e-mail) avec la liste des produits et quantités ; un créneau est convenu, puis le stock est réceptionné et contrôlé.</li>
+                <li>Le stock en ligne doit correspondre au stock remis. Un écart peut suspendre le produit.</li>
+            </ul>
+        </div>
+
+        <div ${card}>
+            <h3 class="v-card-title">5. Commandes et statuts</h3>
+            <ul ${list}>
+                <li><strong>En attente</strong> → <strong>Confirmée</strong> : commande créée puis validée (paiement à la livraison).</li>
+                <li><strong>En préparation</strong> → <strong>Prête</strong> : colis préparé à l'entrepôt.</li>
+                <li><strong>Ramassage demandé</strong> → <strong>Colis récupéré</strong> : Livo prend le colis à l'entrepôt.</li>
+                <li><strong>En livraison</strong> → <strong>Livrée</strong> : l'acheteur a reçu le colis.</li>
+                <li><strong>Retournée / Annulée</strong> : stock restitué selon les règles du contrat.</li>
+            </ul>
+        </div>
+
+        <div ${card}>
+            <h3 class="v-card-title">6. Wallet, retraits et ventes flash</h3>
+            <ul ${list}>
+                <li>Les gains apparaissent dans <strong>Mon Wallet</strong> après confirmation de livraison.</li>
+                <li>La commission est celle indiquée dans votre contrat (taux affiché sur le dashboard).</li>
+                <li>Le retrait se demande depuis le Wallet ; l'administration le traite et vous notifie.</li>
+                <li><strong>Ventes Flash</strong> : remise temporaire créée par vous, publiée directement sans validation admin. Ne se cumule pas avec le prix Koulchi.</li>
+            </ul>
+        </div>
+
+        <div ${card}>
+            <h3 class="v-card-title">7. Règles et support</h3>
+            <ul ${list}>
+                <li>Jamais de stock fictif, de contrefaçon ni de description trompeuse.</li>
+                <li>Respectez les délais du contrat ; les retours répétés peuvent entraîner une suspension.</li>
+                <li>Support : WhatsApp <strong>+212 656 613 303</strong> · <strong>smartswi9a@gmail.com</strong> (précisez boutique, produit ou commande).</li>
+            </ul>
+        </div>
+    `;
+}
+
 async function renderTab(tabName) {
     const container = document.getElementById('vTabContent');
     if (!container || _renderInProgress) return;
@@ -1893,6 +1986,7 @@ async function renderTab(tabName) {
         if (tabName === 'orders')   return await renderOrders(container);
         if (tabName === 'wallet')   return await renderWallet(container);
         if (tabName === 'stock')    return await renderStock(container);
+        if (tabName === 'guide')    return renderGuide(container);
   /* Ventes flash vendeur : module separe (js/vendor-flash.js).
      Le vendeur cree ses propres ventes, sans validation admin, sur SES
      produits uniquement. Import dynamique pour ne pas alourdir le bundle
@@ -1912,8 +2006,8 @@ async function renderTab(tabName) {
 /* ============================================================
    NAVIGATION
    ============================================================ */
-const TAB_I18N_KEYS = { overview: 'vendor.page.overview', products: 'vendor.nav.products', orders: 'vendor.nav.orders', wallet: 'vendor.nav.wallet', stock: 'vendor.nav.stock', flash: 'vendor.nav.flash' };
-const TAB_FALLBACK_TITLES = { overview: "Vue d'ensemble", products: 'Mes produits', orders: 'Commandes', wallet: 'Mon Wallet', stock: 'Stock Fulfillment', flash: 'Ventes Flash' };
+const TAB_I18N_KEYS = { overview: 'vendor.page.overview', products: 'vendor.nav.products', orders: 'vendor.nav.orders', wallet: 'vendor.nav.wallet', stock: 'vendor.nav.stock', flash: 'vendor.nav.flash', guide: 'vendor.nav.guide' };
+const TAB_FALLBACK_TITLES = { overview: "Vue d'ensemble", products: 'Mes produits', orders: 'Commandes', wallet: 'Mon Wallet', stock: 'Stock Fulfillment', flash: 'Ventes Flash', guide: 'Guide vendeur' };
 
 function setActiveTab(tabName) {
     document.querySelectorAll('.v-nav-link[data-tab]').forEach(l => {
