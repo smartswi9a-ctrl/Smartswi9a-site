@@ -15,6 +15,7 @@ const {
   getDoc,
   getDocs,
   updateDoc,
+  deleteDoc,
   arrayUnion,
   increment,
   serverTimestamp,
@@ -337,6 +338,12 @@ async function main() {
 
     await assertFails(getDoc(doc(anonDb, "presence", "visitor-aaaa-1111")));
     await assertSucceeds(getDoc(doc(adminDb, "presence", "visitor-aaaa-1111")));
+
+    /* Remise a zero du trafic : suppression reservee aux admins. */
+    await assertFails(deleteDoc(doc(anonDb, "analytics_daily", todayKey)));
+    await assertSucceeds(deleteDoc(doc(adminDb, "analytics_daily", todayKey)));
+    await assertFails(deleteDoc(doc(anonDb, "presence", "visitor-aaaa-1111")));
+    await assertSucceeds(deleteDoc(doc(adminDb, "presence", "visitor-aaaa-1111")));
 
     /* --------------------------------------------- CODES PROMO */
     /* Lecture ciblee publique : le client verifie un code precis (getDoc). */

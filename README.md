@@ -125,6 +125,8 @@ Collecte interne, **deux flux distincts** :
 
 Aucune IP, aucun nom, aucun cookie publicitaire. Collections Firestore : `analytics_daily` (lecture admin ; le client peut seulement incrémenter `views` et ajouter un identifiant à `visitors`) et `presence` (battement toutes les 60 s, « en ligne » si vu il y a moins de 5 min). Chaque battement écrit aussi `expireAt` (maintenant + 7 jours) : une **politique TTL Firestore** supprime le document une fois cette date passée (généralement sous 24 h). Voir `docs/runbooks/FIRESTORE-TTL-PRESENCE.md`.
 
+Le bouton **« 🗑️ Remettre à zéro »** (admin → Trafic) supprime `analytics_daily` et `presence` après confirmation. La suppression est réservée à l'admin par `firestore.rules` (`allow delete: if isAdmin()`), et le bouton est refusé à tout autre utilisateur.
+
 Conséquence pratique : **le nombre de vues reflète tout le trafic** (y compris les visiteurs qui n'ont jamais répondu au bandeau), tandis que « visiteurs uniques » et « en ligne » ne comptent que les consentants. La politique de confidentialité (§ 3.6 et article 10) décrit ces deux flux.
 
 ### Activer Cloudflare Web Analytics (une seule fois)

@@ -360,6 +360,12 @@ async function loadTrafficStats() {
         btn.addEventListener('click', () => loadTrafficStats());
     }
 
+    const resetBtn = document.getElementById('trafficResetBtn');
+    if (resetBtn && !resetBtn.dataset.bound) {
+        resetBtn.dataset.bound = '1';
+        resetBtn.addEventListener('click', resetTrafficStats);
+    }
+
     const periodSel = document.getElementById('trafficPeriod');
     if (periodSel && !periodSel.dataset.bound) {
         periodSel.dataset.bound = '1';
@@ -399,6 +405,57 @@ async function loadTrafficStats() {
     }
 
     watchTrafficPresence();
+}
+
+/* Supprime une collection par lots de 400 (limite Firestore : 500).
+   Utilise par la remise a zero du trafic. */
+async function deleteCollectionInBatches(name) {
+    let supprimes = 0;
+    for (let passe = 0; passe < 50; passe++) {
+        const snap = await getDocs(query(collection(db, name), limit(400)));
+        if (snap.empty) break;
+        const batch = writeBatch(db);
+        snap.docs.forEach((d) => batch.delete(d.ref));
+        await batch.commit();
+        supprimes += snap.size;
+        if (snap.size < 400) break;
+    }
+    return supprimes;
+}
+
+/* Remise a zero du trafic (admin > Trafic).
+   Supprime analytics_daily et presence. Irreversible.
+   La permission est portee par firestore.rules (allow delete: isAdmin). */
+async function resetTrafficStats() {
+    const btn = document.getElementById('trafficResetBtn');
+    const ok = await confirmAction(
+        'Cette action supprime définitivement toutes les statistiques de trafic : vues, visiteurs uniques et présence. Aucune restauration n\'est possible.',
+        { title: '🗑️ Remettre le trafic à zéro', confirmText: 'Tout supprimer', variant: 'danger' }
+    );
+    if (!ok) return;
+
+    const label = btn ? btn.textContent : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '⏳ Suppression…';
+    }
+
+    try {
+        const jours = await deleteCollectionInBatches('analytics_daily');
+        const presences = await deleteCollectionInBatches('presence');
+        trafficEntriesCache = [];
+        await loadTrafficStats();
+        showToast('Trafic remis à zéro (' + jours + ' jour(s), ' + presences + ' présence(s)).');
+    } catch (e) {
+        console.error('[admin] reset trafic :', e);
+        const raison = e && (e.code || e.message) ? (e.code || e.message) : 'erreur inconnue';
+        showToast('Suppression impossible : ' + raison);
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = label;
+        }
+    }
 }
 
 function showLoginBox() {
