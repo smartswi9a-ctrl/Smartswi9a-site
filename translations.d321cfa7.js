@@ -895,7 +895,27 @@
       privacySummary: "🔒 Politique de confidentialité",
       privacyText:
         "Nous respectons votre vie privée. Vos données ne sont pas partagées.",
-      termsSummary: "📄 Conditions générales de vente",
+      termsSummary: "📄 CGV — l'essentiel (offres et garanties)",
+      homeTermsHtml: `
+        <strong style="color:var(--text);">1. Nos offres</strong><br>
+        • Prix en MAD, <strong>paiement à la livraison</strong>.<br>
+        • <strong>Koulchi dialk</strong> : −5 % dès 3 articles, −10 % dès 6, −15 % dès 9 (3 à 10 articles).<br>
+        • <strong>Ventes flash</strong> : remise temporaire, non cumulable avec Koulchi.<br>
+        • <strong>Livraison Livo</strong> dans 404 villes, frais Livo exacts sans marge, délai indicatif 24-72 h.<br><br>
+        <strong style="color:var(--text);">2. Produits Smartswika</strong><br>
+        • Vendus et préparés par Smartswika depuis son entrepôt.<br>
+        • <strong>Garantie totale 15 jours</strong> : 3 jours pour signaler + 12 jours d'essai.<br><br>
+        <strong style="color:var(--text);">3. Produits vendeurs</strong><br>
+        • Vendus par un vendeur partenaire ; Smartswika est intermédiaire technique.<br>
+        • Stock stocké à l'entrepôt Smartswika ; Livo livre.<br>
+        • <strong>Garantie totale 7 jours</strong> : 3 jours pour signaler + 4 jours d'essai.<br><br>
+        <strong style="color:var(--text);">4. Retours et remboursements</strong><br>
+        • Produit défectueux ou non conforme : retour pris en charge par le vendeur (ou Smartswika).<br>
+        • Changement d'avis : frais de retour à votre charge.<br>
+        • Remboursement après réception et vérification, par le même circuit que le paiement, sous 48-72 h ouvrés.<br><br>
+        <strong style="color:var(--text);">5. Garantie exclue</strong> : choc, eau, usure normale, mauvaise utilisation.<br><br>
+        <strong style="color:var(--text);">6. Détail complet</strong> : <a href="/cgu-acheteur.html">CGU Acheteur</a>.
+      `,
       termsTextHtml:
         "\n <strong style=\"color:var(--text);\">1. Délais de réclamation et Garantie</strong><br>\n • <strong>Défaut à la réception (3 jours) :</strong> Vous disposez de 3 jours après la livraison pour signaler un produit défectueux ou non conforme.<br>\n • <strong>Garantie de fonctionnement (15 jours) :</strong> Au-delà des 3 jours, nos produits restent garantis 15 jours contre les défauts de fabrication.<br><br>\n \n <strong style=\"color:var(--text);\">2. Conditions d'éligibilité</strong><br>\n • Le produit doit être dans son <strong>emballage d'origine intact</strong> (boîte, notices, accessoires).<br>\n • Le produit ne doit pas présenter de traces d'usure, de choc, de rayure ou d'infiltration d'eau.<br>\n • Une <strong>preuve d'achat</strong> (la facture reçue par email) est obligatoire.<br><br>\n \n <strong style=\"color:var(--text);\">3. Procédure de retour</strong><br>\n • <strong>Avant expédition (Devant le livreur) :</strong> Si le colis est endommagé, vous pouvez le refuser directement devant le livreur. Vous ne payez rien.<br>\n • <strong>Après réception :</strong> Contactez notre support WhatsApp avec votre facture, des photos et une <strong>vidéo continue</strong> montrant le problème. Aucun retour ne sera accepté sans ces preuves.<br><br>\n \n <strong style=\"color:var(--text);\">4. Frais de retour</strong><br>\n • <strong>Si le produit est défectueux ou erreur de notre part :</strong> Les frais de retour sont <strong>à notre charge</strong>.<br>\n • <strong>Changement d'avis :</strong> Les frais de retour sont <strong>à votre charge</strong>.<br><br>\n \n <strong style=\"color:var(--text);\">5. Remboursement et Échange</strong><br>\n • Le remboursement n'est déclenché qu'<strong>après réception et vérification technique</strong> du produit retourné.<br>\n • Le remboursement se fait par virement bancaire ou via une agence (Wafacash / Cash Plus) sous 48h à 72h ouvrés.<br>\n • Un échange peut être proposé si le produit est en stock.<br><br>\n \n <strong style=\"color:var(--text);\">6. Exclusions de garantie</strong><br>\n La garantie ne couvre pas : les chocs physiques, les dégâts liés à l'eau, l'usure normale, ou une mauvaise utilisation de l'appareil.\n ",
       footerDesc:
@@ -1914,7 +1934,27 @@
       vflashLoadError: "خطأ في تحميل العروض الفلاش.",
       privacySummary: "🔒 سياسة الخصوصية",
       privacyText: "نحن نحترم خصوصيتك. لا تتم مشاركة بياناتك.",
-      termsSummary: "📄 الشروط العامة للبيع",
+      termsSummary: "📄 الشروط العامة للبيع — الأساسيات",
+      homeTermsHtml: `
+        <strong style="color:var(--text);">1. عروضنا</strong><br>
+        • الأسعار بالدرهم، <strong>الدفع عند الاستلام</strong>.<br>
+        • <strong>كولشي ديالك</strong>: خصم 5% من 3 منتجات، 10% من 6، 15% من 9 (من 3 إلى 10 منتجات).<br>
+        • <strong>العروض السريعة</strong>: خصم مؤقت، لا يُجمع مع كولشي.<br>
+        • <strong>التوصيل عبر Livo</strong> في 404 مدينة، بأثمنة Livo الحقيقية دون هامش، ومدة تقريبية 24-72 ساعة.<br><br>
+        <strong style="color:var(--text);">2. منتجات Smartswika</strong><br>
+        • تُباع وتُجهَّز من طرف Smartswika من مستودعها.<br>
+        • <strong>ضمان إجمالي 15 يومًا</strong>: 3 أيام للإبلاغ + 12 يومًا للتجربة.<br><br>
+        <strong style="color:var(--text);">3. منتجات البائعين</strong><br>
+        • تُباع من طرف بائع شريك؛ Smartswika وسيط تقني.<br>
+        • المخزون محفوظ في مستودع Smartswika؛ وLivo يتولى التوصيل.<br>
+        • <strong>ضمان إجمالي 7 أيام</strong>: 3 أيام للإبلاغ + 4 أيام للتجربة.<br><br>
+        <strong style="color:var(--text);">4. الإرجاع والاسترداد</strong><br>
+        • منتج معيب أو غير مطابق: الإرجاع على حساب البائع (أو Smartswika).<br>
+        • تغيير الرأي: رسوم الإرجاع على حسابك.<br>
+        • الاسترداد بعد الاستلام والتحقق، بنفس طريقة الدفع، خلال 48-72 ساعة عمل.<br><br>
+        <strong style="color:var(--text);">5. الضمان لا يغطي</strong>: الصدمات، الماء، التآكل الطبيعي، سوء الاستخدام.<br><br>
+        <strong style="color:var(--text);">6. التفاصيل الكاملة</strong>: <a href="/cgu-acheteur.html">شروط الاستخدام</a>.
+      `,
       termsTextHtml:
         '\n <strong style="color:var(--text);">1. مدة الشكوى والضمان</strong><br>\n • <strong>عيب عند الاستلام (3 أيام):</strong> لديك 3 أيام بعد التوصيل للإبلاغ عن منتج معيب أو غير مطابق.<br>\n • <strong>ضمان التشغيل (15 يومًا):</strong> بعد 3 أيام، تظل منتجاتنا مضمونة لمدة 15 يومًا ضد عيوب التصنيع.<br><br>\n \n <strong style="color:var(--text);">2. شروط القبول</strong><br>\n • يجب أن يكون المنتج في <strong>عبوته الأصلية سليمة</strong> (الصندوق، الكتيبات، الملحقات).<br>\n • يجب ألا يظهر على المنتج أي آثار للاستخدام، الصدمات، الخدوش أو تسرب المياه.<br>\n • <strong>إثبات الشراء</strong> (الفاتورة المرسلة عبر البريد الإلكتروني) إلزامي.<br><br>\n \n <strong style="color:var(--text);">3. إجراءات الإرجاع</strong><br>\n • <strong>قبل الشحن (أمام عامل التوصيل):</strong> إذا كان الطلب تالفًا، يمكنك رفضه مباشرة أمام عامل التوصيل. لن تدفع شيئًا.<br>\n • <strong>بعد الاستلام:</strong> اتصل بدعم واتساب مع الفاتورة والصور و<strong>فيديو مستمر</strong> يظهر المشكلة. لن يتم قبول أي إرجاع بدون هذه الأدلة.<br><br>\n \n <strong style="color:var(--text);">4. رسوم الإرجاع</strong><br>\n • <strong>إذا كان المنتج معيبًا أو خطأ من جانبنا:</strong> رسوم الإرجاع <strong>على حسابنا</strong>.<br>\n • <strong>تغيير الرأي:</strong> رسوم الإرجاع <strong>على حسابك</strong>.<br><br>\n \n <strong style="color:var(--text);">5. الاسترداد والاستبدال</strong><br>\n • لا يتم بدء الاسترداد إلا <strong>بعد استلام المنتج المرتجع والتحقق منه تقنيًا</strong>.<br>\n • يتم الاسترداد عبر تحويل بنكي أو وكالة (وفا كاش / كاش بلوس) في غضون 48 إلى 72 ساعة عمل.<br>\n • قد يُقترح استبدال إذا كان المنتج متوفراً في المخزون.<br><br>\n \n <strong style="color:var(--text);">6. استثناءات الضمان</strong><br>\n لا يغطي الضمان: الصدمات الجسدية، الأضرار الناتجة عن الماء، التآكل الطبيعي، أو سوء استخدام الجهاز.\n ',
       footerDesc: "متجرك التقني في المغرب. توصيل سريع، الدفع عند الاستلام.",
@@ -2838,7 +2878,27 @@
       vflashLoadError: "Failed to load flash sales.",
       privacySummary: "🔒 Privacy policy",
       privacyText: "We respect your privacy. Your data is not shared.",
-      termsSummary: "📄 Terms of sale",
+      termsSummary: "📄 Terms of sale — key points",
+      homeTermsHtml: `
+        <strong style="color:var(--text);">1. Our offers</strong><br>
+        • Prices in MAD, <strong>cash on delivery</strong>.<br>
+        • <strong>Koulchi dialk</strong>: 5% off from 3 items, 10% from 6, 15% from 9 (3 to 10 items).<br>
+        • <strong>Flash sales</strong>: temporary discount, not combined with Koulchi.<br>
+        • <strong>Livo delivery</strong> to 404 cities, exact Livo fees with no markup, indicative 24-72 h.<br><br>
+        <strong style="color:var(--text);">2. Smartswika products</strong><br>
+        • Sold and prepared by Smartswika from its warehouse.<br>
+        • <strong>Total warranty 15 days</strong>: 3 days to report + 12 days to test.<br><br>
+        <strong style="color:var(--text);">3. Vendor products</strong><br>
+        • Sold by a partner vendor; Smartswika is a technical intermediary.<br>
+        • Stock stored in the Smartswika warehouse; Livo delivers.<br>
+        • <strong>Total warranty 7 days</strong>: 3 days to report + 4 days to test.<br><br>
+        <strong style="color:var(--text);">4. Returns and refunds</strong><br>
+        • Defective or non-compliant product: return handled by the vendor (or Smartswika).<br>
+        • Change of mind: return fees at your expense.<br>
+        • Refund after receipt and verification, through the same payment channel, within 48-72 business hours.<br><br>
+        <strong style="color:var(--text);">5. Not covered</strong>: impact, water, normal wear, misuse.<br><br>
+        <strong style="color:var(--text);">6. Full details</strong>: <a href="/cgu-acheteur.html">Buyer terms</a>.
+      `,
       termsTextHtml:
         '\n <strong style="color:var(--text);">1. Claim Deadlines and Warranty</strong><br>\n • <strong>Defect upon receipt (3 days):</strong> You have 3 days after delivery to report a defective or non-compliant product.<br>\n • <strong>Operational Warranty (15 days):</strong> Beyond 3 days, our products remain guaranteed for 15 days against manufacturing defects.<br><br>\n \n <strong style="color:var(--text);">2. Eligibility Conditions</strong><br>\n • The product must be in its <strong>intact original packaging</strong> (box, manuals, accessories).<br>\n • The product must not show signs of wear, impact, scratches, or water damage.<br>\n • A <strong>proof of purchase</strong> (invoice received by email) is mandatory.<br><br>\n \n <strong style="color:var(--text);">3. Return Procedure</strong><br>\n • <strong>Before shipping (In front of the driver):</strong> If the package is damaged, you can refuse it directly in front of the delivery driver. You pay nothing.<br>\n • <strong>After receipt:</strong> Contact our WhatsApp support with your invoice, photos, and a <strong>continuous video</strong> showing the issue. No return will be accepted without this evidence.<br><br>\n \n <strong style="color:var(--text);">4. Return Fees</strong><br>\n • <strong>If the product is defective or our mistake:</strong> Return fees are <strong>our responsibility</strong>.<br>\n • <strong>Change of mind:</strong> Return fees are <strong>your responsibility</strong>.<br><br>\n \n <strong style="color:var(--text);">5. Refund and Exchange</strong><br>\n • The refund is only triggered <strong>after receipt and technical verification</strong> of the returned product.<br>\n • The refund is made by bank transfer or agency (Wafacash/Cash Plus) within 48 to 72 business hours.<br>\n • An exchange may be offered if the product is in stock.<br><br>\n \n <strong style="color:var(--text);">6. Warranty Exclusions</strong><br>\n The warranty does not cover: physical impact, water damage, normal wear and tear, or misuse of the device.\n ',
       footerDesc: "Your tech shop in Morocco. Fast delivery, cash on delivery.",
