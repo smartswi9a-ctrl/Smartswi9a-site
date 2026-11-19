@@ -169,6 +169,20 @@ if (fs.existsSync(cheminsHeaders)) {
   );
 }
 
+/* --------------------------------------------- pages parametrees */
+
+verifie(
+  "Sitemap : /boutique absent (page parametree ?v=)",
+  !/<loc>[^<]*\/boutique<\/loc>/.test(sitemap)
+);
+
+verifie(
+  "Boutique : noindex pose sur les etats d erreur",
+  /setMeta\(\s*["']name["']\s*,\s*["']robots["']\s*,\s*["']noindex/.test(
+    fs.readFileSync(path.join(ROOT, "js", "boutique.js"), "utf8")
+  )
+);
+
 /* --------------------------------------------- resume */
 
 console.log("\n" + verifications + " verification(s), " + echecs + " echec(s)");
