@@ -12,6 +12,8 @@
 
   /* ============================================================ FRANÇAIS (fr) ============================================================ */
   Object.assign(window.translations.fr, {
+    "vendor.nav.koulchi": "Koulchi dialk",
+    "vendor.nav.guide": "Guide vendeur",
     /* --- Payout statuses (badges admin + dashboard vendeur) --- */
     "payout.paid": "Payé",
     "payout.pending": "En attente",
@@ -72,6 +74,8 @@
 
   /* ============================================================ ARABE (ar) ============================================================ */
   Object.assign(window.translations.ar, {
+    "vendor.nav.koulchi": "كولشي ديالك",
+    "vendor.nav.guide": "دليل البائع",
     /* --- Payout statuses --- */
     "payout.paid": "مدفوع",
     "payout.pending": "قيد الانتظار",
@@ -130,6 +134,8 @@
 
   /* ============================================================ ANGLAIS (en) ============================================================ */
   Object.assign(window.translations.en, {
+    "vendor.nav.koulchi": "Koulchi dialk",
+    "vendor.nav.guide": "Vendor guide",
     /* --- Payout statuses --- */
     "payout.paid": "Paid",
     "payout.pending": "Pending",

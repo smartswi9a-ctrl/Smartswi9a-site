@@ -3344,12 +3344,24 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
               : null,
             quantity: Number(item.quantity) || 0,
             price: Number(item.price) || 0,
+            basePrice: Number(item.basePrice) || Number(item.price) || 0,
+            mode: item.mode === 'koulchi' ? 'koulchi' : null,
+            koulchiPrice: item.koulchiPrice != null ? Number(item.koulchiPrice) : null,
             name: String(item.name || 'Produit').slice(0, 160)
           }));
         const vendorSubtotal = vendorItems.reduce(
           (sum, item) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 0),
           0
         );
+        const vendorKoulchiSubtotal = vendorItems.reduce(
+          (sum, item) => item.mode === 'koulchi'
+            ? sum + (Number(item.price) || 0) * (Number(item.quantity) || 0)
+            : sum,
+          0
+        );
+        const vendorKoulchiDiscount = koulchiSubtotal > 0
+          ? Math.round((koulchiDiscount * vendorKoulchiSubtotal) / koulchiSubtotal)
+          : 0;
         const vendorOrderRef = db.collection('vendor_orders').doc(vendorId)
           .collection('orders').doc(orderRef.id);
         tx.set(vendorOrderRef, {
@@ -3359,6 +3371,7 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
           vendorCount: vendorCountForPrivacy,
           items: vendorItems,
           vendorSubtotal,
+          koulchiDiscount: vendorKoulchiDiscount,
           status: 'pending',
           createdAt: orderData.createdAt,
           updatedAt: orderData.updatedAt
