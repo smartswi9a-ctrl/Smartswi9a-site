@@ -597,7 +597,7 @@ function initAdmin() {
             if (tab === 'tools') loadCollectionsStatus();
             else if (tab === 'blog') loadBlogPosts();
             else if (tab === 'products') { await loadProducts(); await loadStats(); }
-            else if (tab === 'orders') { await loadOrders(); if (auth.currentUser) await refreshGroupedPickupCounter(); }
+            else if (tab === 'orders') { await loadOrders(); if (currentAdmin) await refreshGroupedPickupCounter(); }
             else if (tab === 'preparation') await loadWarehousePrep();
             else if (tab === 'livo') await loadLivoTab();
             else if (tab === 'traffic') await loadTrafficStats();
@@ -2869,6 +2869,13 @@ function countOrderArticles(order) {
 async function refreshGroupedPickupCounter() {
     const counterEl = _getId('groupedPickupCounter');
     const btn = _getId('groupedPickupBtn');
+
+    /* Aucune requete avant validation admin : un vendeur ou un acheteur
+       connecte qui ouvre /admin declenchait un permission-denied. */
+    if (!currentAdmin) {
+        return { candidates: [], entries: [], totalArticles: 0 };
+    }
+
     try {
         const entries = await getGroupedPickupCandidateEntries();
         const totalArticles = entries.reduce((sum, entry) => sum + entry.evaluation.articles, 0);
@@ -2883,10 +2890,13 @@ async function refreshGroupedPickupCounter() {
         if (btn) btn.disabled = !(entries.length > 0 && totalArticles > 0);
         return { candidates: entries.map(e => e.order), entries, totalArticles };
     } catch (e) {
-        console.error('[admin] refreshGroupedPickupCounter :', e);
         if (e.code === 'permission-denied') {
-            console.warn('[admin] Permission refusee. Verifiez que vous etes bien admin et connecte.');
+            /* Session non admin : erreur attendue, on ne pollue pas la console. */
+            if (counterEl) counterEl.textContent = '—';
+            if (btn) btn.disabled = true;
+            return { candidates: [], entries: [], totalArticles: 0 };
         }
+        console.error('[admin] refreshGroupedPickupCounter :', e);
         if (counterEl) counterEl.textContent = 'Compteur indisponible';
         if (btn) btn.disabled = true;
         return { candidates: [], entries: [], totalArticles: 0 };
@@ -5412,12 +5422,8 @@ function attachAllRemainingEvents() {
     attachCouponFormEvents();
 
     /* PR 7 — compteur de ramassage groupé (appelé après auth admin). */
-    if (auth.currentUser) {
+    if (currentAdmin) {
         refreshGroupedPickupCounter();
-    } else {
-        auth.onAuthStateChanged((user) => {
-            if (user) refreshGroupedPickupCounter();
-        });
     }
 }
 

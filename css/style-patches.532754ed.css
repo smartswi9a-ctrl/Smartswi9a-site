@@ -3315,3 +3315,50 @@ html[lang="ar"] #langSelect { background-image: url("/assets/flag-ma.svg"); }
     text-decoration: underline;
 }
 
+
+/* Footer de vendor-login : la classe est .login-footer, pas .site-footer.
+   Sans ce bloc, les 4 liens legaux existaient mais s affichaient en style
+   navigateur (gros, bleus). Demande client du 2026-11-19. */
+.login-footer .footer-legal {
+    margin-top: 1rem;
+    text-align: center;
+}
+
+.login-footer .footer-legal-title {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--gold, #b8860b);
+    margin: 0 0 0.5rem;
+}
+
+.login-footer .footer-legal-links {
+    list-style: none;
+    margin: 0 auto;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.35rem 1.25rem;
+    max-width: 640px;
+}
+
+.login-footer .footer-legal-links li {
+    margin: 0;
+}
+
+.login-footer .footer-legal-links a {
+    font-size: 0.75rem;
+    color: inherit;
+    opacity: 0.85;
+    text-decoration: none;
+}
+
+.login-footer .footer-legal-links a:hover,
+.login-footer .footer-legal-links a:focus-visible {
+    opacity: 1;
+    color: var(--gold, #b8860b);
+    text-decoration: underline;
+}
+
