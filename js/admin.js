@@ -39,6 +39,7 @@ import {
 } from "./grouped-pickup.js";
 import { aggregateTraffic, computeOnline, dayKey, buildTrafficSeries } from "./analytics-core.js";
 import { buildTrafficSvg } from "./traffic-chart.js";
+import { pickupSku, normalizeReceivedQuantity } from "./domain/pickup-sku.js";
 
 /* admin.html ne charge pas app.js : personne ne resoudrait appReadyPromise
    (avertissement "timeout (10s)" en console). On utilise le contrat window
@@ -4079,7 +4080,17 @@ async function renderPickupRequestsAdmin() {
         const cards = snap.docs.map(d => {
             const r = d.data() || {};
             const items = Array.isArray(r.items) ? r.items : [];
-            const detail = items.map(i => `<li>${escapeHTML(i.name || '—')} × ${Number(i.quantity) || 0}</li>`).join('');
+            const detail = items.map((i, index) => {
+                const declared = Number(i.quantity) || 0;
+                const received = Number.isFinite(Number(i.receivedQuantity)) ? Number(i.receivedQuantity) : declared;
+                return `<li style="margin-bottom:.3rem;">
+                    ${escapeHTML(i.name || '—')} — déclaré : <strong>${declared}</strong> ·
+                    reçu : <input type="number" min="0" max="${declared}" step="1" value="${received}"
+                        data-pickup-qty="${escapeHTML(d.id)}" data-index="${index}"
+                        style="width:64px;padding:.1rem .3rem;border:1px solid var(--border);border-radius:6px;">
+                    ${i.sku ? ` · SKU <strong>${escapeHTML(i.sku)}</strong>` : ''}
+                </li>`;
+            }).join('');
             return `<div class="admin-list-item" style="flex-direction:column;align-items:stretch;padding:.8rem;margin-bottom:.5rem;">
                 <div style="display:flex;justify-content:space-between;gap:.5rem;flex-wrap:wrap;">
                     <strong>${escapeHTML(r.vendorName || r.vendorId || 'Vendeur')}</strong>
@@ -4117,13 +4128,28 @@ async function reviewPickupRequest(requestId, status, btn) {
     if (!ok) return;
     if (btn) btn.disabled = true;
     try {
-        await updateDoc(doc(db, 'vendor_pickup_requests', requestId), {
+        const requestRef = doc(db, 'vendor_pickup_requests', requestId);
+        const snap = await getDoc(requestRef);
+        if (!snap.exists()) throw new Error('Demande introuvable.');
+        const data = snap.data() || {};
+        const items = (Array.isArray(data.items) ? data.items : []).map((item, index) => {
+            const input = document.querySelector(`[data-pickup-qty="${requestId}"][data-index="${index}"]`);
+            return {
+                ...item,
+                receivedQuantity: status === 'approved'
+                    ? normalizeReceivedQuantity(input ? input.value : item.receivedQuantity, item.quantity)
+                    : Number(item.receivedQuantity) || 0,
+                sku: item.sku || pickupSku(requestId, index)
+            };
+        });
+        await updateDoc(requestRef, {
             status,
+            items,
             reviewedAt: Timestamp.now(),
             reviewedBy: currentAdmin ? currentAdmin.uid : '',
             updatedAt: Timestamp.now()
         });
-        showToast(status === 'approved' ? 'Ramassage approuvé. Le vendeur peut créer le produit.' : 'Demande refusée.');
+        showToast(status === 'approved' ? 'Ramassage approuvé. SKU et étiquettes générés.' : 'Demande refusée.');
         await renderPickupRequestsAdmin();
     } catch (e) {
         console.error('[admin] revue ramassage :', e);

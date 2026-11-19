@@ -6,7 +6,7 @@
 
 import {
     doc, getDoc, collection, query, where, getDocs, limit,
-    addDoc, serverTimestamp, updateDoc, deleteDoc,
+    addDoc, setDoc, serverTimestamp, updateDoc, deleteDoc,
     orderBy, startAfter, Timestamp
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
@@ -31,6 +31,7 @@ import {
     CATEGORY_GROUPS
 } from "./config.js";
 import { showToast, confirmAction } from "./ui-core.js";
+import { buildCode128Svg } from "./barcode-code128.js";
 import { initLang } from "./utils.js";
 import { applyTranslations } from "./events.js";
 import {
@@ -877,23 +878,32 @@ async function openProductModal(product = null) {
     const pickupSel = document.getElementById('vProdPickupRequest');
     if (pickupSel) {
         const approved = cachedPickupRequests.filter(r => r.status === 'approved');
-        pickupSel.innerHTML = approved.length
-            ? approved.map(r => {
-                const items = Array.isArray(r.items) ? r.items : [];
-                const label = items.map(i => `${i.name} (${i.quantity})`).join(', ');
-                return `<option value="${escapeHTML(r.id)}">${escapeHTML(label || r.id)}</option>`;
-            }).join('')
-            : '<option value="">Aucun ramassage approuvé</option>';
-        if (product?.pickupRequestId) pickupSel.value = product.pickupRequestId;
+        const used = new Set((cachedProducts || [])
+            .filter(p => p && p.pickupRequestId)
+            .map(p => `${p.pickupRequestId}|${p.pickupItemIndex}`));
+        const options = [];
+        approved.forEach(r => {
+            (Array.isArray(r.items) ? r.items : []).forEach((item, index) => {
+                const received = Number(item.receivedQuantity) || 0;
+                if (received <= 0) return;
+                if (used.has(`${r.id}|${index}`)) return;
+                options.push(`<option value="${escapeHTML(r.id)}|${index}">${escapeHTML(item.name)} — ${escapeHTML(item.sku || 'SKU non attribué')} — ${received} reçu(s)</option>`);
+            });
+        });
+        pickupSel.innerHTML = options.length ? options.join('') : '<option value="">Aucun ramassage approuvé disponible</option>';
+        if (product?.pickupRequestId) {
+            pickupSel.innerHTML = `<option value="${escapeHTML(product.pickupRequestId)}|${Number(product.pickupItemIndex) || 0}">${escapeHTML(product.nameFr || 'Produit')} — ${escapeHTML(product.sku || '')}</option>`;
+        }
         pickupSel.disabled = !!product;
         pickupSel.onchange = () => {
-            const req = cachedPickupRequests.find(r => r.id === pickupSel.value);
-            const first = req && Array.isArray(req.items) ? req.items[0] : null;
-            if (!first) return;
+            const [reqId, idxRaw] = String(pickupSel.value || '').split('|');
+            const req = cachedPickupRequests.find(r => r.id === reqId);
+            const item = req && Array.isArray(req.items) ? req.items[Number(idxRaw) || 0] : null;
+            if (!item) return;
             const nameEl = document.getElementById('vProdNameFr');
             const stockEl = document.getElementById('vProdStock');
-            if (nameEl && !nameEl.value.trim()) nameEl.value = first.name || '';
-            if (stockEl) stockEl.value = String((req.items || []).reduce((s, i) => s + (Number(i.quantity) || 0), 0));
+            if (nameEl && !nameEl.value.trim()) nameEl.value = item.name || '';
+            if (stockEl) stockEl.value = String(Number(item.receivedQuantity) || 0);
         };
     }
     document.getElementById('vProdNameFr').value = product ? (product.nameFr || '') : '';
@@ -1063,8 +1073,13 @@ async function submitProduct() {
         const featuresEn = linesFromProductField('vProdFeaturesEn');
         const deliveryMode = getProductDeliveryMode();
         const pickupSel = document.getElementById('vProdPickupRequest');
-        const pickupRequestId = pickupSel ? pickupSel.value : '';
-        if (!currentProductIdEditing && !pickupRequestId) {
+        const pickupValue = pickupSel ? pickupSel.value : '';
+        const [pickupRequestId, pickupItemIndexRaw] = pickupValue.split('|');
+        const pickupItemIndex = Number(pickupItemIndexRaw) || 0;
+        const pickupReq = cachedPickupRequests.find(r => r.id === pickupRequestId);
+        const pickupItem = pickupReq && Array.isArray(pickupReq.items) ? pickupReq.items[pickupItemIndex] : null;
+        const pickupSkuValue = pickupItem?.sku || '';
+        if (!currentProductIdEditing && (!pickupRequestId || !pickupSkuValue)) {
             errEl.textContent = 'Sélectionnez un ramassage approuvé : le stock doit être reçu à l’entrepôt avant de créer le produit.';
             return;
         }
@@ -1100,6 +1115,7 @@ async function submitProduct() {
                     featuresFr, featuresAr, featuresEn, dimensions, variants, sizes, colors,
                     delivery_mode: deliveryMode,
                     pickupRequestId: oldData.pickupRequestId || pickupRequestId,
+                    pickupItemIndex: oldData.pickupItemIndex ?? pickupItemIndex,
                     warehouse_received: true,
                     hasSizeGuide: document.getElementById('vProdSizeGuide').checked,
                     img: newImageUrl || oldData.img || '', gallery, stock,
@@ -1113,17 +1129,19 @@ async function submitProduct() {
             const slug = generateSlug(nameFr) + '-' + ts.toString(36).slice(-4);
             const productData = {
                 nameFr, nameAr: nameAr || nameFr, nameEn: nameEn || nameFr, slug,
-                sku: `VND-${String(ts).slice(-6)}`, category, basePrice: price, price,
+                sku: pickupSkuValue, category, basePrice: price, price,
                 oldPrice, koulchiPrice, purchasePrice: 0, stock,
                 delivery_mode: deliveryMode,
                 pickupRequestId,
+                pickupItemIndex,
                 warehouse_received: true,
                 isNew: false, hasSizeGuide: document.getElementById('vProdSizeGuide').checked, dimensions,
                 variants, sizes, colors, descFr, descAr, descEn, featuresFr, featuresAr, featuresEn,
                 img: newImageUrl, gallery, vendorId: currentUserUid, vendorName,
                 status: PRODUCT_STATUS.PENDING_ADMIN_APPROVAL, createdAt: serverTimestamp(), updatedAt: serverTimestamp()
             };
-            await addDoc(collection(db, "products"), productData);
+            /* ID deterministe : une ligne de ramassage = un seul produit. */
+            await setDoc(doc(db, "products", `pickup_${pickupRequestId}_${pickupItemIndex}`), productData);
             productSaved = true;
             showToast('Produit envoyé pour validation admin.');
         }
@@ -1842,11 +1860,19 @@ async function renderStock(container) {
     const requestsHtml = cachedPickupRequests.length
         ? cachedPickupRequests.map(r => {
             const items = Array.isArray(r.items) ? r.items : [];
-            const detail = items.map(i => `${escapeHTML(i.name)} × ${Number(i.quantity) || 0}`).join(', ');
+            const detail = items.map(i => {
+                const received = Number(i.receivedQuantity) || 0;
+                return `${escapeHTML(i.name)} × ${received} — SKU <strong>${escapeHTML(i.sku || '—')}</strong>`;
+            }).join('<br>');
+            const totalLabels = items.reduce((s, i) => s + (Number(i.receivedQuantity) || 0), 0);
+            const printBtn = r.status === 'approved' && totalLabels > 0
+                ? `<button type="button" class="v-btn v-btn-secondary" style="margin-top:.5rem;font-size:.8rem;" data-print-labels="${escapeHTML(r.id)}">🖨️ Imprimer les étiquettes (${totalLabels})</button>`
+                : '';
             return `<div style="border:1px solid var(--border);border-radius:8px;padding:.6rem;margin-bottom:.5rem;">
                 <strong>${statusLabel[r.status] || escapeHTML(String(r.status || ''))}</strong>
                 <div style="font-size:.82rem;color:var(--text-muted);margin-top:.2rem;">${detail}</div>
                 <div style="font-size:.75rem;color:var(--text-muted);">Date souhaitée : ${escapeHTML(String(r.desiredDate || '—'))}</div>
+                ${printBtn}
             </div>`;
         }).join('')
         : '<p style="color:var(--text-muted);margin:0;">Aucune demande pour le moment.</p>';
@@ -1888,6 +1914,9 @@ async function renderStock(container) {
     addPickupRow(rows);
     document.getElementById('vPickupAddRow')?.addEventListener('click', () => addPickupRow(rows));
     document.getElementById('vPickupSmartSubmitBtn')?.addEventListener('click', submitSmartPickupRequest);
+    container.querySelectorAll('[data-print-labels]').forEach(btn => {
+        btn.addEventListener('click', () => printPickupLabels(btn.dataset.printLabels));
+    });
 }
 
 function addPickupRow(rows, name = '', qty = '') {
@@ -1900,6 +1929,71 @@ function addPickupRow(rows, name = '', qty = '') {
         <button type="button" class="v-btn v-btn-secondary" aria-label="Retirer">✕</button>`;
     row.querySelector('button').addEventListener('click', () => row.remove());
     rows.appendChild(row);
+}
+
+function printPickupLabels(requestId) {
+    const request = cachedPickupRequests.find(r => r.id === requestId);
+    if (!request || request.status !== 'approved') {
+        showToast('Étiquettes disponibles uniquement après approbation admin.');
+        return;
+    }
+    const items = Array.isArray(request.items) ? request.items : [];
+    const labels = [];
+    items.forEach(item => {
+        const count = Number(item.receivedQuantity) || 0;
+        for (let i = 0; i < count; i++) labels.push(item);
+    });
+    if (!labels.length) {
+        showToast('Aucune unité reçue : pas d’étiquette à imprimer.');
+        return;
+    }
+
+    const html = labels.map(item => {
+        const svg = buildCode128Svg(String(item.sku || ''), { moduleWidth: 1.2, height: 38, margin: 4 });
+        return `<div class="v-sku-label">
+            <div style="font-size:13px;font-weight:700;margin-bottom:2px;">${escapeHTML(item.name || 'Produit')}</div>
+            <div style="font-size:11px;">SKU : <strong>${escapeHTML(item.sku || '')}</strong></div>
+            <div style="margin-top:4px;">${svg}</div>
+            <div style="font-size:9px;color:#555;">Smart Swika — entrepôt</div>
+        </div>`;
+    }).join('');
+
+    const style = document.createElement('style');
+    style.id = 'vSkuPrintStyle';
+    style.textContent = `
+        #vSkuPrintArea { display: none; }
+        @media print {
+            body * { visibility: hidden !important; }
+            #vSkuPrintArea, #vSkuPrintArea * { visibility: visible !important; }
+            #vSkuPrintArea {
+                display: grid !important;
+                grid-template-columns: repeat(2, 1fr);
+                gap: 8px;
+                position: absolute;
+                left: 0; top: 0; width: 100%;
+                padding: 8px; background: #fff; color: #000;
+            }
+            .v-sku-label {
+                border: 1px dashed #999;
+                padding: 8px;
+                text-align: center;
+                font-family: Arial, sans-serif;
+                break-inside: avoid;
+                page-break-inside: avoid;
+            }
+            @page { margin: 8mm; }
+        }`;
+    const area = document.createElement('div');
+    area.id = 'vSkuPrintArea';
+    area.innerHTML = html;
+    document.head.appendChild(style);
+    document.body.appendChild(area);
+
+    window.print();
+    setTimeout(() => {
+        area.remove();
+        style.remove();
+    }, 500);
 }
 
 async function submitSmartPickupRequest() {
@@ -2095,7 +2189,7 @@ function guideArHtml() {
             <ul ${list}>
                 <li><strong>وضع المستودع إلزامي</strong>: الشحن المباشر من البائع لم يعد موجودًا.</li>
                 <li><strong>إيداع مباشر</strong> في العنوان المعروض في بطاقة المنتج، أو</li>
-                <li><strong>استلام</strong>: تواصل مع الفريق (واتساب / بريد إلكتروني) بقائمة المنتجات والكميات؛ يُحدَّد موعد، ثم يُستلم المخزون ويُراقَب.</li>
+                <li><strong>استلام</strong>: تبويب <strong>المخزون</strong> ← <strong>طلب جديد</strong> (المنتجات والكميات). توافق الإدارة بعد الاستلام، ثم تُنشأ <strong>ملصقات SKU مع رمز شريطي</strong>؛ اطبع ملصقًا لكل وحدة وألصقه على كل منتج.</li>
                 <li>يجب أن يطابق المخزون المعروض المخزون المُسلَّم. أي اختلاف قد يوقف المنتج.</li>
             </ul>
         </div>
@@ -2183,7 +2277,7 @@ function guideEnHtml() {
             <ul ${list}>
                 <li>The <strong>warehouse mode is mandatory</strong>: direct shipping by the vendor no longer exists.</li>
                 <li><strong>Direct drop-off</strong> at the address shown in the product form, or</li>
-                <li><strong>pickup</strong>: contact the team (WhatsApp / email) with the product list and quantities; a slot is agreed, then the stock is received and checked.</li>
+                <li><strong>pickup</strong>: tab <strong>Stock</strong> → <strong>New request</strong> (products + quantities). Admin approves after receipt; <strong>SKU labels with barcode</strong> are generated. Print one per unit and stick it on each product.</li>
                 <li>Online stock must match the stock handed over. A mismatch may suspend the product.</li>
             </ul>
         </div>
@@ -2435,7 +2529,7 @@ function renderGuide(container) {
             <ul ${list}>
                 <li>Le <strong>mode entrepôt est obligatoire</strong> : l'expédition directe par le vendeur n'existe plus.</li>
                 <li><strong>Dépôt direct</strong> à l'adresse affichée dans la fiche produit, ou</li>
-                <li><strong>ramassage</strong> : contactez l'équipe (WhatsApp / e-mail) avec la liste des produits et quantités ; un créneau est convenu, puis le stock est réceptionné et contrôlé.</li>
+                <li><strong>ramassage</strong> : onglet <strong>Stock</strong> → <strong>Nouvelle demande</strong> (produits + quantités). L'admin approuve après réception ; des <strong>étiquettes SKU avec code-barres</strong> sont alors générées. Imprimez-en une par unité et collez-la sur chaque produit.</li>
                 <li>Le stock en ligne doit correspondre au stock remis. Un écart peut suspendre le produit.</li>
             </ul>
         </div>
