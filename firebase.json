@@ -28,15 +28,6 @@
     "trailingSlashBehavior": "remove",
     "headers": [
       {
-        "source": "css/*.@(css)",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "public, max-age=31536000, immutable"
-          }
-        ]
-      },
-      {
         "source": "**/*.@(js|css)",
         "headers": [
           {
@@ -46,6 +37,15 @@
           {
             "key": "X-Content-Type-Options",
             "value": "nosniff"
+          }
+        ]
+      },
+      {
+        "source": "css/*.@(css)",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=31536000, immutable"
           }
         ]
       },
