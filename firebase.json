@@ -50,6 +50,15 @@
         ]
       },
       {
+        "source": "css/legal.css",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
+        ]
+      },
+      {
         "source": "css/*.@(css)",
         "headers": [
           {
