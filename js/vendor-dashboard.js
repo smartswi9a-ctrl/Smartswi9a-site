@@ -1883,6 +1883,338 @@ async function renderWallet(container) {
     if (btn && canWithdraw) btn.addEventListener('click', openWithdrawModal);
 }
 
+/* Guide vendeur en arabe (RTL). Meme structure que la version FR. */
+function guideArHtml() {
+    const card = 'class="v-card" style="margin-top:1rem;"';
+    const list = 'style="line-height:1.75;padding-right:1.2rem;margin:0;"';
+    return `<div dir="rtl" style="text-align:right;">
+        <div class="v-card">
+            <h3 class="v-card-title">📘 دليل البائع Smart Swika</h3>
+            <p style="color:var(--text-muted);line-height:1.7;margin:0;">
+                منذ <strong>19 نوفمبر 2026</strong>، يُخزَّن كل مخزون البائع في مستودع Smart Swika.
+                يتولى Livo استلام الطرود من المستودع وتوصيلها إلى المشترين.
+                لا تتولى أنت الشحن ولا النقل ولا التسليم المباشر.
+            </p>
+        </div>
+
+        <div ${card}>
+            <h3 class="v-card-title">1. النموذج في 3 خطوات</h3>
+            <ol ${list}>
+                <li><strong>انشر منتجاتك</strong> (السعر، المخزون الحقيقي، الصور).</li>
+                <li><strong>أرسل المخزون إلى المستودع</strong>: إيداع مباشر أو استلام منظَّم مع الفريق.</li>
+                <li><strong>Smart Swika تخزّن وتجهّز</strong>؛ وLivo يوصل إلى المشتري في كل المغرب.</li>
+            </ol>
+        </div>
+
+        <div ${card}>
+            <h3 class="v-card-title">2. الحساب والعقد</h3>
+            <ul ${list}>
+                <li>التسجيل عبر <strong>تسجيل البائع</strong>: اسم المتجر، الهاتف، المدينة، ICE أو CIN.</li>
+                <li>قراءة <strong>عقد الشراكة وتوقيعه</strong> إلزاميان؛ التوقيع مؤرخ ومرتبط ببصمة النص.</li>
+                <li>يجب <strong>موافقة الإدارة</strong> على الحساب قبل النشر.</li>
+                <li>إذا تغيّر العقد تظهر لافتة <strong>إعادة التوقيع</strong>: وقّع النسخة الجديدة لمواصلة البيع.</li>
+            </ul>
+        </div>
+
+        <div ${card}>
+            <h3 class="v-card-title">3. نشر منتج</h3>
+            <p style="margin:0 0 .4rem;">تبويب <strong>منتجاتي</strong> ← <strong>منتج جديد</strong>:</p>
+            <ul ${list}>
+                <li>الاسم بالفرنسية (العربية والإنجليزية مستحسن)، الفئة والفئة الفرعية.</li>
+                <li>سعر البيع و<strong>سعر كولشي</strong> الأقل منه بشكل صارم.</li>
+                <li><strong>المخزون الحقيقي</strong> المتوفر في المستودع.</li>
+                <li>صورة واحدة على الأقل (JPEG أو PNG أو WebP، 2 ميغا كحد أقصى).</li>
+                <li>الوصف والخصائص. المتغيرات (المقاس، اللون) عبر <strong>إنشاء المتغيرات</strong>.</li>
+            </ul>
+            <p style="margin:.6rem 0 0;color:var(--text-muted);">كل إنشاء أو تعديل يعود إلى <strong>مراجعة الإدارة</strong> قبل النشر.</p>
+        </div>
+
+        <div ${card}>
+            <h3 class="v-card-title">4. إرسال المخزون إلى المستودع</h3>
+            <ul ${list}>
+                <li><strong>وضع المستودع إلزامي</strong>: الشحن المباشر من البائع لم يعد موجودًا.</li>
+                <li><strong>إيداع مباشر</strong> في العنوان المعروض في بطاقة المنتج، أو</li>
+                <li><strong>استلام</strong>: تواصل مع الفريق (واتساب / بريد إلكتروني) بقائمة المنتجات والكميات؛ يُحدَّد موعد، ثم يُستلم المخزون ويُراقَب.</li>
+                <li>يجب أن يطابق المخزون المعروض المخزون المُسلَّم. أي اختلاف قد يوقف المنتج.</li>
+            </ul>
+        </div>
+
+        <div ${card}>
+            <h3 class="v-card-title">5. الطلبات والحالات</h3>
+            <ul ${list}>
+                <li><strong>قيد الانتظار</strong> ← <strong>مؤكَّد</strong>: إنشاء الطلب ثم تأكيده (الدفع عند الاستلام).</li>
+                <li><strong>قيد التجهيز</strong> ← <strong>جاهز</strong>: تجهيز الطرد في المستودع.</li>
+                <li><strong>طلب استلام</strong> ← <strong>تم استلام الطرد</strong>: Livo يستلم الطرد من المستودع.</li>
+                <li><strong>قيد التوصيل</strong> ← <strong>تم التوصيل</strong>: استلم المشتري الطرد.</li>
+                <li><strong>مُرجَع / ملغى</strong>: يُعاد المخزون حسب قواعد العقد.</li>
+            </ul>
+        </div>
+
+        <div ${card}>
+            <h3 class="v-card-title">6. المحفظة والسحب والعروض السريعة</h3>
+            <ul ${list}>
+                <li>تظهر الأرباح في <strong>محفظتي</strong> بعد تأكيد التوصيل.</li>
+                <li>العمولة هي المذكورة في عقدك (النسبة معروضة في لوحة التحكم).</li>
+                <li>يُطلب السحب من المحفظة؛ تتولى الإدارة معالجته وتُعلمك.</li>
+                <li><strong>العروض السريعة</strong>: خصم مؤقت تنشئه أنت، يُنشر مباشرة دون مراجعة الإدارة. لا يُجمع مع سعر كولشي.</li>
+            </ul>
+        </div>
+
+        <div ${card}>
+            <h3 class="v-card-title">7. القواعد والدعم</h3>
+            <ul ${list}>
+                <li>لا مخزون وهمي، لا تقليد، ولا وصف مضلل.</li>
+                <li>احترم آجال العقد؛ الإرجاعات المتكررة قد تؤدي إلى توقيف الحساب.</li>
+                <li>الدعم: واتساب <strong>+212 656 613 303</strong> · <strong>smartswi9a@gmail.com</strong> (اذكر المتجر أو المنتج أو الطلب).</li>
+            </ul>
+        </div>
+    </div>`;
+}
+
+/* Guide vendeur en anglais. Meme structure que la version FR. */
+function guideEnHtml() {
+    const card = 'class="v-card" style="margin-top:1rem;"';
+    const list = 'style="line-height:1.75;padding-left:1.2rem;margin:0;"';
+    return `<div dir="ltr" style="text-align:left;">
+        <div class="v-card">
+            <h3 class="v-card-title">📘 Smart Swika vendor guide</h3>
+            <p style="color:var(--text-muted);line-height:1.7;margin:0;">
+                Since <strong>19 November 2026</strong>, all vendor stock is stored in the Smart Swika
+                warehouse. Livo collects parcels at the warehouse and delivers them to buyers.
+                You handle no shipping, carrier or hand delivery.
+            </p>
+        </div>
+
+        <div ${card}>
+            <h3 class="v-card-title">1. The model in 3 steps</h3>
+            <ol ${list}>
+                <li><strong>Publish your products</strong> (price, real stock, photos).</li>
+                <li><strong>Send your stock to the warehouse</strong>: direct drop-off or pickup arranged with the team.</li>
+                <li><strong>Smart Swika stores and prepares</strong>; Livo delivers to the buyer across Morocco.</li>
+            </ol>
+        </div>
+
+        <div ${card}>
+            <h3 class="v-card-title">2. Account and contract</h3>
+            <ul ${list}>
+                <li>Register on <strong>Vendor signup</strong>: shop name, phone, city, ICE or CIN.</li>
+                <li>Reading and <strong>signing the partnership contract</strong> are mandatory; the signature is timestamped and linked to a text fingerprint.</li>
+                <li>Your account must be <strong>approved</strong> by the administration before publishing.</li>
+                <li>If the contract changes, a <strong>re-signature</strong> banner appears: sign the new version to keep selling.</li>
+            </ul>
+        </div>
+
+        <div ${card}>
+            <h3 class="v-card-title">3. Publish a product</h3>
+            <p style="margin:0 0 .4rem;">Tab <strong>My products</strong> → <strong>New product</strong>:</p>
+            <ul ${list}>
+                <li>French name (Arabic / English recommended), category and subcategory.</li>
+                <li>Selling price and <strong>Koulchi price</strong> strictly lower.</li>
+                <li><strong>Real stock</strong> available in the warehouse.</li>
+                <li>At least one photo (JPEG, PNG or WebP, 2 MB max).</li>
+                <li>Description and features. Variants (size, colour) via <strong>Create variants</strong>.</li>
+            </ul>
+            <p style="margin:.6rem 0 0;color:var(--text-muted);">Every creation or change goes back to <strong>admin review</strong> before publication.</p>
+        </div>
+
+        <div ${card}>
+            <h3 class="v-card-title">4. Send stock to the warehouse</h3>
+            <ul ${list}>
+                <li>The <strong>warehouse mode is mandatory</strong>: direct shipping by the vendor no longer exists.</li>
+                <li><strong>Direct drop-off</strong> at the address shown in the product form, or</li>
+                <li><strong>pickup</strong>: contact the team (WhatsApp / email) with the product list and quantities; a slot is agreed, then the stock is received and checked.</li>
+                <li>Online stock must match the stock handed over. A mismatch may suspend the product.</li>
+            </ul>
+        </div>
+
+        <div ${card}>
+            <h3 class="v-card-title">5. Orders and statuses</h3>
+            <ul ${list}>
+                <li><strong>Pending</strong> → <strong>Confirmed</strong>: order created then validated (cash on delivery).</li>
+                <li><strong>Preparing</strong> → <strong>Ready</strong>: parcel prepared at the warehouse.</li>
+                <li><strong>Pickup requested</strong> → <strong>Parcel collected</strong>: Livo takes the parcel at the warehouse.</li>
+                <li><strong>In transit</strong> → <strong>Delivered</strong>: the buyer received the parcel.</li>
+                <li><strong>Returned / Cancelled</strong>: stock restored according to the contract.</li>
+            </ul>
+        </div>
+
+        <div ${card}>
+            <h3 class="v-card-title">6. Wallet, withdrawals and flash sales</h3>
+            <ul ${list}>
+                <li>Earnings appear in <strong>My Wallet</strong> after delivery confirmation.</li>
+                <li>The commission is the one stated in your contract (rate shown on the dashboard).</li>
+                <li>Request a withdrawal from the Wallet; the administration processes it and notifies you.</li>
+                <li><strong>Flash sales</strong>: temporary discount you create, published directly without admin approval. Not combined with the Koulchi price.</li>
+            </ul>
+        </div>
+
+        <div ${card}>
+            <h3 class="v-card-title">7. Rules and support</h3>
+            <ul ${list}>
+                <li>No fake stock, no counterfeits, no misleading descriptions.</li>
+                <li>Respect the contract deadlines; repeated returns may lead to suspension.</li>
+                <li>Support: WhatsApp <strong>+212 656 613 303</strong> · <strong>smartswi9a@gmail.com</strong> (include shop, product or order).</li>
+            </ul>
+        </div>
+    </div>`;
+}
+
+/* ============================================================
+   KOULCHI DIALK — TEXTES (FR / AR / EN)
+   Koulchi est automatique : cet onglet informe et pilote, il ne
+   cree pas d offre.
+   ============================================================ */
+const KOULCHI_I18N = {
+    fr: {
+        title: '🤝 Koulchi dialk — pilotage',
+        intro: 'Koulchi dialk est automatique : dès 3 articles dans le panier, la remise s\'applique au total. Vous ne créez pas d\'offre ; vous fixez le prix Koulchi de chaque produit.',
+        rules: ['3 à 10 articles par panier.', '−5 % de 3 à 5 articles, −10 % de 6 à 8, −15 % de 9 à 10.', 'Non cumulable avec une vente flash.', 'Prix Koulchi obligatoire et strictement inférieur au prix de vente.'],
+        statsTitle: 'Vos statistiques Koulchi',
+        statOrders: 'Commandes groupées', statArticles: 'Articles vendus', statDiscount: 'Remise accordée', statRevenue: 'CA groupé (avant commission)',
+        tableTitle: 'Vos produits et prix Koulchi',
+        product: 'Produit', price: 'Prix normal', koulchi: 'Prix Koulchi', off: 'Remise', status: 'Statut', action: 'Action',
+        edit: 'Modifier', ok: 'Conforme', fix: 'À corriger', invalid: 'Prix invalide',
+        empty: 'Aucun produit pour le moment.', noStats: 'Aucune commande groupée pour le moment.',
+        note: 'Statistiques calculées sur vos 500 dernières commandes. CA avant commission Smart Swika.',
+        open: 'Voir la page Koulchi'
+    },
+    ar: {
+        title: '🤝 كولشي ديالك — لوحة التحكم',
+        intro: 'كولشي ديالك تلقائي: من 3 منتجات في السلة يُطبَّق الخصم على المجموع. أنت لا تنشئ عرضًا؛ بل تحدد سعر كولشي لكل منتج.',
+        rules: ['من 3 إلى 10 منتجات في السلة.', 'خصم 5% من 3 إلى 5 منتجات، 10% من 6 إلى 8، 15% من 9 إلى 10.', 'لا يُجمع مع عرض سريع.', 'سعر كولشي إلزامي وأقل بشكل صارم من سعر البيع.'],
+        statsTitle: 'إحصائيات كولشي',
+        statOrders: 'طلبات جماعية', statArticles: 'منتجات مبيعة', statDiscount: 'الخصم الممنوح', statRevenue: 'رقم المعاملات (قبل العمولة)',
+        tableTitle: 'منتجاتك وأسعار كولشي',
+        product: 'المنتج', price: 'السعر العادي', koulchi: 'سعر كولشي', off: 'الخصم', status: 'الحالة', action: 'إجراء',
+        edit: 'تعديل', ok: 'مطابق', fix: 'يجب التصحيح', invalid: 'سعر غير صالح',
+        empty: 'لا يوجد منتج حالياً.', noStats: 'لا يوجد طلب جماعي حالياً.',
+        note: 'الإحصائيات محسوبة على آخر 500 طلب. رقم المعاملات قبل عمولة Smart Swika.',
+        open: 'صفحة كولشي'
+    },
+    en: {
+        title: '🤝 Koulchi dialk — control panel',
+        intro: 'Koulchi dialk is automatic: from 3 items in the cart, the discount applies to the total. You do not create an offer; you set each product\'s Koulchi price.',
+        rules: ['3 to 10 items per cart.', '5% off for 3 to 5 items, 10% for 6 to 8, 15% for 9 to 10.', 'Not combined with a flash sale.', 'Koulchi price is mandatory and strictly lower than the selling price.'],
+        statsTitle: 'Your Koulchi statistics',
+        statOrders: 'Grouped orders', statArticles: 'Items sold', statDiscount: 'Discount granted', statRevenue: 'Grouped revenue (before commission)',
+        tableTitle: 'Your products and Koulchi prices',
+        product: 'Product', price: 'Normal price', koulchi: 'Koulchi price', off: 'Discount', status: 'Status', action: 'Action',
+        edit: 'Edit', ok: 'Compliant', fix: 'To fix', invalid: 'Invalid price',
+        empty: 'No product yet.', noStats: 'No grouped order yet.',
+        note: 'Statistics based on your last 500 orders. Revenue before Smart Swika commission.',
+        open: 'Open Koulchi page'
+    }
+};
+
+async function renderKoulchi(container) {
+    const lang = getCurrentLanguage();
+    const L = KOULCHI_I18N[lang] || KOULCHI_I18N.fr;
+    const dir = lang === 'ar' ? 'rtl' : 'ltr';
+    const align = lang === 'ar' ? 'right' : 'left';
+
+    if (!cachedProducts.length) await loadVendorProducts();
+
+    const rows = (cachedProducts || []).map(p => {
+        const price = Number(p.price) || 0;
+        const kp = Number(p.koulchiPrice) || 0;
+        const valid = price > 0 && kp > 0 && kp < price;
+        const pct = valid ? Math.round((1 - kp / price) * 100) : null;
+        const status = valid ? L.ok : (kp > 0 ? L.fix : L.invalid);
+        const color = valid ? 'var(--success)' : 'var(--danger)';
+        return `<tr>
+            <td style="padding:.45rem;">${escapeHTML(p.nameFr || p.nameEn || '—')}</td>
+            <td style="padding:.45rem;">${price} MAD</td>
+            <td style="padding:.45rem;">${kp > 0 ? kp + ' MAD' : '—'}</td>
+            <td style="padding:.45rem;">${pct != null ? '−' + pct + ' %' : '—'}</td>
+            <td style="padding:.45rem;color:${color};font-weight:700;">${status}</td>
+            <td style="padding:.45rem;"><button type="button" class="v-btn v-btn-secondary" style="font-size:.75rem;padding:.25rem .6rem;" data-koulchi-edit="${escapeHTML(p.id)}">${L.edit}</button></td>
+        </tr>`;
+    }).join('');
+
+    container.innerHTML = `<div dir="${dir}" style="text-align:${align};">
+        <div class="v-card">
+            <h3 class="v-card-title">${L.title}</h3>
+            <p style="color:var(--text-muted);line-height:1.7;margin:0 0 .5rem;">${L.intro}</p>
+            <ul style="line-height:1.75;padding-${lang === 'ar' ? 'right' : 'left'}:1.2rem;margin:0;">
+                ${L.rules.map(r => '<li>' + r + '</li>').join('')}
+            </ul>
+            <p style="margin:.6rem 0 0;"><a href="/koulchi.html" target="_blank" rel="noopener">${L.open}</a></p>
+        </div>
+
+        <div class="v-card" style="margin-top:1rem;">
+            <h3 class="v-card-title">${L.statsTitle}</h3>
+            <div id="vendorKoulchiStats" style="color:var(--text-muted);">${L.noStats}</div>
+        </div>
+
+        <div class="v-card" style="margin-top:1rem;overflow-x:auto;">
+            <h3 class="v-card-title">${L.tableTitle}</h3>
+            <table style="width:100%;border-collapse:collapse;font-size:.85rem;">
+                <thead><tr>
+                    <th style="text-align:${align};padding:.4rem;border-bottom:1px solid var(--border);">${L.product}</th>
+                    <th style="text-align:${align};padding:.4rem;border-bottom:1px solid var(--border);">${L.price}</th>
+                    <th style="text-align:${align};padding:.4rem;border-bottom:1px solid var(--border);">${L.koulchi}</th>
+                    <th style="text-align:${align};padding:.4rem;border-bottom:1px solid var(--border);">${L.off}</th>
+                    <th style="text-align:${align};padding:.4rem;border-bottom:1px solid var(--border);">${L.status}</th>
+                    <th style="text-align:${align};padding:.4rem;border-bottom:1px solid var(--border);">${L.action}</th>
+                </tr></thead>
+                <tbody>${rows || `<tr><td colspan="6" style="padding:.6rem;">${L.empty}</td></tr>`}</tbody>
+            </table>
+            <p style="color:var(--text-muted);font-size:.78rem;margin:.6rem 0 0;">${L.note}</p>
+        </div>
+    </div>`;
+
+    container.querySelectorAll('[data-koulchi-edit]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const product = (cachedProducts || []).find(p => p.id === btn.dataset.koulchiEdit);
+            if (product) openProductModal(product);
+        });
+    });
+
+    try {
+        const snap = await getDocs(query(
+            collection(db, 'vendor_orders', currentUserUid, 'orders'),
+            where('privacySafe', '==', true),
+            limit(500)
+        ));
+        let kOrders = 0, articles = 0, discount = 0, revenue = 0;
+        snap.forEach(d => {
+            const o = d.data() || {};
+            const items = Array.isArray(o.items) ? o.items : [];
+            const kItems = items.filter(i => i && i.mode === 'koulchi' && (Number(i.quantity) || 0) > 0);
+            if (!kItems.length) return;
+            kOrders++;
+            kItems.forEach(i => {
+                const q = Number(i.quantity) || 0;
+                const price = Number(i.price) || 0;
+                const base = Number(i.basePrice) || price;
+                articles += q;
+                revenue += price * q;
+                discount += Math.max(0, base - price) * q;
+            });
+            discount += Number(o.koulchiDiscount) || 0;
+        });
+
+        const el = document.getElementById('vendorKoulchiStats');
+        if (el) {
+            if (kOrders === 0) {
+                el.textContent = L.noStats;
+            } else {
+                const card = (label, value) => `<div class="v-card" style="padding:.9rem;text-align:center;"><div style="font-size:1.35rem;font-weight:800;color:var(--gold);">${value}</div><div style="font-size:.78rem;color:var(--text-muted);">${label}</div></div>`;
+                el.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.6rem;">
+                    ${card(L.statOrders, kOrders)}
+                    ${card(L.statArticles, articles)}
+                    ${card(L.statDiscount, discount + ' MAD')}
+                    ${card(L.statRevenue, revenue + ' MAD')}
+                </div>`;
+            }
+        }
+    } catch (e) {
+        console.warn('[vendor-dashboard] stats Koulchi :', e);
+        const el = document.getElementById('vendorKoulchiStats');
+        if (el) el.textContent = '—';
+    }
+}
+
 /* ============================================================
    GUIDE VENDEUR (onglet Guide)
    Manuel du modele en vigueur depuis le 2026-11-19 : stock a
@@ -1890,9 +2222,12 @@ async function renderWallet(container) {
    Contenu statique, aucune lecture Firestore.
    ============================================================ */
 function renderGuide(container) {
+    const lang = getCurrentLanguage();
+    if (lang === 'ar') { container.innerHTML = guideArHtml(); return; }
+    if (lang === 'en') { container.innerHTML = guideEnHtml(); return; }
     const card = 'class="v-card" style="margin-top:1rem;"';
     const list = 'style="line-height:1.75;padding-left:1.2rem;margin:0;"';
-    container.innerHTML = `
+    container.innerHTML = `<div dir="ltr" style="text-align:left;">
         <div class="v-card">
             <h3 class="v-card-title">📘 Guide vendeur Smart Swika</h3>
             <p style="color:var(--text-muted);line-height:1.7;margin:0;">
@@ -1973,7 +2308,7 @@ function renderGuide(container) {
                 <li>Support : WhatsApp <strong>+212 656 613 303</strong> · <strong>smartswi9a@gmail.com</strong> (précisez boutique, produit ou commande).</li>
             </ul>
         </div>
-    `;
+    </div>`;
 }
 
 async function renderTab(tabName) {
@@ -1986,6 +2321,7 @@ async function renderTab(tabName) {
         if (tabName === 'orders')   return await renderOrders(container);
         if (tabName === 'wallet')   return await renderWallet(container);
         if (tabName === 'stock')    return await renderStock(container);
+        if (tabName === 'koulchi')  return await renderKoulchi(container);
         if (tabName === 'guide')    return renderGuide(container);
   /* Ventes flash vendeur : module separe (js/vendor-flash.js).
      Le vendeur cree ses propres ventes, sans validation admin, sur SES
@@ -2006,8 +2342,8 @@ async function renderTab(tabName) {
 /* ============================================================
    NAVIGATION
    ============================================================ */
-const TAB_I18N_KEYS = { overview: 'vendor.page.overview', products: 'vendor.nav.products', orders: 'vendor.nav.orders', wallet: 'vendor.nav.wallet', stock: 'vendor.nav.stock', flash: 'vendor.nav.flash', guide: 'vendor.nav.guide' };
-const TAB_FALLBACK_TITLES = { overview: "Vue d'ensemble", products: 'Mes produits', orders: 'Commandes', wallet: 'Mon Wallet', stock: 'Stock Fulfillment', flash: 'Ventes Flash', guide: 'Guide vendeur' };
+const TAB_I18N_KEYS = { overview: 'vendor.page.overview', products: 'vendor.nav.products', orders: 'vendor.nav.orders', wallet: 'vendor.nav.wallet', stock: 'vendor.nav.stock', flash: 'vendor.nav.flash', koulchi: 'vendor.nav.koulchi', guide: 'vendor.nav.guide' };
+const TAB_FALLBACK_TITLES = { overview: "Vue d'ensemble", products: 'Mes produits', orders: 'Commandes', wallet: 'Mon Wallet', stock: 'Stock Fulfillment', flash: 'Ventes Flash', koulchi: 'Koulchi dialk', guide: 'Guide vendeur' };
 
 function setActiveTab(tabName) {
     document.querySelectorAll('.v-nav-link[data-tab]').forEach(l => {
