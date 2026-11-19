@@ -62,8 +62,15 @@ async function main() {
       await setDoc(doc(db, "vendor_pickup_requests", "pickupVendorA"), {
         vendorId: "vendorA",
         status: "approved",
-        items: [{ name: "New product", quantity: 10 }],
+        items: [{ name: "New product", quantity: 10, receivedQuantity: 10, sku: "SWK-123456-01" }],
         desiredDate: "2026-12-01",
+        createdAt: Timestamp.now()
+      });
+      await setDoc(doc(db, "vendor_pickup_requests", "pickupPendingVendorA"), {
+        vendorId: "vendorA",
+        status: "pending",
+        items: [{ name: "Pending", quantity: 5 }],
+        desiredDate: "2026-12-02",
         createdAt: Timestamp.now()
       });
       await setDoc(doc(db, "orders", "multiOrder"), {
@@ -167,7 +174,9 @@ async function main() {
       price: 100,
       koulchiPrice: 90,
       warehouse_received: true,
-      pickupRequestId: "pickupVendorA"
+      pickupRequestId: "pickupVendorA",
+      sku: "SWK-123456-01",
+      pickupItemIndex: 0
     }));
     await assertFails(setDoc(doc(oldVendorDb, "products", "oldContractProduct"), {
       vendorId: "vendorOld",
@@ -194,7 +203,23 @@ async function main() {
       price: 100,
       koulchiPrice: 90,
       warehouse_received: true,
-      pickupRequestId: "pickupVendorA"
+      pickupRequestId: "pickupVendorA",
+      sku: "SWK-123456-02",
+      pickupItemIndex: 1
+    }));
+
+    /* Une demande encore pending ne permet pas de creer un produit. */
+    await assertFails(setDoc(doc(vendorDb, "products", "pendingPickupProduct"), {
+      vendorId: "vendorA",
+      status: "pending_admin_approval",
+      nameFr: "Pending pickup",
+      category: "smartphones-android",
+      price: 100,
+      koulchiPrice: 90,
+      warehouse_received: true,
+      pickupRequestId: "pickupPendingVendorA",
+      sku: "SWK-123456-03",
+      pickupItemIndex: 0
     }));
     await assertFails(setDoc(doc(vendorDb, "products", "koulchiInvalid"), {
       vendorId: "vendorA",

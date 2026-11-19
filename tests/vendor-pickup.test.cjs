@@ -32,6 +32,13 @@ check("vendeur : demande Smart Swika", /async function submitSmartPickupRequest/
 check("vendeur : ecriture vendor_pickup_requests", vendor.includes("collection(db, 'vendor_pickup_requests')"));
 check("vendeur : produit lie au ramassage", vendor.includes("warehouse_received: true") && vendor.includes("pickupRequestId"));
 check("vendeur : blocage sans ramassage approuve", vendor.includes("Aucun ramassage approuvé"));
+check("vendeur : etiquettes SKU + code-barres", vendor.includes("printPickupLabels") && vendor.includes("buildCode128Svg"));
+check("vendeur : SKU fige sur le produit", vendor.includes("sku: pickupSkuValue"));
+check("admin : attribution SKU a l approbation", admin.includes("pickupSku(requestId, index)"));
+check("regles : SKU et index obligatoires", rules.includes("request.resource.data.sku is string") && rules.includes("pickupItemIndex is number"));
+check("guide : etiquettes SKU documentees", vendor.includes("étiquettes SKU avec code-barres"));
+check("CGU vendeur : mode unique entrepot", fs.readFileSync(path.join(ROOT, "cgu-vendeur.html"), "utf8").includes("Mode unique : entrepôt Smart Swika"));
+check("CGU vendeur : SKU et etiquetage obligatoires", fs.readFileSync(path.join(ROOT, "cgu-vendeur.html"), "utf8").includes("SKU et étiquetage obligatoire"));
 check("admin : validation des demandes", /async function renderPickupRequestsAdmin/.test(admin) && admin.includes("reviewPickupRequest"));
 check("admin : conteneur demandes", adminHtml.includes('id="adminPickupRequests"'));
 

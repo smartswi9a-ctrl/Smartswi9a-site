@@ -209,6 +209,9 @@ service cloud.firestore {
         request.resource.data.get('pickupRequestId', '') is string &&
         request.resource.data.pickupRequestId.size() >= 10 &&
         pickupApproved(request.resource.data.pickupRequestId) &&
+        request.resource.data.sku is string &&
+        request.resource.data.sku.size() >= 6 &&
+        request.resource.data.pickupItemIndex is number &&
         !('salesCount' in request.resource.data) &&
         !('ratingAvg' in request.resource.data) &&
         !('ratingCount' in request.resource.data)
