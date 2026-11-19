@@ -10,18 +10,10 @@
     <meta name="color-scheme" content="only light">
     <meta name="supported-color-schemes" content="light">
 
-    <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
-    <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon-16.png">
-    <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">
-    <link rel="manifest" href="/site.webmanifest">
-
-    <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
-    <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
-    <link rel="preconnect" href="https://firebasestorage.googleapis.com" crossorigin>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
-
+    <!-- Import map : doit preceder TOUT module script et tout modulepreload.
+         Placee ici, juste apres les metas, elle ne depend d aucun autre
+         chargement. Sans cela certains navigateurs ignorent la resolution
+         de "firebase/*" : "Failed to resolve module specifier". -->
     <script type="importmap">
     {
         "imports": {
@@ -33,7 +25,17 @@
     }
     </script>
 
-    <link rel="modulepreload" href="/js/admin.js?v=325e2f33">
+    <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon-16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">
+    <link rel="manifest" href="/site.webmanifest">
+
+    <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+    <link rel="preconnect" href="https://firebasestorage.googleapis.com" crossorigin>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
 
     <link rel="stylesheet" href="/css/style.2cf30d9d.css">
     <link rel="stylesheet" href="/css/style-patches.01de7bf5.css">
