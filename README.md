@@ -108,10 +108,19 @@ Deux dispositifs complémentaires :
 
 | Dispositif | Où | Données |
 |---|---|---|
-| **Dashboard interne** | `/admin` → onglet **📈 Trafic** | vues + visiteurs uniques (aujourd'hui / 7 j / 30 j / 12 mois), **en ligne maintenant**, visiteurs par page, 14 derniers jours |
-| **Cloudflare Web Analytics** | dashboard Cloudflare | pages vues, visiteurs, sources, pays, pages populaires |
+| **Dashboard interne** | `/admin` → onglet **📈 Trafic** | vues (tous) + visiteurs uniques (consentants) sur aujourd'hui / 7 j / 30 j / 12 mois, **en ligne maintenant**, visiteurs par page, 14 derniers jours |
+| **Cloudflare Web Analytics** | dashboard Cloudflare | pages vues, visiteurs, sources, pays, pages populaires (sans cookie, tous les visiteurs) |
 
-Collecte interne : **anonyme** (identifiant pseudonyme local), **uniquement après acceptation des cookies**, aucune IP, aucun nom. Collections Firestore : `analytics_daily` (lecture admin) et `presence` (battement toutes les 60 s, « en ligne » si vu il y a moins de 5 min).
+Collecte interne, **deux flux distincts** :
+
+| Flux | Qui | Données envoyées | Base légale |
+|---|---|---|---|
+| **Vues** (`views`) | **tous les visiteurs** | compteur journalier seul | mesure agrégée non personnelle → hors consentement |
+| **Visiteurs uniques** (`visitors`) + **présence** | **uniquement les visiteurs consentants** | identifiant pseudonyme local + page | consentement (bandeau cookies) |
+
+Aucune IP, aucun nom, aucun cookie publicitaire. Collections Firestore : `analytics_daily` (lecture admin ; le client peut seulement incrémenter `views` et ajouter un identifiant à `visitors`) et `presence` (battement toutes les 60 s, « en ligne » si vu il y a moins de 5 min).
+
+Conséquence pratique : **le nombre de vues reflète tout le trafic** (y compris les visiteurs qui n'ont jamais répondu au bandeau), tandis que « visiteurs uniques » et « en ligne » ne comptent que les consentants. La politique de confidentialité (§ 3.6 et article 10) décrit ces deux flux.
 
 ### Activer Cloudflare Web Analytics (une seule fois)
 

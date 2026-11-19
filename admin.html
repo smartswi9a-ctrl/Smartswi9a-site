@@ -476,17 +476,17 @@
 
             <div class="admin-stats" style="margin-bottom:1rem;">
                 <div class="admin-stat-card"><span class="stat-value" id="trafficOnlineNow">—</span><span class="stat-label">🟢 En ligne maintenant</span></div>
-                <div class="admin-stat-card"><span class="stat-value" id="trafficTodayViews">—</span><span class="stat-label">👁️ Vues aujourd'hui</span></div>
-                <div class="admin-stat-card"><span class="stat-value" id="trafficTodayVisitors">—</span><span class="stat-label">👤 Visiteurs aujourd'hui</span></div>
+                <div class="admin-stat-card"><span class="stat-value" id="trafficTodayViews">—</span><span class="stat-label">👁️ Vues aujourd'hui — tous les visiteurs</span></div>
+                <div class="admin-stat-card"><span class="stat-value" id="trafficTodayVisitors">—</span><span class="stat-label">👤 Visiteurs uniques aujourd'hui — consentants</span></div>
             </div>
 
             <div class="admin-stats" style="margin-bottom:1.5rem;">
-                <div class="admin-stat-card"><span class="stat-value" id="trafficWeekViews">—</span><span class="stat-label">📅 7 j — vues</span></div>
-                <div class="admin-stat-card"><span class="stat-value" id="trafficWeekVisitors">—</span><span class="stat-label">📅 7 j — visiteurs</span></div>
-                <div class="admin-stat-card"><span class="stat-value" id="trafficMonthViews">—</span><span class="stat-label">🗓️ 30 j — vues</span></div>
-                <div class="admin-stat-card"><span class="stat-value" id="trafficMonthVisitors">—</span><span class="stat-label">🗓️ 30 j — visiteurs</span></div>
-                <div class="admin-stat-card"><span class="stat-value" id="trafficYearViews">—</span><span class="stat-label">📆 12 mois — vues</span></div>
-                <div class="admin-stat-card"><span class="stat-value" id="trafficYearVisitors">—</span><span class="stat-label">📆 12 mois — visiteurs</span></div>
+                <div class="admin-stat-card"><span class="stat-value" id="trafficWeekViews">—</span><span class="stat-label">📅 7 j — vues (tous)</span></div>
+                <div class="admin-stat-card"><span class="stat-value" id="trafficWeekVisitors">—</span><span class="stat-label">📅 7 j — visiteurs uniques (consentants)</span></div>
+                <div class="admin-stat-card"><span class="stat-value" id="trafficMonthViews">—</span><span class="stat-label">🗓️ 30 j — vues (tous)</span></div>
+                <div class="admin-stat-card"><span class="stat-value" id="trafficMonthVisitors">—</span><span class="stat-label">🗓️ 30 j — visiteurs uniques (consentants)</span></div>
+                <div class="admin-stat-card"><span class="stat-value" id="trafficYearViews">—</span><span class="stat-label">📆 12 mois — vues (tous)</span></div>
+                <div class="admin-stat-card"><span class="stat-value" id="trafficYearVisitors">—</span><span class="stat-label">📆 12 mois — visiteurs uniques (consentants)</span></div>
             </div>
 
             <div class="admin-form">
@@ -515,10 +515,11 @@
             </div>
 
             <p style="color:var(--text-muted);font-size:0.8rem;margin-top:1rem;">
-                Mesure anonyme : aucun cookie publicitaire, aucune IP, aucun nom. Seuls les visiteurs ayant accepté les cookies sont comptés.
+          Mesure anonyme : aucun cookie publicitaire, aucune IP, aucun nom.<br>
+          <strong>Vues</strong> : tous les visiteurs, sans identifiant ni stockage (aucun consentement requis).<br>
+          <strong>Visiteurs uniques / en ligne</strong> : uniquement les visiteurs ayant accepté les cookies.
             </p>
         </div>
-
         <div class="admin-content" id="tab-products">
             <div class="admin-form">
                 <h3 id="productFormTitle">➕ Ajouter un produit</h3>

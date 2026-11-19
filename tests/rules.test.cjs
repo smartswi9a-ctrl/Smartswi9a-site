@@ -279,6 +279,26 @@ async function main() {
     await assertFails(getDoc(doc(anonDb, "analytics_daily", todayKey)));
     await assertSucceeds(getDoc(doc(adminDb, "analytics_daily", todayKey)));
 
+    /* Vue anonyme : compteur seul, sans identifiant (tous les visiteurs). */
+    const anonymousDay = "2026-01-02";
+    await assertSucceeds(setDoc(doc(anonDb, "analytics_daily", anonymousDay), {
+      views: increment(1),
+      updatedAt: serverTimestamp()
+    }, { merge: true }));
+
+    /* Vue consentie : identifiant seul, sans compteur. */
+    await assertSucceeds(setDoc(doc(anonDb, "analytics_daily", anonymousDay), {
+      visitors: arrayUnion("visitor-bbbb-2222"),
+      updatedAt: serverTimestamp()
+    }, { merge: true }));
+
+    /* Meme ecriture anonyme avec un champ interdit : refusee. */
+    await assertFails(setDoc(doc(anonDb, "analytics_daily", anonymousDay), {
+      views: increment(1),
+      updatedAt: serverTimestamp(),
+      ip: "1.2.3.4"
+    }, { merge: true }));
+
     await assertSucceeds(setDoc(doc(anonDb, "presence", "visitor-aaaa-1111"), {
       lastSeen: serverTimestamp(),
       sessionId: "session-aaaa-1111",

@@ -137,8 +137,40 @@ export function clearLocalAnalyticsIds() {
   }
 }
 
-/** Enregistre une vue (1 fois par session et par jour). */
-async function recordView() {
+/**
+ * Vue anonyme : comptee pour TOUS les visiteurs, y compris ceux qui n ont
+ * pas encore repondu au bandeau cookies. Aucun identifiant, aucun cookie,
+ * aucun stockage local : c est un simple compteur de pages vues (mesure
+ * d audience agregee, non personnelle, donc hors consentement).
+ */
+export function trackAnonymousView() {
+  if (typeof window === "undefined") return;
+
+  const path = normalizeTrackedPath(window.location.pathname);
+  if (!isTrackablePath(path)) return;
+
+  const date = dayKey(new Date());
+  if (!date) return;
+
+  try {
+    setDoc(
+      doc(db, "analytics_daily", date),
+      { views: increment(1), updatedAt: serverTimestamp() },
+      { merge: true }
+    ).catch(() => {
+      /* mesure non bloquante : une erreur reseau ne doit rien casser */
+    });
+  } catch (e) {
+    /* ignore */
+  }
+}
+
+/**
+ * Vue consentie : ajoute l identifiant pseudonyme du visiteur pour le
+ * comptage des visiteurs uniques (1 fois par session et par jour).
+ * Le volume de vues, lui, est deja compte par trackAnonymousView().
+ */
+async function recordConsentedView() {
   if (typeof window === "undefined") return;
 
   const path = normalizeTrackedPath(window.location.pathname);
@@ -152,7 +184,6 @@ async function recordView() {
     await setDoc(
       doc(db, "analytics_daily", date),
       {
-        views: increment(1),
         visitors: arrayUnion(getVisitorId()),
         updatedAt: serverTimestamp(),
       },
@@ -195,7 +226,7 @@ export function startAnalytics() {
   if (!hasAnalyticsConsent()) return;
 
   started = true;
-  recordView();
+  recordConsentedView();
   writePresence();
 
   heartbeatTimer = setInterval(() => {
@@ -229,6 +260,11 @@ export function stopAnalytics() {
 export function initAnalytics() {
   if (typeof document === "undefined") return;
 
+  /* 1. Volume de trafic : compte pour TOUS les visiteurs, sans identifiant.
+     Aucune donnee personnelle, aucun stockage : pas de consentement requis. */
+  trackAnonymousView();
+
+  /* 2. Mesure individuelle (visiteurs uniques + presence) : consentement. */
   if (hasAnalyticsConsent()) {
     startAnalytics();
   } else {

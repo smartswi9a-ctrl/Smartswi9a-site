@@ -13,6 +13,7 @@
    ============================================================ */
 
 import assert from "node:assert";
+import { readFileSync } from "node:fs";
 import {
   dayKey,
   dayKeysBetween,
@@ -112,6 +113,16 @@ const ENTRIES = [
   { id: "2025-01-01", views: 100, visitors: ["v5"] },
   { id: "pas-une-date", views: 999, visitors: ["v9"] },
 ];
+
+check("aggregateTraffic : doc anonyme (vues sans identifiant)", () => {
+  const docs = [{ id: "2026-11-18", views: 4 }];
+  const t = aggregateTraffic(docs, NOW);
+  assert.strictEqual(t.today.views, 4);
+  assert.strictEqual(t.today.visitors, 0);
+  const s = buildTrafficSeries(docs, 1, NOW);
+  assert.strictEqual(s[0].views, 4);
+  assert.strictEqual(s[0].visitors, 0);
+});
 
 check("aggregateTraffic : aujourd hui", () => {
   const t = aggregateTraffic(ENTRIES, NOW);
@@ -220,6 +231,33 @@ check("buildTrafficSeries : entrees invalides ignorees", () => {
   assert.strictEqual(s.every((d) => d.views === 0 && d.visitors === 0), true);
 });
 
+/* --------------------------------------------- collecte (source) */
+
+check("collecte : vues anonymes pour tous, identifiant seulement si consentement", () => {
+  const src = readFileSync(new URL("../js/analytics.js", import.meta.url), "utf8");
+
+  /* 1. Compteur anonyme : aucune donnee identifiante. */
+  const anon = src.match(/export function trackAnonymousView\(\)[\s\S]*?^}/m);
+  assert.ok(anon, "trackAnonymousView introuvable");
+  assert.match(anon[0], /views: increment\(1\)/);
+  assert.doesNotMatch(anon[0], /visitors/);
+  assert.doesNotMatch(anon[0], /getVisitorId|getSessionId/);
+
+  /* 2. Vue consentie : identifiant seul (pas de double comptage). */
+  const consent = src.match(/async function recordConsentedView\(\)[\s\S]*?^}/m);
+  assert.ok(consent, "recordConsentedView introuvable");
+  assert.match(consent[0], /visitors: arrayUnion\(getVisitorId\(\)\)/);
+  assert.doesNotMatch(consent[0], /views: increment/);
+
+  /* 3. La vue anonyme est comptee avant le test de consentement. */
+  const init = src.match(/export function initAnalytics\(\)[\s\S]*?^}/m);
+  assert.ok(init, "initAnalytics introuvable");
+  const posAnon = init[0].indexOf("trackAnonymousView()");
+  const posConsent = init[0].indexOf("hasAnalyticsConsent()");
+  assert.ok(posAnon >= 0, "trackAnonymousView doit etre appelee dans initAnalytics");
+  assert.ok(posConsent > posAnon, "la vue anonyme doit preceder le test de consentement");
+});
+
 /* --------------------------------------------- resume */
 
 const pass = verifications - echecs;
@@ -229,4 +267,3 @@ if (echecs > 0) {
   process.exit(1);
 }
 console.log("Mesure d audience : calculs verifies.");
-
