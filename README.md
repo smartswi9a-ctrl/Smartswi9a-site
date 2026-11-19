@@ -182,6 +182,7 @@ Les points d'entrée versionnés (`admin.js?v=<hash>`, `translations.<hash>.js`)
 | Vente flash : publication directe par le vendeur, sans validation admin | 2026-11-16 | `firestore.rules` / `flash_sales`, voir le commentaire dans les règles. |
 | **Mode logistique unique : entrepôt Smart Swika** (dropoff supprimé) | 2026-11-19 | Le vendeur stocke son stock à l'entrepôt (dépôt ou ramassage sur demande). `createCustomerOrder` fige `delivery_mode = smartswika_warehouse` ; l'inscription, la fiche produit et l'admin n'offrent plus de choix `dropoff`. Livo ne récupère les colis qu'à l'entrepôt. |
 | **Ramassage approuvé obligatoire avant création produit** | 2026-11-19 | Le vendeur crée une demande `vendor_pickup_requests` (statut pending). Seul l'admin peut l'approuver, en enregistrant la quantité réellement reçue. `firestore.rules` refuse la création produit sans `warehouse_received = true`, sans SKU et sans demande approuvée du même vendeur. À l'approbation, un SKU `SWK-XXXXXX-NN` est attribué par ligne ; le vendeur imprime des étiquettes Code 128 (une par unité, même SKU par produit) et le SKU est figé dans la fiche produit. |
+| **Contrat vendeur 1.6.0** | 2026-11-19 | Article 4 réécrit (entrepôt unique, SKU, étiquettes, variantes). `CONTRACT_VERSION` passe à 1.6.0 côté client et serveur ; les vendeurs 1.5.0 doivent re-signer. |
 
 ---
 

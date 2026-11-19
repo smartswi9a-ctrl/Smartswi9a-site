@@ -39,6 +39,9 @@ check("regles : SKU et index obligatoires", rules.includes("request.resource.dat
 check("guide : etiquettes SKU documentees", vendor.includes("étiquettes SKU avec code-barres"));
 check("CGU vendeur : mode unique entrepot", fs.readFileSync(path.join(ROOT, "cgu-vendeur.html"), "utf8").includes("Mode unique : entrepôt Smart Swika"));
 check("CGU vendeur : SKU et etiquetage obligatoires", fs.readFileSync(path.join(ROOT, "cgu-vendeur.html"), "utf8").includes("SKU et étiquetage obligatoire"));
+check("vendeur : variantes taille et couleur", vendor.includes("v-pickup-size") && vendor.includes("v-pickup-color"));
+check("vendeur : SKU par variante dans le produit", vendor.includes("pickupLineSkus") && vendor.includes("sku: line.sku"));
+check("vendeur : guide mentionne une ligne par variante", vendor.includes("Une ligne = une variante"));
 check("admin : validation des demandes", /async function renderPickupRequestsAdmin/.test(admin) && admin.includes("reviewPickupRequest"));
 check("admin : conteneur demandes", adminHtml.includes('id="adminPickupRequests"'));
 
