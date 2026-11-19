@@ -35,13 +35,13 @@ const orders = fs.readFileSync(path.join(ROOT, "js", "orders.js"), "utf8");
 const admin = fs.readFileSync(path.join(ROOT, "js", "admin.js"), "utf8");
 
 check(
-  "createCustomerOrder ecrit delivery_mode sur chaque item",
-  /delivery_mode:\s*data\.delivery_mode === 'smartswika_warehouse'\s*\?\s*'smartswika_warehouse'\s*:\s*'dropoff'/.test(fonctions)
+  "createCustomerOrder fige delivery_mode a smartswika_warehouse",
+  /delivery_mode:\s*'smartswika_warehouse'/.test(fonctions)
 );
 
 check(
-  "la valeur par defaut est dropoff",
-  /:\s*'dropoff',/.test(fonctions.slice(fonctions.indexOf("delivery_mode:")))
+  "createCustomerOrder refuse un vendeur non entrepot",
+  /if \(shippingMethod !== 'fulfillment'\)/.test(fonctions)
 );
 
 check(
