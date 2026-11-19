@@ -12,7 +12,7 @@ import {
     collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
     query, where, writeBatch, Timestamp, serverTimestamp, getCountFromServer,
     orderBy, limit, startAfter, increment, addDoc, deleteField, runTransaction,
-    onSnapshot, documentId
+    onSnapshot
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import {
@@ -361,12 +361,12 @@ async function loadTrafficStats() {
     }
 
     try {
+        /* Pas de orderBy : trier par __name__ exigerait un index
+           composite Firestore ("The query requires an index"), alors que
+           l ordre n a aucune importance ici. Les calculs (totaux,
+           graphique, tableau) passent tous par des Map indexees par date. */
         const snap = await getDocs(
-            query(
-                collection(db, 'analytics_daily'),
-                orderBy(documentId(), 'desc'),
-                limit(400)
-            )
+            query(collection(db, 'analytics_daily'), limit(400))
         );
         const entries = snap.docs.map((d) => {
             const data = d.data() || {};
