@@ -784,8 +784,8 @@ function renderWarehousePrepList() {
  * `createCustomerOrder` (functions/index.js:3095 et :3105) pose
  * `stockDeducted: true` ET applique les decrements produits dans la MEME
  * transaction Firestore que la creation de la commande. Le stock est donc
- * deja reserve/decroit des l'achat. L'ancien TODO « verifier que stock est
- * decremente au checkout » etait obsolete.
+ * deja reserve/decroit des l'achat. L'ancien point ouvert « verifier que
+ * stock est decremente au checkout » est donc resolu.
  */
 async function markOrderAsPrepared(orderId, btn) {
     if (!orderId) return;
