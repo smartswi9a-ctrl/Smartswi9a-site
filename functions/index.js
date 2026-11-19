@@ -3123,6 +3123,10 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
           id: item.id,
           productId: item.productId,
           vendorId: String(data.vendorId || 'smartswi9a'),
+          /* Mode logistique fige au moment de la commande. */
+          delivery_mode: data.delivery_mode === 'smartswika_warehouse'
+            ? 'smartswika_warehouse'
+            : 'dropoff',
           shippingMethod: String(data.vendorId || 'smartswi9a') === 'smartswi9a'
             ? 'platform'
             : String(shippingMethodsByVendor.get(String(data.vendorId)) || ''),
