@@ -166,6 +166,16 @@ Les points d'entrée versionnés (`admin.js?v=<hash>`, `translations.<hash>.js`)
 
 ---
 
+## Décisions produit
+
+| Décision | Date | Conséquence technique |
+|---|---|---|
+| **Le panier exige un compte client** (pas de panier invité) | 2026-11-19 | `addToCart` (`js/cart.js`) refuse un visiteur non connecté, ouvre la modale de compte et **mémorise le produit cliqué** (`js/cart-intent.js`, TTL 30 min) pour l'ajouter automatiquement dès la connexion ou l'inscription. |
+| Mesure d'audience : vues anonymes pour tous, uniques sous consentement | 2026-11-19 | deux flux distincts, voir « Mesure d'audience ». |
+| Vente flash : publication directe par le vendeur, sans validation admin | 2026-11-16 | `firestore.rules` / `flash_sales`, voir le commentaire dans les règles. |
+
+---
+
 ## Dette technique connue (revue du 2026-11-19)
 
 Ces points sont **assumés et documentés** — ce ne sont pas des oublis. Chacun

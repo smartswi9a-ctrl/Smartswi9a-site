@@ -34,6 +34,7 @@ import {
 import { getCurrentUser } from "./auth.js";
 import { showToast } from "./ui-core.js";
 import { normalizeProductId } from "./domain/product-id.js";
+import { buildCartIntent, readCartIntent } from "./cart-intent.js";
 import {
   computeCartZones,
   computeDisplayedSavings,
@@ -380,10 +381,49 @@ export function updateCartBadge() {
 }
 
 /* ============================================================ AJOUTER AU PANIER ============================================================ */
+/* ============================================================
+   INTENTION D ACHAT (compte obligatoire)
+   ------------------------------------------------------------
+   Un visiteur non connecte qui clique "Ajouter au panier" voit la
+   modale de compte. On memorise son produit pour l ajouter des que
+   la connexion aboutit (TTL 30 min).
+   ============================================================ */
+const CART_INTENT_KEY = "swi9a_cart_intent";
+
+function rememberCartIntent(productId, variant, mode) {
+  try {
+    localStorage.setItem(
+      CART_INTENT_KEY,
+      buildCartIntent(productId, variant, mode, Date.now())
+    );
+  } catch (e) {
+    /* stockage indisponible : on perd juste l automatisme */
+  }
+}
+
+function takeCartIntent() {
+  try {
+    const raw = localStorage.getItem(CART_INTENT_KEY);
+    if (!raw) return null;
+    localStorage.removeItem(CART_INTENT_KEY);
+    return readCartIntent(raw, Date.now());
+  } catch (e) {
+    return null;
+  }
+}
+
 export async function addToCart(productId, variant = null, options = {}) {
   const mode = options && options.mode === "koulchi" ? "koulchi" : null;
   const user = getCurrentUser();
   if (!user) {
+    /* Compte obligatoire (decision produit : pas de panier invite). Pour ne
+       pas perdre la conversion, on memorise le produit clique : il sera
+       ajoute automatiquement des que la connexion aboutit.
+       options.fromPending evite toute boucle (l appel differe relance
+       addToCart, qui ne doit pas re-memoriser). */
+    if (!(options && options.fromPending)) {
+      rememberCartIntent(productId, variant, mode);
+    }
     showToast("🔒 " + t("loginRequired"));
     document.dispatchEvent(new CustomEvent("open-account"));
     return;
@@ -1188,6 +1228,30 @@ export function checkAbandonedCart() {
     return null;
   }
 }
+
+/* ============================================================
+   REPRISE AUTOMATIQUE APRES CONNEXION
+   ------------------------------------------------------------
+   auth.js emet "auth-updated" des que l etat d authentification
+   change (connexion, inscription, deconnexion). Si une intention
+   d achat attend, on ajoute le produit au panier.
+   ============================================================ */
+document.addEventListener("auth-updated", (event) => {
+  const user = event && event.detail ? event.detail.user : null;
+  if (!user) return;
+
+  const intent = takeCartIntent();
+  if (!intent) return;
+
+  /* Laisse le temps a la modale de compte de se fermer et au panier
+     de se synchroniser avant d ajouter l article. */
+  setTimeout(() => {
+    addToCart(intent.productId, intent.variant, {
+      mode: intent.mode,
+      fromPending: true,
+    });
+  }, 400);
+});
 
 /* ============================================================ LOG ============================================================ */
 console.log(
