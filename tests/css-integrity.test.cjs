@@ -280,5 +280,31 @@ if (!sectionContenu) {
   }
 }
 
+/* --------------------------------------------- cache du CSS legal */
+/* legal.css n est plus servi directement : il doit etre reference via sa
+   copie hachee (/css/legal.<8 hex>.css), sinon le cache immutable 1 an
+   figerait les corrections pour les visiteurs deja venus. */
+const pagesHtml = fs
+  .readdirSync(ROOT)
+  .filter((f) => f.endsWith(".html"))
+  .sort();
+let pagesLegal = 0;
+const legalKo = [];
+
+for (const fichier of pagesHtml) {
+  const html = fs.readFileSync(path.join(ROOT, fichier), "utf8");
+  if (html.indexOf("/css/legal") === -1) continue;
+  pagesLegal++;
+  const hashed = /\/css\/legal\.[0-9a-f]{8}\.css/.test(html);
+  const plain = html.indexOf("/css/legal.css") !== -1;
+  if (!hashed || plain) legalKo.push(fichier);
+}
+
+if (legalKo.length) {
+  ko("CSS legal hache sur toutes les pages", legalKo.join(", "));
+} else {
+  ok("CSS legal hache sur toutes les pages", pagesLegal + " page(s)");
+}
+
 console.log("\n" + verifications + " verification(s), " + echecs + " echec(s)");
 process.exit(echecs === 0 ? 0 : 1);
