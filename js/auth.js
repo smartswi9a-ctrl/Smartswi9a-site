@@ -292,7 +292,7 @@ export async function registerVendorWithFirebase(vendorData, password) {
     if (!(/^\d{15}$/.test(iceCin) || /^[A-Z]{1,3}\d{4,8}$/.test(iceCin))) {
         throw new Error(t("authVendorIceInvalid"));
     }
-    if (!["dropoff", "fulfillment"].includes(vendorData.shippingMethod)) throw new Error(t("authVendorShippingInvalid"));
+    if (vendorData.shippingMethod !== "fulfillment") throw new Error(t("authVendorShippingInvalid"));
 
     let user = current;
     let createdHere = false;

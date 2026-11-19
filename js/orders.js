@@ -1545,7 +1545,9 @@ export async function renderAdminOrders(containerId = 'ordersList') {
             } else if (anyWarehouse) {
                 modeBadge = `<span style="background:rgba(230,126,34,0.18);color:#b35c00;font-size:0.65rem;padding:0.15rem 0.4rem;border-radius:30px;margin-left:0.3rem;font-weight:700;">⚠️ Mixte</span>`;
             } else {
-                modeBadge = `<span style="background:var(--bg-surface);color:var(--text-muted);font-size:0.65rem;padding:0.15rem 0.4rem;border-radius:30px;margin-left:0.3rem;font-weight:700;">🚚 Dropoff</span>`;
+                /* Plus de mode dropoff : aucune commande ne doit etre
+                   etiquetee autrement que entrepot. */
+                modeBadge = '';
             }
         }
 

@@ -3039,7 +3039,7 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
             throw new Error(`Le vendeur ${vendorIds[i]} n'est plus actif.`);
           }
           const shippingMethod = String(profileSnap.data().vendorInfo?.shippingMethod || '');
-          if (!['dropoff', 'fulfillment'].includes(shippingMethod)) {
+          if (shippingMethod !== 'fulfillment') {
             throw new Error(`Le mode logistique du vendeur ${vendorIds[i]} n'est pas configuré.`);
           }
           shippingMethodsByVendor.set(vendorIds[i], shippingMethod);
@@ -3123,10 +3123,8 @@ exports.createCustomerOrder = onRequest({ invoker: 'public', region: 'europe-wes
           id: item.id,
           productId: item.productId,
           vendorId: String(data.vendorId || 'smartswi9a'),
-          /* Mode logistique fige au moment de la commande. */
-          delivery_mode: data.delivery_mode === 'smartswika_warehouse'
-            ? 'smartswika_warehouse'
-            : 'dropoff',
+          /* Mode unique : tout le stock est stocke a l entrepot Smart Swika. */
+          delivery_mode: 'smartswika_warehouse',
           shippingMethod: String(data.vendorId || 'smartswi9a') === 'smartswi9a'
             ? 'platform'
             : String(shippingMethodsByVendor.get(String(data.vendorId)) || ''),

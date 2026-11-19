@@ -277,7 +277,10 @@ export const NOTIFICATION_TYPES = CONFIG.NOTIFICATIONS.TYPES;
 export const SIGNUP_METHODS = CONFIG.SIGNUP_METHODS;
 
 export const VENDOR_STATUS = { PENDING: 'pending', APPROVED: 'approved', REJECTED: 'rejected', SUSPENDED: 'suspended' };
-export const VENDOR_SHIPPING_METHOD = { DROPOFF: 'dropoff', FULFILLMENT: 'fulfillment' };
+/* Mode logistique unique depuis le 2026-11-19 : le vendeur stocke son
+   stock a l entrepot Smart Swika (ramassage sur demande). Livo ne
+   recupere les colis qu a l entrepot pour les livrer aux acheteurs. */
+export const VENDOR_SHIPPING_METHOD = { WAREHOUSE: 'fulfillment' };
 
 export const PRODUCT_STATUS = {
     PENDING: 'pending',

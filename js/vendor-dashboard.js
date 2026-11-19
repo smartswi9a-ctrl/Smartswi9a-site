@@ -325,12 +325,11 @@ function updateSidebarUI(profile) {
     const stockTab = document.querySelector('.v-nav-link[data-tab="stock"]');
     const shippingMethod = vendorInfo.shippingMethod;
     if (shippingEl) {
-        shippingEl.textContent = shippingMethod === 'dropoff'
-            ? tr('vendor.shipping.dropoff', 'Mode logistique : Drop-off Livo')
-            : shippingMethod === 'fulfillment'
-                ? tr('vendor.shipping.fulfillment', 'Mode logistique : Fulfillment Livo')
-                : tr('vendor.shipping.unset', 'Mode logistique : à configurer');
-        shippingEl.className = `v-shop-status ${shippingMethod === 'dropoff' || shippingMethod === 'fulfillment' ? 'approved' : 'pending'}`;
+        /* Mode unique depuis le 2026-11-19 : entrepot Smart Swika. */
+        shippingEl.textContent = shippingMethod === 'fulfillment'
+            ? tr('vendor.shipping.fulfillment', 'Mode logistique : Entrepôt Smart Swika')
+            : tr('vendor.shipping.unset', 'Mode logistique : à configurer');
+        shippingEl.className = `v-shop-status ${shippingMethod === 'fulfillment' ? 'approved' : 'pending'}`;
         shippingEl.style.display = 'block';
         shippingEl.style.margin = '0.65rem auto 0';
         shippingEl.style.maxWidth = 'max-content';
@@ -458,15 +457,11 @@ function injectModals() {
                 </div>
                 <div class="v-field"><label class="v-label">Prix Koulchi (MAD) *</label><input type="number" id="vProdKoulchiPrice" class="v-input" min="1" step="0.5"><small style="display:block;font-size:0.7rem;color:#8a8a8a;">Obligatoire, strictement inférieur au prix de vente.</small></div>
                 <div class="v-field">
-                    <label class="v-label" for="vProdDeliveryMode">Mode de livraison *</label>
-                    <select id="vProdDeliveryMode" class="v-input">
-                        <option value="dropoff" selected>J'expédie moi-même (Livo vient chercher chez moi)</option>
-                        <option value="smartswika_warehouse">J'envoie mon stock à l'entrepôt Smart Swika</option>
-                    </select>
-                    <div id="vProdWarehouseInfo" style="display:none;margin-top:0.6rem;padding:0.8rem 0.9rem;border:1px solid var(--border-gold);border-radius:var(--radius-sm);background:rgba(212,175,55,0.08);font-size:0.82rem;line-height:1.55;">
-                        <strong>Entrepôt Smart Swika</strong>
+                    <label class="v-label">Mode de livraison</label>
+                    <div id="vProdWarehouseInfo" style="padding:0.8rem 0.9rem;border:1px solid var(--border-gold);border-radius:var(--radius-sm);background:rgba(212,175,55,0.08);font-size:0.82rem;line-height:1.55;">
+                        <strong>🏬 Entrepôt Smart Swika (obligatoire)</strong>
                         <div id="vProdWarehouseAddress" style="margin-top:0.3rem;color:var(--text-muted);"></div>
-                        <div style="margin-top:0.5rem;font-weight:600;">Vous devez envoyer votre stock à cette adresse. Smart Swika préparera les colis.</div>
+                        <div style="margin-top:0.5rem;font-weight:600;">Envoyez votre stock à cet entrepôt (ou demandez un ramassage depuis l'onglet Stock). Smart Swika stocke et prépare les colis ; Livo les livre aux acheteurs.</div>
                     </div>
                 </div>
                 <div class="v-field"><label class="v-label">Stock total *</label><input type="number" id="vProdStock" class="v-input" min="0" value="1"></div>
@@ -811,8 +806,8 @@ function linesFromProductField(id) {
 }
 
 function getProductDeliveryMode() {
-    const el = document.getElementById('vProdDeliveryMode');
-    return el && el.value === 'smartswika_warehouse' ? 'smartswika_warehouse' : 'dropoff';
+    /* Mode unique : tout le stock passe par l entrepot Smart Swika. */
+    return 'smartswika_warehouse';
 }
 
 function updateWarehouseInfoVisibility() {
@@ -848,10 +843,6 @@ function openProductModal(product = null) {
     document.getElementById('vProdOldPrice').value = product ? (product.oldPrice || '') : '';
     document.getElementById('vProdKoulchiPrice').value = product ? (product.koulchiPrice || '') : '';
     document.getElementById('vProdStock').value = product ? (product.stock ?? '1') : '1';
-    const deliveryModeEl = document.getElementById('vProdDeliveryMode');
-    if (deliveryModeEl) {
-        deliveryModeEl.value = product?.delivery_mode === 'smartswika_warehouse' ? 'smartswika_warehouse' : 'dropoff';
-    }
     updateWarehouseInfoVisibility();
     document.getElementById('vProdDescFr').value = product ? (product.descFr || '') : '';
     document.getElementById('vProdDescAr').value = product ? (product.descAr || '') : '';
@@ -1440,7 +1431,7 @@ async function renderProducts(container) {
         const status = p.status || PRODUCT_STATUS.PENDING_ADMIN_APPROVAL;
         const deliveryBadge = p.delivery_mode === 'smartswika_warehouse'
             ? `<span style="display:inline-block;margin-right:0.35rem;background:rgba(212,175,55,0.15);color:var(--gold);padding:0.1rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;">🏬 Entrepôt Smart Swika</span>`
-            : `<span style="display:inline-block;margin-right:0.35rem;background:var(--bg-surface);color:var(--text-muted);padding:0.1rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;">🚚 Dropoff</span>`;
+            : `<span style="display:inline-block;margin-right:0.35rem;background:rgba(230,126,34,0.15);color:#b35c00;padding:0.1rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;">⚠️ Mode historique à migrer</span>`;
         let statusBadge = '';
         let rejectionHtml = '';
 

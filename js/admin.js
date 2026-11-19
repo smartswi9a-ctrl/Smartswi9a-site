@@ -729,13 +729,11 @@ let cachedWarehousePrepOrders = [];
 let _prepLoading = false;
 
 const DELIVERY_MODE_LABELS = {
-    dropoff: { label: 'Dropoff', emoji: '🚚', color: 'var(--text-muted)', bg: 'var(--bg-surface)' },
-    smartswika_warehouse: { label: 'Entrepôt', emoji: '🏬', color: 'var(--gold)', bg: 'rgba(212,175,55,0.15)' }
+    smartswika_warehouse: { label: 'Entrepôt Smart Swika', emoji: '🏬', color: 'var(--gold)', bg: 'rgba(212,175,55,0.15)' }
 };
 
 function getOrderDeliveryModeBadge(mode) {
-    const key = mode === 'smartswika_warehouse' ? 'smartswika_warehouse' : 'dropoff';
-    const conf = DELIVERY_MODE_LABELS[key];
+    const conf = DELIVERY_MODE_LABELS.smartswika_warehouse;
     return `<span style="background:${conf.bg};color:${conf.color};padding:0.15rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;white-space:nowrap;">${conf.emoji} ${conf.label}</span>`;
 }
 
@@ -4156,11 +4154,7 @@ function renderVendorsList(vendors) {
                 </div>
                 <div style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.3rem;">
                     ${email} · ${phone} · ${city} · ${iceCin}<br>
-                    Mode de ramassage : <select class="vendor-shipping-method" data-id="${escapeHTML(v.id)}" aria-label="Mode de ramassage pour ${shopName}" style="margin:.25rem 0;padding:.35rem .5rem;border:1px solid var(--border-gold);border-radius:8px;background:var(--bg-card);color:var(--text);">
-                        <option value="" disabled ${shippingMethod ? '' : 'selected'}>À configurer</option>
-                        <option value="dropoff" ${shippingMethod === 'dropoff' ? 'selected' : ''}>Drop-off Livo</option>
-                        <option value="fulfillment" ${shippingMethod === 'fulfillment' ? 'selected' : ''}>Fulfillment Livo</option>
-                    </select><br>
+                    Mode de ramassage : <strong>🏬 Entrepôt Smart Swika</strong> (mode unique)<br>
                     Contrat : version <strong>${escapeHTML(String(contractVersion))}</strong> · signé le <strong>${escapeHTML(contractSignedAt)}</strong>
                 </div>
                 <div style="display:flex;justify-content:flex-end;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem;">
@@ -4190,26 +4184,6 @@ function renderVendorsList(vendors) {
     });
     container.querySelectorAll('[data-action="wallet-unfreeze"]').forEach(btn => {
         btn.addEventListener('click', () => handleWalletAction(btn.dataset.id, 'unfreeze', btn.dataset.shop));
-    });
-    container.querySelectorAll('.vendor-shipping-method').forEach(select => {
-        select.addEventListener('change', async () => {
-            const vendorId = select.dataset.id;
-            const shippingMethod = select.value;
-            if (!vendorId || !['dropoff', 'fulfillment'].includes(shippingMethod)) return;
-            select.disabled = true;
-            try {
-                await updateDoc(doc(db, 'users', vendorId), {
-                    'vendorInfo.shippingMethod': shippingMethod,
-                    updatedAt: Timestamp.now()
-                });
-                showToast(`Mode de ramassage enregistré : ${shippingMethod === 'dropoff' ? 'Drop-off Livo' : 'Fulfillment Livo'}`);
-                await loadVendors();
-            } catch (error) {
-                console.error('[admin] Modification du mode de ramassage refusée :', error);
-                showToast('Impossible d’enregistrer le mode de ramassage.');
-                await loadVendors();
-            }
-        });
     });
 }
 
