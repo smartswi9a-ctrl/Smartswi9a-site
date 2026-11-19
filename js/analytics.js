@@ -12,7 +12,8 @@
    Deux ecritures Firestore :
      1. analytics_daily/{AAAA-MM-JJ} : views (+1) et visitors (union)
         -> alimente jour / 7 j / 30 j / 12 mois du dashboard admin ;
-     2. presence/{visitorId} : lastSeen -> "en ligne" si < 5 min.
+     2. presence/{visitorId} : lastSeen -> "en ligne" si < 5 min ;
+        expireAt -> purge automatique par TTL Firestore apres 7 jours.
 
    Volume maitrise : une vue par session et par jour, un battement de
    coeur toutes les 60 s maximum et seulement si l onglet est visible.
@@ -25,6 +26,7 @@ import {
   increment,
   arrayUnion,
   serverTimestamp,
+  Timestamp,
 } from "firebase/firestore";
 import { CONFIG } from "./config.js";
 import { safeGetItem, safeSetItem } from "./utils.js";
@@ -33,6 +35,7 @@ import {
   isTrackablePath,
   normalizeTrackedPath,
   shouldRecordView,
+  presenceExpireAt,
 } from "./analytics-core.js";
 
 const A = CONFIG.ANALYTICS;
@@ -210,6 +213,9 @@ async function writePresence() {
       doc(db, "presence", getVisitorId()),
       {
         lastSeen: serverTimestamp(),
+        /* Purge par TTL Firestore : voir firestore.rules et
+           docs/runbooks/FIRESTORE-TTL-PRESENCE.md. */
+        expireAt: Timestamp.fromMillis(presenceExpireAt(Date.now())),
         sessionId: getSessionId(),
         path,
       },

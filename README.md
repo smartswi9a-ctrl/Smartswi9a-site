@@ -123,7 +123,7 @@ Collecte interne, **deux flux distincts** :
 | **Vues** (`views`) | **tous les visiteurs** | compteur journalier seul | mesure agrégée non personnelle → hors consentement |
 | **Visiteurs uniques** (`visitors`) + **présence** | **uniquement les visiteurs consentants** | identifiant pseudonyme local + page | consentement (bandeau cookies) |
 
-Aucune IP, aucun nom, aucun cookie publicitaire. Collections Firestore : `analytics_daily` (lecture admin ; le client peut seulement incrémenter `views` et ajouter un identifiant à `visitors`) et `presence` (battement toutes les 60 s, « en ligne » si vu il y a moins de 5 min).
+Aucune IP, aucun nom, aucun cookie publicitaire. Collections Firestore : `analytics_daily` (lecture admin ; le client peut seulement incrémenter `views` et ajouter un identifiant à `visitors`) et `presence` (battement toutes les 60 s, « en ligne » si vu il y a moins de 5 min). Chaque battement écrit aussi `expireAt` (maintenant + 7 jours) : une **politique TTL Firestore** supprime le document une fois cette date passée (généralement sous 24 h). Voir `docs/runbooks/FIRESTORE-TTL-PRESENCE.md`.
 
 Conséquence pratique : **le nombre de vues reflète tout le trafic** (y compris les visiteurs qui n'ont jamais répondu au bandeau), tandis que « visiteurs uniques » et « en ligne » ne comptent que les consentants. La politique de confidentialité (§ 3.6 et article 10) décrit ces deux flux.
 
@@ -191,8 +191,14 @@ indique pourquoi il n'est pas traité et ce qu'il faudrait pour le faire.
 | 1 | **`delivery_mode` absent des items de commande** | L'ajouter exige de modifier `createCustomerOrder` (`functions/index.js`) **puis de redéployer les Cloud Functions** ; à faire lors d'une intervention planifiée sur les functions, pas isolément. | Le badge « Mode » de l'admin dérive le mode depuis la collection `products`, avec un cache partagé de 30 s (1 lecture produits par rendu admin, pas par commande). |
 | 2 | **Statut `SHIPPING` déprécié mais conservé** | Des commandes anciennes le portent encore ; il n'est plus jamais produit par l'UI. | Quelques branches de compatibilité dans `orders.js`/`utils.js`. À supprimer quand plus aucune commande ne le porte. |
 | 3 | **`analytics_daily` sans purge** | Les documents sont agrégés par jour (1 doc/jour) : volume négligeable. | Croissance linéaire, ~365 docs/an. |
-| 4 | **`presence` sans TTL** | Les entrées expirées sont ignorées par `computeOnline` (seuil 5 min). | Quelques documents par visiteur consenti ; une politique TTL Firestore sur `lastSeen` suffirait. |
 | 5 | **Modules JS non versionnés** | `auth.js`, `analytics.js`, `ui.js`… sont importés en relatif : les versionner demanderait un build qui réécrit les imports (récursion de hash). | Compensé par `Cache-Control: no-cache` (voir plus haut). |
+
+La dette 4 (`presence` sans TTL) est **résolue le 2026-11-19** : chaque
+battement écrit `expireAt = maintenant + 7 jours`, et une politique TTL
+Firestore sur `presence.expireAt` purge les documents expirés. Le champ est
+validé par `firestore.rules` (timestamp futur, borne à 8 jours) et reste
+optionnel pour ne pas casser un onglet resté ouvert pendant le déploiement.
+Procédure et vérification : `docs/runbooks/FIRESTORE-TTL-PRESENCE.md`.
 
 Les TODO/FIXME historiques qui référençaient des lots de PR terminés ont été
 soit vérifiés comme résolus (décrément de stock au checkout, ancrage
