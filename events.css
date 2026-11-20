@@ -44,10 +44,13 @@ html[dir="rtl"][data-event] .newphoto-banner-wrapper::after {
   );
 }
 
-/* Ratio réel des visuels événementiels : évite tout saut de mise en page. */
+/* Comportement IDENTIQUE à l'image d'origine : entièrement visible.
+   Ne JAMAIS remettre `object-fit: cover` ici : combiné au
+   `max-height: 45vh` de la feuille de base, il rogne le haut et le bas
+   dès que la fenêtre est peu haute (ou sur mobile via min-height). */
 html[data-event] .responsive-hero-image {
-  aspect-ratio: 3 / 1;
-  object-fit: cover;
+  object-fit: contain;
+  object-position: center;
 }
 
 /* Badge d'événement (fond sombre = contraste garanti quelle que soit la teinte). */
