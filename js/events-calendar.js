@@ -32,6 +32,25 @@
 export const THEME_CONFIG_PATH = { collection: "config", doc: "theme" };
 
 /**
+ * Version des visuels événementiels.
+ * Les images sont servies avec `Cache-Control: max-age=86400` : sans ce
+ * suffixe, un navigateur ayant déjà vu l'ancienne version continuerait de
+ * l'afficher pendant 24 h après un remplacement de fichier.
+ * À INCRÉMENTER dès que les WebP sont régénérés.
+ */
+export const ASSETS_VERSION = "2";
+
+/**
+ * URL d'un visuel d'événement, avec cache-busting.
+ * @param {object} event
+ * @returns {string}
+ */
+export function eventImageUrl(event) {
+  if (!event || !event.image) return "";
+  return `${event.image}?v=${ASSETS_VERSION}`;
+}
+
+/**
  * Les 8 événements, dans l'ordre chronologique.
  * Les offsets sont explicites : +01:00 (heure normale du Maroc) et
  * +00:00 pendant le Ramadan 2027, conformément au calendrier fourni.
@@ -296,7 +315,7 @@ function swapHero(event) {
   /* Les visuels ont EXACTEMENT les dimensions de newphoto.webp (2179x722) :
      on ne touche ni à width ni à height, donc aucun décalage de mise en page.
      Aucun texte n'est ajouté : les visuels contiennent déjà leur titrage. */
-  img.setAttribute("src", event.image);
+  img.setAttribute("src", eventImageUrl(event));
   img.setAttribute("alt", `${original.alt} — ${getEventLabel(event, currentLang())}`);
   img.classList.add("is-event-hero");
 }
@@ -338,7 +357,7 @@ function applyState(event) {
     html.setAttribute("data-event", event.id);
     html.style.setProperty("--ev-accent", event.accent);
     swapHero(event);
-    preloadImage(event.image);
+    preloadImage(eventImageUrl(event));
   }
 
   if (previous !== STATE.currentEventId) {
@@ -430,7 +449,7 @@ export async function initEventsCalendar(options = {}) {
   const next = nextTransitionAt(STATE.preview || new Date());
   if (next) {
     const nextEvent = getEventById(next.eventId);
-    if (nextEvent) preloadImage(nextEvent.image);
+    if (nextEvent) preloadImage(eventImageUrl(nextEvent));
   }
 
   return activeId;
