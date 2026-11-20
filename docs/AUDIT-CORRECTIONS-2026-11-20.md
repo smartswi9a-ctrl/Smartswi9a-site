@@ -10,7 +10,7 @@
 | Correctif | Fichier | Détail | État vérifié en prod |
 |---|---|---|---|
 | Filtre côté Firebase | `firebase.json` | `docs/**`, `scripts/**`, `package*.json`, `.nvmrc`, `_headers`, `_redirects`, `*.rules`, `firestore-debug.log` ajoutés à `ignore` | ✅ **404** sur `*.web.app` |
-| Blocage des fichiers internes | `_redirects` | Chaque chemin interne (docs, scripts, tests, functions, cloudflare, package.json, .nvmrc, *.rules…) est redirigé en **301 vers `/404`**. Mesuré : **les 301 gagnent sur les fichiers statiques existants** (preuve `/villes.html`), contrairement au code 404 que Pages ignore. | ✅ à vérifier après déploiement |
+| Blocage des fichiers internes | `_redirects` | Chaque chemin interne (docs, scripts, tests, functions, cloudflare, package.json, .nvmrc, *.rules…) est redirigé en **301 vers `/404`**. Mesuré : **les 301 gagnent sur les fichiers statiques existants** (preuve `/villes.html`), contrairement au code 404 que Pages ignore. | ✅ **vérifié en prod** : `301 → /404` ; les chemins déjà couverts par le WAF (`*.rules`, `cloudflare`, `README.md`) renvoient **403** |
 | `.assetsignore` | `.assetsignore` | Liste d'exclusion conservée pour l'avenir, mais **inopérante sur ce projet** (mesuré avec cache-buster : les fichiers restaient publiés) | ⚠️ sans effet ici |
 | `unsafe-eval` retiré | `_headers`, `firebase.json` | Aucun `eval()` / `new Function()` dans le code : la directive était inutile | ✅ (à confirmer après déploiement Pages) |
 | En-têtes durcis | `_headers`, `firebase.json` | `Cross-Origin-Opener-Policy: same-origin-allow-popups`, `Cross-Origin-Resource-Policy: same-site`, `X-Permitted-Cross-Domain-Policies: none`, `manifest-src`, `worker-src`, `upgrade-insecure-requests` |
@@ -305,5 +305,6 @@ catalogue sans SSR.
 | **Déploiement Firestore rules** | `compiled successfully` + `released rules`, exit 0 |
 | **Prod `*.web.app`** | `/docs/DETTES.md` 404, `/package.json` 404, ancien CSS 404, nouveau CSS 200 |
 | **Prod `smartswika.ma`** | `/boutique` → `/#produits` ✅, `--gold #8a6a24` ✅, quiz ✅, Cairo ✅, hreflang ✅, 0 erreur console |
-| **Prod `smartswika.ma` — docs** | ⚠️ 200 (Pages) → règle WAF requise (§7.3) |
+| **Prod `smartswika.ma` — fichiers internes** | ✅ **corrigé** : `/docs/DETTES.md`, `/docs/`, `/package.json`, `/.nvmrc`, `/scripts/*`, `/functions/*`, `/.assetsignore` → **301 vers `/404`** ; `/firestore.rules`, `/storage.rules`, `/cloudflare/*`, `/README.md` → **403** (WAF). Contenu vérifié non servi (suivi de redirection = page 404, aucune trace du markdown), y compris avec cache-buster |
+| **Prod `smartswika.ma` — non-régression** | `/` 200, `/boutique` 200, CSS/JS 200, `/robots.txt` 200, `/sitemap.xml` 200, `/translations.js` 200, `/villes` 301 → `/villesmaroc`, 0 erreur console |
 
