@@ -122,8 +122,11 @@ verifie(
 );
 
 verifie(
-  "style-patches.css : le texte demarre dans le cadre (padding-left: 0)",
-  /padding-left:\s*0;/.test(sectionMobile)
+  "style-patches.css : le texte demarre dans le cadre (padding-inline-start: 0)",
+  /* Audit 2026-11-20 : la propriété est passée en LOGIQUE (RTL-safe).
+     En LTR, padding-inline-start:0 === padding-left:0. On accepte les deux
+     pour ne pas figer une propriété physique dans le garde-fou. */
+  /padding-(inline-start|left):\s*0;/.test(sectionMobile)
 );
 
 verifie(

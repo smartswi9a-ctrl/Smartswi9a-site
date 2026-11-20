@@ -429,7 +429,8 @@ export function attachEvents() {
       }
     }
 
-    /* Bouton "Commander via WhatsApp" (page produit) */
+    /* Bouton « Demander un conseil » (page produit).
+       WhatsApp = SUPPORT : aucune commande n'est possible hors compte. */
     const waBtn = e.target.closest(".btn-secondary[data-product-id]");
     if (waBtn && !waBtn.closest("[data-action]")) {
       e.preventDefault();

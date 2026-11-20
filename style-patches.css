@@ -6,7 +6,16 @@
 /* ============================================================
    0. POLICES ARABES Ã‰LÃ‰GANTES
    ============================================================ */
-@import url('https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Cairo:wght@400;600;700;800&display=swap');
+/* ============================================================
+   0. POLICES ARABES — chargées via <link> dans le <head>
+   ------------------------------------------------------------
+   CORRECTIF AUDIT 2026-11-20 : l'@import ci-dessous bloquait le
+   rendu (une requête CSS supplémentaire AVANT l'application des
+   règles) et retardait le FCP sur mobile 4G. Les familles Cairo et
+   Amiri sont désormais demandées dans la même feuille Google Fonts
+   que Inter/Playfair, avec preconnect + display=swap.
+   NE PAS RÉINTRODUIRE D'@import ICI.
+   ============================================================ */
 
 /* ============================================================
    1. NAVBAR â€” FIX MOBILE / TABLETTE
@@ -209,8 +218,8 @@ html[dir="rtl"] .cart-page-form-title {
         display: none !important;
         position: fixed !important;
         top: var(--nav-height) !important;
-        left: 0 !important;
-        right: 0 !important;
+        inset-inline-start: 0 !important;
+        inset-inline-end: 0 !important;
         background: var(--bg-card) !important;
         border-bottom: 1px solid var(--border) !important;
         padding: 0.5rem 0 !important;
@@ -376,7 +385,7 @@ main#main {
 .cart-btn-float {
     position: fixed !important;
     bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px)) !important;
-    right: 1.5rem !important;
+    inset-inline-end: 1.5rem !important;
     z-index: 998 !important;
 }
 
@@ -385,7 +394,7 @@ main#main {
         width: 54px !important;
         height: 54px !important;
         bottom: calc(1.2rem + env(safe-area-inset-bottom, 0px)) !important;
-        right: 1.2rem !important;
+        inset-inline-end: 1.2rem !important;
     }
 }
 
@@ -395,7 +404,7 @@ main#main {
 .back-to-top {
     position: fixed !important;
     bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px)) !important;
-    right: 2rem !important;
+    inset-inline-end: 2rem !important;
     z-index: 997 !important;
 }
 
@@ -404,7 +413,7 @@ main#main {
         width: 44px !important;
         height: 44px !important;
         bottom: calc(4.8rem + env(safe-area-inset-bottom, 0px)) !important;
-        right: 1.5rem !important;
+        inset-inline-end: 1.5rem !important;
         font-size: 1.2rem !important;
     }
 }
@@ -429,8 +438,8 @@ main#main {
 .product-old-price::after {
     content: '' !important;
     position: absolute !important;
-    left: 0 !important;
-    right: 0 !important;
+    inset-inline-start: 0 !important;
+    inset-inline-end: 0 !important;
     top: 50% !important;
     height: 1.5px !important;
     background: currentColor !important;
@@ -452,8 +461,8 @@ main#main {
 .cart-suggestion-old::after {
     content: '' !important;
     position: absolute !important;
-    left: 0 !important;
-    right: 0 !important;
+    inset-inline-start: 0 !important;
+    inset-inline-end: 0 !important;
     top: 50% !important;
     height: 1px !important;
     background: currentColor !important;
@@ -687,7 +696,7 @@ main#main {
     }
     .blog-article-close {
         top: 0.6rem;
-        right: 0.6rem;
+        inset-inline-end: 0.6rem;
         width: 36px;
         height: 36px;
     }
@@ -757,7 +766,7 @@ main#main {
     }
     .banner-item {
         flex: 0 0 calc(50% - 12px);
-        margin-right: 12px;
+        margin-inline-end: 12px;
     }
 }
 
@@ -820,8 +829,8 @@ main#main {
         border-radius: var(--radius-md);
     }
     #produits {
-        padding-left: 0.5rem;
-        padding-right: 0.5rem;
+        padding-inline-start: 0.5rem;
+        padding-inline-end: 0.5rem;
     }
     .product-body {
         padding: 0.5rem;
@@ -864,14 +873,14 @@ main#main {
         font-size: 0.55rem;
         padding: 0.12rem 0.4rem;
         top: 0.35rem;
-        left: 0.35rem;
+        inset-inline-start: 0.35rem;
     }
     .favorite-btn {
         width: 26px;
         height: 26px;
         font-size: 0.78rem;
         top: 0.35rem;
-        right: 0.35rem;
+        inset-inline-end: 0.35rem;
     }
     .flash-card-countdown {
         font-size: 0.6rem;
@@ -1070,7 +1079,7 @@ main#main {
     }
     .navbar-promo-banner .marquee-text {
         display: block;
-        padding-left: 0;
+        padding-inline-start: 0;
         animation: none;
         white-space: normal;
     }
@@ -1525,7 +1534,7 @@ p, h1, h2, h3, h4, h5, h6 {
 .flash-badge {
   position: absolute;
   top: 0.5rem;
-  left: 0.5rem;
+  inset-inline-start: 0.5rem;
   z-index: 3;
   background: linear-gradient(135deg, #ff4e50 0%, #f9701c 100%);
   color: #fff;
@@ -1577,7 +1586,7 @@ p, h1, h2, h3, h4, h5, h6 {
   color: var(--text-muted);
   text-decoration: line-through;
   font-weight: 400;
-  margin-left: 0.35rem;
+  margin-inline-start: 0.35rem;
 }
 
 /* Carte en vente flash : liserÃ© discret */
@@ -1589,7 +1598,7 @@ p, h1, h2, h3, h4, h5, h6 {
 /* Pastille de dÃ©lai dans le panier (correctif C13) */
 .cart-delivery-delay {
   display: inline-block;
-  margin-left: 0.4rem;
+  margin-inline-start: 0.4rem;
   padding: 0.05rem 0.4rem;
   border-radius: 999px;
   background: rgba(165, 123, 46, 0.12);
@@ -1763,7 +1772,7 @@ p, h1, h2, h3, h4, h5, h6 {
 .flash-item-pct {
   position: absolute;
   top: 0.45rem;
-  left: 0.45rem;
+  inset-inline-start: 0.45rem;
   padding: 0.22rem 0.5rem;
   border-radius: 6px;
   background: var(--gold);
@@ -2358,7 +2367,7 @@ html[dir="rtl"] .v-lang-select {
 
 #flashSection .flash-item-pct {
   top: 0.45rem;
-  left: 0.45rem;
+  inset-inline-start: 0.45rem;
   padding: 0.26rem 0.5rem;
   border-radius: 10px 10px 10px 2px;
   background: linear-gradient(135deg, var(--promo-orange), var(--promo-red));
@@ -3013,7 +3022,7 @@ html[dir="rtl"] .v-lang-select {
 .koulchi-tile-off {
   position: absolute;
   top: 0.45rem;
-  left: 0.45rem;
+  inset-inline-start: 0.45rem;
   padding: 0.26rem 0.5rem;
   border-radius: 10px 10px 10px 2px;
   background: linear-gradient(135deg, var(--promo-orange), var(--promo-red));
@@ -3182,7 +3191,7 @@ html[dir="rtl"] .v-lang-select {
     flex: 0 0 auto;
     object-fit: contain;
     border-radius: 8px;
-    margin-right: 0.55rem;
+    margin-inline-end: 0.55rem;
     background: #fffdf6;
     box-shadow: 0 2px 6px -3px rgba(120, 88, 20, 0.45);
 }
@@ -3241,7 +3250,7 @@ html[lang="ar"] #langSelect { background-image: url("/assets/flag-ma.svg"); }
     .logo-img {
         width: 26px;
         height: 26px;
-        margin-right: 0.35rem;
+        margin-inline-end: 0.35rem;
         border-radius: 6px;
     }
     .logo-text {
@@ -3354,6 +3363,199 @@ html[lang="ar"] #langSelect { background-image: url("/assets/flag-ma.svg"); }
     opacity: 0.85;
     text-decoration: none;
 }
+/* ============================================================
+   19. CORRECTIFS AUDIT 2026-11-20
+       CLS — CONTRASTES — CIBLES TACTILES — RTL — TYPOGRAPHIE AR
+   ------------------------------------------------------------
+   Bloc ADDITIF (chargé après style.css). Aucune règle existante
+   n'est supprimée : on surcharge uniquement ce qui a échoué aux
+   mesures réelles (Playwright / calcul de contraste WCAG 2.2).
+   ============================================================ */
+
+/* ---------- 19.1 Fallbacks métriques : supprime le CLS ----------
+   Cause mesurée : au chargement de Inter/Playfair, le texte du hero
+   changeait de métriques et déplaçait .hero-actions de 42 px
+   (CLS 0,229 à 0,488). Ces @font-face locales reproduisent les
+   métriques des webfonts : le swap ne provoque plus de reflow. */
+@font-face {
+  font-family: 'Inter Fallback';
+  src: local('Arial');
+  size-adjust: 107%;
+  ascent-override: 90%;
+  descent-override: 22.5%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: 'Playfair Fallback';
+  src: local('Georgia');
+  size-adjust: 96%;
+  ascent-override: 92%;
+  descent-override: 24%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: 'Cairo Fallback';
+  src: local('Tahoma');
+  size-adjust: 100%;
+  ascent-override: 92%;
+  descent-override: 22%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: 'Amiri Fallback';
+  src: local('Times New Roman');
+  size-adjust: 98%;
+  ascent-override: 95%;
+  descent-override: 25%;
+  line-gap-override: 0%;
+}
+
+/* Réserve la hauteur du hero : les boutons ne poussent plus le
+   contenu quand la police arrive en retard. */
+.hero-content {
+  contain: layout;
+}
+.hero-actions {
+  min-height: 48px;
+}
+.hero-actions .btn-primary,
+.hero-actions .btn-ghost {
+  min-height: 48px;
+}
+@media (max-width: 600px) {
+  .hero-actions {
+    min-height: 104px; /* deux boutons empilés */
+  }
+}
+
+/* ---------- 19.2 Boutons : contraste AA garanti ----------
+   Blanc sur #8a6a24 = 5,04:1 (AA). L'ancien dégradé partait de
+   #a57b2e (3,84:1) : le libellé échouait sur la moitié du bouton. */
+.btn-primary {
+  background: linear-gradient(135deg, var(--btn-gold-from, #8a6a24), var(--btn-gold-to, #5f4315));
+}
+.btn-primary:hover,
+.btn-primary:focus-visible {
+  background: linear-gradient(135deg, #6f5219, #4b340f);
+}
+.btn-ghost {
+  color: var(--gold-text, #6f5219);
+}
+
+/* ---------- 19.3 Cibles tactiles >= 44 px ----------
+   Mesures avant : #langSelect 64x19, .btn-account 40x35,
+   .banner-nav 28x28, .favorite-btn 26x26. */
+select#langSelect,
+.legal-lang-select,
+.login-lang-select,
+.v-lang-select,
+#langSelect {
+  min-height: 44px;
+  min-width: 84px;
+  font-size: 0.9rem;
+}
+.btn-account {
+  min-height: 44px;
+  min-width: 44px;
+}
+.banner-nav {
+  width: 44px;
+  height: 44px;
+}
+.blog-article-close {
+  width: 44px;
+  height: 44px;
+}
+@media (max-width: 480px) {
+  .favorite-btn {
+    width: 44px;
+    height: 44px;
+    font-size: 1.05rem;
+  }
+  .badge {
+    font-size: 0.75rem;
+  }
+  .flash-card-countdown {
+    font-size: 0.75rem;
+  }
+  .btn-add-to-cart {
+    font-size: 0.8125rem;
+    padding: 0.5rem 0.6rem;
+    min-height: 40px;
+  }
+}
+
+/* ---------- 19.4 RTL : miroir des éléments positionnés ----------
+   Les déclarations left/right physiques ne s'inversent pas seules.
+   On rétablit la symétrie en logique (inset-inline-*). */
+html[dir="rtl"] .favorite-btn {
+  right: auto !important;
+  inset-inline-end: 0.5rem;
+}
+html[dir="rtl"] .badge {
+  left: auto !important;
+  inset-inline-start: 0.35rem;
+}
+html[dir="rtl"] .blog-article-close {
+  right: auto !important;
+  inset-inline-end: 0.6rem;
+}
+html[dir="rtl"] .flash-item-pct,
+html[dir="rtl"] .koulchi-tile-off {
+  left: auto !important;
+  inset-inline-start: 0.45rem;
+}
+html[dir="rtl"] .banner-item {
+  margin-right: 0 !important;
+  margin-inline-end: 12px;
+}
+html[dir="rtl"] .p-price small,
+html[dir="rtl"] .cart-delivery-delay {
+  margin-left: 0 !important;
+  margin-inline-start: 0.35rem;
+}
+
+/* ---------- 19.5 Typographie arabe ----------
+   Inter ne contient AUCUN glyphe arabe : le corps retombait sur la
+   police système (rendu différent selon iOS/Android/Windows).
+   Cairo est désormais explicitement appliqué au corps, Amiri aux
+   titres avec un interlignage sûr (1,55) : l'ancien 1,07 rognait
+   les ascendantes de l'Amiri. */
+html[lang="ar"] body,
+html[dir="rtl"] body {
+  font-family: 'Cairo', 'Cairo Fallback', 'Noto Sans Arabic', system-ui, -apple-system, sans-serif;
+  line-height: 1.85;
+  letter-spacing: 0;
+}
+html[dir="rtl"] h1,
+html[dir="rtl"] h2,
+html[dir="rtl"] h3,
+html[dir="rtl"] .hero-title,
+html[dir="rtl"] .product-title,
+html[dir="rtl"] .footer-logo {
+  font-family: 'Amiri', 'Amiri Fallback', 'Cairo', Georgia, serif;
+  line-height: 1.55;
+  padding-block: 0.12em;
+  letter-spacing: 0;
+}
+html[dir="rtl"] .hero-title {
+  line-height: 1.6;
+}
+
+/* ---------- 19.6 Plancher de lisibilité ----------
+   ~100 déclarations étaient sous 0,85rem (9,6 à 13,4 px), illisibles
+   en plein soleil sur mobile. */
+@media (max-width: 600px) {
+  .product-desc,
+  .product-features-list li,
+  .trust-item,
+  .footer-legal-links a,
+  .product-category,
+  .product-vendor-label {
+    font-size: 0.8125rem; /* 13 px minimum */
+  }
+}
+
 
 .login-footer .footer-legal-links a:hover,
 .login-footer .footer-legal-links a:focus-visible {

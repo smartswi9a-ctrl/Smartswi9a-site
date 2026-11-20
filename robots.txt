@@ -26,7 +26,12 @@ Disallow: /panier
 Disallow: /panier.html
 
 # Dossier technique JS
-Disallow: /js/
+# CORRECTIF AUDIT 2026-11-20 : `Disallow: /js/` empêchait Googlebot de
+# télécharger le JavaScript qui rend TOUT le catalogue (produits, avis,
+# filtres). Résultat : une page d'accueil vide aux yeux du robot.
+# Le JS est désormais crawlable ; le CSS aussi (rendu complet).
+Allow: /js/
+Allow: /css/
 
 # Sourcemaps (si présentes)
 Disallow: /assets/*.map

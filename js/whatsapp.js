@@ -74,9 +74,26 @@ function formatVariantLabel(variant) {
   return parts.length > 0 ? parts.join(" / ") : "";
 }
 
-/* ============================================================ COMMANDER UN PRODUIT VIA WHATSAPP ============================================================ */
+/* ============================================================
+   DEMANDER UN CONSEIL SUR UN PRODUIT (WhatsApp = SUPPORT)
+   ------------------------------------------------------------
+   Correctif audit 2026-11-20 — DÉCISION PRODUIT :
+   l'achat est OBLIGATOIREMENT lié à un compte client (voir
+   js/cart.js createOrder + functions createCustomerOrder qui
+   exigent un jeton Firebase). WhatsApp n'est plus un canal de
+   commande : il sert au contact, au support et aux demandes
+   d'information. Le message ne contient donc PLUS de formulaire
+   nom/téléphone/adresse qui laissait croire à une commande.
+   Le nom exporté est conservé pour ne casser aucun appel existant.
+   ============================================================ */
 
-/** * Ouvre WhatsApp avec un message pré-rempli pour commander un * produit (avec variante optionnelle). * * @param {number|string} productId * @param {{ size?: string, color?: string, price?: number } | null} [variant=null] * @returns {Promise<void>} */
+/**
+ * Ouvre WhatsApp avec une DEMANDE D'INFORMATION sur un produit.
+ * Ce n'est pas une commande : aucun champ de livraison n'est demandé.
+ * @param {number|string} productId
+ * @param {{ size?: string, color?: string, price?: number } | null} [variant=null]
+ * @returns {Promise<void>}
+ */
 export async function orderViaWhatsApp(productId, variant = null) {
   const pid = normalizeProductId(productId);
   if (pid == null) {
@@ -131,7 +148,7 @@ export async function orderViaWhatsApp(productId, variant = null) {
 
   const variantLabel = formatVariantLabel(variant);
 
-  let msg = `*${t("waNewOrder")}*\n\n`;
+  let msg = `*${t("waAskProduct")}*\n\n`;
   msg += `*${t("waProduct")} :* ${name}\n`;
 
   if (variantLabel) {
@@ -143,13 +160,9 @@ export async function orderViaWhatsApp(productId, variant = null) {
     msg += ` (${t("waInstead")} ${oldPrice} ${t("currency")})`;
   }
   msg += `\n${url}\n\n`;
-  msg += `${t("waName")} : \n`;
-  msg += `${t("waPhone")} : \n`;
-  msg += `${t("waAddress")} : \n`;
-  msg += `${t("waCity")} : \n\n`;
   msg += `${t("waThanks")}`;
 
-  await openWhatsAppWithToast(msg, t("waOpenedComplete"));
+  await openWhatsAppWithToast(msg, t("waOpened"));
 }
 
 /* ============================================================ SUPPORT CLIENT (chat direct) ============================================================ */

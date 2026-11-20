@@ -40,9 +40,23 @@ body {
     --bg-card: #ffffff;
     --bg-glass: rgba(255, 255, 255, 0.75);
 
-    --gold: #a57b2e;
+    /* ------------------------------------------------------------
+       CORRECTIF AUDIT 2026-11-20 — CONTRASTES WCAG AA
+       Mesures avant correction :
+         #a57b2e sur #f8f6f2 = 3,56:1  -> ECHEC (texte normal)
+         blanc sur #a57b2e   = 3,84:1  -> ECHEC (libelle de bouton)
+       AprÃ¨s correction :
+         #8a6a24 sur #f8f6f2 = 4,67:1  -> AA OK
+         blanc sur #8a6a24   = 5,04:1  -> AA OK
+       --gold-light reste DECORATIF (2,47:1 sur blanc) : ne jamais
+       l'utiliser pour du texte.
+       ------------------------------------------------------------ */
+    --gold: #8a6a24;
     --gold-light: #c99f3e;
+    --gold-text: #6f5219;
     --gold-rgb: 212, 163, 75;
+    --btn-gold-from: #8a6a24;
+    --btn-gold-to: #5f4315;
 
     --return-color: #9b59b6;
     --return-dark: #6c3483;
@@ -63,6 +77,13 @@ body {
     --danger: #b03a2e;
     --warning: #e67e22;
     --info: #3498db;
+
+    /* Variantes TEXTE des couleurs sémantiques (WCAG AA sur fond clair).
+       Les versions ci-dessus restent valables comme FOND ou ICÔNE. */
+    --success-text: #1e7e34;
+    --warning-text: #8a4b00;
+    --danger-text: #962d22;
+    --info-text: #1f6fa8;
 
     --success-bg: rgba(46, 204, 113, 0.1);
     --info-bg: rgba(52, 152, 219, 0.1);
@@ -87,8 +108,11 @@ body {
     --transition-smooth: 0.4s cubic-bezier(0.4, 0, 0.2, 1);
     --transition-spring: 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
 
-    --font-primary: 'Inter', system-ui, -apple-system, sans-serif;
-    --font-secondary: 'Playfair Display', Georgia, serif;
+    /* Les familles « Fallback » sont definies via @font-face avec
+       size-adjust (style-patches.css) : elles reproduisent les metriques
+       de Inter/Playfair et suppriment le CLS au chargement des webfonts. */
+    --font-primary: 'Inter', 'Inter Fallback', system-ui, -apple-system, sans-serif;
+    --font-secondary: 'Playfair Display', 'Playfair Fallback', Georgia, serif;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -249,7 +273,7 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
    ============================================================ */
 #navbar {
     position: fixed;
-    top: 0; left: 0; right: 0;
+    top: 0; inset-inline-start: 0; inset-inline-end: 0;
     height: var(--nav-height);
     background: var(--bg-glass);
     backdrop-filter: blur(12px);
@@ -414,7 +438,7 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
     display: none;
     position: fixed;
     top: var(--nav-height);
-    left: 0; right: 0;
+    inset-inline-start: 0; inset-inline-end: 0;
     background: var(--bg-card);
     border-bottom: 1px solid var(--border);
     padding: 1rem;
@@ -505,7 +529,7 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
 .notification-badge {
     position: absolute;
     top: -3px;
-    right: -3px;
+    inset-inline-end: -3px;
     background: var(--danger);
     color: #ffffff;
     font-size: 0.65rem;
@@ -525,7 +549,7 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
 .cart-btn-float {
     position: fixed;
     bottom: 1.5rem;
-    right: 1.5rem;
+    inset-inline-end: 1.5rem;
     width: 60px;
     height: 60px;
     border-radius: 50%;
@@ -555,7 +579,7 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
 .cart-badge {
     position: absolute;
     top: -4px;
-    right: -4px;
+    inset-inline-end: -4px;
     background: var(--danger);
     color: #ffffff;
     font-size: 0.7rem;
@@ -581,7 +605,7 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
 .back-to-top {
     position: fixed;
     bottom: 5rem;
-    right: 2rem;
+    inset-inline-end: 2rem;
     z-index: 997;
     width: 50px;
     height: 50px;
@@ -678,7 +702,7 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
 .navbar-promo-banner .marquee-text {
     display: inline-block;
     animation: marquee 20s linear infinite;
-    padding-left: 100%;
+    padding-inline-start: 100%;
 }
 
 @keyframes marquee {
@@ -731,7 +755,7 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
     height: 400px;
     background: rgba(var(--gold-rgb), 0.2);
     top: -100px;
-    left: -100px;
+    inset-inline-start: -100px;
 }
 
 .hero-glow.g2 {
@@ -739,7 +763,7 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
     height: 300px;
     background: rgba(var(--gold-rgb), 0.15);
     bottom: -80px;
-    right: -80px;
+    inset-inline-end: -80px;
 }
 
 .hero-content {
@@ -964,7 +988,7 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
 
 .banner-item {
     flex: 0 0 calc(33.333% - 16px);
-    margin-right: 16px;
+    margin-inline-end: 16px;
     background: var(--bg-surface);
     border-radius: var(--radius-sm);
     overflow: hidden;
@@ -1001,7 +1025,7 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
 .banner-item .banner-discount-badge {
     position: absolute;
     top: 0.3rem;
-    left: 0.3rem;
+    inset-inline-start: 0.3rem;
     background: var(--danger);
     color: #ffffff;
     font-size: 0.65rem;
@@ -1162,7 +1186,7 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
 
 .search-icon {
     position: absolute;
-    left: 1rem;
+    inset-inline-start: 1rem;
     top: 50%;
     transform: translateY(-50%);
     color: var(--text-muted);
@@ -1233,7 +1257,7 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
     align-items: center;
     gap: 0.3rem;
     transition: all var(--transition-fast);
-    margin-left: auto;
+    margin-inline-start: auto;
 }
 
 .filter-reset-btn:hover {
@@ -1290,7 +1314,7 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
 .favorite-btn {
     position: absolute;
     top: 0.5rem;
-    right: 0.5rem;
+    inset-inline-end: 0.5rem;
     background: rgba(255, 255, 255, 0.9);
     backdrop-filter: blur(4px);
     -webkit-backdrop-filter: blur(4px);
@@ -1321,7 +1345,7 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
 .badge {
     position: absolute;
     top: 0.5rem;
-    left: 0.5rem;
+    inset-inline-start: 0.5rem;
     padding: 0.2rem 0.6rem;
     border-radius: 50px;
     font-size: 0.6rem;
@@ -2127,7 +2151,7 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
 .modal-close {
     position: absolute;
     top: 0.8rem;
-    right: 0.8rem;
+    inset-inline-end: 0.8rem;
     background: transparent;
     border: 1px solid var(--border);
     width: 36px;
@@ -2189,7 +2213,7 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
     background-repeat: no-repeat;
     background-position: right 1rem center;
     background-size: 20px;
-    padding-right: 2.5rem;
+    padding-inline-end: 2.5rem;
 }
 
 .account-form input[type="date"]::-webkit-calendar-picker-indicator {
@@ -2400,8 +2424,8 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
 .city-suggestions {
     position: absolute;
     top: 100%;
-    left: 0;
-    right: 0;
+    inset-inline-start: 0;
+    inset-inline-end: 0;
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
@@ -2472,8 +2496,8 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
     content: '';
     position: absolute;
     top: 50%;
-    left: 2rem;
-    right: 2rem;
+    inset-inline-start: 2rem;
+    inset-inline-end: 2rem;
     height: 2px;
     background: var(--border);
     z-index: 0;
@@ -2730,7 +2754,7 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
 .review-date {
     font-size: 0.75rem;
     color: var(--text-dim);
-    margin-left: auto;
+    margin-inline-start: auto;
 }
 
 .review-stars {
@@ -3024,7 +3048,7 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
 .abandoned-cart-actions {
     display: flex;
     gap: 0.5rem;
-    margin-left: auto;
+    margin-inline-start: auto;
 }
 
 .btn-abandoned-cart {
@@ -3440,7 +3464,7 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
     display: flex;
     align-items: center;
     gap: 0.3rem;
-    margin-left: auto;
+    margin-inline-start: auto;
 }
 
 .cart-page-qty-btn {
@@ -3847,7 +3871,7 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
 .cart-suggestion-badge {
     position: absolute;
     top: 0.4rem;
-    left: 0.4rem;
+    inset-inline-start: 0.4rem;
     background: var(--danger);
     color: #ffffff;
     font-size: 0.65rem;
@@ -3961,8 +3985,8 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
 
 @media (min-width: 600px) and (max-width: 767px) {
     .cart-page-main {
-        padding-left: 1.2rem;
-        padding-right: 1.2rem;
+        padding-inline-start: 1.2rem;
+        padding-inline-end: 1.2rem;
     }
     .cart-page-grid {
         grid-template-columns: 1fr 320px;
@@ -4131,7 +4155,7 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
     }
     .cart-page-item-actions {
         order: 2;
-        margin-left: 0;
+        margin-inline-start: 0;
     }
     .cart-page-item-linetotal {
         order: 3;
@@ -4140,7 +4164,7 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
     }
     .cart-page-remove-btn {
         order: 4;
-        margin-left: auto;
+        margin-inline-start: auto;
     }
     .cart-page-qty-btn {
         width: 30px;
@@ -4419,14 +4443,14 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
     border-radius: var(--radius-md);
     margin-top: 0.1rem;
     animation: subcategoriesSlideIn 0.25s ease-out;
-    padding-left: 0.9rem;
+    padding-inline-start: 0.9rem;
     position: relative;
 }
 
 .filters-categories-children::before {
     content: '';
     position: absolute;
-    left: 0.4rem;
+    inset-inline-start: 0.4rem;
     top: 0.6rem;
     bottom: 0.6rem;
     width: 2px;
@@ -4462,7 +4486,7 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
 .filter-btn-parent::after {
     content: '▾';
     display: inline-block;
-    margin-left: 0.25rem;
+    margin-inline-start: 0.25rem;
     font-size: 0.65rem;
     opacity: 0.55;
     transition: transform var(--transition-fast), opacity var(--transition-fast);
@@ -4523,7 +4547,7 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
     font-size: 0.65rem;
     font-weight: 700;
     opacity: 0.75;
-    margin-left: 0.15rem;
+    margin-inline-start: 0.15rem;
 }
 
 .filter-btn.active .filter-count {
@@ -4533,7 +4557,7 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
 @media (max-width: 768px) {
     .filters-categories-children {
         padding: 0.5rem 0.6rem;
-        padding-left: 0.8rem;
+        padding-inline-start: 0.8rem;
     }
 
     .filter-btn-child,
@@ -4552,7 +4576,7 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
         scrollbar-width: thin;
         scrollbar-color: var(--gold) transparent;
         padding: 0.5rem 0.6rem;
-        padding-left: 0.8rem;
+        padding-inline-start: 0.8rem;
         mask-image: linear-gradient(90deg, transparent 0%, black 4%, black 96%, transparent 100%);
         -webkit-mask-image: linear-gradient(90deg, transparent 0%, black 4%, black 96%, transparent 100%);
     }
@@ -4587,7 +4611,7 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
 @media (max-width: 400px) {
     .filters-categories-children {
         padding: 0.45rem 0.55rem;
-        padding-left: 0.7rem;
+        padding-inline-start: 0.7rem;
     }
 
     .filter-btn-child,

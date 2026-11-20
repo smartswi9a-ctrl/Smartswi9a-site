@@ -25,6 +25,7 @@ import {
   getProductVendorLabelSync,
 } from "./vendor-attribution.js";
 import { normalizeProductId } from "./domain/product-id.js";
+import { buildCanonicalUrl, applySeoLinks } from "./seo.js";
 import { isKoulchiEligible, isKoulchiBlockedByFlash, KOULCHI_TIERS } from "./koulchi.js";
 
 /* ============================================================ HELPERS LOCAUX ============================================================ */
@@ -124,6 +125,19 @@ export async function renderProductDetail() {
 
 /* ============================================================ PRODUIT NON TROUVÉ ============================================================ */
 function renderNotFound(mainEl) {
+  /* CORRECTIF AUDIT 2026-11-20 — SOFT 404 :
+     /produit?slug=inexistant répondait HTTP 200 avec « index, follow ».
+     Google indexait donc des fiches fantômes. On désindexe la page et
+     on retire un éventuel JSON-LD produit devenu obsolète. */
+  try {
+    setMeta("name", "robots", "noindex, follow");
+    document.getElementById("product-schema-ld")?.remove();
+    /* Le libellé productPageTitle contient déjà la marque : pas de
+       concaténation supplémentaire (évite « … | Smartswika | Smartswika »). */
+    document.title = t("productPageTitle") || "Produit | Smartswika";
+  } catch (e) {
+    /* non bloquant */
+  }
   mainEl.innerHTML = ` <div style="text-align:center;padding:4rem 1rem;"> <div style="font-size:4rem;margin-bottom:1rem;">🔍</div> <h1 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;">${t( "productNotFound" )}</h1> <p style="color:var(--text-muted);margin-bottom:2rem;">${t( "noProductsFound" )}</p> <a href="/" class="btn-primary">← ${t("productBreadcrumbHome")}</a> </div> `;
 }
 
@@ -133,7 +147,10 @@ function updateMetaTags(product) {
   const desc = getProductDesc(product);
   const rawImg = getProductImageUrl(product);
   const img = typeof rawImg === "string" ? rawImg : "";
-  const url = window.location.href;
+  /* CORRECTIF AUDIT 2026-11-20 : `window.location.href` embarquait les
+     paramètres marketing (utm_*, fbclid...) dans le canonical. On
+     reconstruit une URL propre, cohérente avec les hreflang. */
+  const url = buildCanonicalUrl();
   const isAbsolute = /^https?:\/\//i.test(img);
   const absoluteImg = isAbsolute
     ? img
@@ -156,13 +173,8 @@ function updateMetaTags(product) {
   setMeta("name", "twitter:title", name);
   setMeta("name", "twitter:image", absoluteImg);
 
-  let canonical = document.querySelector('link[rel="canonical"]');
-  if (!canonical) {
-    canonical = document.createElement("link");
-    canonical.rel = "canonical";
-    document.head.appendChild(canonical);
-  }
-  canonical.href = url;
+  /* Canonical + hreflang fr/ar/en/x-default, cohérents entre eux. */
+  applySeoLinks(url);
 
   const schemaId = "product-schema-ld";
   let schemaEl = document.getElementById(schemaId);
@@ -172,13 +184,23 @@ function updateMetaTags(product) {
     schemaEl.type = "application/ld+json";
     document.head.appendChild(schemaEl);
   }
+  /* Marque : le vendeur réel quand il existe, sinon Smartswika. */
+  let brandName = "Smartswika";
+  try {
+    const vendor = getProductVendorLabelSync(product);
+    if (vendor && vendor.type === "vendor" && vendor.name) brandName = vendor.name;
+  } catch (e) {
+    /* non bloquant */
+  }
+  const shipping = Number(product.shippingCost) || 0;
   schemaEl.textContent = JSON.stringify({
     "@context": "https://schema.org",
     "@type": "Product",
     name: name,
     description: desc,
     image: absoluteImg,
-    brand: { "@type": "Brand", name: "Smartswika" },
+    sku: String(product.sku || product.id || ""),
+    brand: { "@type": "Brand", name: brandName },
     offers:
       product.price > 0
         ? {
@@ -189,7 +211,31 @@ function updateMetaTags(product) {
               (product.stock || 0) > 0
                 ? "https://schema.org/InStock"
                 : "https://schema.org/OutOfStock",
+            itemCondition: "https://schema.org/NewCondition",
             url: url,
+            shippingDetails: {
+              "@type": "OfferShippingDetails",
+              shippingRate: {
+                "@type": "MonetaryAmount",
+                value: String(shipping),
+                currency: "MAD",
+              },
+              deliveryTime: {
+                "@type": "ShippingDeliveryTime",
+                handlingTime: {
+                  "@type": "QuantitativeValue",
+                  minValue: 0,
+                  maxValue: 1,
+                  unitCode: "DAY",
+                },
+                transitTime: {
+                  "@type": "QuantitativeValue",
+                  minValue: 1,
+                  maxValue: 3,
+                  unitCode: "DAY",
+                },
+              },
+            },
           }
         : undefined,
     aggregateRating: product.ratingAvg
