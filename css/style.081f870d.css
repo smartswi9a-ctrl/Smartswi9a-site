@@ -725,9 +725,15 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
     aspect-ratio: 21/9;
     max-height: 38vh;
     object-fit: cover;
-    border-radius: var(--radius-lg);
+    border-radius: 20px;
     box-shadow: var(--shadow-md);
     display: block;
+}
+
+@media (max-width: 600px) {
+    .responsive-hero-image {
+        border-radius: 14px;
+    }
 }
 
 /* ============================================================
@@ -1278,7 +1284,7 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
 .product-card {
     background: var(--bg-surface);
     border: 1px solid var(--border);
-    border-radius: var(--radius-md);
+    border-radius: 14px;
     overflow: hidden;
     transition: transform var(--transition-fast), box-shadow var(--transition-fast);
     cursor: pointer;

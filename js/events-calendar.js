@@ -38,7 +38,7 @@ export const THEME_CONFIG_PATH = { collection: "config", doc: "theme" };
  * l'afficher pendant 24 h après un remplacement de fichier.
  * À INCRÉMENTER dès que les WebP sont régénérés.
  */
-export const ASSETS_VERSION = "2";
+export const ASSETS_VERSION = "3";
 
 /**
  * URL d'un visuel d'événement, avec cache-busting.
@@ -51,10 +51,20 @@ export function eventImageUrl(event) {
 }
 
 /**
+ * URL du cadre décoratif transparent de l'événement, avec cache-busting.
+ * @param {object} event
+ * @returns {string}
+ */
+export function eventFrameUrl(event) {
+  if (!event || !event.frame) return "";
+  return `${event.frame}?v=${ASSETS_VERSION}`;
+}
+
+/**
  * Les 8 événements, dans l'ordre chronologique.
  * Les offsets sont explicites : +01:00 (heure normale du Maroc) et
  * +00:00 pendant le Ramadan 2027, conformément au calendrier fourni.
- * @type {ReadonlyArray<{id:string,start:string,end:string,image:string,label:object,accent:string}>}
+ * @type {ReadonlyArray<{id:string,start:string,end:string,image:string,frame:string,label:object,accent:string}>}
  */
 export const EVENTS = Object.freeze([
   {
@@ -62,6 +72,7 @@ export const EVENTS = Object.freeze([
     start: "2026-11-30T00:00:00+01:00",
     end: "2027-01-02T06:00:00+01:00",
     image: "/assets/hero-christmas.webp",
+    frame: "/assets/frame-christmas.webp",
     accent: "#a57b2e",
     label: { fr: "Noël & fin d'année", en: "Christmas & year-end", ar: "عيد الميلاد ونهاية السنة" },
   },
@@ -70,6 +81,7 @@ export const EVENTS = Object.freeze([
     start: "2027-01-15T00:00:00+01:00",
     end: "2027-02-03T23:59:59+01:00",
     image: "/assets/hero-winter-sales.webp",
+    frame: "/assets/frame-winter-sales.webp",
     accent: "#1e6bff",
     label: { fr: "Soldes d'Hiver", en: "Winter Sales", ar: "تخفيضات الشتاء" },
   },
@@ -78,6 +90,7 @@ export const EVENTS = Object.freeze([
     start: "2027-02-04T00:00:00+01:00",
     end: "2027-03-06T23:59:59+00:00",
     image: "/assets/hero-ramadan.webp",
+    frame: "/assets/frame-ramadan.webp",
     accent: "#c9a227",
     label: { fr: "Ramadan 2027", en: "Ramadan 2027", ar: "رمضان 2027" },
   },
@@ -86,6 +99,7 @@ export const EVENTS = Object.freeze([
     start: "2027-03-07T00:00:00+00:00",
     end: "2027-03-13T06:00:00+01:00",
     image: "/assets/hero-eid-fitr.webp",
+    frame: "/assets/frame-eid-fitr.webp",
     accent: "#0f8a5f",
     label: { fr: "Aïd al-Fitr", en: "Eid al-Fitr", ar: "عيد الفطر" },
   },
@@ -94,6 +108,7 @@ export const EVENTS = Object.freeze([
     start: "2027-05-07T00:00:00+01:00",
     end: "2027-05-20T06:00:00+01:00",
     image: "/assets/hero-eid-adha.webp",
+    frame: "/assets/frame-eid-adha.webp",
     accent: "#c47b1f",
     label: { fr: "Aïd al-Adha", en: "Eid al-Adha", ar: "عيد الأضحى" },
   },
@@ -102,6 +117,7 @@ export const EVENTS = Object.freeze([
     start: "2027-07-01T00:00:00+01:00",
     end: "2027-07-31T23:59:59+01:00",
     image: "/assets/hero-summer-sales.webp",
+    frame: "/assets/frame-summer-sales.webp",
     accent: "#ff7a1a",
     label: { fr: "Soldes d'Été", en: "Summer Sales", ar: "تخفيضات الصيف" },
   },
@@ -110,6 +126,7 @@ export const EVENTS = Object.freeze([
     start: "2027-08-25T00:00:00+01:00",
     end: "2027-09-15T23:59:59+01:00",
     image: "/assets/hero-back-to-school.webp",
+    frame: "/assets/frame-back-to-school.webp",
     accent: "#1b4fd8",
     label: { fr: "Rentrée scolaire", en: "Back to School", ar: "الدخول المدرسي" },
   },
@@ -118,6 +135,7 @@ export const EVENTS = Object.freeze([
     start: "2027-11-20T00:00:00+01:00",
     end: "2027-11-29T23:59:59+01:00",
     image: "/assets/hero-black-friday.webp",
+    frame: "/assets/frame-black-friday.webp",
     accent: "#c8102e",
     label: { fr: "Black Friday", en: "Black Friday", ar: "الجمعة السوداء" },
   },
@@ -277,6 +295,8 @@ const STATE = {
   timer: null,
   preview: null,
   started: false,
+  frameEl: null,
+  garlandEl: null,
 };
 
 /** Photos mémorisées au premier passage (zéro destruction). */
@@ -332,6 +352,136 @@ function preloadImage(src) {
   }
 }
 
+/* ---------- Cadre décoratif transparent superposé au hero ---------- */
+
+const FRAME_CLASS = "event-frame";
+const GARLAND_CLASS = "event-garland";
+
+/** Conteneur du hero (null si la page ne contient pas de bannière). */
+function heroWrapper() {
+  const img = document.querySelector(".responsive-hero-image");
+  return img ? img.closest(".newphoto-banner-wrapper") : null;
+}
+
+/**
+ * Boîte média qui épouse EXACTEMENT l'image (sans le padding 1rem du
+ * wrapper). Le cadre absolu s'aligne ainsi sur les bords de la photo
+ * + 12px, et non sur le padding du conteneur.
+ */
+function heroMedia() {
+  const wrapper = heroWrapper();
+  if (!wrapper) return null;
+  let media = wrapper.querySelector(".event-hero-media");
+  if (media) return media;
+  const img = wrapper.querySelector(".responsive-hero-image");
+  if (!img) return null;
+  media = document.createElement("div");
+  media.className = "event-hero-media";
+  img.parentNode.insertBefore(media, img);
+  media.appendChild(img);
+  return media;
+}
+
+/** Remet l'image directement dans le wrapper (zéro destruction). */
+function unwrapHeroMedia() {
+  const media = document.querySelector(".event-hero-media");
+  if (!media || !media.parentNode) return;
+  const img = media.querySelector(".responsive-hero-image");
+  const parent = media.parentNode;
+  if (img) parent.insertBefore(img, media);
+  parent.removeChild(media);
+}
+
+/** Retire le cadre de l'événement précédent. */
+function removeFrame() {
+  if (STATE.frameEl && STATE.frameEl.parentNode) {
+    STATE.frameEl.parentNode.removeChild(STATE.frameEl);
+  }
+  STATE.frameEl = null;
+}
+
+/**
+ * Superpose `frame-<event>.webp` sur la bannière.
+ * Le cadre est purement décoratif : `pointer-events: none` (CSS) et
+ * `aria-hidden`, aucun texte, aucun écouteur.
+ */
+function mountFrame(event) {
+  const media = heroMedia();
+  const src = eventFrameUrl(event);
+  if (!media || !src) {
+    removeFrame();
+    return;
+  }
+
+  let img = media.querySelector("." + FRAME_CLASS);
+  if (!img) {
+    img = document.createElement("img");
+    img.className = FRAME_CLASS;
+    img.alt = "";
+    img.setAttribute("aria-hidden", "true");
+    img.decoding = "async";
+    img.draggable = false;
+    media.appendChild(img);
+  }
+  if (img.getAttribute("src") !== src) img.setAttribute("src", src);
+  img.setAttribute("data-event-frame", event.id);
+  STATE.frameEl = img;
+}
+
+/* ---------- Guirlande LED animée (Noël uniquement) ---------- */
+
+const BULB_COUNT = 25;
+const GARLAND_SVG_NS = "http://www.w3.org/2000/svg";
+/* 4 festons : points hauts y=4, points bas y=22 (cf. courbe quadratique). */
+const GARLAND_PATH = "M0 4 Q150 40 300 4 Q450 40 600 4 Q750 40 900 4 Q1050 40 1200 4";
+
+/** Retire la guirlande (changement d'événement ou retour à l'original). */
+function removeGarland() {
+  if (STATE.garlandEl && STATE.garlandEl.parentNode) {
+    STATE.garlandEl.parentNode.removeChild(STATE.garlandEl);
+  }
+  STATE.garlandEl = null;
+  const navbar = document.getElementById("navbar");
+  if (navbar) navbar.removeAttribute("data-garland");
+}
+
+/** Construit la guirlande : fil festonné SVG + ampoules LED en cascade. */
+function mountGarland() {
+  if (STATE.garlandEl) return;
+  const nav = document.getElementById("navbar");
+  if (!nav) return;
+
+  const garland = document.createElement("div");
+  garland.className = GARLAND_CLASS;
+  garland.setAttribute("aria-hidden", "true");
+
+  const svg = document.createElementNS(GARLAND_SVG_NS, "svg");
+  svg.setAttribute("class", "event-garland__wire");
+  svg.setAttribute("viewBox", "0 0 1200 44");
+  svg.setAttribute("preserveAspectRatio", "none");
+  svg.setAttribute("focusable", "false");
+  const path = document.createElementNS(GARLAND_SVG_NS, "path");
+  path.setAttribute("d", GARLAND_PATH);
+  svg.appendChild(path);
+  garland.appendChild(svg);
+
+  for (let i = 0; i < BULB_COUNT; i += 1) {
+    const bulb = document.createElement("span");
+    bulb.className = "event-garland__bulb" + (i % 2 ? " is-alt" : "");
+    const x = (i / (BULB_COUNT - 1)) * 100;
+    const phase = (i / 6) % 1; /* 4 festons de 6 intervalles */
+    const y = ((4 + 18 * Math.sin(Math.PI * phase)) / 44) * 100;
+    bulb.style.setProperty("--x", x.toFixed(3) + "%");
+    bulb.style.setProperty("--y", y.toFixed(3) + "%");
+    bulb.style.setProperty("--d", ((i % 12) * 0.12).toFixed(2) + "s");
+    garland.appendChild(bulb);
+  }
+
+  nav.appendChild(garland);
+  nav.setAttribute("data-garland", "christmas");
+  STATE.garlandEl = garland;
+}
+
 /* Aucun texte n'est ajouté à la page : les titres d'événement sont déjà
    intégrés DANS les visuels. L'ancien badge `.event-badge` a été supprimé
    (demande client du 2026-11-20) : rien ne doit se superposer aux images. */
@@ -353,11 +503,18 @@ function applyState(event) {
     html.removeAttribute("data-event");
     html.style.removeProperty("--ev-accent");
     restoreHero();
+    removeFrame();
+    unwrapHeroMedia();
+    removeGarland();
   } else {
     html.setAttribute("data-event", event.id);
     html.style.setProperty("--ev-accent", event.accent);
     swapHero(event);
+    mountFrame(event);
+    if (event.id === "christmas") mountGarland();
+    else removeGarland();
     preloadImage(eventImageUrl(event));
+    preloadImage(eventFrameUrl(event));
   }
 
   if (previous !== STATE.currentEventId) {
@@ -449,7 +606,10 @@ export async function initEventsCalendar(options = {}) {
   const next = nextTransitionAt(STATE.preview || new Date());
   if (next) {
     const nextEvent = getEventById(next.eventId);
-    if (nextEvent) preloadImage(eventImageUrl(nextEvent));
+    if (nextEvent) {
+      preloadImage(eventImageUrl(nextEvent));
+      preloadImage(eventFrameUrl(nextEvent));
+    }
   }
 
   return activeId;

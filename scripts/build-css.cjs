@@ -48,6 +48,7 @@ const SOURCES = [
   { src: "style.css", out: "style" },
   { src: "style-patches.css", out: "style-patches" },
   { src: "css/legal.css", out: "legal" },
+  { src: "events.css", out: "events" },
 ];
 
 /* Nom de base utilise dans /css/<base>.<hash>.css pour une source. */
@@ -212,7 +213,7 @@ const keep = new Set(Object.values(mapping));
 const removed = [];
 
 for (const file of fs.readdirSync(CSS_DIR)) {
-  if (!/^(style(-patches)?|legal)\.[0-9a-f]{8}\.css$/.test(file)) continue;
+  if (!/^(style(-patches)?|legal|events)\.[0-9a-f]{8}\.css$/.test(file)) continue;
   if (keep.has(file)) continue;
   if (!DRY) fs.unlinkSync(path.join(CSS_DIR, file));
   removed.push(file);

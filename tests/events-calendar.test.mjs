@@ -18,8 +18,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  ASSETS_VERSION,
   EVENTS,
   FORCE_NONE,
+  eventFrameUrl,
   getEventById,
   getEventLabel,
   nextTransitionAt,
@@ -66,6 +68,24 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 check(
   "chaque image existe dans le dossier assets",
   EVENTS.every((event) => fs.existsSync(path.join(ROOT, event.image.replace(/^\//, ""))))
+);
+
+check(
+  "cadres au format /assets/frame-<id>.webp",
+  EVENTS.every((event) => event.frame === `/assets/frame-${event.id}.webp`)
+);
+check(
+  "chaque cadre existe dans le dossier assets",
+  EVENTS.every((event) => fs.existsSync(path.join(ROOT, event.frame.replace(/^\//, ""))))
+);
+check(
+  "URL de cadre versionnee (?v=ASSETS_VERSION)",
+  eventFrameUrl(EVENTS[0]) === `${EVENTS[0].frame}?v=${ASSETS_VERSION}`,
+  eventFrameUrl(EVENTS[0])
+);
+check(
+  "Saint-Valentin absente du calendrier",
+  !EVENTS.some((event) => /valentin|saint-valentin/i.test(event.id + JSON.stringify(event.label)))
 );
 
 /* ---------- 2 bis. Dimensions EXACTES de newphoto.webp ---------- */
