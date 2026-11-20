@@ -192,6 +192,126 @@
     "vendor.signup.transitionFailed":
       "⚠️ Account created and contract signed, but profile sync failed. Complete from the dashboard.",
   });
+  /* --- ENGLISH : stock / pickup --- */
+  Object.assign(window.translations.en, {
+    "vendor.pickup.notConfiguredTitle": "Logistics mode not configured",
+    "vendor.pickup.notConfiguredBody": "Contact the administration to enable Smart Swika warehouse mode.",
+    "vendor.pickup.status.pending": "⏳ Pending admin approval",
+    "vendor.pickup.status.approved": "✅ Approved — stock received",
+    "vendor.pickup.status.rejected": "❌ Rejected",
+    "vendor.pickup.printLabels": "🖨️ Print labels ({count})",
+    "vendor.pickup.desiredDate": "Requested date: {date}",
+    "vendor.pickup.empty": "No request yet.",
+    "vendor.pickup.title": "📦 Pickup to the Smart Swika warehouse",
+    "vendor.pickup.intro": "Declare the products and quantities you will hand over to Smart Swika. One line = one variant (size / color), with its own SKU. After admin approval the stock is received at the warehouse; you can then create the product sheet.",
+    "vendor.pickup.introStrong": "No product can be added before this approval.",
+    "vendor.pickup.myRequests": "My requests",
+    "vendor.pickup.newRequest": "New pickup request",
+    "vendor.pickup.addProduct": "＋ Add a product",
+    "vendor.pickup.dateLabel": "Preferred pickup date (DD/MM/YYYY) *",
+    "vendor.pickup.commentLabel": "Comment (optional)",
+    "vendor.pickup.commentPlaceholder": "Address, time, access...",
+    "vendor.pickup.submit": "Send the request to Smart Swika",
+    "vendor.pickup.sending": "Sending...",
+    "vendor.pickup.namePlaceholder": "Product name",
+    "vendor.pickup.qtyPlaceholder": "Qty",
+    "vendor.pickup.sizePlaceholder": "Size",
+    "vendor.pickup.colorPlaceholder": "Color",
+    "vendor.pickup.removeRow": "Remove",
+    "vendor.pickup.errNoItem": "Add at least one product.",
+    "vendor.pickup.errQty": "Enter a valid quantity for each product.",
+    "vendor.pickup.errDate": "Invalid date: DD/MM/YYYY format, not in the past.",
+    "vendor.pickup.errGeneric": "Error: {message}",
+    "vendor.pickup.sent": "Pickup request sent. Pending admin approval.",
+    "vendor.pickup.labelsNotApproved": "Labels are available only after admin approval.",
+    "vendor.pickup.labelsEmpty": "No unit received: no label to print.",
+    "vendor.pickup.labelFooter": "Smart Swika — warehouse",
+    "vendor.pickup.productFallback": "Product"
+  });
+
+
+  /* --- ARABE : stock / ramassage --- */
+  Object.assign(window.translations.ar, {
+    "vendor.pickup.notConfiguredTitle": "وضع اللوجستيك غير مُهيّأ",
+    "vendor.pickup.notConfiguredBody": "اتصل بالإدارة لتفعيل وضع مخزن Smart Swika.",
+    "vendor.pickup.status.pending": "⏳ في انتظار مصادقة الإدارة",
+    "vendor.pickup.status.approved": "✅ مقبول — تم استلام المخزون",
+    "vendor.pickup.status.rejected": "❌ مرفوض",
+    "vendor.pickup.printLabels": "🖨️ طباعة الملصقات ({count})",
+    "vendor.pickup.desiredDate": "التاريخ المطلوب: {date}",
+    "vendor.pickup.empty": "لا يوجد أي طلب حالياً.",
+    "vendor.pickup.title": "📦 جمع الشحنة إلى مخزن Smart Swika",
+    "vendor.pickup.intro": "صرّح بالمنتجات والكميات التي ستُسلّم إلى Smart Swika. كل سطر = متغيّر واحد (المقاس / اللون) برمز SKU خاص به. بعد مصادقة الإدارة يُستلم المخزون في المخزن، وبعدها يمكنك إنشاء بطاقة المنتج.",
+    "vendor.pickup.introStrong": "لا يمكن إضافة أي منتج قبل هذه الموافقة.",
+    "vendor.pickup.myRequests": "طلباتي",
+    "vendor.pickup.newRequest": "طلب جمع جديد",
+    "vendor.pickup.addProduct": "＋ إضافة منتج",
+    "vendor.pickup.dateLabel": "تاريخ الجمع المطلوب (JJ/MM/AAAA) *",
+    "vendor.pickup.commentLabel": "ملاحظة (اختياري)",
+    "vendor.pickup.commentPlaceholder": "العنوان، التوقيت، الوصول...",
+    "vendor.pickup.submit": "إرسال الطلب إلى Smart Swika",
+    "vendor.pickup.sending": "جارٍ الإرسال...",
+    "vendor.pickup.namePlaceholder": "اسم المنتج",
+    "vendor.pickup.qtyPlaceholder": "الكمية",
+    "vendor.pickup.sizePlaceholder": "المقاس",
+    "vendor.pickup.colorPlaceholder": "اللون",
+    "vendor.pickup.removeRow": "حذف",
+    "vendor.pickup.errNoItem": "أضف منتجاً واحداً على الأقل.",
+    "vendor.pickup.errQty": "أدخل كمية صحيحة لكل منتج.",
+    "vendor.pickup.errDate": "تاريخ غير صالح: الصيغة JJ/MM/AAAA، ويجب ألا يكون في الماضي.",
+    "vendor.pickup.errGeneric": "خطأ: {message}",
+    "vendor.pickup.sent": "تم إرسال طلب الجمع. في انتظار مصادقة الإدارة.",
+    "vendor.pickup.labelsNotApproved": "الملصقات متاحة فقط بعد مصادقة الإدارة.",
+    "vendor.pickup.labelsEmpty": "لم تُستلم أي وحدة: لا يوجد ملصق للطباعة.",
+    "vendor.pickup.labelFooter": "Smart Swika — المخزن",
+    "vendor.pickup.productFallback": "منتج"
+  });
+
+
+  /* ============================================================
+     STOCK / RAMASSAGE (onglet « Stock Fulfillment »)
+     Correctif audit 2026-11-20 : la section était rendue par
+     js/vendor-dashboard.js (renderStock) avec du français codé en
+     dur — donc en français même quand le vendeur choisissait AR/EN.
+     Toutes les chaînes passent désormais par tr()/trParams().
+     ============================================================ */
+  Object.assign(window.translations.fr, {
+    "vendor.pickup.notConfiguredTitle": "Mode logistique non configuré",
+    "vendor.pickup.notConfiguredBody": "Contactez l'administration pour activer le mode entrepôt Smart Swika.",
+    "vendor.pickup.status.pending": "⏳ En attente de validation admin",
+    "vendor.pickup.status.approved": "✅ Approuvée — stock réceptionné",
+    "vendor.pickup.status.rejected": "❌ Refusée",
+    "vendor.pickup.printLabels": "🖨️ Imprimer les étiquettes ({count})",
+    "vendor.pickup.desiredDate": "Date souhaitée : {date}",
+    "vendor.pickup.empty": "Aucune demande pour le moment.",
+    "vendor.pickup.title": "📦 Ramassage vers l'entrepôt Smart Swika",
+    "vendor.pickup.intro": "Déclarez les produits et quantités à remettre à Smart Swika. Une ligne = une variante (taille / couleur), avec son propre SKU. Après validation par l'administration, le stock est réceptionné à l'entrepôt ; vous pourrez alors créer la fiche produit.",
+    "vendor.pickup.introStrong": "Aucun produit ne peut être ajouté avant cette approbation.",
+    "vendor.pickup.myRequests": "Mes demandes",
+    "vendor.pickup.newRequest": "Nouvelle demande de ramassage",
+    "vendor.pickup.addProduct": "＋ Ajouter un produit",
+    "vendor.pickup.dateLabel": "Date de ramassage souhaitée (JJ/MM/AAAA) *",
+    "vendor.pickup.commentLabel": "Commentaire (optionnel)",
+    "vendor.pickup.commentPlaceholder": "Adresse, horaire, accès...",
+    "vendor.pickup.submit": "Envoyer la demande à Smart Swika",
+    "vendor.pickup.sending": "Envoi...",
+    "vendor.pickup.namePlaceholder": "Nom du produit",
+    "vendor.pickup.qtyPlaceholder": "Qté",
+    "vendor.pickup.sizePlaceholder": "Taille",
+    "vendor.pickup.colorPlaceholder": "Couleur",
+    "vendor.pickup.removeRow": "Retirer",
+    "vendor.pickup.errNoItem": "Ajoutez au moins un produit.",
+    "vendor.pickup.errQty": "Indiquez une quantité valide pour chaque produit.",
+    "vendor.pickup.errDate": "Date invalide : format JJ/MM/AAAA, date non passée.",
+    "vendor.pickup.errGeneric": "Erreur : {message}",
+    "vendor.pickup.sent": "Demande de ramassage envoyée. En attente de validation admin.",
+    "vendor.pickup.labelsNotApproved": "Étiquettes disponibles uniquement après approbation admin.",
+    "vendor.pickup.labelsEmpty": "Aucune unité reçue : pas d'étiquette à imprimer.",
+    "vendor.pickup.labelFooter": "Smart Swika — entrepôt",
+    "vendor.pickup.productFallback": "Produit"
+  });
+
+
 
   console.log(
     "✅ translations-vendor.js chargé — v1.0.0 (34 clés × 3 langues)"

@@ -1710,17 +1710,18 @@ function isValidPickupDate(value) {
 async function renderStock(container) {
     const shippingMethod = currentVendor?.vendorInfo?.shippingMethod;
     if (shippingMethod !== 'fulfillment') {
-        container.innerHTML = renderEmptyState('📦', 'Mode logistique non configuré',
-            "Contactez l'administration pour activer le mode entrepôt Smart Swika.");
+        container.innerHTML = renderEmptyState('📦',
+            tr('vendor.pickup.notConfiguredTitle', 'Mode logistique non configuré'),
+            tr('vendor.pickup.notConfiguredBody', "Contactez l'administration pour activer le mode entrepôt Smart Swika."));
         return;
     }
 
     await loadPickupRequests();
 
     const statusLabel = {
-        pending: '⏳ En attente de validation admin',
-        approved: '✅ Approuvée — stock réceptionné',
-        rejected: '❌ Refusée'
+        pending: tr('vendor.pickup.status.pending', '⏳ En attente de validation admin'),
+        approved: tr('vendor.pickup.status.approved', '✅ Approuvée — stock réceptionné'),
+        rejected: tr('vendor.pickup.status.rejected', '❌ Refusée')
     };
     const requestsHtml = cachedPickupRequests.length
         ? cachedPickupRequests.map(r => {
@@ -1730,48 +1731,49 @@ async function renderStock(container) {
                 return `${escapeHTML(i.name)} × ${received} — SKU <strong>${escapeHTML(i.sku || '—')}</strong>`;
             }).join('<br>');
             const totalLabels = items.reduce((s, i) => s + (Number(i.receivedQuantity) || 0), 0);
+            const printLabel = trParams('vendor.pickup.printLabels', { count: totalLabels }, '🖨️ Imprimer les étiquettes ({count})');
             const printBtn = r.status === 'approved' && totalLabels > 0
-                ? `<button type="button" class="v-btn v-btn-secondary" style="margin-top:.5rem;font-size:.8rem;" data-print-labels="${escapeHTML(r.id)}">🖨️ Imprimer les étiquettes (${totalLabels})</button>`
+                ? `<button type="button" class="v-btn v-btn-secondary" style="margin-top:.5rem;font-size:.8rem;" data-print-labels="${escapeHTML(r.id)}">${escapeHTML(printLabel)}</button>`
                 : '';
+            const desiredLabel = trParams('vendor.pickup.desiredDate', { date: String(r.desiredDate || '—') }, 'Date souhaitée : {date}');
             return `<div style="border:1px solid var(--border);border-radius:8px;padding:.6rem;margin-bottom:.5rem;">
                 <strong>${statusLabel[r.status] || escapeHTML(String(r.status || ''))}</strong>
                 <div style="font-size:.82rem;color:var(--text-muted);margin-top:.2rem;">${detail}</div>
-                <div style="font-size:.75rem;color:var(--text-muted);">Date souhaitée : ${escapeHTML(String(r.desiredDate || '—'))}</div>
+                <div style="font-size:.75rem;color:var(--text-muted);">${escapeHTML(desiredLabel)}</div>
                 ${printBtn}
             </div>`;
         }).join('')
-        : '<p style="color:var(--text-muted);margin:0;">Aucune demande pour le moment.</p>';
+        : `<p style="color:var(--text-muted);margin:0;">${escapeHTML(tr('vendor.pickup.empty', 'Aucune demande pour le moment.'))}</p>`;
 
     container.innerHTML = `
         <div class="v-card">
-            <h3 class="v-card-title">📦 Ramassage vers l'entrepôt Smart Swika</h3>
+            <h3 class="v-card-title">${escapeHTML(tr('vendor.pickup.title', "📦 Ramassage vers l'entrepôt Smart Swika"))}</h3>
             <p style="color:var(--text-muted);font-size:.9rem;line-height:1.6;margin:0;">
-                Déclarez les produits et quantités à remettre à Smart Swika. Une ligne = une variante (taille / couleur), avec son propre SKU.
-                Après validation par l'administration, le stock est réceptionné à l'entrepôt ; vous pourrez alors créer la fiche produit.
-                <strong>Aucun produit ne peut être ajouté avant cette approbation.</strong>
+                ${escapeHTML(tr('vendor.pickup.intro', "Déclarez les produits et quantités à remettre à Smart Swika. Une ligne = une variante (taille / couleur), avec son propre SKU. Après validation par l'administration, le stock est réceptionné à l'entrepôt ; vous pourrez alors créer la fiche produit."))}
+                <strong>${escapeHTML(tr('vendor.pickup.introStrong', 'Aucun produit ne peut être ajouté avant cette approbation.'))}</strong>
             </p>
         </div>
 
         <div class="v-card" style="margin-top:1rem;">
-            <h3 class="v-card-title">Mes demandes</h3>
+            <h3 class="v-card-title">${escapeHTML(tr('vendor.pickup.myRequests', 'Mes demandes'))}</h3>
             ${requestsHtml}
         </div>
 
         <div class="v-card" style="margin-top:1rem;">
-            <h3 class="v-card-title">Nouvelle demande de ramassage</h3>
+            <h3 class="v-card-title">${escapeHTML(tr('vendor.pickup.newRequest', 'Nouvelle demande de ramassage'))}</h3>
             <div id="vPickupRows"></div>
-            <button type="button" id="vPickupAddRow" class="v-btn v-btn-secondary" style="margin-top:.5rem;">＋ Ajouter un produit</button>
+            <button type="button" id="vPickupAddRow" class="v-btn v-btn-secondary" style="margin-top:.5rem;">${escapeHTML(tr('vendor.pickup.addProduct', '＋ Ajouter un produit'))}</button>
 
             <div class="v-field" style="margin-top:1rem;">
-                <label class="v-label" for="vPickupDate">Date de ramassage souhaitée (JJ/MM/AAAA) *</label>
+                <label class="v-label" for="vPickupDate">${escapeHTML(tr('vendor.pickup.dateLabel', 'Date de ramassage souhaitée (JJ/MM/AAAA) *'))}</label>
                 <input type="text" id="vPickupDate" class="v-input" inputmode="numeric" placeholder="25/05/2026" maxlength="10" autocomplete="off">
             </div>
             <div class="v-field">
-                <label class="v-label" for="vPickupComment">Commentaire (optionnel)</label>
-                <textarea id="vPickupComment" class="v-input" rows="3" maxlength="500" placeholder="Adresse, horaire, accès..."></textarea>
+                <label class="v-label" for="vPickupComment">${escapeHTML(tr('vendor.pickup.commentLabel', 'Commentaire (optionnel)'))}</label>
+                <textarea id="vPickupComment" class="v-input" rows="3" maxlength="500" placeholder="${escapeHTML(tr('vendor.pickup.commentPlaceholder', 'Adresse, horaire, accès...'))}"></textarea>
             </div>
             <div id="vPickupError" style="color:var(--danger);font-size:.85rem;min-height:1.2rem;"></div>
-            <button type="button" id="vPickupSmartSubmitBtn" class="v-btn v-btn-primary v-btn-block">Envoyer la demande à Smart Swika</button>
+            <button type="button" id="vPickupSmartSubmitBtn" class="v-btn v-btn-primary v-btn-block">${escapeHTML(tr('vendor.pickup.submit', 'Envoyer la demande à Smart Swika'))}</button>
         </div>
     `;
 
@@ -1789,11 +1791,16 @@ function addPickupRow(rows, name = '', qty = '', size = '', color = '') {
     const row = document.createElement('div');
     row.className = 'v-pickup-row';
     row.style.cssText = 'display:grid;grid-template-columns:2fr 70px 75px 85px 36px;gap:.4rem;margin-bottom:.4rem;';
-    row.innerHTML = `<input class="v-input v-pickup-name" type="text" maxlength="120" placeholder="Nom du produit" value="${escapeHTML(name)}">
-        <input class="v-input v-pickup-qty" type="number" min="1" step="1" placeholder="Qté" value="${escapeHTML(String(qty))}">
-        <input class="v-input v-pickup-size" type="text" maxlength="30" placeholder="Taille" value="${escapeHTML(size)}">
-        <input class="v-input v-pickup-color" type="text" maxlength="30" placeholder="Couleur" value="${escapeHTML(color)}">
-        <button type="button" class="v-btn v-btn-secondary" aria-label="Retirer">✕</button>`;
+    const phName = escapeHTML(tr('vendor.pickup.namePlaceholder', 'Nom du produit'));
+    const phQty = escapeHTML(tr('vendor.pickup.qtyPlaceholder', 'Qté'));
+    const phSize = escapeHTML(tr('vendor.pickup.sizePlaceholder', 'Taille'));
+    const phColor = escapeHTML(tr('vendor.pickup.colorPlaceholder', 'Couleur'));
+    const ariaRemove = escapeHTML(tr('vendor.pickup.removeRow', 'Retirer'));
+    row.innerHTML = `<input class="v-input v-pickup-name" type="text" maxlength="120" placeholder="${phName}" value="${escapeHTML(name)}">
+        <input class="v-input v-pickup-qty" type="number" min="1" step="1" placeholder="${phQty}" value="${escapeHTML(String(qty))}">
+        <input class="v-input v-pickup-size" type="text" maxlength="30" placeholder="${phSize}" value="${escapeHTML(size)}">
+        <input class="v-input v-pickup-color" type="text" maxlength="30" placeholder="${phColor}" value="${escapeHTML(color)}">
+        <button type="button" class="v-btn v-btn-secondary" aria-label="${ariaRemove}">✕</button>`;
     row.querySelector('button').addEventListener('click', () => row.remove());
     rows.appendChild(row);
 }
@@ -1801,7 +1808,7 @@ function addPickupRow(rows, name = '', qty = '', size = '', color = '') {
 function printPickupLabels(requestId) {
     const request = cachedPickupRequests.find(r => r.id === requestId);
     if (!request || request.status !== 'approved') {
-        showToast('Étiquettes disponibles uniquement après approbation admin.');
+        showToast(tr('vendor.pickup.labelsNotApproved', 'Étiquettes disponibles uniquement après approbation admin.'));
         return;
     }
     const items = Array.isArray(request.items) ? request.items : [];
@@ -1811,7 +1818,7 @@ function printPickupLabels(requestId) {
         for (let i = 0; i < count; i++) labels.push(item);
     });
     if (!labels.length) {
-        showToast('Aucune unité reçue : pas d’étiquette à imprimer.');
+        showToast(tr('vendor.pickup.labelsEmpty', "Aucune unité reçue : pas d'étiquette à imprimer."));
         return;
     }
 
@@ -1819,11 +1826,11 @@ function printPickupLabels(requestId) {
         const svg = buildCode128Svg(String(item.sku || ''), { moduleWidth: 1.2, height: 38, margin: 4 });
         const variant = [item.size, item.color].filter(Boolean).join(' / ');
         return `<div class="v-sku-label">
-            <div style="font-size:13px;font-weight:700;margin-bottom:2px;">${escapeHTML(item.name || 'Produit')}</div>
+            <div style="font-size:13px;font-weight:700;margin-bottom:2px;">${escapeHTML(item.name || tr('vendor.pickup.productFallback', 'Produit'))}</div>
             ${variant ? `<div style="font-size:11px;">${escapeHTML(variant)}</div>` : ''}
             <div style="font-size:11px;">SKU : <strong>${escapeHTML(item.sku || '')}</strong></div>
             <div style="margin-top:4px;">${svg}</div>
-            <div style="font-size:9px;color:#555;">Smart Swika — entrepôt</div>
+            <div style="font-size:9px;color:#555;">${escapeHTML(tr('vendor.pickup.labelFooter', 'Smart Swika — entrepôt'))}</div>
         </div>`;
     }).join('');
 
@@ -1877,19 +1884,19 @@ async function submitSmartPickupRequest() {
         }))
         .filter(i => i.name);
 
-    if (!items.length) { if (errEl) errEl.textContent = 'Ajoutez au moins un produit.'; return; }
+    if (!items.length) { if (errEl) errEl.textContent = tr('vendor.pickup.errNoItem', 'Ajoutez au moins un produit.'); return; }
     if (items.some(i => !Number.isInteger(i.quantity) || i.quantity < 1)) {
-        if (errEl) errEl.textContent = 'Indiquez une quantité valide pour chaque produit.';
+        if (errEl) errEl.textContent = tr('vendor.pickup.errQty', 'Indiquez une quantité valide pour chaque produit.');
         return;
     }
     const date = document.getElementById('vPickupDate')?.value.trim() || '';
     if (!isValidPickupDate(date)) {
-        if (errEl) errEl.textContent = 'Date invalide : format JJ/MM/AAAA, date non passée.';
+        if (errEl) errEl.textContent = tr('vendor.pickup.errDate', 'Date invalide : format JJ/MM/AAAA, date non passée.');
         return;
     }
     const comment = document.getElementById('vPickupComment')?.value.trim() || '';
 
-    if (btn) { btn.disabled = true; btn.textContent = 'Envoi...'; }
+    if (btn) { btn.disabled = true; btn.textContent = tr('vendor.pickup.sending', 'Envoi...'); }
     try {
         await addDoc(collection(db, 'vendor_pickup_requests'), {
             vendorId: currentUserUid,
@@ -1901,14 +1908,14 @@ async function submitSmartPickupRequest() {
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp()
         });
-        showToast('Demande de ramassage envoyée. En attente de validation admin.');
+        showToast(tr('vendor.pickup.sent', 'Demande de ramassage envoyée. En attente de validation admin.'));
         cachedPickupRequests = [];
         await renderStock(document.getElementById('vTabContent'));
     } catch (e) {
         console.error('[vendor-dashboard] demande ramassage :', e);
-        if (errEl) errEl.textContent = 'Erreur : ' + (e.message || 'inconnue');
+        if (errEl) errEl.textContent = trParams('vendor.pickup.errGeneric', { message: (e.message || 'inconnue') }, 'Erreur : {message}');
     } finally {
-        if (btn) { btn.disabled = false; btn.textContent = 'Envoyer la demande à Smart Swika'; }
+        if (btn) { btn.disabled = false; btn.textContent = tr('vendor.pickup.submit', 'Envoyer la demande à Smart Swika'); }
     }
 }
 
