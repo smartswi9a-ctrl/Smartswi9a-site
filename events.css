@@ -44,13 +44,29 @@ html[dir="rtl"][data-event] .newphoto-banner-wrapper::after {
   );
 }
 
-/* Comportement IDENTIQUE à l'image d'origine : entièrement visible.
-   Ne JAMAIS remettre `object-fit: cover` ici : combiné au
-   `max-height: 45vh` de la feuille de base, il rogne le haut et le bas
-   dès que la fenêtre est peu haute (ou sur mobile via min-height). */
-html[data-event] .responsive-hero-image {
+/* ============================================================
+   COINS ARRONDIS DU VISUEL HERO
+   ------------------------------------------------------------
+   S'applique à l'image d'origine (newphoto.webp) **et** aux visuels
+   d'événement. Le cadre épouse exactement le ratio de l'image
+   (2179x722) : plus aucune bande latérale, donc les QUATRE coins du
+   visuel sont réellement arrondis, comme l'arrière-plan de la page.
+   Ne JAMAIS remettre `object-fit: cover` : cela rognerait le haut et
+   le bas dès que la fenêtre est peu haute. */
+.newphoto-banner-wrapper .responsive-hero-image {
+  aspect-ratio: 2179 / 722;
+  height: auto;
+  max-height: none;
+  min-height: 0;
   object-fit: contain;
   object-position: center;
+  border-radius: var(--radius-lg);
+}
+
+@media (max-width: 600px) {
+  .newphoto-banner-wrapper .responsive-hero-image {
+    border-radius: var(--radius-md);
+  }
 }
 
 /* Aucun badge, aucun texte superposé : les visuels contiennent déjà leur

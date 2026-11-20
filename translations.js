@@ -857,7 +857,7 @@
       signupShippingSection: "🚚 Mode de livraison",
       signupDropoffDesc: "Vous préparez et déposez le colis chez Livo. (72h max).",
       signupFulfillmentDesc:
-        "Vous envoyez votre stock chez Livo. On gère la livraison. (Frais de stockage).",
+        "Vous envoyez votre stock à l'entrepôt Smart Swika (dépôt sur place ou ramassage sur demande). Livo récupère ensuite les colis à l'entrepôt pour les livrer. (Frais de stockage).",
       signupContractSection: "📜 Contrat de partenariat",
       signupContractIntro:
         "Conformément à la législation, vous devez lire et accepter les conditions générales de vente (CGV) Vendeurs.",
@@ -1898,7 +1898,7 @@
       signupShippingSection: "🚚 طريقة التوصيل",
       signupDropoffDesc: "تجهّز الطرد وتودعه لدى Livo. (72 ساعة كحد أقصى).",
       signupFulfillmentDesc:
-        "ترسل مخزونك إلى Livo ونتولى نحن التوصيل. (تكاليف التخزين).",
+        "ترسل مخزونك إلى مخزن Smart Swika (إيداع في المكان أو جمع عند الطلب). بعد ذلك يستلم Livo الطرود من المخزن لتوصيلها. (تكاليف التخزين).",
       signupContractSection: "📜 عقد الشراكة",
       signupContractIntro:
         "وفقًا للقانون، يجب عليك قراءة الشروط العامة للبيع الخاصة بالبائعين وقبولها.",
@@ -2843,7 +2843,7 @@
       signupShippingSection: "🚚 Shipping method",
       signupDropoffDesc: "You prepare and drop the parcel off at Livo. (72h max).",
       signupFulfillmentDesc:
-        "You send your stock to Livo. We handle delivery. (Storage fees).",
+        "You send your stock to the Smart Swika warehouse (drop-off on site or pickup on request). Livo then collects the parcels from the warehouse for delivery. (Storage fees).",
       signupContractSection: "📜 Partnership contract",
       signupContractIntro:
         "Under applicable law, you must read and accept the vendor terms and conditions of sale.",
