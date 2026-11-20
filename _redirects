@@ -17,33 +17,20 @@
 # ============================================================
 # Correctif audit 2026-11-20 — FUITES D'INFORMATION
 # ------------------------------------------------------------
-# Le domaine canonique est servi par Cloudflare Pages : tout
-# fichier du depot est publie tel quel. Les documents internes
-# (audit, dettes, emails), le manifeste npm et les scripts
-# repondaient 200 en production. Ils renvoient desormais 404.
-# Ne pas supprimer ces lignes lors d'une refonte.
+# ⚠️ IMPORTANT (mesuré le 2026-11-20) : Cloudflare Pages N'APPLIQUE
+# PAS les codes 404 déclarés dans ce fichier (seuls 200/301/302/
+# 303/307/308 sont supportés). Les règles 404 qui figuraient ici
+# étaient donc inertes : /docs/DETTES.md répondait toujours 200.
+#
+# Le blocage réel est assuré par `.assetsignore` à la racine, qui
+# empêche la PUBLICATION des dossiers internes (docs, scripts,
+# tests, functions, cloudflare) et des manifestes (package.json,
+# .nvmrc, *.rules...).
+#
+# Ce fichier ne conserve donc que les redirections utiles.
+# Ne pas réintroduire de règles 404 ici : elles donneraient une
+# fausse impression de protection.
 # ============================================================
 
-/docs /404.html 404
-/docs/* /404.html 404
-/scripts /404.html 404
-/scripts/* /404.html 404
-/tests /404.html 404
-/tests/* /404.html 404
-/functions /404.html 404
-/functions/* /404.html 404
-/cloudflare /404.html 404
-/cloudflare/* /404.html 404
-/.github /404.html 404
-/.github/* /404.html 404
-/package.json /404.html 404
-/package-lock.json /404.html 404
-/.nvmrc /404.html 404
-/_headers /404.html 404
-/_redirects /404.html 404
-/firestore.rules /404.html 404
-/storage.rules /404.html 404
-/firestore.indexes.json /404.html 404
-/firestore-debug.log /404.html 404
-/Smartswi9a-site.code-workspace /404.html 404
+
 

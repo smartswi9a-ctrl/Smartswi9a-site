@@ -1,0 +1,47 @@
+# ============================================================
+# .assetsignore — Cloudflare Pages
+# ------------------------------------------------------------
+# Le domaine canonique https://smartswika.ma est servi par
+# Cloudflare Pages depuis la RACINE du dépôt : sans ce fichier,
+# tout le dépôt est publié (documentation interne, scripts,
+# manifestes npm, règles Firestore...).
+#
+# Mesuré le 2026-11-20 : /docs/DETTES.md, /package.json et
+# /.nvmrc répondaient 200 en production. Les règles 404 de
+# `_redirects` ne s'appliquent pas (codes non supportés par Pages),
+# d'où ce mécanisme officiel d'exclusion d'assets.
+#
+# NE PAS retirer ces lignes. Ajouter ici tout futur dossier interne.
+# ============================================================
+
+# Documentation interne (audits, dettes, runbooks)
+docs
+
+# Outillage et tests
+scripts
+tests
+functions
+cloudflare
+.github
+.vscode
+
+# Manifestes et configuration (aucun usage côté navigateur)
+package.json
+package-lock.json
+firebase.json
+firestore.rules
+storage.rules
+firestore.indexes.json
+firestore-debug.log
+.nvmrc
+Smartswi9a-site.code-workspace
+
+# Fichiers de dépendances / divers
+node_modules
+.git
+.wrangler
+.wrangler-home
+
+# Documentation en vrac (les pages HTML restent publiées)
+README.md
+*.md
