@@ -10,24 +10,25 @@
 | Correctif | Fichier | Détail | État vérifié en prod |
 |---|---|---|---|
 | Filtre côté Firebase | `firebase.json` | `docs/**`, `scripts/**`, `package*.json`, `.nvmrc`, `_headers`, `_redirects`, `*.rules`, `firestore-debug.log` ajoutés à `ignore` | ✅ **404** sur `*.web.app` |
-| Exclusion côté Pages | `.assetsignore` | Dossiers/fichiers internes exclus de la publication Pages | ⚠️ **NON appliqué par ce projet** (mesuré, cache-busté) → voir §7.3 |
-| Règles 404 `_redirects` | `_redirects` | Bloc 404 **supprimé** : Cloudflare Pages n'applique pas ce code (seuls 200/301/302/303/307/308) | — |
+| Blocage des fichiers internes | `_redirects` | Chaque chemin interne (docs, scripts, tests, functions, cloudflare, package.json, .nvmrc, *.rules…) est redirigé en **301 vers `/404`**. Mesuré : **les 301 gagnent sur les fichiers statiques existants** (preuve `/villes.html`), contrairement au code 404 que Pages ignore. | ✅ à vérifier après déploiement |
+| `.assetsignore` | `.assetsignore` | Liste d'exclusion conservée pour l'avenir, mais **inopérante sur ce projet** (mesuré avec cache-buster : les fichiers restaient publiés) | ⚠️ sans effet ici |
 | `unsafe-eval` retiré | `_headers`, `firebase.json` | Aucun `eval()` / `new Function()` dans le code : la directive était inutile | ✅ (à confirmer après déploiement Pages) |
 | En-têtes durcis | `_headers`, `firebase.json` | `Cross-Origin-Opener-Policy: same-origin-allow-popups`, `Cross-Origin-Resource-Policy: same-site`, `X-Permitted-Cross-Domain-Policies: none`, `manifest-src`, `worker-src`, `upgrade-insecure-requests` |
 | `Access-Control-Allow-Origin: *` | `_headers` | Remplacé par l'origine explicite `https://smartswika.ma` |
 
-**Vérification après déploiement** (doit renvoyer 404) :
+**Vérification après déploiement** :
 
 ```bash
-for p in /docs/DETTES.md /package.json /.nvmrc /_headers; do
-  printf "%s -> " "$p"; curl -s -o /dev/null -w "%{http_code}\n" "https://smartswika.ma$p"
+for p in /docs/DETTES.md /package.json /.nvmrc /firestore.rules; do
+  printf "%s -> " "$p"; curl -s -o /dev/null -w "%{http_code} %{redirect_url}\n" "https://smartswika.ma$p"
 done
 ```
 
-> ⚠️ **Mesure du 2026-11-20 après déploiement** : sur `*.web.app` → **404 ✅**.
-> Sur `smartswika.ma` (Cloudflare Pages) → **200 ❌** : le projet Pages ne prend pas en
-> compte `.assetsignore` (testé avec cache-buster, `cf-cache-status: DYNAMIC`).
-> **Action dashboard requise** (voir §7.3, règle WAF `internal-files-block`).
+> ✅ **Résultat attendu sur `smartswika.ma`** : **301** vers `/404` (le contenu n'est plus servi).
+> ✅ **Sur `*.web.app`** : **404** (via `firebase.json` → `ignore`).
+> Historique de la mesure (2026-11-20) : les chemins répondaient **200** ; le code 404 de
+> `_redirects` est ignoré par Pages et `.assetsignore` n'est pas appliqué — d'où le passage
+> en 301, qui gagne sur les fichiers statiques (preuve : `/villes.html` → 301).
 
 ---
 
@@ -224,7 +225,7 @@ firebase deploy --only hosting
 | Brotli | activé | vérifié : `content-encoding: br` ✔ |
 | HTTP/3 | activé | `alt-svc h3` présent ✔ |
 | `Access-Control-Allow-Origin: *` | **retirer la Transform Rule** dans le dashboard | `_headers` ne déclare plus aucun CORS (inutile pour des fichiers statiques same-origin) ; c'est la Transform Rule qui produit le `*` observé en production |
-| **WAF — blocage des fichiers internes** | **Security → WAF → Custom rules → Create**<br>Nom : `internal-files-block`<br>Expression :<br>`(http.request.uri.path matches "^/(docs|scripts|tests|functions|cloudflare)(/|$)") or (http.request.uri.path in {"/package.json" "/package-lock.json" "/.nvmrc" "/firestore.rules" "/storage.rules" "/firestore.indexes.json" "/firestore-debug.log" "/Smartswi9a-site.code-workspace"})`<br>Action : **Block** | **Seul correctif efficace pour `smartswika.ma`** : `.assetsignore` n'est pas appliqué par ce projet Pages (mesuré) |
+| **WAF — blocage des fichiers internes** (optionnel) | **Security → WAF → Custom rules → Create**<br>Nom : `internal-files-block`<br>Expression :<br>`(http.request.uri.path matches "^/(docs|scripts|tests|functions|cloudflare)(/|$)") or (http.request.uri.path in {"/package.json" "/package-lock.json" "/.nvmrc" "/firestore.rules" "/storage.rules" "/firestore.indexes.json" "/firestore-debug.log" "/Smartswi9a-site.code-workspace"})`<br>Action : **Block** | **Défense en profondeur** : le blocage est déjà assuré en code par les 301 de `_redirects`. Le WAF ajouterait un vrai code 404/403 au niveau réseau |
 | **Visibilité du dépôt GitHub** | Passer le dépôt en **privé** (Settings → Danger Zone) ou déplacer `docs/` hors du dépôt | Le dépôt est **public** : `docs/AUDIT-CORRECTIONS-*.md` et `docs/DETTES.md` y sont déjà lisibles. Les exclure du site sans exclure GitHub ne suffit pas |
 
 ### 7.4 E-mail — cas particulier : **vous n'avez pas de boîte @smartswika.ma**

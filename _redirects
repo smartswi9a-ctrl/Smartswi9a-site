@@ -1,36 +1,62 @@
 # ============================================================
-# _redirects - Cloudflare Pages
+# _redirects — Cloudflare Pages
 # ------------------------------------------------------------
 # Le domaine canonique https://smartswika.ma est servi par
-# Cloudflare Pages (le dossier contient deja _headers). Les
+# Cloudflare Pages (le dossier contient _headers). Les
 # "redirects" de firebase.json ne concernent que *.web.app :
-# ils ne sont PAS appliques au domaine canonique.
+# ils ne sont PAS appliqués au domaine canonique.
 #
-# Audit du 2026-11-18 : /villes repondait 404 (le rewrite
+# Audit du 2026-11-18 : /villes répondait 404 (le rewrite
 # Firebase ne prenait pas avec cleanUrls). Les anciennes URLs de
-# la page Villes redirigent vers l URL reellement servie.
+# la page Villes redirigent vers l URL réellement servie.
 # ============================================================
 
 /villes /villesmaroc 301
 /villes.html /villesmaroc 301
 
 # ============================================================
-# Correctif audit 2026-11-20 — FUITES D'INFORMATION
+# SÉCURITÉ — FICHIERS INTERNES JAMAIS PUBLICS
 # ------------------------------------------------------------
-# ⚠️ IMPORTANT (mesuré le 2026-11-20) : Cloudflare Pages N'APPLIQUE
-# PAS les codes 404 déclarés dans ce fichier (seuls 200/301/302/
-# 303/307/308 sont supportés). Les règles 404 qui figuraient ici
-# étaient donc inertes : /docs/DETTES.md répondait toujours 200.
+# Deux faits MESURÉS en production le 2026-11-20 :
+#   1. Cloudflare Pages n'applique PAS le code 404 dans ce fichier
+#      (codes supportés : 200, 301, 302, 303, 307, 308). Les règles
+#      `... 404` étaient donc inertes : /docs/DETTES.md répondait 200.
+#   2. En revanche une règle 301 GAGNE sur un fichier statique
+#      existant — preuve : /villes.html (fichier réel) renvoie 301.
 #
-# Le blocage réel est assuré par `.assetsignore` à la racine, qui
-# empêche la PUBLICATION des dossiers internes (docs, scripts,
-# tests, functions, cloudflare) et des manifestes (package.json,
-# .nvmrc, *.rules...).
+# On bloque donc chaque chemin interne par un 301 vers /404 :
+# le contenu n'est plus jamais servi ni indexable.
+# (Le code HTTP final est 200 — page 404 — car Page Functions ne
+#  permettent pas de forcer 404 depuis _redirects ; le contenu, lui,
+#  n'est plus exposé.)
 #
-# Ce fichier ne conserve donc que les redirections utiles.
-# Ne pas réintroduire de règles 404 ici : elles donneraient une
-# fausse impression de protection.
+# Ne pas remplacer ces 301 par des 404 : ils redeviendraient inertes.
 # ============================================================
 
+/docs                           /404 301
+/docs/*                         /404 301
+/scripts                        /404 301
+/scripts/*                      /404 301
+/tests                          /404 301
+/tests/*                        /404 301
+/functions                      /404 301
+/functions/*                    /404 301
+/cloudflare                     /404 301
+/cloudflare/*                   /404 301
+/.github                        /404 301
+/.github/*                      /404 301
+/.vscode                        /404 301
+/.vscode/*                      /404 301
+/package.json                   /404 301
+/package-lock.json              /404 301
+/.nvmrc                         /404 301
+/firebase.json                  /404 301
+/firestore.rules                /404 301
+/storage.rules                  /404 301
+/firestore.indexes.json         /404 301
+/firestore-debug.log            /404 301
+/.assetsignore                  /404 301
+/Smartswi9a-site.code-workspace /404 301
+/README.md                      /404 301
 
 
