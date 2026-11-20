@@ -53,28 +53,8 @@ html[data-event] .responsive-hero-image {
   object-position: center;
 }
 
-/* Badge d'événement (fond sombre = contraste garanti quelle que soit la teinte). */
-.event-badge {
-  position: absolute;
-  z-index: 2;
-  top: 0.7rem;
-  inset-inline-start: 0.7rem;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  max-width: calc(100% - 1.4rem);
-  padding: 0.35rem 0.7rem;
-  border-radius: 999px;
-  border-inline-start: 3px solid var(--ev-accent, #a57b2e);
-  background: rgba(10, 10, 16, 0.82);
-  color: #fff;
-  font-size: 0.76rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  line-height: 1.2;
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-}
+/* Aucun badge, aucun texte superposé : les visuels contiennent déjà leur
+   titrage (demande client du 2026-11-20). Ne pas réintroduire de badge. */
 
 /* Halo de la couleur de l'événement derrière le titre. */
 html[data-event] .hero-title em {
@@ -110,15 +90,17 @@ html[data-event="christmas"] #navbar::after {
   animation: sw-garland 3.2s ease-in-out infinite alternate;
 }
 
-/* Sapin CSS 3D (deux triangles en perspective, aucune image). */
-html[data-event="christmas"] .newphoto-banner-wrapper::before {
+/* Sapin CSS 3D — calé sur le panier flottant.
+   Dimensions EXACTES du bouton panier (60x60 desktop, 54x54 mobile dans
+   la media query plus bas) et positionné juste au-dessus, à la même
+   verticale. Aucune image, aucun texte. */
+html[data-event="christmas"] #cartButton::before {
   content: "";
   position: absolute;
-  z-index: 2;
-  inset-inline-end: 0.9rem;
-  bottom: 0.5rem;
-  width: 74px;
-  height: 74px;
+  inset-inline-end: 0;
+  bottom: calc(100% + 6px);
+  width: 60px;
+  height: 60px;
   pointer-events: none;
   background:
     conic-gradient(from 210deg at 50% 42%, #1f7a3f, #0f4c27 55%, #1f7a3f),
@@ -126,7 +108,7 @@ html[data-event="christmas"] .newphoto-banner-wrapper::before {
   clip-path: polygon(50% 0%, 92% 62%, 66% 62%, 100% 100%, 0% 100%, 34% 62%, 8% 62%);
   transform: perspective(320px) rotateY(-12deg);
   transform-origin: 50% 100%;
-  opacity: 0.95;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.28));
   animation: sw-tree-sway 5s ease-in-out infinite alternate;
 }
 
@@ -332,14 +314,14 @@ html[data-event="black-friday"] .hero-badge {
 
 html[data-fx="off"] #navbar::after,
 html[data-fx="off"] .hero-section::after,
-html[data-fx="off"] .newphoto-banner-wrapper::before {
+html[data-fx="off"] #cartButton::before {
   animation: none !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
   html[data-event] #navbar::after,
   html[data-event] .hero-section::after,
-  html[data-event] .newphoto-banner-wrapper::before {
+  html[data-event] #cartButton::before {
     animation: none !important;
   }
   html[data-event="christmas"] .hero-section::after {
@@ -350,17 +332,15 @@ html[data-fx="off"] .newphoto-banner-wrapper::before {
 /* ---------- 12. Mobile : décors allégés ---------- */
 
 @media (max-width: 600px) {
-  html[data-event] .newphoto-banner-wrapper::before {
-    display: none; /* sapin / motifs : trop petits pour être lisibles */
+  /* Le sapin suit la taille mobile du panier (54x54). */
+  html[data-event="christmas"] #cartButton::before {
+    width: 54px;
+    height: 54px;
   }
   html[data-event="ramadan"] #navbar::after {
     bottom: -22px;
     height: 22px;
     background-size: 90px 22px;
-  }
-  .event-badge {
-    font-size: 0.7rem;
-    padding: 0.3rem 0.55rem;
   }
 }
 

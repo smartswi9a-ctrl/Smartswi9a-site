@@ -293,12 +293,11 @@ function swapHero(event) {
   const original = captureOriginalHero();
   if (!original) return;
   const img = original.el;
-  /* Les visuels événementiels sont en 1920x640 (ratio panoramique) :
-     on aligne les attributs pour éviter tout décalage de mise en page. */
+  /* Les visuels ont EXACTEMENT les dimensions de newphoto.webp (2179x722) :
+     on ne touche ni à width ni à height, donc aucun décalage de mise en page.
+     Aucun texte n'est ajouté : les visuels contiennent déjà leur titrage. */
   img.setAttribute("src", event.image);
-  img.setAttribute("width", "1920");
-  img.setAttribute("height", "640");
-  img.setAttribute("alt", `${original.alt} — ${event.id}`);
+  img.setAttribute("alt", `${original.alt} — ${getEventLabel(event, currentLang())}`);
   img.classList.add("is-event-hero");
 }
 
@@ -314,23 +313,9 @@ function preloadImage(src) {
   }
 }
 
-/** Affiche (ou retire) le badge textuel de l'événement. */
-function setEventBadge(text) {
-  const wrapper = document.querySelector(".newphoto-banner-wrapper");
-  if (!wrapper) return;
-  let badge = wrapper.querySelector(".event-badge");
-  if (!text) {
-    if (badge) badge.remove();
-    return;
-  }
-  if (!badge) {
-    badge = document.createElement("span");
-    badge.className = "event-badge";
-    badge.id = "eventBadge";
-    wrapper.appendChild(badge);
-  }
-  badge.textContent = text;
-}
+/* Aucun texte n'est ajouté à la page : les titres d'événement sont déjà
+   intégrés DANS les visuels. L'ancien badge `.event-badge` a été supprimé
+   (demande client du 2026-11-20) : rien ne doit se superposer aux images. */
 
 /** Langue courante sans dépendre de js/utils.js (module testable hors DOM). */
 function currentLang() {
@@ -349,12 +334,10 @@ function applyState(event) {
     html.removeAttribute("data-event");
     html.style.removeProperty("--ev-accent");
     restoreHero();
-    setEventBadge("");
   } else {
     html.setAttribute("data-event", event.id);
     html.style.setProperty("--ev-accent", event.accent);
     swapHero(event);
-    setEventBadge(getEventLabel(event, currentLang()));
     preloadImage(event.image);
   }
 
@@ -435,13 +418,6 @@ export async function initEventsCalendar(options = {}) {
   if (options.disableEffects || shouldDisableEffects(window.location.search, reduceMotion)) {
     document.documentElement.setAttribute("data-fx", "off");
   }
-
-  /* Un changement de langue doit rafraîchir le badge. */
-  document.addEventListener("lang-changed", () => {
-    if (STATE.currentEventId) {
-      setEventBadge(getEventLabel(getEventById(STATE.currentEventId), currentLang()));
-    }
-  });
 
   /* Onglet en arrière-plan : minuteurs throttlés, on resynchronise. */
   document.addEventListener("visibilitychange", () => {

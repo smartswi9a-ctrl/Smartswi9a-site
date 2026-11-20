@@ -68,6 +68,51 @@ check(
   EVENTS.every((event) => fs.existsSync(path.join(ROOT, event.image.replace(/^\//, ""))))
 );
 
+/* ---------- 2 bis. Dimensions EXACTES de newphoto.webp ---------- */
+
+/** Lit les dimensions d'un WebP sans aucune dépendance (VP8 / VP8L / VP8X). */
+function readWebpSize(file) {
+  const buf = fs.readFileSync(file);
+  if (buf.toString("ascii", 0, 4) !== "RIFF" || buf.toString("ascii", 8, 12) !== "WEBP") return null;
+  const chunk = buf.toString("ascii", 12, 16);
+  if (chunk === "VP8X") {
+    return { width: 1 + buf.readUIntLE(24, 3), height: 1 + buf.readUIntLE(27, 3) };
+  }
+  if (chunk === "VP8 ") {
+    return { width: buf.readUInt16LE(26) & 0x3fff, height: buf.readUInt16LE(28) & 0x3fff };
+  }
+  if (chunk === "VP8L") {
+    const bits = buf.readUInt32LE(21);
+    return { width: (bits & 0x3fff) + 1, height: ((bits >> 14) & 0x3fff) + 1 };
+  }
+  return null;
+}
+
+const REFERENCE_FILE = path.join(ROOT, "assets", "newphoto.webp");
+const reference = readWebpSize(REFERENCE_FILE);
+check(
+  "référence newphoto.webp lisible",
+  reference !== null,
+  reference ? `${reference.width}x${reference.height}` : "illisible"
+);
+
+check(
+  "visuels strictement à la dimension de newphoto.webp",
+  Boolean(reference) &&
+    EVENTS.every((event) => {
+      const size = readWebpSize(path.join(ROOT, event.image.replace(/^\//, "")));
+      return size && size.width === reference.width && size.height === reference.height;
+    }),
+  reference ? `attendu ${reference.width}x${reference.height}` : ""
+);
+
+check(
+  "visuels ≤ 260 Ko",
+  EVENTS.every(
+    (event) => fs.statSync(path.join(ROOT, event.image.replace(/^\//, ""))).size <= 260 * 1024
+  )
+);
+
 /* ---------- 2. Aucun chevauchement ---------- */
 let overlap = null;
 for (let i = 0; i < EVENTS.length - 1; i += 1) {
