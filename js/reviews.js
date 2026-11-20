@@ -93,13 +93,23 @@ export async function loadReviews(productId, onlyApproved = true) {
   try {
     let q;
     if (onlyApproved) {
+      /* Correctif audit 2026-11-20 (FinOps) : lecture bornée. Un produit
+         très commenté pouvait renvoyer des centaines de documents à
+         chaque affichage de fiche. Le tri reste côté client (pas de
+         dépendance à un index supplémentaire). */
       q = query(
         collection(db, "reviews"),
         where("productId", "==", pid),
-        where("status", "==", REVIEW_STATUS.APPROVED)
+        where("status", "==", REVIEW_STATUS.APPROVED),
+        limit(50)
       );
     } else {
-      q = query(collection(db, "reviews"), where("productId", "==", pid));
+      /* Admin : tous les statuts, borné pour la même raison. */
+      q = query(
+        collection(db, "reviews"),
+        where("productId", "==", pid),
+        limit(200)
+      );
     }
 
     const snapshot = await getDocs(q);

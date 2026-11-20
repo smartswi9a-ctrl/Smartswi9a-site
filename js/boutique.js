@@ -56,8 +56,19 @@ async function initBoutique() {
     const params = new URLSearchParams(window.location.search);
     const vendorUid = params.get('v');
 
+    /* ============================================================
+       CORRECTIF AUDIT 2026-11-20 — /boutique affichait une ERREUR
+       ------------------------------------------------------------
+       Cette page est une VITRINE VENDEUR (/boutique.html?v=<uid>).
+       Sans `v`, l'ancien code appelait showError('not_found') : la
+       page répondait « Boutique introuvable », donc le lien
+       « Produits » de la navigation menait à une impasse.
+       Le catalogue global vit sur l'accueil (#produits) : filtres,
+       recherche, tri et pagination y sont déjà en place.
+       On redirige donc proprement au lieu d'afficher une erreur.
+       ============================================================ */
     if (!vendorUid) {
-        showError('not_found');
+        window.location.replace('/#produits');
         return;
     }
 

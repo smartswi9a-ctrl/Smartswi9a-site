@@ -239,12 +239,25 @@ async function filterVendors(raw) {
 
 /** * Charge les produits depuis Firestore (stratégie filtrée + fallback). * @returns {Promise<Array>} */
 export async function loadProductsFromFirestore() {
+  /* Correctif audit 2026-11-20 (FinOps) : la requête n'était pas bornée.
+     Sur un catalogue de plusieurs milliers de fiches, chaque visiteur
+     payait l'intégralité des lectures. Plafond explicite + alerte : au
+     delà, il faut passer à une pagination serveur (limit + startAfter). */
+  const MAX_PRODUCTS = 500;
   try {
     const q = query(
       collection(db, "products"),
-      where("status", "==", "approved")
+      where("status", "==", "approved"),
+      limit(MAX_PRODUCTS)
     );
     const snapshot = await firestoreWithRetry(async () => await getDocs(q));
+
+    if (snapshot.size >= MAX_PRODUCTS) {
+      console.warn(
+        `[products] Plafond de ${MAX_PRODUCTS} produits atteint : le catalogue ` +
+        "est tronqué. Migrer vers une pagination serveur (limit + startAfter)."
+      );
+    }
 
     if (snapshot.size > 0) {
       const raw = processSnapshot(snapshot);

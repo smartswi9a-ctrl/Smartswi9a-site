@@ -161,13 +161,24 @@ service cloud.firestore {
        Public : uniquement les produits approuvés.
        Vendeur : lecture de ses propres fiches.
        Admin : accès complet.
-       Les produits legacy sans status devront être migrés vers approved
-       avant l'activation de ces règles.
+       LEGACY (correctif audit 2026-11-20) : les fiches créées avant
+       l'introduction du champ `status` n'ont PAS de status. L'ancienne
+       règle `resource.data.get('status','') == 'approved'` les rendait
+       invisibles alors que le client les affichait (js/products.js) :
+       toute la boutique paraissait vide. On accepte donc explicitement
+       l'ABSENCE de status (legacy uniquement), et rien d'autre.
+       Toute nouvelle fiche porte obligatoirement un status
+       (voir allow create : status == 'pending_admin_approval').
        ============================================================ */
+
+    function isPublicProduct() {
+      return !('status' in resource.data) ||
+        resource.data.get('status', '') == 'approved';
+    }
 
     match /products/{productId} {
       allow read: if isAdmin() ||
-        resource.data.get('status', '') == 'approved' ||
+        isPublicProduct() ||
         (
           isSignedIn() &&
           resource.data.get('vendorId', '') == request.auth.uid &&
@@ -413,7 +424,11 @@ service cloud.firestore {
        ============================================================ */
 
     match /blog/{docId} {
-      allow read: if true;
+      /* Correctif audit 2026-11-20 : les brouillons n'ont pas à être
+         lisibles publiquement. js/blog.js ne requête que
+         status == 'published' : aucune régression fonctionnelle. */
+      allow read: if isAdmin() ||
+        (resource.data.get('status', '') == 'published');
       allow write: if isAdmin();
     }
 
@@ -422,7 +437,17 @@ service cloud.firestore {
          l appliquer a son panier : `get` reste public. En revanche
          `list` (enumeration de la collection) est reserve a l admin,
          sinon n importe qui peut aspirer tous les codes promo.
-         Audit fonctionnel 2026-11-19. */
+         Audit fonctionnel 2026-11-19.
+         RISQUE RESIDUEL ASSUME (audit 2026-11-20) : ce `get` permet de
+         tester des codes devines. Il est MITIGE par :
+           1. la revalidation complete cote serveur dans
+              createCustomerOrder (isActive, expiresAt, maxUses,
+              minPurchase, usedCount) : un code devine ne donne aucun
+              avantage non valide ;
+           2. `list` reste interdit, donc pas d'extraction de masse.
+         ACTION RECOMMANDEE cote admin : generer des codes de 8+
+         caracteres avec suffixe aleatoire (ex. BIENVENUE-7K3QX9)
+         pour rendre le tirage par force brute non rentable. */
       allow get: if true;
       allow list: if isAdmin();
       allow write: if isAdmin();
@@ -617,7 +642,10 @@ service cloud.firestore {
       let d = request.resource.data;
       return d.keys().hasOnly(['views', 'visitors', 'updatedAt']) &&
         (!d.keys().hasAny(['views']) || (d.views is int && d.views >= 0 && d.views <= 1000000)) &&
-        (!d.keys().hasAny(['visitors']) || (d.visitors is list && d.visitors.size() <= 20000)) &&
+        /* Correctif audit 2026-11-20 : plafond abaissé de 20 000 à 5 000
+           entrées. Au-delà, le document approche la limite de 1 Mio et
+           un visiteur malveillant peut gonfler le coût d'écriture. */
+        (!d.keys().hasAny(['visitors']) || (d.visitors is list && d.visitors.size() <= 5000)) &&
         d.updatedAt == request.time;
     }
 

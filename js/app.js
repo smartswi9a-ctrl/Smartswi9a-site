@@ -24,6 +24,7 @@ import { attachEvents, applyTranslations } from "./events.js";
 import { loadNotifications } from "./notifications.js";
 import { initCategoriesMenuFromUrl } from "./categories-menu.js";
 import { initAnalytics } from "./analytics.js";
+import { initSeo } from "./seo.js";
 
 /* ============================================================ GUARD GLOBAL : éviter les doubles initialisations auth ============================================================ Si app.js est inclus 2× (double balise, HMR), le 2ème init ne réattache pas le listener auth. Empêche le cumul. ============================================================ */
 if (
@@ -40,9 +41,15 @@ async function init() {
   try {
     console.log("[app] Initialisation de Smartswika...");
 
-    /* ============================================================ 1. Langue & Traductions ============================================================ */
+    /* ============================================================
+       1. Langue & Traductions
+       ============================================================ */
     initLang();
     applyTranslations();
+
+    /* Canonical + hreflang cohérents (correctif audit 2026-11-20).
+       Fait APRÈS initLang : la langue courante détermine l'URL. */
+    initSeo();
 
     /* ============================================================ 2. UI Partagée (modale compte, cart flottant, etc.) ============================================================ */
     try {
@@ -208,6 +215,20 @@ async function init() {
           /* no-op */
         }
       }, 2000);
+    }
+
+    /* ============================================================
+       14 bis. Widgets produit (audit 2026-11-20)
+       ------------------------------------------------------------
+       Live Glass, comparateur, barre Koulchi, quiz gadget.
+       Module 100 % fail-safe : chaque fonction est encapsulée dans un
+       try/catch, une erreur ici ne peut pas bloquer le rendu.
+       ============================================================ */
+    try {
+      const { initSmartWidgets } = await import("./smart-widgets.js");
+      initSmartWidgets();
+    } catch (e) {
+      console.warn("[app] widgets indisponibles :", e?.message);
     }
 
     console.log("[app] Initialisation terminée.");
