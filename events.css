@@ -20,29 +20,8 @@ html[data-event] .newphoto-banner-wrapper {
 }
 
 /* Voile sombre du côté du texte (gauche en FR/EN, droite en AR). */
-html[data-event] .newphoto-banner-wrapper::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  pointer-events: none;
-  border-radius: inherit;
-  background: linear-gradient(
-    to right,
-    rgba(10, 10, 16, 0.55) 0%,
-    rgba(10, 10, 16, 0.18) 38%,
-    rgba(10, 10, 16, 0) 62%
-  );
-}
-
-html[dir="rtl"][data-event] .newphoto-banner-wrapper::after {
-  background: linear-gradient(
-    to left,
-    rgba(10, 10, 16, 0.55) 0%,
-    rgba(10, 10, 16, 0.18) 38%,
-    rgba(10, 10, 16, 0) 62%
-  );
-}
+/* Aucun voile au-dessus de la photo : le fond crème, la photo et le
+   cadre restent nets. Rien n'est superposé à l'image. */
 
 /* ============================================================
    BANNIÈRE PHOTO — 60 % DE LA LARGEUR, CENTRÉE
@@ -297,24 +276,6 @@ html[data-event="eid-adha"] {
   --ev-accent: #c47b1f;
 }
 
-html[data-event="eid-adha"] .newphoto-banner-wrapper::after {
-  background: linear-gradient(
-    to right,
-    rgba(60, 30, 0, 0.55) 0%,
-    rgba(120, 70, 10, 0.2) 40%,
-    rgba(0, 0, 0, 0) 66%
-  );
-}
-
-html[dir="rtl"][data-event="eid-adha"] .newphoto-banner-wrapper::after {
-  background: linear-gradient(
-    to left,
-    rgba(60, 30, 0, 0.55) 0%,
-    rgba(120, 70, 10, 0.2) 40%,
-    rgba(0, 0, 0, 0) 66%
-  );
-}
-
 /* ---------- 7. Soldes d'Été : orange / turquoise ---------- */
 
 html[data-event="summer-sales"] {
@@ -357,24 +318,6 @@ html[data-event="black-friday"] #navbar .logo-text,
 html[data-event="black-friday"] #navbar .nav-links a,
 html[data-event="black-friday"] #navbar .btn-account {
   color: #f5f5f5;
-}
-
-html[data-event="black-friday"] .newphoto-banner-wrapper::after {
-  background: linear-gradient(
-    to right,
-    rgba(0, 0, 0, 0.72) 0%,
-    rgba(20, 0, 4, 0.35) 42%,
-    rgba(0, 0, 0, 0) 68%
-  );
-}
-
-html[dir="rtl"][data-event="black-friday"] .newphoto-banner-wrapper::after {
-  background: linear-gradient(
-    to left,
-    rgba(0, 0, 0, 0.72) 0%,
-    rgba(20, 0, 4, 0.35) 42%,
-    rgba(0, 0, 0, 0) 68%
-  );
 }
 
 html[data-event="black-friday"] .product-card.has-flash {
