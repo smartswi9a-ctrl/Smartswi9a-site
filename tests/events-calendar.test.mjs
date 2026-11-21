@@ -110,7 +110,7 @@ function readWebpSize(file) {
 
 const REFERENCE_FILE = path.join(ROOT, "assets", "newphoto.webp");
 const reference = readWebpSize(REFERENCE_FILE);
-const FRAMED_HEIGHT = 818;
+const FRAMED_HEIGHT = 722;
 check(
   "référence newphoto.webp lisible",
   reference !== null,
@@ -123,7 +123,7 @@ check(
 );
 
 check(
-  "bannières encadrées 2179x818 (photo entière + cadre sur les bords)",
+  "bannières encadrées 2179x722 (photo 60 % + cadre 80 % x 90 %)",
   Boolean(reference) &&
     EVENTS.every((event) => {
       const size = readWebpSize(path.join(ROOT, event.image.replace(/^\//, "")));
@@ -133,9 +133,9 @@ check(
 );
 
 check(
-  "bannières encadrées ≤ 460 Ko (photo + cadre en un seul fichier)",
+  "bannières encadrées ≤ 330 Ko (photo + cadre en un seul fichier)",
   EVENTS.every(
-    (event) => fs.statSync(path.join(ROOT, event.image.replace(/^\//, ""))).size <= 460 * 1024
+    (event) => fs.statSync(path.join(ROOT, event.image.replace(/^\//, ""))).size <= 330 * 1024
   )
 );
 

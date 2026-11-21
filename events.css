@@ -45,42 +45,55 @@ html[dir="rtl"][data-event] .newphoto-banner-wrapper::after {
 }
 
 /* ============================================================
-   COINS ARRONDIS DU VISUEL HERO
+   BANNIÈRE PHOTO — 60 % DE LA LARGEUR, CENTRÉE
    ------------------------------------------------------------
-   La photo d'origine fait 2179x722. Les bannières d'événement sont des
-   COMPOSITES 2179x818 : la photo entière est au centre, le cadre reste
-   sur les bords (aucun pixel du cadre sur la photo). On ne fixe donc
-   plus d'aspect-ratio : `height:auto` respecte le ratio intrinsèque de
-   chaque image, sans bande latérale ni rognage.
-   Rayon : 20px desktop (demande client), 14px mobile.
+   La bannière conserve l'ancienne taille de newphoto (2179x722).
+   La photo (default ou événement) occupe 60 % de la bannière et est
+   centrée. Les bannières d'événement sont des composites 2179x722 :
+   photo 60 % + cadre 80 % x 90 %, avec 20 px de marge entre les deux.
+   Rien n'est superposé.
    ============================================================ */
 .newphoto-banner-wrapper {
-  width: 100%;
+  width: calc(100% - 2rem);
+  max-width: calc(var(--container-max) - 2rem);
+  margin: 0 auto 1rem;
+  padding: 0;
+  aspect-ratio: 2179 / 722;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .newphoto-banner-wrapper .responsive-hero-image {
-  width: 100%;
+  width: 60%;
   height: auto;
   aspect-ratio: auto;
   max-height: none;
   min-height: 0;
   padding: 0;
   background: transparent;
-  object-fit: cover;
+  object-fit: contain;
   object-position: center;
   border-radius: 20px;
   display: block;
 }
 
+/* Le composite d'événement contient déjà la photo (60 %) et le cadre
+   (80 % x 90 %) : il remplit toute la bannière. */
+html[data-event] .newphoto-banner-wrapper .responsive-hero-image {
+  width: 100%;
+  object-fit: cover;
+}
+
 @media (max-width: 600px) {
+  .newphoto-banner-wrapper {
+    width: calc(100% - 1.2rem);
+    max-width: none;
+  }
   .newphoto-banner-wrapper .responsive-hero-image {
     border-radius: 14px;
   }
 }
-
-/* Le cadre est désormais COMPOSÉ dans hero-<event>.webp : plus aucune
-   superposition absolue, donc aucun risque de recouvrir la photo, les
-   boutons ou le bandeau Koulchi. */
 
 /* ============================================================
    GUIRLANDE LED ANIMÉE SOUS LA NAVIGATION (Noël)

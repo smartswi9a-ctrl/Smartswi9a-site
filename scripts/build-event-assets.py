@@ -1,15 +1,15 @@
 """Genere les bannieres saisonnieres encadrees et les cadres transparents.
 
 PRINCIPE (demande client du 2026-11-20)
-    La photo ne doit JAMAIS etre recouverte par le cadre. Chaque banniere
-    d'evenement est donc un COMPOSITE :
-      - fond : version floue/assombrie de la photo (remplit les coins) ;
-      - centre : la photo entiere, nette, dans une fenetre rectangulaire ;
-      - cadre : le cadre transparent, etire au format panoramique, dont on
-        vide la fenetre centrale (aucun pixel du cadre sur la photo).
-    Le cadre reste donc strictement a l'exterieur de la photo, dans les
-    limites de la banniere : aucun debordement sur le bandeau Koulchi, les
-    boutons ou les sections voisines.
+    Rien ne doit etre superpose : la photo et le cadre sont deux objets
+    distincts, avec une marge visible entre eux.
+      - banniere : ancienne taille de newphoto, 2179x722 ;
+      - photo : 60 % de la banniere, entiere, centree ;
+      - cadre : 80 % x 90 %, centre autour de la photo ;
+      - fenetre de securite : photo + 20 px, videe dans le cadre.
+    Le cadre ne recouvre jamais la photo, la photo ne touche jamais le
+    cadre, et le tout reste dans les limites de la banniere (aucun
+    debordement sur le bandeau Koulchi, les boutons ou les sections).
 
 SOURCES (Bureau Windows, non versionnees) :
     %USERPROFILE%/Desktop/newphoto.webp
@@ -18,7 +18,7 @@ SOURCES (Bureau Windows, non versionnees) :
 
 SORTIES (assets/ versionnes, servis par Cloudflare Pages) :
     newphoto.webp
-    hero-<event>.webp   2179x818 : photo + cadre, qualite 80
+    hero-<event>.webp   2179x722 : photo 60 % + cadre 80 % x 90 %, q80
     frame-<event>.webp  1672x941 : cadre detoure (fond blanc transparent), q85
 
 DETOURAGE DES CADRES
@@ -45,14 +45,26 @@ ASSETS = os.path.join(ROOT, "assets")
 HERO_SRC = os.path.join(DESKTOP, "smartswika-hero-events")
 FRAMES_SRC = os.path.join(DESKTOP, "cadres")
 
-# Banniere encadree : format 2.664 (photo 3:1 + cadre autour).
-TARGET_W, TARGET_H = 2179, 818
-PHOTO_MARGIN_X = 0.09   # bord gauche/droit du cadre (part de la largeur)
-PHOTO_MARGIN_Y = 0.138  # bord haut/bas du cadre (part de la hauteur)
-PHOTO_W = int(TARGET_W * (1 - 2 * PHOTO_MARGIN_X))
-PHOTO_H = int(TARGET_H * (1 - 2 * PHOTO_MARGIN_Y))
+# Banniere : on CONSERVE l'ancienne taille de newphoto (2179x722).
+# La photo occupe 60 % de la banniere, le cadre 80 % x 90 %, avec une
+# marge visible entre les deux : rien n'est superpose.
+TARGET_W, TARGET_H = 2179, 722
+PHOTO_SCALE = 0.60
+FRAME_SCALE_X = 0.80
+FRAME_SCALE_Y = 0.90
+MASK_GAP = 20
+
+PHOTO_W = int(TARGET_W * PHOTO_SCALE)
+PHOTO_H = int(TARGET_H * PHOTO_SCALE)
 PHOTO_X = (TARGET_W - PHOTO_W) // 2
 PHOTO_Y = (TARGET_H - PHOTO_H) // 2
+
+FRAME_W = int(TARGET_W * FRAME_SCALE_X)
+FRAME_H = int(TARGET_H * FRAME_SCALE_Y)
+FRAME_X = (TARGET_W - FRAME_W) // 2
+FRAME_Y = (TARGET_H - FRAME_H) // 2
+
+BACKGROUND = (248, 246, 242)  # fond de page Smartswika
 
 HERO_QUALITY = 80
 FRAME_QUALITY = 85
@@ -141,31 +153,35 @@ def contain(im, w, h):
 
 
 def compose_framed_hero(hero_path, frame_rgba):
-    """Photo entiere au centre + cadre uniquement sur les bords."""
+    """Photo 60 % au centre, cadre 80 % x 90 % autour, marge visible."""
     hero = Image.open(hero_path).convert("RGB")
 
-    # Fond : flou sombre de la photo, pour habiller les coins du cadre.
-    bg = cover(hero, TARGET_W, TARGET_H).filter(ImageFilter.GaussianBlur(22))
-    bg = ImageEnhance.Brightness(bg).enhance(0.62)
+    # Fond uni Smartswika : ni flou, ni photo derriere le cadre.
+    bg = Image.new("RGB", (TARGET_W, TARGET_H), BACKGROUND)
 
-    # Photo nette, entiere, centree dans la fenetre.
+    # Photo entiere, reduite a 60 % de la banniere, centree.
     photo = contain(hero, PHOTO_W, PHOTO_H)
     px = PHOTO_X + (PHOTO_W - photo.width) // 2
     py = PHOTO_Y + (PHOTO_H - photo.height) // 2
     bg.paste(photo, (px, py))
 
-    # Cadre etire au format de la banniere, puis fenetre centrale vidée :
-    # aucun pixel du cadre ne recouvre la photo.
-    frame = frame_rgba.resize((TARGET_W, TARGET_H), Image.LANCZOS)
-    alpha = frame.getchannel("A")
-    ImageDraw.Draw(alpha).rectangle(
-        [PHOTO_X, PHOTO_Y, PHOTO_X + PHOTO_W - 1, PHOTO_Y + PHOTO_H - 1],
-        fill=0,
-    )
-    frame.putalpha(alpha)
+    # Cadre 80 % x 90 %, centre, pose sur un calque transparent.
+    layer = Image.new("RGBA", (TARGET_W, TARGET_H), (0, 0, 0, 0))
+    frame = frame_rgba.resize((FRAME_W, FRAME_H), Image.LANCZOS)
+    layer.paste(frame, (FRAME_X, FRAME_Y))
+
+    # Fenetre de securite = photo + 20 px de marge : le cadre y est vide.
+    # La photo ne touche donc jamais le cadre, et le cadre ne la recouvre pas.
+    alpha = layer.getchannel("A")
+    sx = max(0, px - MASK_GAP)
+    sy = max(0, py - MASK_GAP)
+    ex = min(TARGET_W - 1, px + photo.width + MASK_GAP - 1)
+    ey = min(TARGET_H - 1, py + photo.height + MASK_GAP - 1)
+    ImageDraw.Draw(alpha).rectangle([sx, sy, ex, ey], fill=0)
+    layer.putalpha(alpha)
 
     out = bg.convert("RGBA")
-    out.alpha_composite(frame)
+    out.alpha_composite(layer)
     return out.convert("RGB")
 
 def main():
