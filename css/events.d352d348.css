@@ -29,7 +29,7 @@ html[data-event] .newphoto-banner-wrapper {
    La bannière conserve l'ancienne taille de newphoto (2179x722).
    La photo (default ou événement) occupe 60 % de la bannière et est
    centrée. Les bannières d'événement sont des composites 2179x722 :
-   photo 60 % + cadre 80 % x 90 %, avec 20 px de marge entre les deux.
+   photo 60 %, passe-partout doré, cadre 80 % x 95 % autour.
    Rien n'est superposé.
    ============================================================ */
 .newphoto-banner-wrapper {

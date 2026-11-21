@@ -38,7 +38,7 @@ export const THEME_CONFIG_PATH = { collection: "config", doc: "theme" };
  * l'afficher pendant 24 h après un remplacement de fichier.
  * À INCRÉMENTER dès que les WebP sont régénérés.
  */
-export const ASSETS_VERSION = "5";
+export const ASSETS_VERSION = "6";
 
 /**
  * URL d'un visuel d'événement, avec cache-busting.
@@ -348,9 +348,9 @@ function swapHero(event) {
   if (!original) return;
   const img = original.el;
   /* Les composites d'événement font 2179x722 (ancienne taille de
-     newphoto) : la photo occupe 60 % au centre, le cadre 80 % x 90 %
-     autour, avec une marge visible. On met à jour width/height pour
-     réserver la bonne hauteur avant le chargement (zéro CLS). */
+     newphoto) : photo 60 %, passe-partout doré, cadre 80 % x 95 %
+     autour. On met à jour width/height pour réserver la bonne hauteur
+     avant le chargement (zéro CLS). */
   img.setAttribute("src", eventImageUrl(event));
   img.setAttribute("width", "2179");
   img.setAttribute("height", "722");

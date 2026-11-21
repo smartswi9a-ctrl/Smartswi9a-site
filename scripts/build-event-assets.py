@@ -5,8 +5,9 @@ PRINCIPE (demande client du 2026-11-20)
     distincts, avec une marge visible entre eux.
       - banniere : ancienne taille de newphoto, 2179x722 ;
       - photo : 60 % de la banniere, entiere, centree ;
-      - cadre : 80 % x 90 %, centre autour de la photo ;
-      - fenetre de securite : photo + 20 px, videe dans le cadre.
+      - passe-partout dore : ouverture du cadre (80 % x 72 %) ;
+      - cadre : 80 % x 95 %, centre autour du passe-partout ;
+      - ouverture du cadre videe : aucun pixel du cadre sur le passe-partout.
     Le cadre ne recouvre jamais la photo, la photo ne touche jamais le
     cadre, et le tout reste dans les limites de la banniere (aucun
     debordement sur le bandeau Koulchi, les boutons ou les sections).
@@ -18,7 +19,7 @@ SOURCES (Bureau Windows, non versionnees) :
 
 SORTIES (assets/ versionnes, servis par Cloudflare Pages) :
     newphoto.webp
-    hero-<event>.webp   2179x722 : photo 60 % + cadre 80 % x 90 %, q80
+    hero-<event>.webp   2179x722 : photo 60 % + passe-partout dore + cadre 80 % x 95 %, q80
     frame-<event>.webp  1672x941 : cadre detoure (fond blanc transparent), q85
 
 DETOURAGE DES CADRES
@@ -45,24 +46,30 @@ ASSETS = os.path.join(ROOT, "assets")
 HERO_SRC = os.path.join(DESKTOP, "smartswika-hero-events")
 FRAMES_SRC = os.path.join(DESKTOP, "cadres")
 
-# Banniere : on CONSERVE l'ancienne taille de newphoto (2179x722).
-# La photo occupe 60 % de la banniere, le cadre 80 % x 90 %, avec une
-# marge visible entre les deux : rien n'est superpose.
+# Banniere : ancienne taille de newphoto (2179x722).
+# Photo 60 %, cadre 80 % x 95 %, et PASSE-PARTOUT DORE entre les deux :
+# la photo est nettement detachee du cadre, rien n'est superpose.
 TARGET_W, TARGET_H = 2179, 722
 PHOTO_SCALE = 0.60
 FRAME_SCALE_X = 0.80
-FRAME_SCALE_Y = 0.90
-MASK_GAP = 20
+FRAME_SCALE_Y = 0.95
+MAT_INSET_X = 0.09
+MAT_INSET_Y = 0.14
+MAT_COLOR = (232, 211, 163)
+MAT_BORDER = (176, 138, 62)
 
 PHOTO_W = int(TARGET_W * PHOTO_SCALE)
 PHOTO_H = int(TARGET_H * PHOTO_SCALE)
-PHOTO_X = (TARGET_W - PHOTO_W) // 2
-PHOTO_Y = (TARGET_H - PHOTO_H) // 2
 
 FRAME_W = int(TARGET_W * FRAME_SCALE_X)
 FRAME_H = int(TARGET_H * FRAME_SCALE_Y)
 FRAME_X = (TARGET_W - FRAME_W) // 2
 FRAME_Y = (TARGET_H - FRAME_H) // 2
+
+MAT_X = FRAME_X + int(FRAME_W * MAT_INSET_X)
+MAT_Y = FRAME_Y + int(FRAME_H * MAT_INSET_Y)
+MAT_W = int(FRAME_W * (1 - 2 * MAT_INSET_X))
+MAT_H = int(FRAME_H * (1 - 2 * MAT_INSET_Y))
 
 BACKGROUND = (248, 246, 242)  # fond de page Smartswika
 
@@ -153,31 +160,43 @@ def contain(im, w, h):
 
 
 def compose_framed_hero(hero_path, frame_rgba):
-    """Photo 60 % au centre, cadre 80 % x 90 % autour, marge visible."""
+    """Photo 60 %, passe-partout dore, cadre 80 % x 95 % autour."""
     hero = Image.open(hero_path).convert("RGB")
-
-    # Fond uni Smartswika : ni flou, ni photo derriere le cadre.
     bg = Image.new("RGB", (TARGET_W, TARGET_H), BACKGROUND)
+    draw = ImageDraw.Draw(bg)
 
-    # Photo entiere, reduite a 60 % de la banniere, centree.
+    # Passe-partout dore : remplit toute l'ouverture du cadre.
+    draw.rectangle([MAT_X, MAT_Y, MAT_X + MAT_W - 1, MAT_Y + MAT_H - 1], fill=MAT_COLOR)
+    for i in range(4):
+        draw.rectangle(
+            [MAT_X + i, MAT_Y + i, MAT_X + MAT_W - 1 - i, MAT_Y + MAT_H - 1 - i],
+            outline=MAT_BORDER,
+        )
+
+    # Photo entiere, centree dans le passe-partout.
     photo = contain(hero, PHOTO_W, PHOTO_H)
-    px = PHOTO_X + (PHOTO_W - photo.width) // 2
-    py = PHOTO_Y + (PHOTO_H - photo.height) // 2
+    px = MAT_X + (MAT_W - photo.width) // 2
+    py = MAT_Y + (MAT_H - photo.height) // 2
     bg.paste(photo, (px, py))
 
-    # Cadre 80 % x 90 %, centre, pose sur un calque transparent.
+    # Biseau dore autour de la photo, a l'exterieur (jamais sur la photo).
+    draw.rectangle(
+        [px - 3, py - 3, px + photo.width + 2, py + photo.height + 2],
+        outline=MAT_BORDER,
+        width=3,
+    )
+
+    # Cadre 80 % x 95 %, centre ; l'ouverture est videe au niveau du
+    # passe-partout : aucun pixel du cadre ne recouvre la photo.
     layer = Image.new("RGBA", (TARGET_W, TARGET_H), (0, 0, 0, 0))
     frame = frame_rgba.resize((FRAME_W, FRAME_H), Image.LANCZOS)
     layer.paste(frame, (FRAME_X, FRAME_Y))
 
-    # Fenetre de securite = photo + 20 px de marge : le cadre y est vide.
-    # La photo ne touche donc jamais le cadre, et le cadre ne la recouvre pas.
     alpha = layer.getchannel("A")
-    sx = max(0, px - MASK_GAP)
-    sy = max(0, py - MASK_GAP)
-    ex = min(TARGET_W - 1, px + photo.width + MASK_GAP - 1)
-    ey = min(TARGET_H - 1, py + photo.height + MASK_GAP - 1)
-    ImageDraw.Draw(alpha).rectangle([sx, sy, ex, ey], fill=0)
+    ImageDraw.Draw(alpha).rectangle(
+        [MAT_X, MAT_Y, MAT_X + MAT_W - 1, MAT_Y + MAT_H - 1],
+        fill=0,
+    )
     layer.putalpha(alpha)
 
     out = bg.convert("RGBA")
