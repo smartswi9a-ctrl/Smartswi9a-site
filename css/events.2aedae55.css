@@ -47,11 +47,11 @@ html[dir="rtl"][data-event] .newphoto-banner-wrapper::after {
 /* ============================================================
    COINS ARRONDIS DU VISUEL HERO
    ------------------------------------------------------------
-   S'applique à l'image d'origine (newphoto.webp) **et** aux visuels
-   d'événement. `aspect-ratio` reprend EXACTEMENT le ratio du fichier
-   (2179x722) : `object-fit: cover` remplit donc le conteneur sans
-   rogner l'image et sans bande latérale. Ne jamais retirer l'aspect
-   ratio, sinon `cover` rognerait le haut et le bas.
+   La photo d'origine fait 2179x722. Les bannières d'événement sont des
+   COMPOSITES 2179x818 : la photo entière est au centre, le cadre reste
+   sur les bords (aucun pixel du cadre sur la photo). On ne fixe donc
+   plus d'aspect-ratio : `height:auto` respecte le ratio intrinsèque de
+   chaque image, sans bande latérale ni rognage.
    Rayon : 20px desktop (demande client), 14px mobile.
    ============================================================ */
 .newphoto-banner-wrapper {
@@ -61,12 +61,15 @@ html[dir="rtl"][data-event] .newphoto-banner-wrapper::after {
 .newphoto-banner-wrapper .responsive-hero-image {
   width: 100%;
   height: auto;
-  aspect-ratio: 2179 / 722;
+  aspect-ratio: auto;
   max-height: none;
   min-height: 0;
+  padding: 0;
+  background: transparent;
   object-fit: cover;
   object-position: center;
   border-radius: 20px;
+  display: block;
 }
 
 @media (max-width: 600px) {
@@ -75,38 +78,9 @@ html[dir="rtl"][data-event] .newphoto-banner-wrapper::after {
   }
 }
 
-/* ============================================================
-   CADRE THÉMATIQUE SUPERPOSÉ (frame-<event>.webp)
-   ------------------------------------------------------------
-   Le cadre transparent déborde de 12px sur chaque côté afin que les
-   décorations (guirlandes, coins) ENTOURENT la photo. Il est
-   strictement décoratif : pointer-events none, aria-hidden côté JS,
-   z-index 15 (au-dessus du voile ::after qui est à 1).
-   ============================================================ */
-/* Boîte média créée par js/events-calendar.js : elle épouse l'image,
-   donc inset:-12px = 12px autour de la photo (et non du padding). */
-.newphoto-banner-wrapper .event-hero-media {
-  position: relative;
-  display: block;
-  line-height: 0;
-}
-
-.newphoto-banner-wrapper .event-frame {
-  position: absolute;
-  inset: -12px;
-  width: calc(100% + 24px);
-  height: calc(100% + 24px);
-  max-width: none;
-  object-fit: fill;
-  pointer-events: none;
-  user-select: none;
-  -webkit-user-drag: none;
-  z-index: 15;
-  border-radius: 0;
-  box-shadow: none;
-}
-
-/* Aucun cadre hors événement : l'élément n'existe même pas dans le DOM. */
+/* Le cadre est désormais COMPOSÉ dans hero-<event>.webp : plus aucune
+   superposition absolue, donc aucun risque de recouvrir la photo, les
+   boutons ou le bandeau Koulchi. */
 
 /* ============================================================
    GUIRLANDE LED ANIMÉE SOUS LA NAVIGATION (Noël)
@@ -115,12 +89,23 @@ html[dir="rtl"][data-event] .newphoto-banner-wrapper::after {
    décalage (--d) et sa position sur la courbe (--x / --y) depuis
    js/events-calendar.js. Animations uniquement sur transform/opacity
    (GPU, 60 FPS).
+
+   IMPORTANT : la décoration est logée DANS la navbar. On agrandit donc
+   la navbar de 28px (Noël et Ramadan) ; le body utilise déjà
+   `padding-top: var(--nav-height)`, donc le bandeau Koulchi descend
+   avec le header et n'est JAMAIS recouvert.
    ============================================================ */
+html[data-event="christmas"],
+html[data-event="ramadan"] {
+  --sw-nav-extra: 28px;
+  --nav-height: calc(70px + var(--sw-nav-extra));
+}
+
 html[data-event="christmas"] #navbar .event-garland {
   position: absolute;
   inset-inline: 0;
-  bottom: -30px;
-  height: 30px;
+  bottom: 0;
+  height: 26px;
   pointer-events: none;
   z-index: 2;
   transform-origin: 50% 0;
@@ -256,12 +241,13 @@ html[data-event="ramadan"] #navbar::after {
   content: "";
   position: absolute;
   inset-inline: 0;
-  bottom: -34px;
-  height: 34px;
+  bottom: 0;
+  height: 26px;
   pointer-events: none;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='34' viewBox='0 0 120 34'><g fill='none' stroke='%23c9a227' stroke-width='1.2'><path d='M20 0v10'/><path d='M60 0v6'/><path d='M100 0v12'/></g><g fill='%23c9a227' opacity='.9'><path d='M14 10h12l-2 6h-8z'/><rect x='17' y='16' width='6' height='3' rx='1'/><path d='M54 6h12l-2 6h-8z'/><rect x='57' y='12' width='6' height='3' rx='1'/><path d='M94 12h12l-2 6h-8z'/><rect x='97' y='18' width='6' height='3' rx='1'/></g></svg>");
   background-repeat: repeat-x;
-  background-size: 120px 34px;
+  background-size: 120px 26px;
+  background-position: bottom;
   animation: sw-lantern-sway 4.5s ease-in-out infinite alternate;
   transform-origin: top center;
 }
@@ -466,13 +452,14 @@ html[data-fx="off"] #navbar .event-garland__bulb {
     height: 54px;
   }
   html[data-event="ramadan"] #navbar::after {
-    bottom: -22px;
+    bottom: 0;
     height: 22px;
     background-size: 90px 22px;
+    background-position: bottom;
   }
-  /* Guirlande un peu plus courte pour ne pas manger la bannière. */
+  /* Guirlande logée dans la navbar (le bandeau Koulchi reste dégagé). */
   html[data-event="christmas"] #navbar .event-garland {
-    bottom: -24px;
+    bottom: 0;
     height: 24px;
   }
   html[data-event="christmas"] #navbar .event-garland__bulb {
@@ -480,12 +467,6 @@ html[data-fx="off"] #navbar .event-garland__bulb {
     height: 7px;
     margin-inline-start: -3.5px;
     margin-top: -3.5px;
-  }
-  /* Cadre : débord réduit mais toujours présent sur les 4 coins. */
-  .newphoto-banner-wrapper .event-frame {
-    inset: -8px;
-    width: calc(100% + 16px);
-    height: calc(100% + 16px);
   }
 }
 

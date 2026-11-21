@@ -1,7 +1,7 @@
 /* ============================================================
    js/events-calendar.js — MOTEUR DE CALENDRIER COMMERCIAL ANNUEL
    ------------------------------------------------------------
-   Active/désactive automatiquement 8 thèmes saisonniers aux dates
+   Active/désactive automatiquement 9 thèmes saisonniers aux dates
    exactes (heure légale marocaine, offsets ISO explicites), puis
    restaure le design d'origine (newphoto.webp).
 
@@ -38,7 +38,7 @@ export const THEME_CONFIG_PATH = { collection: "config", doc: "theme" };
  * l'afficher pendant 24 h après un remplacement de fichier.
  * À INCRÉMENTER dès que les WebP sont régénérés.
  */
-export const ASSETS_VERSION = "3";
+export const ASSETS_VERSION = "4";
 
 /**
  * URL d'un visuel d'événement, avec cache-busting.
@@ -52,6 +52,9 @@ export function eventImageUrl(event) {
 
 /**
  * URL du cadre décoratif transparent de l'événement, avec cache-busting.
+ * Le cadre est désormais COMPOSÉ dans `hero-<event>.webp` (photo au centre,
+ * cadre sur les bords) ; cette fonction reste utilisée par les tests et le
+ * script `scripts/build-event-assets.py`.
  * @param {object} event
  * @returns {string}
  */
@@ -61,7 +64,7 @@ export function eventFrameUrl(event) {
 }
 
 /**
- * Les 8 événements, dans l'ordre chronologique.
+ * Les 9 événements, dans l'ordre chronologique.
  * Les offsets sont explicites : +01:00 (heure normale du Maroc) et
  * +00:00 pendant le Ramadan 2027, conformément au calendrier fourni.
  * @type {ReadonlyArray<{id:string,start:string,end:string,image:string,frame:string,label:object,accent:string}>}
@@ -129,6 +132,19 @@ export const EVENTS = Object.freeze([
     frame: "/assets/frame-back-to-school.webp",
     accent: "#1b4fd8",
     label: { fr: "Rentrée scolaire", en: "Back to School", ar: "الدخول المدرسي" },
+  },
+  {
+    id: "salon-marocain-11-11",
+    start: "2027-11-08T00:00:00+01:00",
+    end: "2027-11-13T23:59:59+01:00",
+    image: "/assets/hero-salon-marocain-11-11.webp",
+    frame: "/assets/frame-salon-marocain-11-11.webp",
+    accent: "#7b2ff7",
+    label: {
+      fr: "Salon marocain connecté · 11.11",
+      en: "Moroccan Connected Expo · 11.11",
+      ar: "الصالون المغربي المتصل · 11.11",
+    },
   },
   {
     id: "black-friday",
@@ -295,7 +311,6 @@ const STATE = {
   timer: null,
   preview: null,
   started: false,
-  frameEl: null,
   garlandEl: null,
 };
 
@@ -332,10 +347,12 @@ function swapHero(event) {
   const original = captureOriginalHero();
   if (!original) return;
   const img = original.el;
-  /* Les visuels ont EXACTEMENT les dimensions de newphoto.webp (2179x722) :
-     on ne touche ni à width ni à height, donc aucun décalage de mise en page.
-     Aucun texte n'est ajouté : les visuels contiennent déjà leur titrage. */
+  /* Les visuels encadrés font 2179x818 : la photo est entièrement visible
+     au centre, le cadre reste sur les bords. On met à jour width/height
+     pour réserver la bonne hauteur avant le chargement (zéro CLS). */
   img.setAttribute("src", eventImageUrl(event));
+  img.setAttribute("width", "2179");
+  img.setAttribute("height", "818");
   img.setAttribute("alt", `${original.alt} — ${getEventLabel(event, currentLang())}`);
   img.classList.add("is-event-hero");
 }
@@ -352,83 +369,9 @@ function preloadImage(src) {
   }
 }
 
-/* ---------- Cadre décoratif transparent superposé au hero ---------- */
-
-const FRAME_CLASS = "event-frame";
-const GARLAND_CLASS = "event-garland";
-
-/** Conteneur du hero (null si la page ne contient pas de bannière). */
-function heroWrapper() {
-  const img = document.querySelector(".responsive-hero-image");
-  return img ? img.closest(".newphoto-banner-wrapper") : null;
-}
-
-/**
- * Boîte média qui épouse EXACTEMENT l'image (sans le padding 1rem du
- * wrapper). Le cadre absolu s'aligne ainsi sur les bords de la photo
- * + 12px, et non sur le padding du conteneur.
- */
-function heroMedia() {
-  const wrapper = heroWrapper();
-  if (!wrapper) return null;
-  let media = wrapper.querySelector(".event-hero-media");
-  if (media) return media;
-  const img = wrapper.querySelector(".responsive-hero-image");
-  if (!img) return null;
-  media = document.createElement("div");
-  media.className = "event-hero-media";
-  img.parentNode.insertBefore(media, img);
-  media.appendChild(img);
-  return media;
-}
-
-/** Remet l'image directement dans le wrapper (zéro destruction). */
-function unwrapHeroMedia() {
-  const media = document.querySelector(".event-hero-media");
-  if (!media || !media.parentNode) return;
-  const img = media.querySelector(".responsive-hero-image");
-  const parent = media.parentNode;
-  if (img) parent.insertBefore(img, media);
-  parent.removeChild(media);
-}
-
-/** Retire le cadre de l'événement précédent. */
-function removeFrame() {
-  if (STATE.frameEl && STATE.frameEl.parentNode) {
-    STATE.frameEl.parentNode.removeChild(STATE.frameEl);
-  }
-  STATE.frameEl = null;
-}
-
-/**
- * Superpose `frame-<event>.webp` sur la bannière.
- * Le cadre est purement décoratif : `pointer-events: none` (CSS) et
- * `aria-hidden`, aucun texte, aucun écouteur.
- */
-function mountFrame(event) {
-  const media = heroMedia();
-  const src = eventFrameUrl(event);
-  if (!media || !src) {
-    removeFrame();
-    return;
-  }
-
-  let img = media.querySelector("." + FRAME_CLASS);
-  if (!img) {
-    img = document.createElement("img");
-    img.className = FRAME_CLASS;
-    img.alt = "";
-    img.setAttribute("aria-hidden", "true");
-    img.decoding = "async";
-    img.draggable = false;
-    media.appendChild(img);
-  }
-  if (img.getAttribute("src") !== src) img.setAttribute("src", src);
-  img.setAttribute("data-event-frame", event.id);
-  STATE.frameEl = img;
-}
-
 /* ---------- Guirlande LED animée (Noël uniquement) ---------- */
+
+const GARLAND_CLASS = "event-garland";
 
 const BULB_COUNT = 25;
 const GARLAND_SVG_NS = "http://www.w3.org/2000/svg";
@@ -503,18 +446,14 @@ function applyState(event) {
     html.removeAttribute("data-event");
     html.style.removeProperty("--ev-accent");
     restoreHero();
-    removeFrame();
-    unwrapHeroMedia();
     removeGarland();
   } else {
     html.setAttribute("data-event", event.id);
     html.style.setProperty("--ev-accent", event.accent);
     swapHero(event);
-    mountFrame(event);
     if (event.id === "christmas") mountGarland();
     else removeGarland();
     preloadImage(eventImageUrl(event));
-    preloadImage(eventFrameUrl(event));
   }
 
   if (previous !== STATE.currentEventId) {
@@ -608,7 +547,6 @@ export async function initEventsCalendar(options = {}) {
     const nextEvent = getEventById(next.eventId);
     if (nextEvent) {
       preloadImage(eventImageUrl(nextEvent));
-      preloadImage(eventFrameUrl(nextEvent));
     }
   }
 

@@ -50,7 +50,7 @@ const idAt = (iso) => {
 };
 
 /* ---------- 1. Structure ---------- */
-check("8 événements déclarés", EVENTS.length === 8, String(EVENTS.length));
+check("9 événements déclarés", EVENTS.length === 9, String(EVENTS.length));
 check(
   "identifiants uniques",
   new Set(EVENTS.map((e) => e.id)).size === EVENTS.length
@@ -110,26 +110,32 @@ function readWebpSize(file) {
 
 const REFERENCE_FILE = path.join(ROOT, "assets", "newphoto.webp");
 const reference = readWebpSize(REFERENCE_FILE);
+const FRAMED_HEIGHT = 818;
 check(
   "référence newphoto.webp lisible",
   reference !== null,
   reference ? `${reference.width}x${reference.height}` : "illisible"
 );
-
 check(
-  "visuels strictement à la dimension de newphoto.webp",
-  Boolean(reference) &&
-    EVENTS.every((event) => {
-      const size = readWebpSize(path.join(ROOT, event.image.replace(/^\//, "")));
-      return size && size.width === reference.width && size.height === reference.height;
-    }),
-  reference ? `attendu ${reference.width}x${reference.height}` : ""
+  "newphoto.webp en 2179x722",
+  Boolean(reference) && reference.width === 2179 && reference.height === 722,
+  reference ? `${reference.width}x${reference.height}` : ""
 );
 
 check(
-  "visuels ≤ 260 Ko",
+  "bannières encadrées 2179x818 (photo entière + cadre sur les bords)",
+  Boolean(reference) &&
+    EVENTS.every((event) => {
+      const size = readWebpSize(path.join(ROOT, event.image.replace(/^\//, "")));
+      return size && size.width === reference.width && size.height === FRAMED_HEIGHT;
+    }),
+  reference ? `attendu ${reference.width}x${FRAMED_HEIGHT}` : ""
+);
+
+check(
+  "bannières encadrées ≤ 460 Ko (photo + cadre en un seul fichier)",
   EVENTS.every(
-    (event) => fs.statSync(path.join(ROOT, event.image.replace(/^\//, ""))).size <= 260 * 1024
+    (event) => fs.statSync(path.join(ROOT, event.image.replace(/^\//, ""))).size <= 460 * 1024
   )
 );
 
@@ -147,6 +153,10 @@ check("Noël le 2026-12-15", idAt("2026-12-15T12:00:00+01:00") === "christmas", 
 check("Ramadan le 2027-02-20 (GMT+0)", idAt("2027-02-20T20:00:00+00:00") === "ramadan", idAt("2027-02-20T20:00:00+00:00"));
 check("Black Friday le 2027-11-26", idAt("2027-11-26T18:00:00+01:00") === "black-friday", idAt("2027-11-26T18:00:00+01:00"));
 check("Retour à l'original le 2027-01-02 06:05", idAt("2027-01-02T06:05:00+01:00") === null, String(idAt("2027-01-02T06:05:00+01:00")));
+check("Salon marocain 11.11 le 2027-11-10", idAt("2027-11-10T12:00:00+01:00") === "salon-marocain-11-11", idAt("2027-11-10T12:00:00+01:00"));
+check("début exact Salon marocain 2027-11-08 00:00", idAt("2027-11-08T00:00:00+01:00") === "salon-marocain-11-11");
+check("fin incluse Salon marocain 2027-11-13 23:59:59", idAt("2027-11-13T23:59:59+01:00") === "salon-marocain-11-11");
+check("après Salon marocain 2027-11-14 00:00 = défaut", idAt("2027-11-14T00:00:00+01:00") === null, String(idAt("2027-11-14T00:00:00+01:00")));
 
 /* ---------- 4. Frontières ---------- */
 check("fin incluse : 2027-01-02 06:00 = Noël", idAt("2027-01-02T06:00:00+01:00") === "christmas");
