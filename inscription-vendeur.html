@@ -32,8 +32,9 @@
     }
     </script>
 
-    <link rel="stylesheet" href="/css/style.485f2e61.css">
-    <link rel="stylesheet" href="/css/style-patches.3c6376dd.css">
+    <link rel="stylesheet" href="/css/style.081f870d.css">
+    <link rel="stylesheet" href="/css/style-patches.7d81b9bd.css">
+    <link rel="stylesheet" href="/css/events.d352d348.css">
     <link rel="stylesheet" href="/vendor-style.css">
 
     <!-- Fallback critique (indépendant de vendor-style.css) -->
@@ -63,6 +64,55 @@
             outline: 2px solid var(--gold, #b8860b);
             outline-offset: -2px;
         }
+    
+        /* En-tête de la page d'inscription vendeur : logo + langue sur UNE ligne.
+           L'ancien markup empilait l'image (img{display:block}) au-dessus du
+           texte et débordait de la barre de 70 px. */
+        .signup-nav {
+            background: #fff;
+            border-bottom: 1px solid var(--border);
+            padding: 0 1rem;
+            gap: 1rem;
+        }
+        .signup-brand {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.6rem;
+            min-width: 0;
+            text-decoration: none;
+        }
+        .signup-brand .logo-img {
+            display: block;
+            width: 34px;
+            height: 34px;
+            flex: 0 0 auto;
+        }
+        .signup-brand .logo-text {
+            font-family: var(--font-secondary);
+            font-size: 1.2rem;
+            font-weight: 800;
+            letter-spacing: 0.02em;
+            color: var(--gold-text, #6f5219);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .signup-lang {
+            flex: 0 0 auto;
+            min-height: 40px;
+            padding: 0.35rem 0.6rem;
+            border: 1px solid var(--border-gold);
+            border-radius: 8px;
+            background: var(--bg-card);
+            color: var(--text);
+            font: inherit;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        @media (max-width: 380px) {
+            .signup-brand .logo-text { font-size: 1rem; }
+        }
     </style>
 
     <!-- Traductions de base (chargées avant les modules ES) -->
@@ -82,16 +132,16 @@
         </div>
     </noscript>
 
-    <nav id="navbar" style="background:#fff; border-bottom:1px solid #ddd; padding:1rem; text-align:center;">
-        <a href="/" style="font-family:var(--font-secondary);font-size:1.5rem;font-weight:800;color:var(--gold);text-decoration:none;"><img src="/assets/logo-64.png" alt="" width="34" height="34" class="logo-img" style="vertical-align:middle;">SMARTSWIKA</a>
-        <div style="margin-top:.65rem;">
-            <select id="langSelect" data-aria-key="ariaLangChange" aria-label="Changer la langue"
-                    style="padding:.45rem .65rem;border:1px solid var(--border-gold);border-radius:8px;background:var(--bg-card);color:var(--text);font:inherit;font-size:.85rem;font-weight:600;cursor:pointer;">
-                <option value="fr" selected>FR</option>
-                <option value="en">EN</option>
-                <option value="ar">AR</option>
-            </select>
-        </div>
+        <nav id="navbar" class="signup-nav">
+        <a href="/" class="signup-brand" aria-label="Smartswika — Accueil">
+            <img src="/assets/logo-64.png" alt="" width="34" height="34" class="logo-img">
+            <span class="logo-text">SMARTSWIKA</span>
+        </a>
+        <select id="langSelect" class="signup-lang" data-aria-key="ariaLangChange" aria-label="Changer la langue">
+            <option value="fr" selected>FR</option>
+            <option value="en">EN</option>
+            <option value="ar">AR</option>
+        </select>
     </nav>
 
     <main class="container" style="padding: 2rem 1rem; max-width: 800px; margin: 0 auto;">

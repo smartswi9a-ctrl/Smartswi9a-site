@@ -1,0 +1,428 @@
+/* ============================================================
+   css/events.css — THÈMES SAISONNIERS SMARTWIKA
+   ------------------------------------------------------------
+   Chargée uniquement sur l'accueil. Tout est scopé sous
+   `html[data-event="..."]` : sans événement, AUCUNE règle de ce
+   fichier ne s'applique (design d'origine strictement intact).
+
+   Performance 4G : uniquement transform/opacity (GPU), pas de
+   filter coûteux sur de grandes surfaces, pas d'image lourde
+   supplémentaire (SVG inline en data-URI, gradients CSS).
+   Accessibilité : `prefers-reduced-motion` (déjà géré globalement)
+   + `html[data-fx="off"]` (paramètre ?fx=off).
+   ============================================================ */
+
+/* ---------- 1. Base commune à tous les événements ---------- */
+
+html[data-event] .newphoto-banner-wrapper {
+  position: relative;
+  isolation: isolate;
+}
+
+/* Voile sombre du côté du texte (gauche en FR/EN, droite en AR). */
+/* Aucun voile au-dessus de la photo : le fond crème, la photo et le
+   cadre restent nets. Rien n'est superposé à l'image. */
+
+/* ============================================================
+   BANNIÈRE PHOTO — 60 % DE LA LARGEUR, CENTRÉE
+   ------------------------------------------------------------
+   La bannière conserve l'ancienne taille de newphoto (2179x722).
+   La photo (default ou événement) occupe 60 % de la bannière et est
+   centrée. Les bannières d'événement sont des composites 2179x722 :
+   photo 60 %, passe-partout doré, cadre 80 % x 95 % autour.
+   Rien n'est superposé.
+   ============================================================ */
+.newphoto-banner-wrapper {
+  width: calc(100% - 2rem);
+  max-width: calc(var(--container-max) - 2rem);
+  margin: 0 auto 1rem;
+  padding: 0;
+  aspect-ratio: 2179 / 722;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.newphoto-banner-wrapper .responsive-hero-image {
+  width: 60%;
+  height: auto;
+  aspect-ratio: auto;
+  max-height: none;
+  min-height: 0;
+  padding: 0;
+  background: transparent;
+  object-fit: contain;
+  object-position: center;
+  border-radius: 20px;
+  display: block;
+}
+
+/* Le composite d'événement contient déjà la photo (60 %) et le cadre
+   (80 % x 90 %) : il remplit toute la bannière. */
+html[data-event] .newphoto-banner-wrapper .responsive-hero-image {
+  width: 100%;
+  object-fit: cover;
+}
+
+@media (max-width: 600px) {
+  .newphoto-banner-wrapper {
+    width: calc(100% - 1.2rem);
+    max-width: none;
+  }
+  .newphoto-banner-wrapper .responsive-hero-image {
+    border-radius: 14px;
+  }
+}
+
+/* ============================================================
+   GUIRLANDE LED ANIMÉE SOUS LA NAVIGATION (Noël)
+   ------------------------------------------------------------
+   Fil festonné SVG + 25 ampoules de 7,5px. Chaque ampoule reçoit son
+   décalage (--d) et sa position sur la courbe (--x / --y) depuis
+   js/events-calendar.js. Animations uniquement sur transform/opacity
+   (GPU, 60 FPS).
+
+   IMPORTANT : la décoration est logée DANS la navbar. On agrandit donc
+   la navbar de 28px (Noël et Ramadan) ; le body utilise déjà
+   `padding-top: var(--nav-height)`, donc le bandeau Koulchi descend
+   avec le header et n'est JAMAIS recouvert.
+   ============================================================ */
+html[data-event="christmas"],
+html[data-event="ramadan"] {
+  --sw-nav-extra: 28px;
+  --nav-height: calc(70px + var(--sw-nav-extra));
+}
+
+html[data-event="christmas"] #navbar .event-garland {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 26px;
+  pointer-events: none;
+  z-index: 2;
+  transform-origin: 50% 0;
+  animation: sw-garland-sway 6.5s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+#navbar .event-garland__wire {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+#navbar .event-garland__wire path {
+  fill: none;
+  stroke: #8a6a24;
+  stroke-width: 1.6;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35));
+}
+
+html[data-event="christmas"] #navbar .event-garland__bulb {
+  position: absolute;
+  inset-inline-start: var(--x, 0%);
+  top: var(--y, 10%);
+  width: 7.5px;
+  height: 7.5px;
+  margin-inline-start: -3.75px;
+  margin-top: -3.75px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fffbe8 0 22%, #ffd76e 45%, #f0a92c 100%);
+  box-shadow:
+    0 0 5px 1px rgba(255, 214, 110, 0.85),
+    0 0 12px 3px rgba(255, 176, 56, 0.35);
+  opacity: 0.92;
+  transform: translateZ(0) scale(1);
+  transform-origin: 50% 50%;
+  will-change: transform, opacity;
+  animation: sw-led-twinkle 2.4s ease-in-out infinite;
+  animation-delay: var(--d, 0s);
+}
+
+html[data-event="christmas"] #navbar .event-garland__bulb.is-alt {
+  background: radial-gradient(circle at 35% 30%, #fff1f1 0 22%, #ff7a6e 45%, #c8102e 100%);
+  box-shadow:
+    0 0 5px 1px rgba(255, 122, 110, 0.85),
+    0 0 12px 3px rgba(200, 16, 46, 0.3);
+}
+
+/* Ancienne guirlande de points (remplacée par le fil festonné animé). */
+
+/* Halo de la couleur de l'événement derrière le titre. */
+html[data-event] .hero-title em {
+  color: var(--ev-accent, var(--gold-text, #6f5219));
+  text-shadow: 0 0 22px color-mix(in srgb, var(--ev-accent, #a57b2e) 35%, transparent);
+}
+
+/* Les ventes flash prennent la teinte de l'événement. */
+html[data-event] .product-card.has-flash {
+  border-color: var(--ev-accent, #a57b2e);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ev-accent, #a57b2e) 35%, transparent);
+}
+
+html[data-event] .flash-item-pct,
+html[data-event] .flash-hero-badge {
+  background: var(--ev-accent, #a57b2e);
+  color: #fff;
+}
+
+/* ---------- 2. Noël & fin d'année : guirlande LED + sapin + neige ---------- */
+
+/* Sapin CSS 3D — calé sur le panier flottant.
+   Dimensions EXACTES du bouton panier (60x60 desktop, 54x54 mobile dans
+   la media query plus bas) et positionné juste au-dessus, à la même
+   verticale. Aucune image, aucun texte. */
+html[data-event="christmas"] #cartButton::before {
+  content: "";
+  position: absolute;
+  inset-inline-end: 0;
+  bottom: calc(100% + 6px);
+  width: 60px;
+  height: 60px;
+  pointer-events: none;
+  background:
+    conic-gradient(from 210deg at 50% 42%, #1f7a3f, #0f4c27 55%, #1f7a3f),
+    linear-gradient(#8a5a1a, #6b4310);
+  clip-path: polygon(50% 0%, 92% 62%, 66% 62%, 100% 100%, 0% 100%, 34% 62%, 8% 62%);
+  transform: perspective(320px) rotateY(-12deg);
+  transform-origin: 50% 100%;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.28));
+  animation: sw-tree-sway 5s ease-in-out infinite alternate;
+}
+
+/* Neige légère : deux couches de points, translation GPU. */
+html[data-event="christmas"] .hero-section::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle, rgba(255, 255, 255, 0.9) 0 1.6px, transparent 2px),
+    radial-gradient(circle, rgba(255, 255, 255, 0.65) 0 1px, transparent 1.6px);
+  background-size: 120px 120px, 76px 76px;
+  background-position: 0 0, 40px 60px;
+  opacity: 0.5;
+  animation: sw-snow 14s linear infinite;
+}
+
+/* ---------- 3. Soldes d'Hiver ---------- */
+
+html[data-event="winter-sales"] {
+  --ev-accent: #1e6bff;
+}
+
+html[data-event="winter-sales"] .trust-item svg {
+  color: #1e6bff;
+}
+
+html[data-event="winter-sales"] .hero-badge {
+  border-color: rgba(30, 107, 255, 0.45);
+  background: rgba(30, 107, 255, 0.08);
+}
+
+/* ---------- 4. Ramadan : lanternes suspendues ---------- */
+
+html[data-event="ramadan"] {
+  --ev-accent: #c9a227;
+}
+
+html[data-event="ramadan"] #navbar::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 26px;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='34' viewBox='0 0 120 34'><g fill='none' stroke='%23c9a227' stroke-width='1.2'><path d='M20 0v10'/><path d='M60 0v6'/><path d='M100 0v12'/></g><g fill='%23c9a227' opacity='.9'><path d='M14 10h12l-2 6h-8z'/><rect x='17' y='16' width='6' height='3' rx='1'/><path d='M54 6h12l-2 6h-8z'/><rect x='57' y='12' width='6' height='3' rx='1'/><path d='M94 12h12l-2 6h-8z'/><rect x='97' y='18' width='6' height='3' rx='1'/></g></svg>");
+  background-repeat: repeat-x;
+  background-size: 120px 26px;
+  background-position: bottom;
+  animation: sw-lantern-sway 4.5s ease-in-out infinite alternate;
+  transform-origin: top center;
+}
+
+
+/* Lanternes : le badge garde un contraste élevé sur le bleu nuit. */
+html[data-event="ramadan"] .hero-badge {
+  background: rgba(20, 26, 58, 0.9);
+  border-color: rgba(201, 162, 39, 0.55);
+  color: #f7e6b0;
+}
+
+/* ---------- 5. Aïd al-Fitr : motifs géométriques ---------- */
+
+html[data-event="eid-fitr"] {
+  --ev-accent: #0f8a5f;
+}
+
+html[data-event="eid-fitr"] .newphoto-banner-wrapper::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.16;
+  border-radius: inherit;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'><g fill='none' stroke='%230f8a5f' stroke-width='1'><path d='M32 0l32 32-32 32L0 32z'/><circle cx='32' cy='32' r='12'/></g></svg>");
+  background-size: 64px 64px;
+}
+
+/* ---------- 6. Aïd al-Adha : ambre chaleureux ---------- */
+
+html[data-event="eid-adha"] {
+  --ev-accent: #c47b1f;
+}
+
+/* ---------- 7. Soldes d'Été : orange / turquoise ---------- */
+
+html[data-event="summer-sales"] {
+  --ev-accent: #ff7a1a;
+}
+
+html[data-event="summer-sales"] .hero-title em {
+  background: linear-gradient(92deg, #ff7a1a, #12b3b3);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: none;
+}
+
+/* ---------- 8. Rentrée scolaire : bleu roi + trait technique ---------- */
+
+html[data-event="back-to-school"] {
+  --ev-accent: #1b4fd8;
+}
+
+html[data-event="back-to-school"] .hero-title em {
+  text-decoration: underline;
+  text-decoration-thickness: 3px;
+  text-underline-offset: 6px;
+  text-decoration-color: rgba(27, 79, 216, 0.35);
+}
+
+/* ---------- 9. Black Friday : sombre, rouge, or ---------- */
+
+html[data-event="black-friday"] {
+  --ev-accent: #c8102e;
+}
+
+html[data-event="black-friday"] #navbar {
+  background: rgba(12, 12, 14, 0.96);
+  border-bottom: 1px solid rgba(200, 16, 46, 0.45);
+}
+
+html[data-event="black-friday"] #navbar .logo-text,
+html[data-event="black-friday"] #navbar .nav-links a,
+html[data-event="black-friday"] #navbar .btn-account {
+  color: #f5f5f5;
+}
+
+html[data-event="black-friday"] .product-card.has-flash {
+  border-color: #c8102e;
+  box-shadow: 0 0 0 1px rgba(200, 16, 46, 0.55), 0 8px 26px rgba(200, 16, 46, 0.18);
+}
+
+html[data-event="black-friday"] .btn-primary {
+  background: linear-gradient(135deg, #c8102e, #7d0618);
+}
+
+html[data-event="black-friday"] .hero-badge {
+  background: rgba(200, 16, 46, 0.12);
+  border-color: rgba(200, 16, 46, 0.5);
+}
+
+/* ---------- 10. Animations (GPU : transform / opacity) ---------- */
+
+/* Guirlande LED : scintillement décalé + halo pulsant. */
+@keyframes sw-led-twinkle {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(0.78);
+    opacity: 0.5;
+    box-shadow:
+      0 0 3px 1px rgba(255, 214, 110, 0.5),
+      0 0 7px 2px rgba(255, 176, 56, 0.18);
+  }
+  45% {
+    transform: translate3d(0, 0, 0) scale(1.12);
+    opacity: 1;
+    box-shadow:
+      0 0 6px 2px rgba(255, 232, 160, 0.95),
+      0 0 16px 4px rgba(255, 176, 56, 0.45);
+  }
+}
+
+/* Léger balancement du fil, comme suspendu sous la barre. */
+@keyframes sw-garland-sway {
+  from { transform: rotate(-0.35deg); }
+  to { transform: rotate(0.35deg); }
+}
+
+@keyframes sw-tree-sway {
+  from { transform: perspective(320px) rotateY(-12deg) translateZ(0); }
+  to { transform: perspective(320px) rotateY(10deg) translateZ(0); }
+}
+
+@keyframes sw-snow {
+  from { transform: translate3d(0, -120px, 0); }
+  to { transform: translate3d(0, 0, 0); }
+}
+
+@keyframes sw-lantern-sway {
+  from { transform: rotate(-1.1deg); }
+  to { transform: rotate(1.1deg); }
+}
+
+/* ---------- 11. Coupure des effets ---------- */
+
+html[data-fx="off"] #navbar::after,
+html[data-fx="off"] .hero-section::after,
+html[data-fx="off"] #cartButton::before,
+html[data-fx="off"] #navbar .event-garland,
+html[data-fx="off"] #navbar .event-garland__bulb {
+  animation: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-event] #navbar::after,
+  html[data-event] .hero-section::after,
+  html[data-event] #cartButton::before,
+  html[data-event] #navbar .event-garland,
+  html[data-event] #navbar .event-garland__bulb {
+    animation: none !important;
+  }
+  html[data-event="christmas"] .hero-section::after {
+    opacity: 0.25;
+  }
+}
+
+/* ---------- 12. Mobile : décors allégés ---------- */
+
+@media (max-width: 600px) {
+  /* Le sapin suit la taille mobile du panier (54x54). */
+  html[data-event="christmas"] #cartButton::before {
+    width: 54px;
+    height: 54px;
+  }
+  html[data-event="ramadan"] #navbar::after {
+    bottom: 0;
+    height: 22px;
+    background-size: 90px 22px;
+    background-position: bottom;
+  }
+  /* Guirlande logée dans la navbar (le bandeau Koulchi reste dégagé). */
+  html[data-event="christmas"] #navbar .event-garland {
+    bottom: 0;
+    height: 24px;
+  }
+  html[data-event="christmas"] #navbar .event-garland__bulb {
+    width: 7px;
+    height: 7px;
+    margin-inline-start: -3.5px;
+    margin-top: -3.5px;
+  }
+}
+

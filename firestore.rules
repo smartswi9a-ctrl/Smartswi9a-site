@@ -614,6 +614,21 @@ service cloud.firestore {
        requiert aucune autorisation client.
        ============================================================ */
 
+    /* ============================================================
+       THÈME COMMERCIAL (calendrier saisonnier)
+       ------------------------------------------------------------
+       Le moteur de calendrier lit `config/theme.forcedEvent` pour
+       permettre un forçage manuel depuis l'administration.
+       Seul ce document est lisible publiquement ; `config/app`
+       (contractVersion) reste réservé aux administrateurs.
+       Aucune écriture client : la valeur se pose via la console
+       Firebase ou une fonction serveur.
+       ============================================================ */
+    match /config/theme {
+      allow read: if true;
+      allow write: if false;
+    }
+
     match /config/{docId} {
       allow read: if isAdmin();
       allow write: if false;
