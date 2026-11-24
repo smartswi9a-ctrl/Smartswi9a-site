@@ -614,6 +614,20 @@ service cloud.firestore {
        requiert aucune autorisation client.
        ============================================================ */
 
+    /* ============================================================
+       CALENDRIER DES BANNIÈRES SAISONNIÈRES (config/events)
+       ------------------------------------------------------------
+       Lecture publique : le navigateur doit connaître la bannière
+       active sans être connecté. Aucune écriture client : le
+       document se modifie depuis la console Firebase / Admin SDK,
+       ce qui permet d'ajuster les dates lunaires sans redéployer.
+       ============================================================ */
+
+    match /config/events {
+      allow read: if true;
+      allow write: if false;
+    }
+
     match /config/{docId} {
       allow read: if isAdmin();
       allow write: if false;
