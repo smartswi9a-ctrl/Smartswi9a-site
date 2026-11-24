@@ -24,6 +24,8 @@ const EMAILJS = {
 };
 
 const QUOTA_LIMIT = 200;
+/* Plafond promotionnel : au-delà de 180, tout bascule en push gratuit. */
+const PROMO_QUOTA_LIMIT = 180;
 const USAGE_PATH = 'config/emailjs_usage';
 const LOGS = 'email_logs';
 const SITE = 'https://smartswika.ma';
@@ -232,8 +234,9 @@ function buildEmail(type, data = {}, ctx = {}) {
 
 /* ---------- Quota mensuel (config/emailjs_usage) ---------- */
 
-async function reserveEmailSlot(count = 1) {
+async function reserveEmailSlot(count = 1, limit = QUOTA_LIMIT) {
   const month = monthKey();
+  const cap = Number.isFinite(Number(limit)) ? Number(limit) : QUOTA_LIMIT;
   const ref = db.doc(USAGE_PATH);
   try {
     return await db.runTransaction(async (tx) => {
@@ -241,7 +244,7 @@ async function reserveEmailSlot(count = 1) {
       const data = snap.exists ? snap.data() || {} : {};
       const sameMonth = String(data.month || '') === month;
       const used = sameMonth ? Number(data.count || 0) : 0;
-      if (used + count > QUOTA_LIMIT) {
+      if (used + count > cap) {
         if (!sameMonth) {
           tx.set(
             ref,
@@ -249,7 +252,7 @@ async function reserveEmailSlot(count = 1) {
             { merge: true }
           );
         }
-        return { ok: false, used, limit: QUOTA_LIMIT, month, reason: 'quota_exceeded' };
+        return { ok: false, used, limit: cap, month, reason: 'quota_exceeded' };
       }
       tx.set(
         ref,
@@ -262,11 +265,11 @@ async function reserveEmailSlot(count = 1) {
         },
         { merge: true }
       );
-      return { ok: true, used: used + count, limit: QUOTA_LIMIT, month };
+      return { ok: true, used: used + count, limit: cap, month };
     });
   } catch (error) {
     console.warn('[emails] quota :', error.message);
-    return { ok: false, used: 0, limit: QUOTA_LIMIT, month, reason: 'quota_error' };
+    return { ok: false, used: 0, limit: cap, month, reason: 'quota_error' };
   }
 }
 
@@ -359,6 +362,62 @@ async function sendCriticalEmail({ uid, role, type, data = {} }) {
   }
 }
 
+/** Email « digest » de reciblage (règles 5 / 6 / 9). */
+function buildPromoDigestEmail({ uid, digest, client = {}, abandoned = false }) {
+  const name = String(client.name || client.displayName || '').split(' ')[0] || 'Bonjour';
+  const rows = (digest.lines || [])
+    .slice(0, 10)
+    .map((line) => [line.title, `${mad(line.seenPrice)} → ${mad(line.newPrice)}`]);
+  if (Number(digest.totalDrop) > 0) rows.push(['Économie totale', mad(digest.totalDrop)]);
+  const first = (digest.lines && digest.lines[0]) || {};
+  return {
+    subject: digest.title,
+    html: layout({
+      title: digest.title,
+      intro: `${esc(name)}, vous avez consulté ${
+        digest.count > 1 ? 'ces articles' : 'cet article'
+      } : ${
+        digest.count > 1 ? 'ils sont maintenant en promotion' : 'il est maintenant en promotion'
+      }.`,
+      rows,
+      cta: abandoned ? 'Reprendre mon panier' : 'Voir le produit',
+      ctaUrl: abandoned ? `${SITE}/panier` : `${SITE}/produit?slug=${encodeURIComponent(first.productId || '')}`,
+      footer: 'Offre valable dans la limite des stocks disponibles. Paiement à la livraison au Maroc.',
+      unsub: uid ? unsubscribeUrl(uid) : ''
+    }),
+    text: `${digest.title} — ${(digest.lines || [])
+      .map((line) => `${line.title} : ${mad(line.seenPrice)} → ${mad(line.newPrice)}`)
+      .join(' | ')}`
+  };
+}
+
+/** Envoi du digest promotionnel (plafond 180/200). */
+async function sendPromoDigestEmail({ uid, digest, client = {}, abandoned = false }) {
+  try {
+    const email = String(client.email || '').trim();
+    if (!email || !email.includes('@')) return { sent: false, reason: 'no_email' };
+    if (client.emailOptOut === true) return { sent: false, reason: 'opt_out' };
+    if (!emailjsPrivateKey()) return { sent: false, reason: 'no_private_key' };
+    if (!digest || !Array.isArray(digest.lines) || !digest.lines.length) {
+      return { sent: false, reason: 'empty_digest' };
+    }
+
+    const quota = await reserveEmailSlot(1, PROMO_QUOTA_LIMIT);
+    if (!quota.ok) {
+      await logEmail({ type: 'promo_digest', uid, to: email, ok: false, reason: quota.reason, month: quota.month });
+      return { sent: false, reason: quota.reason || 'quota_exceeded' };
+    }
+
+    const content = buildPromoDigestEmail({ uid, digest, client, abandoned });
+    await sendEmailJS({ to: email, name: client.name || '', ...content });
+    await logEmail({ type: 'promo_digest', uid, to: email, ok: true, month: quota.month });
+    return { sent: true, used: quota.used, limit: quota.limit };
+  } catch (error) {
+    console.warn('[emails] sendPromoDigestEmail :', error.message);
+    return { sent: false, reason: 'send_error' };
+  }
+}
+
 const MAX_CAMPAIGN_EMAILS = 60;
 const CAMPAIGN_DELAY_MS = 2500;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -424,6 +483,7 @@ async function sendCampaignEmails(campaignId, campaign = {}) {
 module.exports = {
   EMAILJS,
   QUOTA_LIMIT,
+  PROMO_QUOTA_LIMIT,
   USAGE_PATH,
   SELLER_TYPES,
   CLIENT_TYPES,
@@ -439,6 +499,8 @@ module.exports = {
   reserveEmailSlot,
   sendEmailJS,
   sendCriticalEmail,
+  sendPromoDigestEmail,
+  buildPromoDigestEmail,
   sendCampaignEmails,
   getUserContact,
   emailjsPrivateKey
