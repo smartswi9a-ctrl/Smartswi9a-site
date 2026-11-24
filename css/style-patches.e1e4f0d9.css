@@ -1107,7 +1107,7 @@ main#main {
    ============================================================ */
 @media (max-height: 500px) and (orientation: landscape) {
     body {
-        padding-top: calc(var(--nav-height) + 4px);
+        padding-top: var(--nav-height);
     }
     .hero-section {
         padding: 0.8rem 1rem;
@@ -1129,7 +1129,7 @@ main#main {
    ============================================================ */
 @supports (padding-top: env(safe-area-inset-top)) {
     body {
-        padding-top: calc(var(--nav-height) + 8px + env(safe-area-inset-top, 0px));
+        padding-top: calc(var(--nav-height) + env(safe-area-inset-top, 0px));
     }
     #navbar {
         padding-top: env(safe-area-inset-top, 0px);
@@ -3680,5 +3680,70 @@ html body.vendor-page #navbar #langSelect {
     html body.vendor-page #navbar .logo-img {
         width: 24px !important;
         height: 24px !important;
+    }
+}
+/* ============================================================
+   CONNEXION VENDEUR — AUCUN ESPACE PERDU EN HAUT
+   ------------------------------------------------------------
+   Le body global porte padding-top: var(--nav-height) pour la
+   navbar FIXE. /vendor-login utilise un en-tete en flux normal
+   (.login-topbar) : ce padding creait ~78 px de vide au-dessus
+   du logo. On l annule et on maitrise la barre.
+   Le mot-symbole etait aussi tronque en mobile (ellipsis) car
+   les liens de navigation prenaient toute la place.
+   ============================================================ */
+
+html body.vendor-login-page {
+    padding-top: 0 !important;
+}
+
+html body.vendor-login-page .login-topbar {
+    height: auto;
+    min-height: 60px;
+    flex-wrap: nowrap;
+    padding: 0.5rem clamp(0.75rem, 4vw, 4rem);
+}
+
+html body.vendor-login-page .login-topbar .logo {
+    flex: 0 1 auto;
+    max-width: 70%;
+}
+
+html body.vendor-login-page .login-topbar .logo-text {
+    font-size: 1.05rem;
+    letter-spacing: 0.8px;
+    white-space: nowrap;
+    overflow: visible;
+    text-overflow: clip;
+}
+
+html body.vendor-login-page .login-topbar .logo-img {
+    width: 30px;
+    height: 30px;
+}
+
+@media (max-width: 720px) {
+    html body.vendor-login-page .login-top-links {
+        display: none !important;
+    }
+    html body.vendor-login-page .login-topbar {
+        min-height: 56px;
+        padding: 0.4rem 0.85rem;
+    }
+    html body.vendor-login-page .login-topbar .logo {
+        max-width: 76%;
+    }
+    html body.vendor-login-page .login-topbar .logo-text {
+        font-size: 0.98rem;
+        letter-spacing: 0.3px;
+    }
+    html body.vendor-login-page .login-topbar .logo-img {
+        width: 26px;
+        height: 26px;
+        margin-inline-end: 0.4rem;
+    }
+    html body.vendor-login-page .login-main {
+        align-items: start;
+        padding: 0.85rem 0.85rem 1.25rem;
     }
 }

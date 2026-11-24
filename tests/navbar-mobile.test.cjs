@@ -93,6 +93,31 @@ check(
     !traductions.includes("Vous envoyez votre stock chez Livo")
 );
 
+/* ---------- Aucun espace perdu en haut de page ---------- */
+
+const css = fs.readFileSync(path.join(ROOT, "style.css"), "utf8");
+const patches = fs.readFileSync(path.join(ROOT, "style-patches.css"), "utf8");
+const spacing = fs.readFileSync(path.join(ROOT, "spacing.css"), "utf8");
+
+check(
+  "body : décalage haut strictement égal à la hauteur de navbar",
+  /body \{[\s\S]{0,400}?padding-top: var\(--nav-height\);/.test(css) &&
+    !/padding-top: calc\(var\(--nav-height\) \+ \d+px/.test(css + patches + spacing)
+);
+check(
+  "mobile : navbar ramenée à 60px (10px de gagnés)",
+  /@media \(max-width: 640px\) \{[\s\S]{0,120}?--nav-height: 60px;/.test(css)
+);
+check(
+  "/vendor-login : aucun padding haut (en-tête en flux normal)",
+  /html body\.vendor-login-page \{\s*padding-top: 0 !important;/.test(patches)
+);
+check(
+  "/vendor-login mobile : liens cachés + logo non tronqué",
+  /@media \(max-width: 720px\) \{[\s\S]*?\.login-top-links \{\s*display: none !important;/.test(patches) &&
+    /\.login-topbar \.logo-text \{[\s\S]*?text-overflow: clip;/.test(patches)
+);
+
 const pass = verifications - echecs;
 console.log("\n" + pass + "/" + verifications + " verifications PASS");
 if (echecs > 0) {
