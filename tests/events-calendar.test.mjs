@@ -24,6 +24,7 @@ import {
   EVENTS,
   eventImageUrl,
   findEvent,
+  moroccoOffsetMinutes,
   nextTransitionAt,
   normalizeEvent,
   normalizeEvents,
@@ -116,6 +117,14 @@ check("Black Friday 2026 : 25/11 00:00 Casablanca = 24/11 23:00 UTC", () => {
 
 check("Ramadan 2027 : passage à UTC+0 (03/2027 = 00:00 UTC)", () => {
   assert.equal(iso(localMs("2027-03-01T00:00:00")), "2027-03-01T00:00:00.000Z");
+});
+
+check("règle légale Maroc : +60 min hors Ramadan, 0 pendant", () => {
+  assert.equal(moroccoOffsetMinutes(at("2026-11-25T00:00:00Z")), 60);
+  assert.equal(moroccoOffsetMinutes(at("2027-01-10T00:00:00Z")), 60);
+  assert.equal(moroccoOffsetMinutes(at("2027-03-01T00:00:00Z")), 0);
+  assert.equal(moroccoOffsetMinutes(at("2027-05-07T00:00:00Z")), 60);
+  assert.equal(moroccoOffsetMinutes(at("2027-12-05T00:00:00Z")), 60);
 });
 
 check("aller-retour horaire pour les 22 bornes", () => {

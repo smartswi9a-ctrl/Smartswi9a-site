@@ -3,10 +3,12 @@
    ------------------------------------------------------------
    11 visuels autonomes (aucun cadre, aucun overlay, aucun décor).
 
-   FUSEAU : Africa/Casablanca (heure légale marocaine), y compris
-   le retour à UTC+0 pendant le Ramadan 2027. Les bornes sont
-   stockées en heures murales « sans offset » et converties par
-   `wallClockToUtc()` via Intl : aucun offset n'est codé en dur.
+   FUSEAU : Africa/Casablanca (heure légale marocaine). Les bornes
+   sont stockées en heures murales « sans offset » et converties par
+   `wallClockToUtc()` selon la règle légale marocaine explicite
+   (UTC+1 ; UTC+0 pendant Ramadan), indépendamment de l'ICU/tzdata
+   du runtime qui diverge selon les plateformes (constat du
+   2026-11-24 entre Node Windows et Node Ubuntu).
 
    PRIORITÉ DE RÉSOLUTION :
      0. `?preview_event=<id|default>` force un visuel (session).
@@ -162,66 +164,71 @@ export const EVENTS = Object.freeze([
 const WALL_CLOCK_RE = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/;
 const IMAGE_RE = /^\/assets\/[a-z0-9][a-z0-9._-]*\.webp$/i;
 
-/** Formateur unique (coût évité à chaque appel). */
-const PARTS_FORMATTER = new Intl.DateTimeFormat("en-US", {
-  timeZone: TIME_ZONE,
-  hourCycle: "h23",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
-  second: "2-digit",
-});
+/**
+ * Heure légale marocaine : UTC+1 toute l'année, UTC+0 pendant le
+ * Ramadan (décret 2-18-346). Les dates lunaires sont indicatives et
+ * couvrent la fenêtre du calendrier (2026-2028).
+ *
+ * POURQUOI CE N'EST PAS CALCULÉ PAR Intl :
+ * les bases tzdata/ICU divergent selon la plateforme. Constaté le
+ * 2026-11-24 : Node 22 Windows renvoie UTC+1 pour le 25/11/2026,
+ * Node 22 Ubuntu (CI GitHub) renvoie UTC+0 pour la même date. Un
+ * décalage d'une heure déplacerait l'activation d'une bannière.
+ * La règle légale est donc codée explicitement : comportement
+ * identique sur tous les navigateurs, toutes les CI, tous les OS.
+ * @type {ReadonlyArray<readonly [number, number]>} bornes UTC (ms)
+ */
+const MOROCCO_UTC0_PERIODS = Object.freeze([
+  [Date.parse("2026-02-15T02:00:00Z"), Date.parse("2026-03-22T01:00:00Z")],
+  [Date.parse("2027-02-07T02:00:00Z"), Date.parse("2027-03-14T01:00:00Z")],
+  [Date.parse("2028-01-23T02:00:00Z"), Date.parse("2028-02-27T01:00:00Z")],
+].map((period) => Object.freeze(period)));
+
+/** Écart légal Maroc (minutes) à un instant UTC. */
+export function moroccoOffsetMinutes(ms) {
+  const t = Number(ms);
+  if (!Number.isFinite(t)) return 60;
+  for (const [start, end] of MOROCCO_UTC0_PERIODS) {
+    if (t >= start && t < end) return 0;
+  }
+  return 60;
+}
 
 /**
- * Décompose un instant (ms UTC) en heure murale du fuseau configuré.
+ * Décompose un instant (ms UTC) en heure murale Africa/Casablanca.
+ * Utilisé par les tests et le debug (déterministe, sans Intl).
  * @param {number} ms
  * @returns {{year:number,month:number,day:number,hour:number,minute:number,second:number}}
  */
 export function zonedParts(ms) {
-  const out = {};
-  for (const part of PARTS_FORMATTER.formatToParts(new Date(ms))) {
-    if (part.type !== "literal") out[part.type] = part.value;
-  }
+  const shifted = new Date(Number(ms) + moroccoOffsetMinutes(ms) * 60000);
   return {
-    year: Number(out.year),
-    month: Number(out.month),
-    day: Number(out.day),
-    hour: Number(out.hour) % 24,
-    minute: Number(out.minute),
-    second: Number(out.second),
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth() + 1,
+    day: shifted.getUTCDate(),
+    hour: shifted.getUTCHours(),
+    minute: shifted.getUTCMinutes(),
+    second: shifted.getUTCSeconds(),
   };
 }
 
 /**
- * Écart (ms) entre l'heure murale du fuseau et UTC pour un instant donné.
- * @param {number} ms
- * @returns {number}
- */
-function offsetAt(ms) {
-  const p = zonedParts(ms);
-  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - ms;
-}
-
-/**
  * Convertit une heure murale Africa/Casablanca en instant UTC (ms).
- * Aucun offset codé en dur : l'écart est relu via Intl (gère le
- * passage UTC+1 -> UTC+0 pendant Ramadan 2027 et les changements
- * futurs décidés par le Maroc).
- *
- * Méthode : on interprète l'heure murale comme UTC, on retire l'écart
- * observé, puis on vérifie l'écart au timestamp obtenu (2 passes).
+ * Aucun offset codé en dur par événement : la règle Maroc s'applique
+ * (UTC+1, UTC+0 pendant Ramadan), avec une seconde passe pour les
+ * bornes proches d'une transition.
  * @returns {number|null} null si la date est invalide
  */
 export function wallClockToUtc(year, month, day, hour, minute, second = 0) {
-  const asIfUtc = Date.UTC(year, month - 1, day, hour, minute, second);
-  if (!Number.isFinite(asIfUtc)) return null;
+  const wall = Date.UTC(year, month - 1, day, hour, minute, second);
+  if (!Number.isFinite(wall)) return null;
 
-  const firstOffset = offsetAt(asIfUtc);
-  let ts = asIfUtc - firstOffset;
-  const secondOffset = offsetAt(ts);
-  if (secondOffset !== firstOffset) ts = asIfUtc - secondOffset;
+  let ts = wall - 60 * 60000;
+  let offset = moroccoOffsetMinutes(ts);
+  if (offset !== 60) ts = wall - offset * 60000;
+
+  const confirmed = moroccoOffsetMinutes(ts);
+  if (confirmed !== offset) ts = wall - confirmed * 60000;
   return ts;
 }
 
