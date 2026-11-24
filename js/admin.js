@@ -615,6 +615,16 @@ function initAdmin() {
                     showToast('Impossible de charger les ventes flash.', 5000);
                 }
             }
+            else if (tab === 'notifications') {
+                /* Onglet Campagnes & Notifications : module séparé, chargé à la demande. */
+                try {
+                    const m = await import('./admin-notifications.js');
+                    await m.initNotificationsTab();
+                } catch (e) {
+                    console.error('[admin] initNotificationsTab impossible :', e);
+                    showToast('Impossible de charger les notifications.', 5000);
+                }
+            }
             else if (tab === 'finances') await loadFinancesTab();
             else if (tab === 'users') await loadUsers();
             else if (tab === 'reviews') await loadReviews();
