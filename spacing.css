@@ -1,0 +1,265 @@
+/* ============================================================
+   spacing.css — COMPACTAGE DES ESPACEMENTS VERTICAUX
+   ------------------------------------------------------------
+   Objectif : reduire les grands vides verticaux d'environ 30 %
+   sans ecraser le contenu.
+
+   PRINCIPES
+   - Feuille DEDIEE, chargee apres style.css et style-patches.css :
+     desactiver ce seul <link> remet le site a l'identique.
+   - Proprietes symetriques uniquement (padding-block, margin-block,
+     gap) : rendu identique en FR / EN / AR (RTL).
+   - INTACTES : banniere Hero (aspect-ratio 2179/722, rayons
+     16px/12px), navbar fixe (70px), ruban d'evenement (50/42px),
+     padding des boutons et liens (cibles tactiles preservees).
+   - Arabe : line-height mesure 1,55 (titres) a 1,85 (paragraphes),
+     donc >= 1,45 partout : aucune surcharge necessaire.
+   - Mobile (<= 768px) : valeurs d'origine plus petites, reduites
+     separement pour ne JAMAIS augmenter un espace existant.
+   ============================================================ */
+
+/* ---------- 1. Sections & pages ---------- */
+
+.section {
+    /* 32px / 48px -> 22px / 34px */
+    padding-block: 1.4rem 2.1rem;
+}
+
+/* Les deux sections du duo promo ont un padding propre plus petit
+   (24px/24px) : on le conserve tel quel pour ne rien augmenter. */
+.promo-duo > .section {
+    padding-block: 1.5rem;
+}
+
+.section:last-of-type {
+    /* 80px -> 56px */
+    padding-bottom: 3.5rem;
+}
+
+.section-sub {
+    /* 24px -> 16px */
+    margin-bottom: 1rem;
+}
+
+.hero-section {
+    /* Espace autour du Hero (la banniere elle-meme n'est pas touchee) */
+    padding-block: 1.15rem 1.35rem;
+}
+
+@media (min-width: 1024px) {
+    .product-page,
+    main.product-page,
+    main[data-product-page],
+    .cart-page-main,
+    .villes-container,
+    main.villes-container,
+    main.container,
+    main#main {
+        /* 80px -> 56px */
+        padding-bottom: 3.5rem !important;
+    }
+}
+
+@media (max-width: 1023px) {
+    .product-page,
+    main.product-page,
+    main[data-product-page],
+    .cart-page-main,
+    .villes-container,
+    main.villes-container,
+    main.container,
+    main#main {
+        /* 48px -> 34px */
+        padding-bottom: 2.1rem !important;
+    }
+}
+
+.product-details-secondary {
+    /* 48px -> 32px */
+    padding-bottom: 2rem !important;
+}
+
+.site-footer {
+    /* 48px -> 32px ; 32px -> 22px */
+    margin-top: 2rem;
+    padding-block: 1.4rem;
+}
+
+/* ---------- 2. Grilles & cartes ---------- */
+
+.features-grid,
+.trust-badges,
+.about-grid,
+.testimonials-grid {
+    /* 24px -> 16px (marge) ; 24px -> 17px (gap) */
+    margin-top: 1rem;
+    gap: 1.05rem;
+}
+
+.feature-card,
+.trust-badge-item,
+.about-card,
+.t-card {
+    /* 24px -> 18px : -23 % (marge de securite pour le texte arabe) */
+    padding: 1.15rem;
+}
+
+.products-grid {
+    /* 24px -> 16px ; 16px -> 14px */
+    margin-bottom: 1rem;
+    gap: 0.85rem;
+}
+
+@media (min-width: 601px) {
+    .products-wrap {
+        /* 24px -> 17px (mobile : 7px d'origine, on n'y touche pas) */
+        padding: 1.05rem;
+    }
+}
+
+.banner-wrapper {
+    /* 24px -> 17px */
+    padding: 1.05rem;
+}
+
+.search-bar-products {
+    margin-bottom: 1rem;
+}
+
+.blog-grid {
+    /* 32px -> 22px ; 24px -> 17px */
+    margin-block: 1.4rem;
+    gap: 1.05rem;
+}
+
+.banners-section {
+    /* 32px -> 22px */
+    margin-bottom: 1.4rem;
+    gap: 1.4rem;
+}
+
+/* ---------- 3. Panier, fiches produit, modales ---------- */
+
+.cart-page-grid {
+    /* 48px -> 32px */
+    gap: 2rem;
+}
+
+.cart-page-suggestions {
+    /* 48px -> 32px */
+    margin-top: 2rem;
+}
+
+.cart-page-summary,
+.cart-page-form {
+    /* 24px -> 18px */
+    padding: 1.15rem;
+}
+
+.cart-page-empty {
+    /* 64px -> 45px */
+    padding: 2.8rem 1rem;
+}
+
+.modal {
+    /* 32px -> 22px */
+    padding: 1.4rem;
+}
+
+@media (max-width: 1023px) {
+    .cart-page-grid {
+        /* 24px -> 17px (le gap desktop 32px ne doit pas fuiter) */
+        gap: 1.05rem;
+    }
+}
+
+/* ---------- 4. Garde-fou d'ancrage (navbar fixe) ---------- */
+/* Aucune regle n'existait : un titre de section pouvait atterrir
+   sous la navbar lors d'un clic sur #produits, #avis, etc. */
+section[id],
+main[id] {
+    scroll-margin-top: calc(var(--nav-height, 70px) + 12px);
+}
+
+/* ---------- 5. Mobile (<= 768px) ----------
+   Valeurs d'origine plus petites : reduction dediee (-20 a -30 %)
+   pour ne jamais augmenter un espace existant. */
+@media (max-width: 768px) {
+    .section {
+        /* 32px / 48px -> 21px / 32px (-33 %) */
+        padding-block: 1.35rem 2rem;
+    }
+
+    .hero-section {
+        /* 16px / 24px -> 16px / 18px */
+        padding-block: 1rem 1.1rem;
+    }
+
+    .section-sub {
+        /* 24px -> 18px */
+        margin-bottom: 1.1rem;
+    }
+
+    .feature-card,
+    .trust-badge-item {
+        /* 14px -> 11px (plancher de securite : texte arabe) */
+        padding: 0.7rem;
+    }
+
+    .about-card {
+        /* 18px -> 14px */
+        padding: 0.85rem;
+    }
+
+    .banner-wrapper {
+        /* 16px -> 12px */
+        padding: 0.75rem;
+    }
+
+    .products-grid {
+        /* 24px -> 18px ; gap 8px inchange */
+        margin-bottom: 1.1rem;
+        gap: 0.5rem;
+    }
+
+    .features-grid,
+    .trust-badges {
+        /* marge 24px -> 17px ; gap 12px inchange */
+        margin-top: 1.1rem;
+        gap: 0.75rem;
+    }
+
+    .about-grid {
+        /* marge 24px -> 17px ; gap 14px -> 13px */
+        margin-top: 1.1rem;
+        gap: 0.82rem;
+    }
+
+    .testimonials-grid {
+        /* marge 24px -> 17px ; gap 24px -> 17px */
+        margin-top: 1.1rem;
+        gap: 1.1rem;
+    }
+
+    .banners-section {
+        /* marge 32px -> 22px ; gap 19px -> 18px */
+        margin-bottom: 1.35rem;
+        gap: 1.1rem;
+    }
+
+    .site-footer {
+        /* marge 48px -> 30px ; padding 24px -> 19px */
+        margin-top: 1.9rem;
+        padding-block: 1.2rem;
+    }
+
+    .modal {
+        /* 32px -> 22px */
+        padding: 1.4rem;
+    }
+
+    .search-bar-products {
+        /* 24px -> 18px */
+        margin-bottom: 1.1rem;
+    }
+}
