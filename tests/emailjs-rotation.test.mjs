@@ -232,6 +232,14 @@ check("functions/index.js exporte réellement les déclencheurs (Object.assign)"
   );
 });
 
+check("EmailJS strict mode : clé privée requise + accessToken + URL propre", () => {
+  const emails = read("functions/emails.js");
+  assert.ok(emails.includes("EMAILJS_PRIVATE_KEY"), "la clé privée doit être lue depuis l'environnement");
+  assert.ok(emails.includes("accessToken: privateKey"), "accessToken requis par l'API en strict mode");
+  assert.ok(emails.includes("no_private_key"), "sans clé privée, l'email est ignoré sans consommer le quota");
+  assert.ok(emails.includes("/unsubscribe?t="), "lien de désinscription en URL propre (pas de .html)");
+});
+
 /* ---------- 5. VAPID ---------- */
 check("VAPID_KEY déclarée dans js/config.js (et valide si renseignée)", () => {
   const config = read("js/config.js");
