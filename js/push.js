@@ -11,13 +11,6 @@
    ============================================================ */
 
 import {
-  getMessaging,
-  getToken,
-  deleteToken,
-  isSupported,
-  onMessage,
-} from "firebase/messaging";
-import {
   doc,
   setDoc,
   deleteDoc,
@@ -32,18 +25,29 @@ import { showToast } from "./ui-core.js";
 import { t } from "./utils.js";
 
 let messaging = null;
+let messagingSdk = null;
 let supported = null;
 let currentToken = null;
 let foregroundBound = false;
 let authBound = false;
 
+/**
+ * Chargement PARESSEUX du SDK messaging : un import statique casserait
+ * tout app.js si l'importmap ne contient pas « firebase/messaging ».
+ */
+async function messagingApi() {
+  if (!messagingSdk) messagingSdk = await import("firebase/messaging");
+  return messagingSdk;
+}
+
 async function ensureMessaging() {
   if (messaging) return messaging;
   if (supported === false) return null;
   try {
-    supported = await isSupported();
+    const api = await messagingApi();
+    supported = await api.isSupported();
     if (!supported) return null;
-    messaging = getMessaging();
+    messaging = api.getMessaging();
     return messaging;
   } catch (error) {
     console.warn("[push] FCM indisponible :", error && error.message);
@@ -104,7 +108,7 @@ export async function syncPushToken() {
 
   try {
     const registration = getSwRegistration();
-    const token = await getToken(msg, {
+    const token = await (await messagingApi()).getToken(msg, {
       vapidKey: PWA_CONFIG.VAPID_KEY,
       ...(registration ? { serviceWorkerRegistration: registration } : {}),
     });
@@ -149,7 +153,7 @@ export async function enablePush() {
 
   try {
     const registration = getSwRegistration();
-    const token = await getToken(msg, {
+    const token = await (await messagingApi()).getToken(msg, {
       vapidKey: PWA_CONFIG.VAPID_KEY,
       ...(registration ? { serviceWorkerRegistration: registration } : {}),
     });
@@ -171,7 +175,7 @@ async function bindForeground() {
   if (!msg) return;
   foregroundBound = true;
 
-  onMessage(msg, async (payload) => {
+  (await messagingApi()).onMessage(msg, async (payload) => {
     const data = (payload && payload.data) || {};
     const title = data.title || "Smartswika";
     const body = data.body || "";
@@ -199,7 +203,7 @@ function bindAuth() {
     if (currentToken) {
       try {
         const msg = await ensureMessaging();
-        if (msg) await deleteToken(msg);
+        if (msg) await (await messagingApi()).deleteToken(msg);
       } catch (error) {
         /* non bloquant */
       }
