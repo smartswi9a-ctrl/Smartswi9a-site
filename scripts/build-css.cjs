@@ -49,6 +49,7 @@ const SOURCES = [
   { src: "style-patches.css", out: "style-patches" },
   { src: "css/legal.css", out: "legal" },
   { src: "events.css", out: "events" },
+  { src: "spacing.css", out: "spacing" },
 ];
 
 /* Nom de base utilise dans /css/<base>.<hash>.css pour une source. */
