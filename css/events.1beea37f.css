@@ -23,7 +23,10 @@
 
 /* Le visuel d'événement est affiché en entier (aucun rognage du
    texte de la bannière). Les attributs width/height sont posés par
-   js/events-calendar.js : la hauteur est réservée avant chargement. */
+   js/events-calendar.js : la hauteur est réservée avant chargement.
+   Le passe-partout crème (padding + background + min-height) vient
+   de style-patches.css : il est conservé tel quel, à l'identique de
+   la bannière par défaut. */
 .newphoto-banner-wrapper.is-event-banner .responsive-hero-image {
   width: 100%;
   height: auto;
@@ -34,6 +37,13 @@
   border-radius: var(--radius-lg, 16px);
   box-shadow: var(--shadow-md);
   display: block;
+}
+
+/* Mobile : même rayon que la bannière par défaut (--radius-md = 12px). */
+@media (max-width: 600px) {
+  .newphoto-banner-wrapper.is-event-banner .responsive-hero-image {
+    border-radius: var(--radius-md, 12px);
+  }
 }
 
 /* WebP d'événement introuvable (réseau, cache) : le moteur restaure
