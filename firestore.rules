@@ -639,6 +639,47 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    /* ============================================================
+       RECIBLAGE INTELLIGENT — VUES PRODUIT (module passif)
+       ------------------------------------------------------------
+       product_views/{uid}_{productId} : le client écrit UNIQUEMENT
+       ses propres vues, avec des champs bornés. Aucune lecture
+       croisée, aucune écriture serveur côté client.
+       scheduled_emails : file d'envoi différé, Cloud Functions only.
+       ============================================================ */
+
+    match /product_views/{viewId} {
+      allow read: if isAdmin() ||
+        (isSignedIn() && resource.data.get('uid', '') == request.auth.uid);
+
+      allow create: if isSignedIn() &&
+        request.resource.data.get('uid', '') == request.auth.uid &&
+        viewId == request.auth.uid + '_' + request.resource.data.get('productId', '') &&
+        request.resource.data.get('productId', '') is string &&
+        request.resource.data.get('productId', '').size() > 0 &&
+        request.resource.data.get('productId', '').size() <= 120 &&
+        request.resource.data.get('seenPrice', -1) is number &&
+        request.resource.data.get('seenPrice', -1) >= 0 &&
+        request.resource.data.get('viewCount', 0) is int &&
+        request.resource.data.get('viewCount', 0) >= 1 &&
+        request.resource.data.get('viewCount', 0) <= 1000;
+
+      allow update: if isSignedIn() &&
+        resource.data.get('uid', '') == request.auth.uid &&
+        request.resource.data.get('uid', '') == request.auth.uid &&
+        request.resource.data.get('productId', '') == resource.data.get('productId', '') &&
+        request.resource.data.get('viewCount', 0) is int &&
+        request.resource.data.get('viewCount', 0) >= 1 &&
+        request.resource.data.get('viewCount', 0) <= 1000;
+
+      allow delete: if isAdmin();
+    }
+
+    match /scheduled_emails/{docId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
     match /meta/{docId} {
       allow read, write: if false;
     }

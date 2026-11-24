@@ -27,7 +27,9 @@ const {
 
 const { sendCriticalEmail, sendCampaignEmails, verifyUnsubscribeToken } = require('./emails');
 const { applyRotation, forceBroadcast, STATE_PATH } = require('./rotation');
+const { handlePriceDrop, handleLowStock, processScheduledEmails } = require('./retargeting');
 const { onRequest } = require('firebase-functions/v2/https');
+const { onSchedule } = require('firebase-functions/v2/scheduler');
 
 /* ---------- Helpers commandes ---------- */
 
@@ -237,6 +239,19 @@ exports.onProductWritten = onDocumentWritten('products/{productId}', async (even
       newPriceNum < oldPriceNum;
     if (becameApproved || promoDrop) {
       await applyRotation({ productId: id, product: after, vendorId: owner });
+    }
+
+    /* RECIBLAGE (règles 1-9) : baisse de prix sur un produit déjà consulté. */
+    if (promoDrop) {
+      await handlePriceDrop({ productId: id, product: after });
+    }
+
+    /* RECIBLAGE (règle 10) : « dernières pièces » sur un produit consulté. */
+    if (Number.isFinite(stock) && stock > 0 && stock <= 3) {
+      const enteredLowStock = !Number.isFinite(previousStock) || previousStock > 3;
+      if (enteredLowStock) {
+        await handleLowStock({ productId: id, product: after });
+      }
     }
 
     /* CLIENT 2 — produit passé en promotion (uniquement les favoris) */
@@ -673,6 +688,25 @@ exports.unsubscribeEmail = onRequest(
     } catch (error) {
       console.error('[triggers] unsubscribeEmail :', error);
       res.status(500).json({ ok: false, error: 'server_error' });
+    }
+  }
+);
+
+/* ============================================================
+   RECIBLAGE — ENVOI DIFFÉRÉ (créneaux de pic Maroc, digest 1/jour)
+   Toutes les 10 minutes : traite scheduled_emails arrivés à échéance.
+   ============================================================ */
+
+exports.retargetingSweep = onSchedule(
+  { schedule: 'every 10 minutes', timeZone: 'Africa/Casablanca', maxInstances: 1, timeoutSeconds: 540 },
+  async () => {
+    try {
+      const result = await processScheduledEmails({});
+      if (result.sent || result.failed) {
+        console.log('[retargeting] sweep', JSON.stringify(result));
+      }
+    } catch (error) {
+      console.error('[triggers] retargetingSweep :', error);
     }
   }
 );
