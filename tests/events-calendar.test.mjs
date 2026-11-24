@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   ASSETS_VERSION,
+  DECOR_ICONS,
   DECOR_THEMES,
   DEFAULT_IMAGE,
   EVENTS,
@@ -392,6 +393,27 @@ check("events.css : ruban sans clic + animations + mobile", () => {
   assert.ok(css.includes("@keyframes sw-deco-swing"), "balancement absent");
   assert.ok(css.includes("@keyframes sw-deco-twinkle"), "scintillement absent");
   assert.ok(css.includes(".event-deco__item.is-spare"), "allègement mobile absent");
+});
+
+check("mouton de l'Aïd : anatomie complète (viewBox 64x52)", () => {
+  const svg = DECOR_ICONS.sheep;
+  assert.ok(svg.includes('viewBox="0 0 64 52"'), "viewBox incorrect");
+  assert.ok(svg.includes('fill="#FFFDF7"'), "toison absente");
+  assert.ok(svg.includes('stroke="#9A6B26"'), "contour absent");
+  assert.ok(svg.includes('stroke-width="1.5"'), "contour trop épais");
+  assert.ok(svg.includes("#D9B38C"), "tête absente");
+  assert.ok((svg.match(/#C89B3C/g) || []).length >= 3, "anneau + 2 cornes attendus");
+  assert.equal((svg.match(/y="42\.4"/g) || []).length, 4, "4 sabots attendus");
+  assert.ok(svg.includes("#4A3219"), "couleur des sabots absente");
+  assert.ok(svg.includes("#2B1B0F"), "œil absent");
+  assert.ok(svg.includes('stroke-width="2.4"'), "cornes non tracées");
+});
+
+check("mouton : taille dédiée 34px desktop / 26px mobile", () => {
+  const css = fs.readFileSync(path.join(ROOT, "events.css"), "utf8").toLowerCase();
+  assert.ok(css.includes(".event-deco__icon.is-sheep"), "classe .is-sheep absente");
+  assert.ok(css.includes("width: 34px"), "taille desktop 34px absente");
+  assert.ok(css.includes("width: 26px"), "taille mobile 26px absente");
 });
 
 console.log("\n" + verifications + " verification(s), " + echecs + " echec(s)");
