@@ -219,8 +219,20 @@ check("campagnes : file espacée 2,5 s + lien de désinscription", () => {
   assert.ok(page.includes("unsubscribeEmail"));
 });
 
-/* ---------- 5. VAPID ---------- */
+check("functions/index.js exporte réellement les déclencheurs (Object.assign)", () => {
+  const index = read("functions/index.js");
+  assert.ok(
+    index.includes("Object.assign(exports, require('./triggers'))"),
+    "index.js doit fusionner les exports de triggers.js, sinon aucune fonction n'est déployée"
+  );
+  assert.equal(
+    /^\s*require\('\.\/triggers'\);\s*$/m.test(index),
+    false,
+    "un require simple n'expose pas les déclencheurs à Firebase"
+  );
+});
 
+/* ---------- 5. VAPID ---------- */
 check("VAPID_KEY déclarée dans js/config.js (et valide si renseignée)", () => {
   const config = read("js/config.js");
   assert.ok(/VAPID_KEY:\s*'[^']*'/.test(config), "PWA_CONFIG.VAPID_KEY doit être déclarée");

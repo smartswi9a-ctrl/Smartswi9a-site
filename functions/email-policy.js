@@ -28,19 +28,15 @@ function shouldSendEmail(role, type) {
   return false;
 }
 
-/** Mois calendaire à l'heure du Maroc : 'YYYY-MM'. */
+/** Mois calendaire à l'heure du Maroc : 'YYYY-MM'.
+ *  Offset explicite UTC+1 (règle permanente depuis 2018, hors Ramadan) :
+ *  Intl/ICU varie selon les plateformes (CI Ubuntu vs Windows), donc on ne
+ *  dépend plus du tzdata pour un calcul aussi critique que le quota. */
 function monthKey(date = new Date()) {
-  try {
-    const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Africa/Casablanca',
-      year: 'numeric',
-      month: '2-digit'
-    }).formatToParts(date);
-    const get = (type) => (parts.find((p) => p.type === type) || {}).value || '';
-    return `${get('year')}-${get('month')}`;
-  } catch (error) {
-    return new Date().toISOString().slice(0, 7);
-  }
+  const shifted = new Date(date.getTime() + 60 * 60 * 1000);
+  const year = shifted.getUTCFullYear();
+  const month = String(shifted.getUTCMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
 }
 
 module.exports = { SELLER_TYPES, CLIENT_TYPES, shouldSendEmail, monthKey };
