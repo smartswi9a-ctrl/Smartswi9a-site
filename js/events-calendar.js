@@ -34,7 +34,7 @@ export const DEFAULT_SIZE = Object.freeze({ width: 2179, height: 722 });
  * de cache (navigateur + Cloudflare) et évite d'afficher l'ancienne
  * bannière pendant 24 h. À incrémenter à chaque régénération.
  */
-export const ASSETS_VERSION = "7";
+export const ASSETS_VERSION = "8";
 
 /**
  * Calendrier de secours, identique au document Firestore
@@ -51,8 +51,8 @@ export const EVENTS = Object.freeze([
     start: "2026-11-25T00:00:00",
     end: "2026-12-01T00:00:00",
     priority: 1,
-    width: 2172,
-    height: 724,
+    width: 2179,
+    height: 722,
     label: "Black Friday 2026",
   },
   {
@@ -61,8 +61,8 @@ export const EVENTS = Object.freeze([
     start: "2026-12-05T00:00:00",
     end: "2027-01-02T00:00:00",
     priority: 1,
-    width: 2172,
-    height: 724,
+    width: 2179,
+    height: 722,
     label: "Noël & Nouvel An 2026",
   },
   {
@@ -71,8 +71,8 @@ export const EVENTS = Object.freeze([
     start: "2027-01-05T00:00:00",
     end: "2027-02-28T23:59:59",
     priority: 1,
-    width: 2172,
-    height: 724,
+    width: 2179,
+    height: 722,
     label: "Soldes d'hiver 2027",
   },
   {
@@ -81,8 +81,8 @@ export const EVENTS = Object.freeze([
     start: "2027-02-01T00:00:00",
     end: "2027-03-09T00:00:00",
     priority: 2,
-    width: 2172,
-    height: 724,
+    width: 2179,
+    height: 722,
     label: "Ramadan 2027",
   },
   {
@@ -91,8 +91,8 @@ export const EVENTS = Object.freeze([
     start: "2027-03-09T00:00:00",
     end: "2027-03-13T00:00:00",
     priority: 2,
-    width: 2172,
-    height: 724,
+    width: 2179,
+    height: 722,
     label: "Aïd el-Fitr 2027",
   },
   {
@@ -101,8 +101,8 @@ export const EVENTS = Object.freeze([
     start: "2027-05-07T00:00:00",
     end: "2027-05-20T00:00:00",
     priority: 1,
-    width: 2172,
-    height: 724,
+    width: 2179,
+    height: 722,
     label: "Aïd el-Adha 2027",
   },
   {
@@ -111,8 +111,8 @@ export const EVENTS = Object.freeze([
     start: "2027-07-01T00:00:00",
     end: "2027-08-01T00:00:00",
     priority: 1,
-    width: 2172,
-    height: 724,
+    width: 2179,
+    height: 722,
     label: "Soldes d'été 2027",
   },
   {
@@ -121,8 +121,8 @@ export const EVENTS = Object.freeze([
     start: "2027-08-20T00:00:00",
     end: "2027-09-15T00:00:00",
     priority: 1,
-    width: 2172,
-    height: 724,
+    width: 2179,
+    height: 722,
     label: "Rentrée scolaire 2027",
   },
   {
@@ -131,8 +131,8 @@ export const EVENTS = Object.freeze([
     start: "2027-11-08T00:00:00",
     end: "2027-11-13T00:00:00",
     priority: 1,
-    width: 2048,
-    height: 768,
+    width: 2179,
+    height: 722,
     label: "Promo 11.11 2027",
   },
   {
@@ -141,8 +141,8 @@ export const EVENTS = Object.freeze([
     start: "2027-11-24T00:00:00",
     end: "2027-11-30T00:00:00",
     priority: 1,
-    width: 2172,
-    height: 724,
+    width: 2179,
+    height: 722,
     label: "Black Friday 2027",
   },
   {
@@ -151,8 +151,8 @@ export const EVENTS = Object.freeze([
     start: "2027-12-05T00:00:00",
     end: "2028-01-02T00:00:00",
     priority: 1,
-    width: 2172,
-    height: 724,
+    width: 2179,
+    height: 722,
     label: "Noël & Nouvel An 2027",
   },
 ]);
@@ -277,8 +277,8 @@ export function normalizeEvent(raw) {
     startMs,
     endMs,
     priority: Number(raw.priority) === 2 ? 2 : 1,
-    width: Number.isFinite(width) && width > 0 ? Math.round(width) : 2172,
-    height: Number.isFinite(height) && height > 0 ? Math.round(height) : 724,
+    width: Number.isFinite(width) && width > 0 ? Math.round(width) : 2179,
+    height: Number.isFinite(height) && height > 0 ? Math.round(height) : 722,
     label:
       typeof raw.label === "string" && raw.label.trim() ? raw.label.trim() : id,
   });

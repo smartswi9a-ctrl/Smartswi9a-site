@@ -64,6 +64,43 @@ const iso = (ms) => new Date(ms).toISOString();
 const localMs = (wall) => parseWallClock(wall);
 const at = (utcIso) => new Date(utcIso).getTime();
 
+/**
+ * Lit les dimensions d'un WebP sans dépendance externe.
+ * Gère VP8X (étendu), VP8 (lossy) et VP8L (lossless).
+ * @param {string} file
+ * @returns {{width:number,height:number}|null}
+ */
+function readWebpSize(file) {
+  const buf = fs.readFileSync(file);
+  if (buf.toString("ascii", 0, 4) !== "RIFF") return null;
+  if (buf.toString("ascii", 8, 12) !== "WEBP") return null;
+
+  const type = buf.toString("ascii", 12, 16);
+
+  if (type === "VP8X") {
+    return { width: 1 + buf.readUIntLE(24, 3), height: 1 + buf.readUIntLE(27, 3) };
+  }
+
+  if (type === "VP8 ") {
+    if (buf[20] & 0x01) return null; /* pas une keyframe */
+    if (buf[23] !== 0x9d || buf[24] !== 0x01 || buf[25] !== 0x2a) return null;
+    return {
+      width: buf.readUInt16LE(26) & 0x3fff,
+      height: buf.readUInt16LE(28) & 0x3fff,
+    };
+  }
+
+  if (type === "VP8L") {
+    const bits = buf.readUInt32LE(21);
+    return {
+      width: (bits & 0x3fff) + 1,
+      height: ((bits >>> 14) & 0x3fff) + 1,
+    };
+  }
+
+  return null;
+}
+
 /* ------------------------------------------------------------
    1. Calendrier embarqué : 11 visuels, cohérents et présents
    ------------------------------------------------------------ */
@@ -98,6 +135,20 @@ check("les 11 WebP existent dans assets/", () => {
     assert.ok(fs.existsSync(file), "absent : " + ev.image);
     assert.ok(fs.statSync(file).size > 1000, "fichier vide : " + ev.image);
   }
+});
+
+check("les 11 WebP mesurent exactement 2179x722", () => {
+  for (const ev of EVENTS) {
+    const size = readWebpSize(path.join(ASSETS, path.basename(ev.image)));
+    assert.ok(size, "dimensions illisibles : " + ev.image);
+    assert.equal(size.width, 2179, ev.id + " : largeur");
+    assert.equal(size.height, 722, ev.id + " : hauteur");
+  }
+});
+
+check("newphoto.webp a la même taille (parité stricte)", () => {
+  const size = readWebpSize(path.join(ASSETS, "newphoto.webp"));
+  assert.deepEqual(size, { width: 2179, height: 722 });
 });
 
 check("aucun ancien cadre frame-* dans assets/", () => {
@@ -212,10 +263,10 @@ check("findEvent accepte id, alias, .webp et hero1111", () => {
 });
 
 check("URL d'image versionnée (cache-busting)", () => {
-  assert.equal(ASSETS_VERSION, "7");
+  assert.equal(ASSETS_VERSION, "8");
   assert.equal(
     eventImageUrl(findEvent(EVENTS, "hero-christmas-2027")),
-    "/assets/hero-christmas-2027.webp?v=7"
+    "/assets/hero-christmas-2027.webp?v=8"
   );
 });
 
@@ -258,12 +309,14 @@ check("normalizeEvents dédoublonne et trie", () => {
    7. Garde-fous de réinitialisation (aucun ancien système)
    ------------------------------------------------------------ */
 
-check("events.css : rayon uniforme, aucune décoration", () => {
+check("events.css : ratio verrouillé et cadre unique", () => {
   const css = fs.readFileSync(path.join(ROOT, "events.css"), "utf8").toLowerCase();
+  assert.ok(css.includes("aspect-ratio: 2179 / 722"), "ratio 2179/722 absent");
+  assert.ok(css.includes("overflow: hidden"), "overflow hidden absent");
+  assert.ok(css.includes("object-fit: cover"), "object-fit cover absent");
   assert.ok(css.includes("border-radius: var(--radius-lg"), "rayon desktop absent");
   assert.ok(css.includes("border-radius: var(--radius-md"), "rayon mobile absent");
   assert.ok(css.includes("@media (max-width: 600px)"), "media query mobile absente");
-  assert.ok(css.includes(".is-event-banner"), "scope absent");
   for (const mot of ["garland", "event-badge", "conic-gradient", "background-image", "@keyframes", "frame-"]) {
     assert.ok(!css.includes(mot), "résidu interdit : " + mot);
   }
