@@ -1,0 +1,46 @@
+/* ============================================================
+   events.css — BANNIÈRES SAISONNIÈRES SMARTswika
+   ------------------------------------------------------------
+   Chargée uniquement sur l'accueil (index.html).
+
+   Réinitialisation du 2026-11-24 : plus AUCUN cadre, overlay,
+   guirlande, sapin, neige, lanterne ni motif. Les 11 visuels sont
+   autonomes (texte déjà intégré dans l'image).
+
+   Ce fichier ne fait que deux choses :
+     1. conserver exactement la géométrie du conteneur Hero
+        existant (.newphoto-banner-wrapper / .responsive-hero-image) ;
+     2. appliquer le même rayon que la bannière par défaut
+        (--radius-lg = 16px) sur desktop ET mobile.
+
+   Aucune règle ne s'applique sans la classe .is-event-banner :
+   la bannière par défaut reste strictement inchangée.
+   ============================================================ */
+
+.newphoto-banner-wrapper.is-event-banner {
+  display: block;
+}
+
+/* Le visuel d'événement est affiché en entier (aucun rognage du
+   texte de la bannière). Les attributs width/height sont posés par
+   js/events-calendar.js : la hauteur est réservée avant chargement. */
+.newphoto-banner-wrapper.is-event-banner .responsive-hero-image {
+  width: 100%;
+  height: auto;
+  aspect-ratio: auto;
+  max-height: none;
+  object-fit: contain;
+  object-position: center;
+  border-radius: var(--radius-lg, 16px);
+  box-shadow: var(--shadow-md);
+  display: block;
+}
+
+/* WebP d'événement introuvable (réseau, cache) : le moteur restaure
+   la bannière par défaut et retire la classe. Rien à styler ici. */
+
+@media (prefers-reduced-motion: reduce) {
+  .newphoto-banner-wrapper.is-event-banner .responsive-hero-image {
+    transition: none;
+  }
+}
