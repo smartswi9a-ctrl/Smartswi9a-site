@@ -29,6 +29,16 @@ const LOGS = 'email_logs';
 const SITE = 'https://smartswika.ma';
 const BRAND = 'Smartswika';
 
+/* Clé privée EmailJS (Account → Security → Private Key).
+   Le compte est en « strict mode » : l'API refuse toute requête serveur
+   sans clé privée (403 « API access in strict mode »).
+   À définir dans functions/.env (non versionné) :
+     EMAILJS_PRIVATE_KEY=xxxxxxxxxxxxxxxx
+   Puis `firebase deploy --only functions`. */
+function emailjsPrivateKey() {
+  return String(process.env.EMAILJS_PRIVATE_KEY || '').trim();
+}
+
 /* Politique email (module pur, testé unitairement). */
 const { SELLER_TYPES, CLIENT_TYPES, shouldSendEmail, monthKey } = require('./email-policy');
 
@@ -68,7 +78,8 @@ function verifyUnsubscribeToken(token) {
 }
 
 function unsubscribeUrl(uid) {
-  return `${SITE}/unsubscribe.html?t=${encodeURIComponent(unsubscribeToken(uid))}`;
+  /* URL propre : Cloudflare Pages et Firebase redirigent *.html (308). */
+  return `${SITE}/unsubscribe?t=${encodeURIComponent(unsubscribeToken(uid))}`;
 }
 
 /* ---------- Gabarit HTML (compatible clients mail) ---------- */
@@ -262,6 +273,8 @@ async function reserveEmailSlot(count = 1) {
 /* ---------- Envoi via l'API REST EmailJS ---------- */
 
 async function sendEmailJS({ to, name, subject, html, text }) {
+  const privateKey = emailjsPrivateKey();
+  if (!privateKey) throw new Error('emailjs_private_key_missing');
   const response = await fetch(EMAILJS.ENDPOINT, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -269,6 +282,7 @@ async function sendEmailJS({ to, name, subject, html, text }) {
       service_id: EMAILJS.SERVICE_ID,
       template_id: EMAILJS.TEMPLATE_ID,
       user_id: EMAILJS.PUBLIC_KEY,
+      accessToken: privateKey,
       template_params: {
         to_email: to,
         to_name: name || String(to).split('@')[0],
@@ -320,6 +334,11 @@ async function sendCriticalEmail({ uid, role, type, data = {} }) {
     const contact = await getUserContact(uid);
     if (!contact.email || !contact.email.includes('@')) return { sent: false, reason: 'no_email' };
     if (contact.optOut) return { sent: false, reason: 'opt_out' };
+    /* Pas de clé privée : on n'entame PAS le quota, on journalise. */
+    if (!emailjsPrivateKey()) {
+      await logEmail({ type, uid, to: contact.email, ok: false, reason: 'no_private_key' });
+      return { sent: false, reason: 'no_private_key' };
+    }
 
     const content = buildEmail(type, { ...data, name: contact.name || data.name, role }, { uid });
     if (!content) return { sent: false, reason: 'no_template' };
@@ -350,6 +369,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  */
 async function sendCampaignEmails(campaignId, campaign = {}) {
   if (campaign.sendEmail !== true) return { sent: 0, skipped: 0, reason: 'email_disabled' };
+  if (!emailjsPrivateKey()) return { sent: 0, skipped: 0, reason: 'no_private_key' };
   const segment = String(campaign.segment || 'clients');
   if (segment === 'admins') return { sent: 0, skipped: 0, reason: 'admin_no_email' };
 
@@ -420,6 +440,7 @@ module.exports = {
   sendEmailJS,
   sendCriticalEmail,
   sendCampaignEmails,
-  getUserContact
+  getUserContact,
+  emailjsPrivateKey
 };
 
