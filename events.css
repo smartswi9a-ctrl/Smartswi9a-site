@@ -327,6 +327,22 @@
 
 /* ---------- Accessibilité : pas d'animation ---------- */
 
+/* Mouton de l'Aid : plus large + ombre legere pour le detacher du fond. */
+.event-deco__icon.is-sheep {
+    width: 34px;
+    height: 34px;
+    filter:
+        drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.28))
+        drop-shadow(0 0 3px var(--deco-glow, rgba(255, 214, 110, 0.6)));
+}
+
+@media (max-width: 600px) {
+    .event-deco__icon.is-sheep {
+        width: 26px;
+        height: 26px;
+    }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .event-deco__item,
   .event-decoration--christmas .event-deco__icon {

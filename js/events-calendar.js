@@ -415,7 +415,7 @@ const DECOR_WIRE_PATH =
   "M0 8 Q150 36 300 8 Q450 36 600 8 Q750 36 900 8 Q1050 36 1200 8";
 
 /** Icônes vectorielles fines (aucune image, aucun emoji). */
-const DECOR_ICONS = Object.freeze({
+export const DECOR_ICONS = Object.freeze({
   bulb:
     '<svg viewBox="0 0 14 20"><path d="M7 1v4" class="deco-line"/><circle cx="7" cy="12" r="5" class="deco-fill"/><circle cx="7" cy="12" r="2.1" class="deco-core"/></svg>',
   lantern:
@@ -425,7 +425,7 @@ const DECOR_ICONS = Object.freeze({
   star:
     '<svg viewBox="0 0 16 16"><path d="M8 .6l2.1 5 5.4.5-4.1 3.6 1.2 5.3L8 12.2 3.4 15l1.2-5.3L.5 6.1 5.9 5.6z" class="deco-fill"/></svg>',
   sheep:
-    '<svg viewBox="0 0 22 20"><path d="M4.2 8.6a2.8 2.8 0 0 1 3-2.7 3 3 0 0 1 5.6-.4 2.9 2.9 0 0 1 4 2.8 2.8 2.8 0 0 1-1.3 2.4H5.5a2.7 2.7 0 0 1-1.3-2.1z" class="deco-fill-soft"/><circle cx="16.4" cy="7.4" r="2.4" class="deco-line"/><path d="M6 13.6v3M9.4 13.6v3M15 13.6v3" class="deco-line"/><circle cx="17" cy="6.8" r=".6" class="deco-fill"/></svg>',
+    '<svg viewBox="0 0 64 52" preserveAspectRatio="xMidYMin meet"><circle cx="30" cy="4" r="2.6" fill="none" stroke="#C89B3C" stroke-width="1.6"/><path d="M30 6.6v4" stroke="#C89B3C" stroke-width="1.4" stroke-linecap="round"/><g stroke="#9A6B26" stroke-width="2.4" stroke-linecap="round"><path d="M18 33v10"/><path d="M26 34v9"/><path d="M34 34v9"/><path d="M41 33v10"/></g><g fill="#4A3219"><rect x="15.8" y="42.4" width="4.4" height="3.2" rx="1.2"/><rect x="23.8" y="42.4" width="4.4" height="3.2" rx="1.2"/><rect x="31.8" y="42.4" width="4.4" height="3.2" rx="1.2"/><rect x="38.8" y="42.4" width="4.4" height="3.2" rx="1.2"/></g><path d="M12 32c-3.2 0-5.6-2.3-5.6-5.2 0-2.3 1.5-4.3 3.6-5-1.1-3 .8-6.2 4.1-6.6 1-3 4.2-4.9 7.4-4.2 1.9-2.7 5.8-3.1 8.3-.9 3-1.6 6.8.2 7.7 3.5 3.2.4 5.5 3.2 5.2 6.4 1.9 1.6 2.3 4.4.9 6.5-1.2 1.9-3.3 3-5.6 3z" fill="#FFFDF7" stroke="#9A6B26" stroke-width="1.5" stroke-linejoin="round"/><ellipse cx="43.6" cy="21.6" rx="3.4" ry="2" transform="rotate(-25 43.6 21.6)" fill="#D9B38C" stroke="#9A6B26" stroke-width="1.2"/><ellipse cx="54.4" cy="21.6" rx="3.4" ry="2" transform="rotate(25 54.4 21.6)" fill="#D9B38C" stroke="#9A6B26" stroke-width="1.2"/><path d="M44.6 19.4c-2.6-1.6-2-5.6 1-6.4 2.2-.6 3.8 1 3.8 2.6" fill="none" stroke="#C89B3C" stroke-width="2.4" stroke-linecap="round"/><path d="M53.4 19.4c2.6-1.6 2-5.6-1-6.4-2.2-.6-3.8 1-3.8 2.6" fill="none" stroke="#C89B3C" stroke-width="2.4" stroke-linecap="round"/><ellipse cx="49" cy="25" rx="7.4" ry="6.6" fill="#D9B38C" stroke="#9A6B26" stroke-width="1.4"/><ellipse cx="53.4" cy="27.6" rx="3.2" ry="2.6" fill="#E8C9A8" stroke="#9A6B26" stroke-width="1"/><circle cx="52.4" cy="27.4" r=".7" fill="#5C4033"/><circle cx="47.6" cy="23.4" r="1.5" fill="#2B1B0F"/><circle cx="48.1" cy="22.9" r=".5" fill="#FFFDF7"/></svg>',
   tag: '<svg viewBox="0 0 18 18"><path d="M1.6 1.6h6.6l8.2 8.2-6 6L2.2 7.6z" class="deco-fill-soft"/><circle cx="5.4" cy="5.4" r="1.1" class="deco-hole"/><text x="9.6" y="13.2" class="deco-text">%</text></svg>',
   flake:
     '<svg viewBox="0 0 18 18"><g class="deco-line"><path d="M9 1.2v15.6M1.2 9h15.6M3.5 3.5l11 11M14.5 3.5l-11 11"/></g></svg>',
@@ -580,6 +580,7 @@ function buildDecorItem(kind, index, total) {
   } else {
     inner = DECOR_ICONS[kind] || DECOR_ICONS.star;
     if (kind === "tag") colorClass += " is-tag";
+    if (kind === "sheep") colorClass += " is-sheep";
     if (
       kind === "lantern" ||
       kind === "sheep" ||
