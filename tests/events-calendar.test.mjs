@@ -20,8 +20,10 @@ import { fileURLToPath } from "node:url";
 
 import {
   ASSETS_VERSION,
+  DECOR_THEMES,
   DEFAULT_IMAGE,
   EVENTS,
+  decorThemeFor,
   eventImageUrl,
   findEvent,
   moroccoOffsetMinutes,
@@ -317,7 +319,7 @@ check("events.css : ratio verrouillé et cadre unique", () => {
   assert.ok(css.includes("border-radius: var(--radius-lg"), "rayon desktop absent");
   assert.ok(css.includes("border-radius: var(--radius-md"), "rayon mobile absent");
   assert.ok(css.includes("@media (max-width: 600px)"), "media query mobile absente");
-  for (const mot of ["garland", "event-badge", "conic-gradient", "background-image", "@keyframes", "frame-"]) {
+  for (const mot of ["garland", "event-badge", "conic-gradient", "background-image", "frame-"]) {
     assert.ok(!css.includes(mot), "résidu interdit : " + mot);
   }
 });
@@ -334,6 +336,62 @@ check("index.html : bannière par défaut intacte", () => {
   const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
   assert.ok(html.includes('src="/assets/newphoto.webp"'), "newphoto absente");
   assert.ok(html.includes('class="responsive-hero-image"'), "classe hero absente");
+});
+
+/* ------------------------------------------------------------
+   8. Décorations suspendues (ruban sous la navbar)
+   ------------------------------------------------------------ */
+
+const EXPECTED_DECOR = {
+  "hero-christmas": "christmas",
+  "hero-christmas-2027": "christmas",
+  "hero-ramadan": "ramadan",
+  "hero-eid-adha": "eid-adha",
+  "hero-eid-fitr": "eid-fitr",
+  "hero-black-friday": "black-friday",
+  "hero-black-friday-2027": "black-friday",
+  "hero-winter-sales": "winter-sales",
+  "hero-summer-sales": "summer-sales",
+  "hero-back-to-school": "back-to-school",
+  hero1111: "11-11",
+};
+
+check("chaque événement a un thème de décoration", () => {
+  for (const ev of EVENTS) {
+    assert.equal(decorThemeFor(ev.id), EXPECTED_DECOR[ev.id], ev.id);
+  }
+});
+
+check("mode défaut / inconnu : aucune décoration", () => {
+  assert.equal(decorThemeFor(null), null);
+  assert.equal(decorThemeFor(undefined), null);
+  assert.equal(decorThemeFor(""), null);
+  assert.equal(decorThemeFor("default"), null);
+  assert.equal(decorThemeFor("hero-inconnu"), null);
+});
+
+check("9 thèmes, tous déclarés dans DECOR_THEMES", () => {
+  const themes = new Set(Object.values(EXPECTED_DECOR));
+  assert.equal(themes.size, 9);
+  for (const theme of themes) {
+    assert.ok(DECOR_THEMES[theme], "thème manquant : " + theme);
+    assert.ok(DECOR_THEMES[theme].items.length >= 9, theme + " : trop peu de motifs");
+  }
+});
+
+check("Noël : uniquement des ampoules LED (aucune boule, aucun flocon)", () => {
+  for (const kind of DECOR_THEMES.christmas.items) {
+    assert.ok(kind.indexOf("bulb:") === 0, "motif interdit : " + kind);
+  }
+});
+
+check("events.css : ruban sans clic + animations + mobile", () => {
+  const css = fs.readFileSync(path.join(ROOT, "events.css"), "utf8").toLowerCase();
+  assert.ok(css.includes(".event-decoration"), "conteneur absent");
+  assert.ok(css.includes("pointer-events: none"), "pointer-events absent");
+  assert.ok(css.includes("@keyframes sw-deco-swing"), "balancement absent");
+  assert.ok(css.includes("@keyframes sw-deco-twinkle"), "scintillement absent");
+  assert.ok(css.includes(".event-deco__item.is-spare"), "allègement mobile absent");
 });
 
 console.log("\n" + verifications + " verification(s), " + echecs + " echec(s)");

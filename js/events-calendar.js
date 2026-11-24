@@ -402,6 +402,104 @@ export function eventImageUrl(event) {
 }
 
 /* ============================================================
+   1 bis. DÉCORATIONS SUSPENDUES (une par événement)
+   ------------------------------------------------------------
+   Ruban SVG + animations CSS, inséré dans le flux entre la navbar
+   et le bandeau promo : il ne recouvre donc JAMAIS la bannière
+   Hero. `pointer-events: none` : les menus restent cliquables.
+   En mode défaut, le noeud est retiré du DOM (retour à l'original).
+   ============================================================ */
+
+/** Fil festonné : 4 festons sur une viewBox de 1200 x 50. */
+const DECOR_WIRE_PATH =
+  "M0 8 Q150 36 300 8 Q450 36 600 8 Q750 36 900 8 Q1050 36 1200 8";
+
+/** Icônes vectorielles fines (aucune image, aucun emoji). */
+const DECOR_ICONS = Object.freeze({
+  bulb:
+    '<svg viewBox="0 0 14 20"><path d="M7 1v4" class="deco-line"/><circle cx="7" cy="12" r="5" class="deco-fill"/><circle cx="7" cy="12" r="2.1" class="deco-core"/></svg>',
+  lantern:
+    '<svg viewBox="0 0 20 30"><path d="M10 1v2.4" class="deco-line"/><path d="M5.6 3.6h8.8l1.6 3H4z" class="deco-fill"/><path d="M5 6.8h10l-1.2 15.4H6.2z" class="deco-fill-soft"/><circle cx="10" cy="14.4" r="3.4" class="deco-lamp"/><path d="M6.6 22.4h6.8l-1 3.6H7.6z" class="deco-fill"/></svg>',
+  crescent:
+    '<svg viewBox="0 0 16 16"><path d="M11.8 1.4a6.8 6.8 0 1 0 0 13.2A7.8 7.8 0 0 1 11.8 1.4z" class="deco-fill"/></svg>',
+  star:
+    '<svg viewBox="0 0 16 16"><path d="M8 .6l2.1 5 5.4.5-4.1 3.6 1.2 5.3L8 12.2 3.4 15l1.2-5.3L.5 6.1 5.9 5.6z" class="deco-fill"/></svg>',
+  sheep:
+    '<svg viewBox="0 0 22 20"><path d="M4.2 8.6a2.8 2.8 0 0 1 3-2.7 3 3 0 0 1 5.6-.4 2.9 2.9 0 0 1 4 2.8 2.8 2.8 0 0 1-1.3 2.4H5.5a2.7 2.7 0 0 1-1.3-2.1z" class="deco-fill-soft"/><circle cx="16.4" cy="7.4" r="2.4" class="deco-line"/><path d="M6 13.6v3M9.4 13.6v3M15 13.6v3" class="deco-line"/><circle cx="17" cy="6.8" r=".6" class="deco-fill"/></svg>',
+  tag: '<svg viewBox="0 0 18 18"><path d="M1.6 1.6h6.6l8.2 8.2-6 6L2.2 7.6z" class="deco-fill-soft"/><circle cx="5.4" cy="5.4" r="1.1" class="deco-hole"/><text x="9.6" y="13.2" class="deco-text">%</text></svg>',
+  flake:
+    '<svg viewBox="0 0 18 18"><g class="deco-line"><path d="M9 1.2v15.6M1.2 9h15.6M3.5 3.5l11 11M14.5 3.5l-11 11"/></g></svg>',
+  sun: '<svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="3.8" class="deco-fill"/><g class="deco-line"><path d="M10 1.2v2.4M10 16.4v2.4M1.2 10h2.4M16.4 10h2.4M3.6 3.6l1.7 1.7M14.7 14.7l1.7 1.7M16.4 3.6l-1.7 1.7M5.3 14.7l-1.7 1.7"/></g></svg>',
+  pennant:
+    '<svg viewBox="0 0 14 18"><path d="M7 1v2.4" class="deco-line"/><path d="M1 3.4h12L7 12.6z" class="deco-fill"/></svg>',
+});
+
+/**
+ * Thèmes de décoration. Chaque entrée liste les motifs suspendus,
+ * dans l'ordre, et la couleur du fil.
+ * @type {Readonly<Record<string, {items: ReadonlyArray<string>}>>}
+ */
+export const DECOR_THEMES = Object.freeze({
+  christmas: {
+    items: [
+      "bulb:red", "bulb:green", "bulb:blue", "bulb:gold", "bulb:pink",
+      "bulb:cyan", "bulb:red", "bulb:green", "bulb:blue", "bulb:gold",
+      "bulb:pink",
+    ],
+  },
+  ramadan: {
+    items: ["lantern", "crescent", "star", "lantern", "star", "lantern", "crescent", "star", "lantern", "star", "lantern"],
+  },
+  "eid-adha": {
+    items: ["sheep", "star", "sheep", "star", "sheep", "star", "sheep", "star", "sheep", "star", "sheep"],
+  },
+  "eid-fitr": {
+    items: ["crescent", "star", "lantern", "star", "crescent", "star", "lantern", "star", "crescent", "star", "crescent"],
+  },
+  "black-friday": {
+    items: ["tag", "bulb:red", "vip", "bulb:gold", "tag", "bulb:red", "vip", "bulb:gold", "tag", "bulb:red", "tag"],
+  },
+  "winter-sales": {
+    items: ["flake", "flake", "flake", "flake", "flake", "flake", "flake", "flake", "flake", "flake", "flake"],
+  },
+  "summer-sales": {
+    items: ["sun", "star", "sun", "star", "sun", "star", "sun", "star", "sun", "star", "sun"],
+  },
+  "back-to-school": {
+    items: ["pennant", "star", "pennant", "star", "pennant", "star", "pennant", "star", "pennant", "star", "pennant"],
+  },
+  "11-11": {
+    items: ["badge1111", "star", "badge1111", "star", "badge1111", "star", "badge1111", "star", "badge1111", "star", "badge1111"],
+  },
+});
+
+/** Association identifiant d'événement -> thème de décoration. */
+const DECOR_BY_EVENT = Object.freeze({
+  "hero-christmas": "christmas",
+  "hero-christmas-2027": "christmas",
+  "hero-ramadan": "ramadan",
+  "hero-eid-adha": "eid-adha",
+  "hero-eid-fitr": "eid-fitr",
+  "hero-black-friday": "black-friday",
+  "hero-black-friday-2027": "black-friday",
+  "hero-winter-sales": "winter-sales",
+  "hero-summer-sales": "summer-sales",
+  "hero-back-to-school": "back-to-school",
+  hero1111: "11-11",
+});
+
+/**
+ * Thème de décoration d'un événement (null = aucune décoration).
+ * @param {string|null|undefined} eventId
+ * @returns {string|null}
+ */
+export function decorThemeFor(eventId) {
+  if (!eventId) return null;
+  return DECOR_BY_EVENT[String(eventId)] || null;
+}
+
+
+/* ============================================================
    2. DOM (navigateur uniquement)
    ============================================================ */
 
@@ -413,6 +511,8 @@ const STATE = {
   timer: null,
   preview: null,
   started: false,
+  decorEl: null,
+  decorTheme: null,
 };
 
 /** Mémorise la bannière d'origine (jamais détruite, jamais convertie). */
@@ -451,6 +551,109 @@ function restoreOriginal() {
 }
 
 /**
+ * Construit un motif suspendu positionné sur la courbe du fil.
+ * @param {string} kind ex. "lantern", "bulb:red", "vip", "badge1111"
+ * @param {number} index
+ * @param {number} total
+ * @returns {string}
+ */
+function buildDecorItem(kind, index, total) {
+  const t = total <= 1 ? 0 : index / (total - 1);
+  const phase = (t * 4) % 1;
+  const yPct = (((8 + 14 * Math.sin(Math.PI * phase)) / 50) * 100).toFixed(2);
+  const xPct = (3 + t * 94).toFixed(2);
+  const delay = ((index % 6) * 0.23).toFixed(2);
+  const duration = (3.8 + (index % 3) * 0.45).toFixed(2);
+
+  let inner;
+  let colorClass = index % 2 ? " is-alt" : "";
+
+  if (kind === "vip") {
+    inner = '<span class="event-deco__badge">VIP</span>';
+    colorClass = " is-alt";
+  } else if (kind === "badge1111") {
+    inner = '<span class="event-deco__badge">11.11</span>';
+    colorClass = "";
+  } else if (kind.indexOf("bulb:") === 0) {
+    inner = DECOR_ICONS.bulb;
+    colorClass = " is-" + kind.slice(5);
+  } else {
+    inner = DECOR_ICONS[kind] || DECOR_ICONS.star;
+    if (kind === "tag") colorClass += " is-tag";
+    if (
+      kind === "lantern" ||
+      kind === "sheep" ||
+      kind === "tag" ||
+      kind === "sun" ||
+      kind === "flake" ||
+      kind === "pennant"
+    ) {
+      colorClass += " is-lg";
+    }
+  }
+
+  const spare = index % 2 ? " is-spare" : "";
+  return (
+    '<span class="event-deco__item' +
+    spare +
+    '" style="--x:' +
+    xPct +
+    "%;--y:" +
+    yPct +
+    "%;--delay:" +
+    delay +
+    "s;--dur:" +
+    duration +
+    's" aria-hidden="true"><span class="event-deco__icon' +
+    colorClass +
+    '">' +
+    inner +
+    "</span></span>"
+  );
+}
+
+/** Monte (ou remplace) le ruban décoratif d'un thème. */
+function mountDecoration(themeId) {
+  if (typeof document === "undefined" || !themeId) return;
+  if (STATE.decorTheme === themeId && STATE.decorEl) return;
+
+  removeDecoration();
+
+  const theme = DECOR_THEMES[themeId];
+  if (!theme) return;
+
+  const el = document.createElement("div");
+  el.className = "event-decoration event-decoration--" + themeId;
+  el.setAttribute("aria-hidden", "true");
+  el.innerHTML =
+    '<svg class="event-decoration__wire" viewBox="0 0 1200 50" preserveAspectRatio="none" focusable="false" aria-hidden="true"><path d="' +
+    DECOR_WIRE_PATH +
+    '" vector-effect="non-scaling-stroke"/></svg>' +
+    theme.items.map((kind, i) => buildDecorItem(kind, i, theme.items.length)).join("");
+
+  const promo = document.querySelector(".navbar-promo-banner");
+  if (promo && promo.parentNode) {
+    promo.parentNode.insertBefore(el, promo);
+  } else {
+    const nav = document.getElementById("navbar");
+    if (nav && nav.parentNode) nav.parentNode.insertBefore(el, nav.nextSibling);
+    else document.body.insertBefore(el, document.body.firstChild);
+  }
+
+  STATE.decorEl = el;
+  STATE.decorTheme = themeId;
+}
+
+/** Retire totalement le ruban (mode défaut). */
+function removeDecoration() {
+  if (STATE.decorEl && STATE.decorEl.parentNode) {
+    STATE.decorEl.parentNode.removeChild(STATE.decorEl);
+  }
+  STATE.decorEl = null;
+  STATE.decorTheme = null;
+}
+
+/**
  * Applique un visuel d'événement, ou la bannière par défaut si null.
  * Aucune décoration n'est ajoutée : seul le `src` change.
  * @param {object|null} event
@@ -468,6 +671,7 @@ export function applyEvent(event) {
   if (!event) {
     html.removeAttribute("data-event");
     restoreOriginal();
+    removeDecoration();
   } else {
     const img = original.el;
     img.setAttribute("src", eventImageUrl(event));
@@ -478,6 +682,8 @@ export function applyEvent(event) {
     img.classList.remove("is-event-missing");
     if (original.wrapper) original.wrapper.classList.add("is-event-banner");
     html.setAttribute("data-event", event.id);
+    /* Ruban suspendu sous la navbar, propre au thème de l'événement. */
+    mountDecoration(decorThemeFor(event.id));
   }
 
   if (previousId !== STATE.currentId) {

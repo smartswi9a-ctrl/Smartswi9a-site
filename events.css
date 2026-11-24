@@ -62,8 +62,274 @@
   }
 }
 
+/* ============================================================
+   DÉCORATIONS SUSPENDUES (ruban sous la navbar)
+   ------------------------------------------------------------
+   Ruban SVG + motifs animés (pendule + scintillement LED).
+   - inséré dans le flux entre la navbar et le bandeau promo :
+     il ne recouvre jamais la bannière Hero ;
+   - pointer-events: none : menus toujours cliquables ;
+   - retiré du DOM en mode défaut (aucune trace) ;
+   - mobile : motifs réduits et un sur deux masqué.
+   ============================================================ */
+
+.event-decoration {
+  position: relative;
+  z-index: 2;
+  height: 50px;
+  margin: 0 auto;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.event-decoration__wire {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.event-decoration__wire path {
+  fill: none;
+  stroke: var(--deco-wire, #c9a227);
+  stroke-width: 1.1;
+  opacity: 0.85;
+}
+
+.event-deco__item {
+  position: absolute;
+  left: var(--x, 50%);
+  top: var(--y, 30%);
+  transform-origin: 50% -2px;
+  animation: sw-deco-swing var(--dur, 4.2s) ease-in-out infinite alternate;
+  animation-delay: var(--delay, 0s);
+  will-change: transform;
+}
+
+/* Fil court reliant le motif à la guirlande. */
+.event-deco__item::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -6px;
+  width: 1px;
+  height: 6px;
+  background: var(--deco-wire, #c9a227);
+  opacity: 0.8;
+}
+
+.event-deco__icon {
+  display: block;
+  width: 20px;
+  height: 20px;
+  color: var(--deco-main, #e8c46a);
+  filter: drop-shadow(0 0 3px var(--deco-glow, rgba(255, 214, 110, 0.65)));
+}
+
+.event-deco__icon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.event-deco__icon.is-alt {
+  color: var(--deco-alt, var(--deco-main, #e8c46a));
+}
+
+/* Motifs plus grands (lanterne, mouton, étiquette, soleil, flocon). */
+.event-deco__icon.is-lg {
+  width: 24px;
+  height: 24px;
+}
+
+.deco-line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.deco-fill {
+  fill: currentColor;
+}
+
+.deco-fill-soft {
+  fill: currentColor;
+  opacity: 0.85;
+}
+
+.deco-core {
+  fill: #fffdf3;
+  opacity: 0.9;
+}
+
+.deco-lamp {
+  fill: var(--deco-lamp, #fff3c4);
+  filter: drop-shadow(0 0 4px var(--deco-glow, #ffcf6b));
+}
+
+.deco-text {
+  font-size: 7px;
+  font-weight: 700;
+  fill: currentColor;
+  text-anchor: middle;
+}
+
+.deco-hole {
+  fill: #fff;
+  opacity: 0.85;
+}
+
+.event-deco__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 6px;
+  font: 700 9px/1 Inter, system-ui, sans-serif;
+  letter-spacing: 0.02em;
+  color: #1a1206;
+  background: linear-gradient(135deg, var(--deco-main, #ffd76e), var(--deco-alt, #d4af37));
+  box-shadow: 0 0 6px var(--deco-glow, rgba(255, 214, 110, 0.7));
+}
+
+/* ---------- Couleurs par thème ---------- */
+
+.event-decoration--christmas {
+  --deco-wire: #c9a227;
+  --deco-main: #ffd76e;
+  --deco-lamp: #fff6d5;
+}
+
+.event-decoration--christmas .event-deco__icon {
+  animation: sw-deco-twinkle 2.6s ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
+}
+
+.event-decoration--christmas .is-red { color: #ff4a4a; --deco-glow: rgba(255, 74, 74, 0.75); }
+.event-decoration--christmas .is-green { color: #4ade80; --deco-glow: rgba(74, 222, 128, 0.7); }
+.event-decoration--christmas .is-blue { color: #60a5fa; --deco-glow: rgba(96, 165, 250, 0.75); }
+.event-decoration--christmas .is-gold { color: #ffd76e; --deco-glow: rgba(255, 215, 110, 0.8); }
+.event-decoration--christmas .is-pink { color: #f472b6; --deco-glow: rgba(244, 114, 182, 0.75); }
+.event-decoration--christmas .is-cyan { color: #22d3ee; --deco-glow: rgba(34, 211, 238, 0.75); }
+
+.event-decoration--ramadan {
+  --deco-wire: #c9a227;
+  --deco-main: #f6c667;
+  --deco-lamp: #fff1b8;
+  --deco-glow: rgba(255, 176, 71, 0.75);
+}
+
+.event-decoration--eid-adha {
+  --deco-wire: #c9a227;
+  --deco-main: #c9a227;
+  --deco-alt: #e0a92c;
+  --deco-glow: rgba(201, 162, 39, 0.65);
+}
+
+.event-decoration--eid-fitr {
+  --deco-wire: #d4af37;
+  --deco-main: #d4af37;
+  --deco-alt: #0f8a5f;
+  --deco-lamp: #fff3c4;
+  --deco-glow: rgba(255, 214, 110, 0.7);
+}
+
+.event-decoration--black-friday {
+  --deco-wire: #8a6a24;
+  --deco-main: #ffcf6b;
+  --deco-alt: #ff2f2f;
+  --deco-glow: rgba(255, 47, 47, 0.65);
+}
+
+/* Étiquettes promo : rouge plein, « % » blanc lisible. */
+.event-decoration--black-friday .is-tag {
+  color: #ff3b3b;
+  --deco-glow: rgba(255, 59, 59, 0.65);
+}
+
+.event-decoration--black-friday .deco-text {
+  fill: #fff;
+}
+
+.event-decoration--winter-sales {
+  --deco-wire: #7fb3d5;
+  --deco-main: #8ec6e8;
+  --deco-alt: #cfe8ff;
+  --deco-glow: rgba(127, 179, 213, 0.75);
+}
+
+.event-decoration--summer-sales {
+  --deco-wire: #ffb347;
+  --deco-main: #ffb347;
+  --deco-alt: #12b3b3;
+  --deco-glow: rgba(255, 179, 71, 0.7);
+}
+
+.event-decoration--back-to-school {
+  --deco-wire: #6f9bea;
+  --deco-main: #5b8def;
+  --deco-alt: #e0629a;
+  --deco-glow: rgba(91, 141, 239, 0.7);
+}
+
+.event-decoration--11-11 {
+  --deco-wire: #d4af37;
+  --deco-main: #ffd700;
+  --deco-alt: #e63946;
+  --deco-glow: rgba(255, 215, 0, 0.7);
+}
+
+/* ---------- Animations (GPU) ---------- */
+
+@keyframes sw-deco-swing {
+  from { transform: rotate(-3.2deg); }
+  to { transform: rotate(3.2deg); }
+}
+
+@keyframes sw-deco-twinkle {
+  0%, 100% { opacity: 0.55; transform: scale(0.86); }
+  50% { opacity: 1; transform: scale(1.08); }
+}
+
+/* ---------- Mobile : plus petit et plus aéré ---------- */
+
+@media (max-width: 600px) {
+  .event-decoration {
+    height: 42px;
+  }
+
+  .event-deco__icon {
+    width: 16px;
+    height: 16px;
+  }
+
+  .event-deco__icon.is-lg {
+    width: 19px;
+    height: 19px;
+  }
+
+  .event-deco__badge {
+    height: 15px;
+    padding: 0 3px;
+    font-size: 8px;
+  }
+
+  .event-deco__item.is-spare {
+    display: none;
+  }
+}
+
+/* ---------- Accessibilité : pas d'animation ---------- */
+
 @media (prefers-reduced-motion: reduce) {
-  .newphoto-banner-wrapper .responsive-hero-image {
-    transition: none;
+  .event-deco__item,
+  .event-decoration--christmas .event-deco__icon {
+    animation: none;
   }
 }
