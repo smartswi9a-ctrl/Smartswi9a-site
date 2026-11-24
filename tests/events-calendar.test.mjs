@@ -260,7 +260,9 @@ check("normalizeEvents dédoublonne et trie", () => {
 
 check("events.css : rayon uniforme, aucune décoration", () => {
   const css = fs.readFileSync(path.join(ROOT, "events.css"), "utf8").toLowerCase();
-  assert.ok(css.includes("border-radius: var(--radius-lg"), "rayon absent");
+  assert.ok(css.includes("border-radius: var(--radius-lg"), "rayon desktop absent");
+  assert.ok(css.includes("border-radius: var(--radius-md"), "rayon mobile absent");
+  assert.ok(css.includes("@media (max-width: 600px)"), "media query mobile absente");
   assert.ok(css.includes(".is-event-banner"), "scope absent");
   for (const mot of ["garland", "event-badge", "conic-gradient", "background-image", "@keyframes", "frame-"]) {
     assert.ok(!css.includes(mot), "résidu interdit : " + mot);
