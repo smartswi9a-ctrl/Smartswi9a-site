@@ -831,12 +831,12 @@ async function openProductModal(product = null) {
     const modal = document.getElementById('vProductModal');
     if (!modal) return;
 
-    /* Verrou : pas de produit sans ramassage approuve (stock a l entrepot). */
+    /* Verrou : pas de produit sans marchandise RECUE a l'entrepot. */
     if (!product) {
         await loadPickupRequests();
-        const approved = cachedPickupRequests.filter(r => r.status === 'approved');
+        const approved = cachedPickupRequests.filter(r => r.status === 'approved' && r.received_at_warehouse === true);
         if (!approved.length) {
-            showToast('Demandez d abord un ramassage et attendez l approbation admin.', 6000);
+            showToast('Le formulaire produit sera débloqué dès que Smart Swika confirme la réception de vos marchandises à l’entrepôt.', 7000);
             return;
         }
     }
@@ -851,7 +851,7 @@ async function openProductModal(product = null) {
     document.getElementById('vProdId').value = product ? product.id : '';
     const pickupSel = document.getElementById('vProdPickupRequest');
     if (pickupSel) {
-        const approved = cachedPickupRequests.filter(r => r.status === 'approved');
+        const approved = cachedPickupRequests.filter(r => r.status === 'approved' && r.received_at_warehouse === true);
         const used = new Set();
         (cachedProducts || []).forEach(p => {
             if (!p || !p.pickupRequestId) return;

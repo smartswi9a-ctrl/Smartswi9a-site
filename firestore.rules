@@ -30,7 +30,11 @@ service cloud.firestore {
       return isSignedIn() &&
         exists(/databases/$(database)/documents/vendor_pickup_requests/$(requestId)) &&
         get(/databases/$(database)/documents/vendor_pickup_requests/$(requestId)).data.vendorId == request.auth.uid &&
-        get(/databases/$(database)/documents/vendor_pickup_requests/$(requestId)).data.status == 'approved';
+        get(/databases/$(database)/documents/vendor_pickup_requests/$(requestId)).data.status == 'approved' &&
+        /* VERROU ENTREPOT (2026-11-24) : la creation de produit n'est
+           autorisee qu'apres confirmation physique de la reception par
+           l'admin (received_at_warehouse = true). */
+        get(/databases/$(database)/documents/vendor_pickup_requests/$(requestId)).data.get('received_at_warehouse', false) == true;
     }
 
 
@@ -542,21 +546,21 @@ service cloud.firestore {
           isSignedIn() &&
           (
             resource.data.get('userId', '') == request.auth.uid ||
+            resource.data.get('recipientId', '') == request.auth.uid ||
             resource.data.get('vendorId', '') == request.auth.uid
           )
         );
       allow create: if isAdmin();
 
-      // Un utilisateur peut uniquement marquer ses propres notifications comme lues.
+      /* Le destinataire peut uniquement marquer comme lu.
+         `read` est le champ historique, `isRead` le champ unifie. */
       allow update: if isAdmin() || (
         isSignedIn() &&
         (
           resource.data.get('userId', '') == request.auth.uid ||
-          resource.data.get('vendorId', '') == request.auth.uid
+          resource.data.get('recipientId', '') == request.auth.uid
         ) &&
-        resource.data.get('read', false) == false &&
-        request.resource.data.get('read', false) == true &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'isRead'])
       );
 
       // La suppression reste limitée au propriétaire ou à un administrateur.
@@ -564,9 +568,41 @@ service cloud.firestore {
         isSignedIn() &&
         (
           resource.data.get('userId', '') == request.auth.uid ||
+          resource.data.get('recipientId', '') == request.auth.uid ||
           resource.data.get('vendorId', '') == request.auth.uid
         )
       );
+    }
+
+    /* ============================================================
+       TOKENS FCM (PWA / PUSH WEB)
+       ------------------------------------------------------------
+       Un utilisateur n'ecrit que SON token, et le role declare doit
+       correspondre a son profil reel (empeche un client de recevoir
+       les alertes admin). Lecture/suppression : proprietaire ou admin.
+       ============================================================ */
+
+    match /fcm_tokens/{token} {
+      function profileRole() {
+        return !exists(/databases/$(database)/documents/users/$(request.auth.uid))
+          ? 'client'
+          : get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+            ? 'admin'
+            : get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'vendor'
+              ? 'seller'
+              : 'client';
+      }
+
+      allow read: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
+
+      allow create, update: if isSignedIn() &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.token == token &&
+        request.resource.data.role == profileRole() &&
+        request.resource.data.role in ['admin', 'seller', 'client'] &&
+        request.resource.data.platform in ['web_browser', 'pwa_installed'];
+
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
     }
 
     /* ============================================================

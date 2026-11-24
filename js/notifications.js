@@ -112,12 +112,25 @@ export function updateNotificationBadge() {
     bell.style.display = user ? "flex" : "none";
   }
 
-  if (!badge) return;
-
   const pendingReviews = notificationsCache.filter((n) =>
     isReviewRequest(n)
   ).length;
   const totalBadge = unreadCount + pendingReviews;
+
+  /* Badge d'icône de l'application installée (PWA). */
+  try {
+    if (typeof navigator !== "undefined" && navigator.setAppBadge) {
+      if (totalBadge > 0) {
+        navigator.setAppBadge(totalBadge).catch(() => {});
+      } else if (navigator.clearAppBadge) {
+        navigator.clearAppBadge().catch(() => {});
+      }
+    }
+  } catch (error) {
+    /* badge non pris en charge */
+  }
+
+  if (!badge) return;
 
   if (totalBadge > 0) {
     badge.textContent = totalBadge > 9 ? "9+" : totalBadge;
@@ -264,7 +277,7 @@ function renderNotificationsContent() {
       ? `<span style="font-size:0.65rem;background:var(--gold);color:#fff;padding:0.15rem 0.5rem;border-radius:30px;font-weight:700;white-space:nowrap;">⭐ À faire</span>`
       : `<button class="notif-delete-btn" data-notif-id="${safeId}" title="Supprimer" style="background:transparent;border:none;color:var(--text-dim);cursor:pointer;font-size:1rem;">✕</button>`;
 
-    html += ` <div class="notification-item ${isUnread ? "unread" : ""} ${ reviewReq ? "review-request" : "" }" data-notif-id="${safeId}" style="${borderStyle}"> <div class="notification-icon">${icon}</div> <div class="notification-content"> <div class="notification-title">${escapeHTML( notif.title || "" )}</div> <div class="notification-message">${escapeHTML( notif.message || "" )}</div> <div class="notification-date">${date}</div> </div> ${deleteBtnHtml} </div> `;
+    html += ` <div class="notification-item ${isUnread ? "unread" : ""} ${ reviewReq ? "review-request" : "" }" data-notif-id="${safeId}" style="${borderStyle}"> <div class="notification-icon">${icon}</div> <div class="notification-content"> <div class="notification-title">${escapeHTML( notif.title || "" )}</div> <div class="notification-message">${escapeHTML( notif.body || notif.message || "" )}</div> <div class="notification-date">${date}</div> </div> ${deleteBtnHtml} </div> `;
   });
   container.innerHTML = html;
 
@@ -325,6 +338,8 @@ async function handleNotificationClick(notif) {
     if (notif.productSlug)
       window.location.href = `/produit?slug=${encodeURIComponent( notif.productSlug )}`;
     else showToast(t("productNotFound"));
+  } else if (typeof notif.targetUrl === "string" && notif.targetUrl.trim()) {
+    window.location.href = notif.targetUrl.trim();
   }
 }
 

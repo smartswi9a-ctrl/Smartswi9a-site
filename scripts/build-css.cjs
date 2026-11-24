@@ -50,6 +50,7 @@ const SOURCES = [
   { src: "css/legal.css", out: "legal" },
   { src: "events.css", out: "events" },
   { src: "spacing.css", out: "spacing" },
+  { src: "css/pwa.css", out: "pwa" },
 ];
 
 /* Nom de base utilise dans /css/<base>.<hash>.css pour une source. */
