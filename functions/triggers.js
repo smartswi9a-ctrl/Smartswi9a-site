@@ -1,8 +1,9 @@
 /* ============================================================
    functions/triggers.js — 17 NOTIFICATIONS PAR RÔLE
    ------------------------------------------------------------
-   PHASE C : Push FCM + In-App (les emails sont en PHASE 2).
+   NOTIFICATIONS PUSH + IN-APP (+ 5 emails EmailJS côté emails.js).
    ADMIN : push + in-app uniquement — AUCUN email.
+   Quota EmailJS : 5 emails automatiques (4 vendeur, 1 client).
    Chaque déclencheur est tolérant aux erreurs : une notification
    ne doit jamais casser un flux métier.
    ============================================================ */
@@ -23,6 +24,10 @@ const {
   notifyRole,
   claimOnce
 } = require('./notifications');
+
+const { sendCriticalEmail, sendCampaignEmails, verifyUnsubscribeToken } = require('./emails');
+const { applyRotation, forceBroadcast, STATE_PATH } = require('./rotation');
+const { onRequest } = require('firebase-functions/v2/https');
 
 /* ---------- Helpers commandes ---------- */
 
@@ -49,6 +54,36 @@ function vendorIdsOf(order) {
 
 function clientUidOf(order) {
   return order.userId || order.customerId || order.uid || '';
+}
+
+/* ---------- Lignes de commande (emails EmailJS) ---------- */
+
+function itemLabel(item) {
+  return String(item.name || item.nameFr || item.title || 'Article').slice(0, 60);
+}
+
+function itemQty(item) {
+  return Number(item.quantity) || 1;
+}
+
+function itemPrice(item) {
+  const n = Number(item.price ?? item.unitPrice ?? item.prix);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function orderLines(order, vendorId) {
+  return orderItems(order)
+    .filter((item) => (vendorId ? item.vendorId === vendorId : true))
+    .map((item) => ({ label: itemLabel(item), qty: itemQty(item), price: itemPrice(item) }));
+}
+
+function linesTotal(lines) {
+  return Math.round(lines.reduce((sum, line) => sum + line.qty * line.price, 0) * 100) / 100;
+}
+
+/* Commission vendeur de 7 % (CONFIG.VENDOR.COMMISSION_RATE). */
+function vendorNet(lines) {
+  return Math.round(linesTotal(lines) * 0.93 * 100) / 100;
 }
 
 /* ============================================================
@@ -86,7 +121,38 @@ exports.onOrderCreated = onDocumentCreated('orders/{orderId}', async (event) => 
         tag: `vendor-order-${id}`,
         extra: { orderId: id }
       });
-      /* PHASE 2 : email transactionnel EmailJS (commande vendeur). */
+      /* EMAIL VENDEUR 3/5 — nouvelle commande (quota EmailJS). */
+      const lines = orderLines(order, vendorId);
+      await sendCriticalEmail({
+        uid: vendorId,
+        role: 'seller',
+        type: 'seller_new_order',
+        data: {
+          orderId: id,
+          orderNumber: num,
+          city,
+          lines,
+          vendorTotal: vendorNet(lines)
+        }
+      });
+    }
+
+    /* EMAIL CLIENT 1/1 — confirmation initiale (jamais pour un admin). */
+    const clientUid = clientUidOf(order);
+    const clientRole = String(order.userRole || 'client');
+    if (clientUid && clientRole !== 'admin') {
+      await sendCriticalEmail({
+        uid: clientUid,
+        role: 'client',
+        type: 'client_order_confirmation',
+        data: {
+          orderId: id,
+          orderNumber: num,
+          city,
+          total: orderTotal(order),
+          lines: orderLines(order)
+        }
+      });
     }
   } catch (error) {
     console.error('[triggers] onOrderCreated :', error);
@@ -158,6 +224,21 @@ exports.onProductWritten = onDocumentWritten('products/{productId}', async (even
       }
     }
 
+    /* DIFFUSION CLIENTS — produits Smartswika (100 %) et boucle 10:1 vendeurs. */
+    const becameApproved = after.status === 'approved' && (!before || before.status !== 'approved');
+    const oldPriceNum = before ? Number(before.price) : NaN;
+    const newPriceNum = Number(after.price);
+    const promoDrop =
+      before &&
+      before.status === 'approved' &&
+      after.status === 'approved' &&
+      Number.isFinite(oldPriceNum) &&
+      Number.isFinite(newPriceNum) &&
+      newPriceNum < oldPriceNum;
+    if (becameApproved || promoDrop) {
+      await applyRotation({ productId: id, product: after, vendorId: owner });
+    }
+
     /* CLIENT 2 — produit passé en promotion (uniquement les favoris) */
     if (before && after.status === 'approved') {
       const oldPrice = Number(before.price);
@@ -184,7 +265,7 @@ exports.onProductWritten = onDocumentWritten('products/{productId}', async (even
         } catch (favError) {
           console.warn('[triggers] favoris promo :', favError.message);
         }
-        /* PHASE 2 : campagne email marketing aux abonnés opt-in. */
+        /* Aucun email automatique ici : mode économie EmailJS (5 emails max). */
       }
     }
   } catch (error) {
@@ -248,7 +329,19 @@ exports.onPickupUpdated = onDocumentUpdated('vendor_pickup_requests/{requestId}'
         tag: `pickup-approved-${id}`,
         extra: { pickupRequestId: id }
       });
-      /* PHASE 2 : email transactionnel EmailJS. */
+      /* EMAIL VENDEUR 1/5 — ramassage approuvé. */
+      const pickupItems = Array.isArray(after.items) ? after.items : [];
+      const pickupQty = pickupItems.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
+      await sendCriticalEmail({
+        uid: vendorId,
+        role: 'seller',
+        type: 'seller_pickup_approved',
+        data: {
+          requestId: id,
+          slot: after.desiredDate || after.pickupDate || after.confirmedSlot || '',
+          summary: `${pickupItems.length} article(s), ${pickupQty} unité(s)`
+        }
+      });
     }
 
     if (!before.received_at_warehouse && after.received_at_warehouse === true) {
@@ -260,7 +353,18 @@ exports.onPickupUpdated = onDocumentUpdated('vendor_pickup_requests/{requestId}'
         tag: `pickup-received-${id}`,
         extra: { pickupRequestId: id }
       });
-      /* PHASE 2 : email transactionnel EmailJS (déblocage formulaire). */
+      /* EMAIL VENDEUR 2/5 — marchandise reçue (formulaire débloqué). */
+      const receivedItems = Array.isArray(after.items) ? after.items : [];
+      const receivedQty = receivedItems.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
+      await sendCriticalEmail({
+        uid: vendorId,
+        role: 'seller',
+        type: 'seller_warehouse_received',
+        data: {
+          requestId: id,
+          summary: `${receivedItems.length} article(s), ${receivedQty} unité(s)`
+        }
+      });
     }
   } catch (error) {
     console.error('[triggers] onPickupUpdated :', error);
@@ -313,7 +417,18 @@ exports.onUserWritten = onDocumentWritten('users/{uid}', async (event) => {
         tag: `vendor-suspended-${uid}-${Date.now()}`,
         extra: { suspension: afterSuspension }
       });
-      /* PHASE 2 : email transactionnel EmailJS (type + cause). */
+      /* EMAIL VENDEUR 4/5 — suspension (type + cause obligatoires). */
+      await sendCriticalEmail({
+        uid,
+        role: 'seller',
+        type: 'seller_suspended',
+        data: {
+          suspensionType: afterSuspension.type || 'temporary',
+          until: afterSuspension.until || '',
+          cause: afterSuspension.cause || 'Non précisée',
+          date: new Date().toISOString().slice(0, 10)
+        }
+      });
     }
   } catch (error) {
     console.error('[triggers] onUserWritten :', error);
@@ -362,7 +477,7 @@ exports.onOrderUpdated = onDocumentUpdated('orders/{orderId}', async (event) => 
         tag: `client-order-${id}-${status}`,
         extra: { orderId: id }
       });
-      /* PHASE 2 : email transactionnel EmailJS (suivi client). */
+      /* Push + in-app uniquement : pas d'email de suivi (quota EmailJS). */
     }
 
     for (const vendorId of vendorIdsOf(after)) {
@@ -385,7 +500,7 @@ exports.onOrderUpdated = onDocumentUpdated('orders/{orderId}', async (event) => 
           tag: `vendor-order-${status}-${id}`,
           extra: { orderId: id }
         });
-        /* PHASE 2 : email transactionnel EmailJS (statuts finaux). */
+        /* Push + in-app uniquement : pas d'email final (quota EmailJS). */
       }
     }
   } catch (error) {
@@ -415,7 +530,7 @@ exports.onFlashSaleWritten = onDocumentWritten('flash_sales/{saleId}', async (ev
       targetUrl: '/koulchi.html',
       tag: `flash-${id}`
     });
-    /* PHASE 2 : email marketing aux abonnés opt-in. */
+    /* Aucun email automatique : push + in-app uniquement (quota préservé). */
   } catch (error) {
     console.error('[triggers] onFlashSaleWritten :', error);
   }
@@ -446,7 +561,7 @@ exports.onEventsConfigWritten = onDocumentWritten('config/events', async (event)
       targetUrl: '/',
       tag: 'events'
     });
-    /* PHASE 2 : email marketing aux abonnés opt-in. */
+    /* Aucun email automatique : push + in-app uniquement (quota préservé). */
   } catch (error) {
     console.error('[triggers] onEventsConfigWritten :', error);
   }
@@ -454,7 +569,7 @@ exports.onEventsConfigWritten = onDocumentWritten('config/events', async (event)
 
 /* ============================================================
    CAMPAGNES MANUELLES (admin) — push immédiat
-   Les campagnes email seront traitées en PHASE 2.
+   EmailJS optionnel (case décochée), file espacée 2,5 s.
    ============================================================ */
 
 exports.onCampaignCreated = onDocumentCreated('campaigns/{campaignId}', async (event) => {
@@ -463,27 +578,37 @@ exports.onCampaignCreated = onDocumentCreated('campaigns/{campaignId}', async (e
     if (!data || data.status === 'sent') return;
 
     const channel = String(data.channel || 'push');
-    if (channel !== 'push' && channel !== 'both') return;
+    const wantsPush = channel === 'push' || channel === 'both';
 
     const segment = String(data.segment || 'clients');
     const role = segment === 'vendors' ? 'seller' : segment === 'admins' ? 'admin' : 'client';
     const id = event.params.campaignId;
 
-    const result = await notifyRole(role, {
-      type: String(data.type || 'campaign'),
-      title: String(data.title || 'Smartswika').slice(0, 120),
-      body: String(data.body || '').slice(0, 240),
-      targetUrl: String(data.targetUrl || '/'),
-      tag: `campaign-${id}`
-    });
+    /* Les admins ne reçoivent jamais d'email : push + in-app seulement. */
+    const push = wantsPush
+      ? await notifyRole(role, {
+          type: String(data.type || 'campaign'),
+          title: String(data.title || 'Smartswika').slice(0, 120),
+          body: String(data.body || '').slice(0, 240),
+          targetUrl: String(data.targetUrl || '/'),
+          tag: `campaign-${id}`
+        })
+      : { sent: 0, failed: 0 };
+
+    /* Case « Envoyer aussi par EmailJS » : file espacée 2,5 s + désinscription. */
+    const emailResult =
+      data.sendEmail === true ? await sendCampaignEmails(id, data) : { sent: 0, skipped: 0, reason: 'not_requested' };
 
     const { FieldValue } = require('firebase-admin/firestore');
     await event.data.ref.set(
       {
         status: 'sent',
         sentAt: FieldValue.serverTimestamp(),
-        pushSent: result.sent || 0,
-        pushFailed: result.failed || 0
+        pushSent: push.sent || 0,
+        pushFailed: push.failed || 0,
+        emailSent: emailResult.sent || 0,
+        emailSkipped: emailResult.skipped || 0,
+        emailReason: String(emailResult.reason || '')
       },
       { merge: true }
     );
@@ -491,3 +616,63 @@ exports.onCampaignCreated = onDocumentCreated('campaigns/{campaignId}', async (e
     console.error('[triggers] onCampaignCreated :', error);
   }
 });
+
+/* ============================================================
+   DIFFUSION FORCÉE (admin) — hors cycle 10:1
+   L'admin écrit forceProductId dans config/notifications_command ;
+   le déclencheur diffuse immédiatement puis nettoie la commande.
+   ============================================================ */
+
+const FORCE_PATH = 'config/notifications_command';
+
+exports.onRotationForceRequested = onDocumentWritten(FORCE_PATH, async (event) => {
+  try {
+    const before = event.data.before.exists ? event.data.before.data() : null;
+    const after = event.data.after.exists ? event.data.after.data() : null;
+    if (!after) return;
+    const forceId = String(after.forceProductId || '').trim();
+    if (!forceId) return;
+    if (before && String(before.forceProductId || '') === forceId) return;
+
+    const result = await forceBroadcast(forceId);
+    const { FieldValue } = require('firebase-admin/firestore');
+    await event.data.after.ref.set(
+      {
+        forceProductId: FieldValue.delete(),
+        lastForcedProductId: forceId,
+        lastForcedAt: FieldValue.serverTimestamp(),
+        lastResult: result.sent ? 'sent' : String(result.reason || 'skipped')
+      },
+      { merge: true }
+    );
+  } catch (error) {
+    console.error('[triggers] onRotationForceRequested :', error);
+  }
+});
+
+/* ============================================================
+   DÉSINSCRIPTION EMAILS (lien présent dans chaque campagne)
+   ============================================================ */
+
+exports.unsubscribeEmail = onRequest(
+  { invoker: 'public', region: 'europe-west1', cors: true, maxInstances: 2, timeoutSeconds: 15 },
+  async (req, res) => {
+    try {
+      const token = String((req.query && req.query.t) || (req.body && req.body.t) || '');
+      const uid = verifyUnsubscribeToken(token);
+      if (!uid) {
+        res.status(400).json({ ok: false, error: 'invalid_token' });
+        return;
+      }
+      const { FieldValue } = require('firebase-admin/firestore');
+      await db
+        .collection('users')
+        .doc(uid)
+        .set({ emailOptOut: true, emailOptOutAt: FieldValue.serverTimestamp() }, { merge: true });
+      res.json({ ok: true });
+    } catch (error) {
+      console.error('[triggers] unsubscribeEmail :', error);
+      res.status(500).json({ ok: false, error: 'server_error' });
+    }
+  }
+);

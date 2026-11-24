@@ -1,9 +1,8 @@
 /* ============================================================
    functions/notifications.js — HELPERS PUSH + IN-APP
    ------------------------------------------------------------
-   PHASE C : push FCM + centre de notifications in-app.
-   Les emails (EmailJS / Brevo) sont branchés en PHASE 2 :
-   chaque point d'appel est marqué « PHASE 2 ».
+   Push FCM + centre de notifications in-app.
+   Emails : 5 critiques seulement (functions/emails.js), jamais d'admin.
    RÈGLE ABSOLUE : aucun email vers un compte admin.
    ============================================================ */
 
