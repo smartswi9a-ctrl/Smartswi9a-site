@@ -3893,3 +3893,7 @@ exports.releaseDueFunds = onRequest({ invoker: 'public', region: 'europe-west1',
   }
 });
 
+
+/* Notifications push + in-app (PHASE C) : enregistre les 10 declencheurs. */
+require('./triggers');
+

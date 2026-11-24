@@ -62,8 +62,19 @@ async function main() {
       await setDoc(doc(db, "vendor_pickup_requests", "pickupVendorA"), {
         vendorId: "vendorA",
         status: "approved",
+        received_at_warehouse: true,
         items: [{ name: "New product", quantity: 10, receivedQuantity: 10, sku: "SWK-123456-01" }],
         desiredDate: "2026-12-01",
+        createdAt: Timestamp.now()
+      });
+      /* Ramassage approuve mais PAS encore recu a l'entrepot :
+         la creation de produit doit etre refusee. */
+      await setDoc(doc(db, "vendor_pickup_requests", "pickupAwaitingReceipt"), {
+        vendorId: "vendorA",
+        status: "approved",
+        received_at_warehouse: false,
+        items: [{ name: "Awaiting", quantity: 5, receivedQuantity: 5, sku: "SWK-654321-01" }],
+        desiredDate: "2026-12-03",
         createdAt: Timestamp.now()
       });
       await setDoc(doc(db, "vendor_pickup_requests", "pickupPendingVendorA"), {
@@ -178,6 +189,21 @@ async function main() {
       sku: "SWK-123456-01",
       pickupItemIndex: 0
     }));
+
+    /* VERROU ENTREPOT : ramassage approuve mais non recu -> refus. */
+    await assertFails(setDoc(doc(vendorDb, "products", "notReceivedProduct"), {
+      vendorId: "vendorA",
+      status: "pending_admin_approval",
+      nameFr: "Not received product",
+      category: "smartphones-android",
+      price: 100,
+      koulchiPrice: 90,
+      warehouse_received: true,
+      pickupRequestId: "pickupAwaitingReceipt",
+      sku: "SWK-654321-01",
+      pickupItemIndex: 0
+    }));
+
     await assertFails(setDoc(doc(oldVendorDb, "products", "oldContractProduct"), {
       vendorId: "vendorOld",
       status: "pending_admin_approval",

@@ -26,6 +26,8 @@ import { initCategoriesMenuFromUrl } from "./categories-menu.js";
 import { initAnalytics } from "./analytics.js";
 import { initSeo } from "./seo.js";
 import { initEventsCalendar } from "./events-calendar.js";
+import { initPWA } from "./pwa.js";
+import { initPush } from "./push.js";
 
 /* ============================================================ GUARD GLOBAL : éviter les doubles initialisations auth ============================================================ Si app.js est inclus 2× (double balise, HMR), le 2ème init ne réattache pas le listener auth. Empêche le cumul. ============================================================ */
 if (
@@ -64,6 +66,21 @@ async function init() {
       initEventsCalendar();
     } catch (e) {
       console.warn("[app] calendrier des bannières indisponible :", e?.message);
+    }
+
+    /* ============================================================
+       PWA + notifications push (non bloquant)
+       ------------------------------------------------------------
+       Enregistre le Service Worker unifié puis initialise FCM.
+       Si la clé VAPID n'est pas renseignée, push.js s'arrête
+       proprement : aucune erreur, le site reste intact.
+       ============================================================ */
+    try {
+      initPWA()
+        .then(() => initPush())
+        .catch((e) => console.warn("[app] PWA/push indisponible :", e?.message));
+    } catch (e) {
+      console.warn("[app] PWA/push indisponible :", e?.message);
     }
 
     /* ============================================================ 2. UI Partagée (modale compte, cart flottant, etc.) ============================================================ */
