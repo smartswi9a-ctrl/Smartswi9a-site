@@ -26,7 +26,7 @@ import {
   deleteObject,
 } from "firebase/storage";
 import { db, storage } from "./firebase.js";
-import { CONFIG, REVIEW_STATUS } from "./config.js";
+import { CONFIG, REVIEW_STATUS } from "./config.js?v=2";
 import {
   t,
   escapeHTML,

@@ -26,7 +26,7 @@
    ============================================================ */
 
 import { auth } from "./firebase.js";
-import { CONFIG } from "./config.js";
+import { CONFIG } from "./config.js?v=2";
 import { getContractText, buildTermsSnapshot } from "./vendor-contract-text.js";
 
 const SEMVER_RE = /^\d+\.\d+\.\d+$/;

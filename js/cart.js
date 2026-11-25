@@ -17,7 +17,7 @@ import {
   CONFIG,
   ORDER_STATUS,
   normalizeOrderStatus,
-} from "./config.js";
+} from "./config.js?v=2";
 import {
   t,
   safeGetItem,

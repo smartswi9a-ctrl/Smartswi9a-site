@@ -2,7 +2,7 @@
 
 import { collection, query, where, getDocs, limit } from "firebase/firestore";
 import { db } from "./firebase.js";
-import { REVIEW_STATUS } from "./config.js";
+import { REVIEW_STATUS } from "./config.js?v=2";
 import {
   t,
   escapeHTML,

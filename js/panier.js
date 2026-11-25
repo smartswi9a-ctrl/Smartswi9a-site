@@ -1,6 +1,6 @@
 /* ============================================================ js/panier.js PAGE PANIER DÉDIÉE - SMARTSWIKA Version 9.0.0 - Lot 24/30 : validation phone + debounce ville CHANGEMENTS v9.0.0 : - B-PAN-1 (P2) : handleCheckoutFromPage utilise isValidMoroccanPhone() de utils v9.0.0 (06/07 + 10 chiffres). Avant : validation laxiste qui acceptait 123456789. - B-PAN-2 (P2) : initCitySearchOnPage utilise debounce(utils) à 250ms. citySearchDebounceTimer (dead code) retiré. - B-PAN-3 (P3) : trim consistent sur tous les champs du checkout. - B-PAN-4 (P3) : logs préfixés [panier]. - B-PAN-5 (P3) : import renderStars retiré (inutilisé). - JSDoc sur initCartPage, revalidateCoupon, handleCheckoutFromPage. - Bump version 2.3.0 -> 9.0.0. NOTE : Ce module est la page /panier. Il utilise : - checkout() de cart.js (Lot 10) pour créer la commande - appliedCoupon persisté en sessionStorage - la ville sélectionnée via store.setSelectedCity Le coupon est revalidé à chaque cart-updated, et retiré automatiquement si les conditions ne sont plus remplies (minPurchase, type, etc.). ALERTE 1 : plus aucun commentaire de ligne (//) en début de ligne utile. Tout est en bloc. ============================================================ */
 
-import { CONFIG, getCategoryById } from "./config.js";
+import { CONFIG, getCategoryById } from "./config.js?v=2";
 import {
   t,
   escapeHTML,

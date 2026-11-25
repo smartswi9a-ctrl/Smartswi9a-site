@@ -29,7 +29,7 @@ import {
     PRODUCT_STATUS,
     calculateVendorCommission,
     CATEGORY_GROUPS
-} from "./config.js";
+} from "./config.js?v=2";
 import { showToast, confirmAction } from "./ui-core.js";
 import { buildCode128Svg } from "./barcode-code128.js";
 import { initLang } from "./utils.js";

@@ -10,7 +10,7 @@ import {
   clearIndexedDbPersistence,
 } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
-import { CONFIG } from "./config.js";
+import { CONFIG } from "./config.js?v=2";
 
 /* ============================================================ INITIALISATION APP ============================================================ Défensif : si le module était rechargé (double <script>, HMR, ou double import), on réutilise l'app existante au lieu de provoquer "Firebase App named '[DEFAULT]' already exists". ============================================================ */
 const app = getApps().length ? getApp() : initializeApp(CONFIG.FIREBASE);

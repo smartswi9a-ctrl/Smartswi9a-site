@@ -18,7 +18,7 @@ import {
   CATEGORY_GROUPS,
   productMatchesCategory,
   getCategoryById,
-} from "./config.js";
+} from "./config.js?v=2";
 import {
   getRankingSnapshot,
   sortByRelevance,

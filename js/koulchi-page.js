@@ -25,7 +25,7 @@ import {
   getDiscountPercent,
 } from "./utils.js";
 import { getProducts, getProductsLoadedPromise } from "./store.js";
-import { getCategoryById } from "./config.js";
+import { getCategoryById } from "./config.js?v=2";
 import { getKoulchiCatalog, KOULCHI_TIERS } from "./koulchi.js";
 
 let activeCategory = "";

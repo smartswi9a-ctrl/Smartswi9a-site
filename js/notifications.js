@@ -15,7 +15,7 @@ import {
   limit,
 } from "firebase/firestore";
 import { db } from "./firebase.js";
-import { NOTIFICATION_TYPES } from "./config.js";
+import { NOTIFICATION_TYPES } from "./config.js?v=2";
 import { t, escapeHTML, formatDateTime, toDate } from "./utils.js";
 import { getCurrentUser } from "./auth.js";
 import { showToast, trapFocus, releaseFocusTrap } from "./ui-core.js";
