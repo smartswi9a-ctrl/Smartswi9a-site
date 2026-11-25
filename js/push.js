@@ -135,6 +135,29 @@ async function forgetToken(token) {
   }
 }
 
+/**
+ * Récupère un Service Worker utilisable pour FCM. Enregistre le SW unifié
+ * si la page ne l'a pas encore fait (ex. /admin, qui ne charge pas app.js).
+ */
+async function ensureSwRegistration() {
+  const known = getSwRegistration();
+  if (known) return known;
+
+  try {
+    const existing = await navigator.serviceWorker.getRegistration("/");
+    if (existing) return existing;
+  } catch (error) {
+    /* getRegistration indisponible */
+  }
+
+  try {
+    return await navigator.serviceWorker.register("/firebase-messaging-sw.js", { scope: "/" });
+  } catch (error) {
+    console.warn("[push] Service Worker indisponible :", error && error.message);
+    return null;
+  }
+}
+
 /** Récupère (ou renouvelle) le token et l'enregistre si un utilisateur est connu. */
 async function registerToken({ user = null } = {}) {
   if (!pushSupported() || iosNeedsInstall()) return null;
@@ -145,14 +168,7 @@ async function registerToken({ user = null } = {}) {
   if (!msg) return null;
 
   try {
-    let registration = getSwRegistration();
-    if (!registration) {
-      try {
-        registration = await navigator.serviceWorker.ready;
-      } catch (error) {
-        registration = null;
-      }
-    }
+    const registration = await ensureSwRegistration();
     const token = await (await messagingApi()).getToken(msg, {
       vapidKey: PWA_CONFIG.VAPID_KEY,
       ...(registration ? { serviceWorkerRegistration: registration } : {}),
@@ -349,10 +365,11 @@ export async function sendTestPush() {
 }
 
 /** Initialisation (idempotente). */
-export async function initPush() {
+export async function initPush(options = {}) {
   if (typeof window === "undefined") return;
   if (window._pushInitialized) return;
   window._pushInitialized = true;
+  const showCta = !(options && options.showCta === false);
 
   /* API exposées même si le push n'est pas disponible : le panneau admin
      peut ainsi afficher un état explicite sans jamais lever d'erreur. */
@@ -369,7 +386,7 @@ export async function initPush() {
   /* iOS Safari hors PWA : l'invite d'installation reste affichée, la
      permission sera demandée au 1er toucher dans l'application installée. */
   if (iosNeedsInstall()) {
-    showPushCta(() => enablePush());
+    if (showCta) showPushCta(() => enablePush());
     return;
   }
 
@@ -388,7 +405,7 @@ export async function initPush() {
   if (currentPermission() === "default") {
     /* 1. Activation automatique au tout premier clic / toucher. */
     autoPromptOnFirstGesture();
-    showPushCta(() => enablePush());
+    if (showCta) showPushCta(() => enablePush());
   }
   /* permission === "denied" : on ne redemande rien (impossible), zéro bruit. */
 }

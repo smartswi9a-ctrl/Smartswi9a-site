@@ -23,6 +23,7 @@ let unsubscribeUsage = null;
 let unsubscribeRotation = null;
 let unsubscribeCampaign = null;
 let listenersBound = false;
+let pushDiagAttempts = 0;
 
 function quotaBox() {
     return document.getElementById('emailQuotaBox');
@@ -209,6 +210,7 @@ async function renderPushDiag() {
     if (testBtn) testBtn.style.display = 'none';
 
     if (status.permission === 'granted' && status.token) {
+        pushDiagAttempts = 0;
         box.innerHTML = `✅ <strong>Push actif sur cet appareil</strong> — ${platformLabel} · token <code>${escapeHTML(
             status.tokenHead
         )}…</code>`;
@@ -216,6 +218,12 @@ async function renderPushDiag() {
         return;
     }
     if (status.permission === 'granted') {
+        pushDiagAttempts += 1;
+        if (pushDiagAttempts >= 3) {
+            box.innerHTML =
+                '⚠️ Autorisation accordée, mais le token n’a pas pu être créé sur ce navigateur (navigation privée, mode invité, ou service bloqué). Ouvrez le site en navigation normale puis rechargez.';
+            return;
+        }
         box.innerHTML = '⏳ Autorisation accordée — enregistrement du token en cours…';
         window.setTimeout(renderPushDiag, 2500);
         return;
@@ -285,6 +293,9 @@ export async function initNotificationsTab() {
         document.getElementById('pushAllowBtn')?.addEventListener('click', handlePushAllow);
         document.getElementById('pushTestBtn')?.addEventListener('click', handlePushTest);
         document.addEventListener('smartswika:push-token', () => {
+            renderPushDiag();
+        });
+        document.addEventListener('smartswika:push-ready', () => {
             renderPushDiag();
         });
     }
