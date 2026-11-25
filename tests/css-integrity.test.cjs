@@ -24,7 +24,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const ROOT = path.join(__dirname, "..");
-const FICHIERS = ["style.css", "style-patches.css", "vendor-style.css", "css/legal.css", "events.css", "spacing.css"];
+const FICHIERS = ["style.css", "style-patches.css", "vendor-style.css", "vendor-ui.css", "css/legal.css", "events.css", "spacing.css", "css/secondary-modern.css", "css/shop-modern.css"];
 
 let echecs = 0;
 let verifications = 0;

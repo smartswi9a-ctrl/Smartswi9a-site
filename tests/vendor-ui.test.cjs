@@ -123,6 +123,41 @@ check(
 check("vendor : RTL document", ui.includes('document.documentElement.dir = currentVendorLang === "ar" ? "rtl" : "ltr"'));
 check("vendor : sidebar RTL a droite", css.includes('[dir="rtl"] .v-sidebar'));
 check("vendor : tactile >= 44px", css.includes("min-height: 44px"));
+check(
+  "vendor : menu mobile ET tablette gere (plus seulement <768)",
+  ui.includes('const vMqTablet = window.matchMedia("(min-width: 768px) and (max-width: 1023px)")') &&
+    ui.includes("setDrawerOpen") &&
+    ui.includes("v-drawer-open") &&
+    (ui.match(/vMqTablet\.matches/g) || []).length >= 2
+);
+check(
+  "vendor : hamburger 44x44 sur mobile et tablette",
+  css.includes("@media (max-width: 1023px)") &&
+    /\.v-mobile-toggle \{[^}]*width: 44px[^}]*height: 44px/s.test(css)
+);
+check(
+  "vendor : tiroir sous la topbar, bouton menu non recouvert",
+  css.includes("top: var(--v-topbar-offset, 76px)") &&
+    css.includes(".v-mobile-overlay { z-index: 110; }") &&
+    /\.v-topbar \{[^}]*z-index: 130/s.test(css)
+);
+check(
+  "vendor : fermeture au meme bouton + aria-expanded",
+  ui.includes('mobileToggle.setAttribute("aria-expanded"') &&
+    ui.includes("event.stopPropagation()") &&
+    ui.includes('vendorT(open ? "menuClose" : "menuOpen")')
+);
+check(
+  "vendor : libelles menu traduits FR / EN / AR",
+  ["menuOpen", "menuClose", "sidebarToggleLabel"].every(
+    (key) => frKeys.includes(key) && enKeys.includes(key) && arKeys.includes(key)
+  )
+);
+check(
+  "vendor : RTL inverse le tiroir mobile",
+  css.includes('[dir="rtl"] .v-sidebar { transform: translateX(calc(100% + 12px))')
+);
+check("vendor : desktop conserve repli 72px + localStorage", ui.includes('layout.classList.toggle("v-collapsed")') && ui.includes("VENDOR_SIDEBAR_KEY"));
 
 /* --------------------------------------------- 4. graphiques / KPI */
 check("vendor : canvas CA / NET", dash.includes('id="vendorRevenueChart"'));
