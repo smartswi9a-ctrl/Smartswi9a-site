@@ -277,6 +277,146 @@ function renderEmptyCart() {
   return ` <div class="cart-page-empty"> <div class="cart-page-empty-icon">🛒</div> <h2 class="cart-page-empty-title">${ t("cartEmpty") || "Votre panier est vide" }</h2> <p class="cart-page-empty-text">${ t("cartEmptyText") || "Vous n'avez encore rien ajouté." }</p> <a href="/#produits" class="btn-primary cart-page-empty-btn">${ t("cartDiscoverProducts") || "Découvrir nos produits" }</a> </div> `;
 }
 
+/* ============================================================
+   KOULCHI DIALK — BARRE DE PROGRESSION + CROSS-SELL
+   ------------------------------------------------------------
+   Lecture seule des règles existantes (js/koulchi.js). Aucun
+   calcul de prix n'est modifié, aucune Vente Flash n'est touchée.
+   ============================================================ */
+
+function tpl(key, fallback, vars = {}) {
+  let text = t(key) || fallback;
+  Object.keys(vars).forEach((name) => {
+    text = text.split(`{${name}}`).join(String(vars[name]));
+  });
+  return text;
+}
+
+/** Message incitatif + palier courant pour N articles éligibles. */
+function koulchiProgressCopy(qty) {
+  if (qty >= 9) {
+    return { message: tpl("koulchiMaxTier", "Maximum atteint : −15 % Koulchi dialk appliqués sur vos articles éligibles !"), next: 0 };
+  }
+  if (qty >= 6) {
+    return {
+      message: tpl(
+        "koulchiNextTier",
+        "Super, −10 % débloqués ! Plus que {n} article(s) pour atteindre −15 %.",
+        { n: 9 - qty, current: 10, next: 15 }
+      ),
+      next: 15
+    };
+  }
+  if (qty >= 3) {
+    return {
+      message: tpl(
+        "koulchiNextTier",
+        "Bravo, −5 % débloqués ! Ajoutez encore {n} article(s) pour passer à −10 %.",
+        { n: 6 - qty, current: 5, next: 10 }
+      ),
+      next: 10
+    };
+  }
+  return {
+    message: tpl(
+      "koulchiNeedTier",
+      "Ajoutez encore {n} article(s) pour débloquer −5 % avec Koulchi dialk !",
+      { n: 3 - qty }
+    ),
+    next: 5
+  };
+}
+
+/** Bandeau : jauge 0 → 3 → 6 → 9 + message + économie. */
+function renderKoulchiProgress(cart, products, zone) {
+  const qty = Math.max(0, Number(zone.koulchiQty) || 0);
+  const goal = 9;
+  const percent = Math.min(100, Math.round((qty / goal) * 100));
+  const copy = koulchiProgressCopy(qty);
+  const saved = Math.round(Number(zone.koulchiDiscount) || 0);
+
+  const flashItems = (Array.isArray(cart) ? cart : []).filter((item) => {
+    const product = products.find((p) => String(p.id) === String(item.productId));
+    return product && isKoulchiBlockedByFlash(product);
+  });
+  const flashQty = flashItems.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
+
+  const marker = (min, label) => {
+    const reached = qty >= min;
+    return `<span class="koulchi-bar__marker${reached ? " is-reached" : ""}">${min} · ${label}</span>`;
+  };
+
+  return `<section class="koulchi-progress" aria-label="${tpl("koulchiProgressTitle", "Koulchi dialk")}">
+      <div class="koulchi-progress__head">
+        <span class="koulchi-progress__title">🌿 ${tpl("koulchiProgressTitle", "Koulchi dialk")}</span>
+        <span class="koulchi-progress__count">${qty} / 10</span>
+      </div>
+      <div class="koulchi-bar" role="progressbar" aria-valuemin="0" aria-valuemax="10" aria-valuenow="${Math.min(qty, 10)}">
+        <div class="koulchi-bar__fill" style="inline-size:${percent}%"></div>
+      </div>
+      <div class="koulchi-bar__scale">${marker(3, "−5 %")}${marker(6, "−10 %")}${marker(9, "−15 %")}</div>
+      <p class="koulchi-progress__msg">${copy.message}</p>
+      ${saved > 0 ? `<p class="koulchi-progress__save">${tpl("koulchiYouSave", "Vous économisez {amount} MAD", { amount: saved })}</p>` : ""}
+      ${
+        flashQty > 0
+          ? `<p class="koulchi-progress__flash">⚠️ ${tpl(
+              "koulchiFlashExcluded",
+              "{n} article(s) Vente Flash exclu(s) du palier Koulchi dialk.",
+              { n: flashQty }
+            )}</p>`
+          : ""
+      }
+    </section>`;
+}
+
+/** Mini cross-sell (1 à 8 articles éligibles) — catalogue déjà en mémoire. */
+function renderCrossSell(cart, products, zone) {
+  const qty = Math.max(0, Number(zone.koulchiQty) || 0);
+  if (qty < 1 || qty >= 9) return "";
+
+  const cartIds = new Set((Array.isArray(cart) ? cart : []).map((item) => String(item.productId)));
+  const candidates = (Array.isArray(products) ? products : [])
+    .filter(
+      (product) =>
+        product &&
+        Number(product.stock) > 0 &&
+        !cartIds.has(String(product.id)) &&
+        !isKoulchiBlockedByFlash(product) &&
+        isKoulchiEligible(product)
+    )
+    .sort((a, b) => (Number(a.price) || 0) - (Number(b.price) || 0));
+
+  if (!candidates.length) return "";
+  const cheap = candidates.filter((product) => (Number(product.price) || 0) <= 250);
+  const picks = (cheap.length >= 2 ? cheap : candidates).slice(0, 3);
+
+  return `<section class="cart-xsell" aria-label="${tpl("crossSellTitle", "Complétez votre commande")}">
+      <div class="cart-xsell__head">
+        <h3 class="cart-xsell__title">${tpl("crossSellTitle", "Complétez votre commande")}</h3>
+        <span class="cart-xsell__hint">${tpl("crossSellHint", "Petits prix pour débloquer votre palier")}</span>
+      </div>
+      <div class="cart-xsell__grid">
+        ${picks
+          .map((product) => {
+            const name = escapeHTML(getProductName(product));
+            const id = escapeHTML(String(normalizeProductId(product.id)));
+            return `<div class="cart-xsell__card">
+                <img class="cart-xsell__img" src="${getProductImageUrl(product)}" alt="${name}" width="48" height="48" loading="lazy">
+                <div class="cart-xsell__body">
+                  <span class="cart-xsell__name" title="${name}">${name}</span>
+                  <span class="cart-xsell__price">${Number(product.price) || 0} MAD</span>
+                </div>
+                <button type="button" class="cart-xsell__btn" data-action="cart:add-xsell" data-xsell-id="${id}">${tpl(
+                  "crossSellAdd",
+                  "+ Ajouter"
+                )}</button>
+              </div>`;
+          })
+          .join("")}
+      </div>
+    </section>`;
+}
+
 function renderFullCart(cart, products) {
   const totalItems = getCartTotalItems();
   const user = getCurrentUser();
@@ -333,8 +473,10 @@ function renderFullCart(cart, products) {
             "cartClear"
           )}</button>
         </div>
+        ${renderKoulchiProgress(cart, products, zone)}
         ${classicBlock}
         ${renderKoulchiZone(koulchiHtml, zone)}
+        ${renderCrossSell(cart, products, zone)}
         <a href="/#produits" class="cart-page-continue-link">← ${t(
           "cartContinueShopping"
         )}</a>
@@ -792,6 +934,27 @@ async function applyCouponCode() {
 function attachFullCartEvents() {
   const container = document.getElementById("cartPageContent");
   if (!container) return;
+
+  /* Cross-sell « Complétez votre commande » : ajout en 1 clic, mode Koulchi
+     pour faire progresser la jauge du palier. */
+  container.querySelectorAll('[data-action="cart:add-xsell"]').forEach((btn) => {
+    btn.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const id = btn.dataset.xsellId;
+      if (!id || btn.disabled) return;
+      btn.disabled = true;
+      btn.textContent = "…";
+      try {
+        const mod = await import("./cart.js");
+        await mod.addToCart(id, null, { mode: "koulchi" });
+        renderCartPage();
+      } catch (error) {
+        btn.disabled = false;
+        showToast(t("cartAddError") || "Impossible d'ajouter ce produit.", 4000);
+      }
+    });
+  });
 
   container.querySelectorAll('[data-action="cart:clear"]').forEach((btn) => {
     btn.addEventListener("click", async () => {
