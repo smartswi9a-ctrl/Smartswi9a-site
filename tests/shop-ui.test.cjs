@@ -32,6 +32,7 @@ const shopUi = read("js/shop-ui.js");
 const products = read("js/products.js");
 const blogJs = read("js/blog.js");
 const css = read("css/shop-modern.css");
+const pageJs = read("js/koulchi-page.js");
 
 /* --------------------------------------------- 1. dictionnaire */
 function extractDictKeys(lang) {
@@ -132,11 +133,13 @@ for (const file of [["index.html", index], ["koulchi.html", koulchi], ["blog.htm
   check(file[0] + " : aucun ID duplique", duplicates.length === 0, duplicates.join(","));
 }
 const indexIds = [...index.matchAll(/(?<![\w-])id="([^"]+)"/g)].map((m) => m[1]);
-const indexContainers = ["shopStats", "shopQuickFilters", "koulchiExperience", "homeBlogGrid", "productsGrid"];
+const indexContainers = ["shopStats", "shopQuickFilters", "koulchiVitrine", "homeBlogGrid", "productsGrid"];
 check(
   "accueil : conteneurs modernes presents",
   indexContainers.every((id) => indexIds.includes(id))
 );
+check("accueil : vitrine Koulchi a gauche des Ventes Flash", index.includes('id="koulchiVitrine"') && index.includes('id="flashSection"'));
+check("accueil : simulateur Koulchi retire", !index.includes("data-koulchi-simulator"));
 check("koulchi : simulateur present", koulchi.includes("data-koulchi-simulator"));
 check("blog : themes + progression presents", blog.includes('id="blogThemes"') && blog.includes('id="blogReadingProgress"'));
 check("pages : CSS moderne charge", index.includes("shop-modern.css") && koulchi.includes("shop-modern.css") && blog.includes("shop-modern.css"));
@@ -148,7 +151,8 @@ check("blog : script shop-ui charge", blog.includes("/js/shop-ui.js"));
 check("CSS : grille produits 4 colonnes", css.includes("grid-template-columns: repeat(4, minmax(0, 1fr))"));
 check("CSS : tablette/mobile 2 colonnes", css.includes("@media (max-width: 1023px)") && css.includes("grid-template-columns: repeat(2, minmax(0, 1fr))"));
 check("CSS : blog 3 / 2 / 1 colonnes", css.includes(".shop-blog-grid") && css.includes("@media (max-width: 767px)"));
-check("CSS : simulateur 2 colonnes desktop", css.includes("grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr)"));
+check("CSS : simulateur compact 3 lignes", css.includes(".koulchi-sim-row--head") && css.includes(".koulchi-sim-row--bar") && css.includes(".koulchi-sim-row--summary"));
+check("CSS : duo vitrine + ventes flash 2 colonnes des 1024px", /@media \(min-width: 1024px\)[\s\S]{0,160}\.promo-duo\.is-pair/.test(css) && css.includes(".koulchi-vitrine-card"));
 check("CSS : image produit ratio 1:1", css.includes("aspect-ratio: 1 / 1"));
 check("CSS : zoom 1.05", css.includes("scale(1.05)"));
 check("CSS : reveal + reduced motion", css.includes(".shop-reveal") && css.includes("prefers-reduced-motion: reduce"));
@@ -171,6 +175,13 @@ check("rotation 10:1 intacte", fs.existsSync(path.join(ROOT, "functions/rotation
 
 /* --------------------------------------------- 5. Koulchi / blog */
 check("simulateur : 3 paliers", shopUi.includes("data-sim-qty") && shopUi.includes("koulchiPercentFor"));
+check(
+  "vitrine : 3 paliers + CTA vers la page Koulchi",
+  pageJs.includes("koulchi-vitrine-tier") &&
+    pageJs.includes("koulchiVitrineCta") &&
+    pageJs.includes('class="koulchi-vitrine-cta" href="/koulchi.html"')
+);
+check("vitrine : visuel d appel si catalogue vide", pageJs.includes("koulchi-vitrine-empty") && pageJs.includes("koulchiVitrineEmpty"));
 check("simulateur : progression animee", css.includes(".koulchi-sim-progress") && css.includes("transition: width 350ms"));
 check("simulateur : exclusion ventes flash", shopI18n.includes("koulchiFlashExcluded"));
 check("blog : hero card", blogJs.includes("blog-hero-card") && css.includes(".blog-hero-card"));

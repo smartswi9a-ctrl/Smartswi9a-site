@@ -277,6 +277,17 @@ async function main() {
     await assertFails(getDoc(doc(buyerDb, "_test_snapshots", "batchA", "users", "buyerA")));
 
     await assertFails(updateDoc(doc(buyerDb, "users", "buyerA"), { role: "admin" }));
+
+    /* PRESENCE : le proprietaire peut mettre a jour SA pastille uniquement. */
+    await assertSucceeds(updateDoc(doc(buyerDb, "users", "buyerA"), {
+      isOnline: true,
+      lastSeenAt: Timestamp.now()
+    }));
+    /* Un compte ne peut pas falsifier la presence d un AUTRE compte. */
+    await assertFails(updateDoc(doc(buyerDb, "users", "vendorA"), {
+      isOnline: true,
+      lastSeenAt: Timestamp.now()
+    }));
     await assertFails(setDoc(doc(buyerDb, "reviews", "fakeVerified"), {
       userId: "buyerA",
       productId: 2,

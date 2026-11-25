@@ -29,6 +29,7 @@ import { initStructuredData } from "./structured-data.js";
 import { initEventsCalendar } from "./events-calendar.js";
 import { initPWA } from "./pwa.js";
 import { initPush } from "./push.js?v=6";
+import "./presence.js?v=1";
 
 /* ============================================================ GUARD GLOBAL : éviter les doubles initialisations auth ============================================================ Si app.js est inclus 2× (double balise, HMR), le 2ème init ne réattache pas le listener auth. Empêche le cumul. ============================================================ */
 if (

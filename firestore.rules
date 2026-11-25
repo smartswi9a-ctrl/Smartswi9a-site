@@ -114,7 +114,13 @@ service cloud.firestore {
               'name', 'email', 'phone', 'role', 'signupMethod',
               'emailVerified', 'vendorInfo', 'updatedAt', 'createdAt'
             ])
-          )
+          ) ||
+          /* PRESENCE (2026-11-25) : un compte connecte peut mettre a jour
+             UNIQUEMENT sa pastille de presence. Aucun autre champ n est
+             autorise : role, status et vendorInfo restent intouchables. */
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'lastSeenAt', 'isOnline'
+          ])
         )
       );
 

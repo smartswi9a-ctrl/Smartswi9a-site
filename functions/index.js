@@ -1930,6 +1930,15 @@ exports.adminVendorAction = onRequest({ invoker: 'public', region: 'europe-west1
       return res.status(200).json({ success: true, action, deletedProducts });
     }
 
+    const previousStatus = vendorSnap.data()?.vendorInfo?.status || 'pending';
+    const suspensionType = String(req.body?.suspensionType || '').trim();
+    const suspensionCause = String(req.body?.suspensionCause || '').trim().slice(0, 300);
+    const suspensionUntil = String(req.body?.suspensionUntil || '').trim().slice(0, 32);
+
+    if (action === 'suspended' && !suspensionCause) {
+      return res.status(400).json({ success: false, message: 'La cause de la suspension est obligatoire.' });
+    }
+
     const vendorUpdate = {
       'vendorInfo.status': action,
       'vendorInfo.statusUpdatedAt': FieldValue.serverTimestamp(),
@@ -1941,8 +1950,45 @@ exports.adminVendorAction = onRequest({ invoker: 'public', region: 'europe-west1
       vendorUpdate['vendorInfo.commissionRate'] = OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE;
       vendorUpdate['vendorInfo.commissionRateMin'] = OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE_MIN;
       vendorUpdate['vendorInfo.commissionRateMax'] = OFFICIAL_VENDOR_CONFIG.COMMISSION_RATE_MAX;
+      // Lever la suspension : aucun motif residuel ne doit rester sur le profil.
+      vendorUpdate['vendorInfo.suspension'] = FieldValue.delete();
+      vendorUpdate['vendorInfo.suspendedAt'] = FieldValue.delete();
+      vendorUpdate['vendorInfo.suspensionReason'] = FieldValue.delete();
+      vendorUpdate.suspended = false;
+    }
+    if (action === 'suspended') {
+      /* Type + cause obligatoires : le trigger onUserWritten les reprend
+         pour le push et l email au vendeur. */
+      vendorUpdate['vendorInfo.suspension'] = {
+        type: suspensionType === 'permanent' ? 'permanent' : 'temporary',
+        cause: suspensionCause,
+        until: suspensionType === 'permanent' ? '' : suspensionUntil,
+        at: new Date().toISOString(),
+        by: decoded.uid
+      };
+      vendorUpdate['vendorInfo.suspendedAt'] = FieldValue.serverTimestamp();
+      vendorUpdate['vendorInfo.suspensionReason'] = suspensionCause;
+      vendorUpdate.suspended = true;
     }
     await vendorRef.update(vendorUpdate);
+
+    /* Reactivation : onUserWritten ne notifie que les nouvelles suspensions,
+       on envoie donc ici le push + in-app de reactivation. */
+    if (action === 'approved' && previousStatus === 'suspended') {
+      try {
+        const { notifyVendor } = require('./notifications');
+        await notifyVendor(vendorId, {
+          type: 'vendor_reactivated',
+          title: 'Compte vendeur réactivé',
+          body: 'Votre compte vendeur est de nouveau actif : vous pouvez publier et vendre.',
+          targetUrl: '/vendor/dashboard',
+          tag: `vendor-reactivated-${vendorId}-${Date.now()}`
+        });
+      } catch (notifyError) {
+        console.error('[adminVendorAction] notification réactivation :', notifyError);
+      }
+    }
+
     return res.status(200).json({ success: true, action });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
