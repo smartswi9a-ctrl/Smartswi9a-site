@@ -251,6 +251,16 @@ check("règles : product_views propriétaire + scheduled_emails serveur only", (
   assert.ok(/match \/scheduled_emails\/\{docId\}[\s\S]*?allow write: if false/.test(rules));
 });
 
+/* ---------- Sweep : robustesse Firestore ---------- */
+
+check("sweep : requête mono-champ (aucun index composite requis)", () => {
+  const src = read("functions/retargeting.js");
+  const start = src.indexOf("async function processScheduledEmails");
+  const block = src.slice(start, src.indexOf("return { due:"));
+  assert.ok(block.includes("where('scheduledFor'"), "le filtre doit porter sur scheduledFor");
+  assert.equal(block.includes("where('status'"), false, "2 filtres = index composite = sweep muet");
+});
+
 /* ---------- SVG mouton Aïd el-Adha ---------- */
 
 check("SVG mouton : viewBox 64x52, toison, cornes, sabots", () => {
