@@ -395,6 +395,23 @@ async function refreshDeviceToken(account) {
 }
 
 /** Notification push de test vers CET appareil (admin uniquement côté serveur). */
+/**
+ * Réparation dure : désabonne le PushManager du Service Worker (quand
+ * `deleteToken()` échoue sur un token déjà invalidé), puis régénère un token.
+ */
+async function hardResetDeviceToken(account) {
+  try {
+    const registration = await ensureSwRegistration();
+    if (registration && registration.pushManager) {
+      const subscription = await registration.pushManager.getSubscription();
+      if (subscription) await subscription.unsubscribe();
+    }
+  } catch (error) {
+    /* non bloquant */
+  }
+  return refreshDeviceToken(account);
+}
+
 export async function sendTestPush() {
   /* 1. Utilisateur réellement connecté (Firebase Auth, pas le store). */
   const account = await resolveAccount();
@@ -410,8 +427,18 @@ export async function sendTestPush() {
   }
   if (!token) return { ok: false, error: "no_token" };
 
+  /* 3. Envoi, puis auto-réparation si FCM refuse le token. */
+  let result = await postTestPush(account, token);
+  if (!result.ok && result.error === "delivery_failed") {
+    const fresh = await hardResetDeviceToken(account);
+    if (fresh && fresh !== token) result = await postTestPush(account, fresh);
+  }
+  return result;
+}
+
+/** Appel réseau vers la Cloud Function (jeton Firebase forcé). */
+async function postTestPush(account, token) {
   try {
-    /* 3. Jeton d'identité Firebase forcé (getIdToken(true)). */
     const idToken = await account.getIdToken(true);
     if (!idToken) return { ok: false, error: "no_auth" };
 
