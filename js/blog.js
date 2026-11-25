@@ -21,6 +21,7 @@ import {
   setBlogLoadedPromise,
 } from "./store.js";
 import { showToast, openImageLightbox } from "./ui-core.js";
+import { shopT } from "./shop-i18n.js";
 
 /* ============================================================ CONSTANTES ============================================================ */
 const POSTS_PER_PAGE = CONFIG.BLOG.PER_PAGE || 6;
@@ -51,7 +52,48 @@ function tCategory(catId) {
 }
 
 function tReadTime(min) {
-  return t("blogReadTime").replace("{min}", min);
+  return shopT("blogReadTime", { min });
+}
+
+/* Thématiques éditoriales modernes (filtres transverses). */
+const BLOG_THEMES = [
+  { id: "all", key: "blogThemeAll" },
+  { id: "smart-home", key: "blogThemeSmartHome" },
+  { id: "watches-audio", key: "blogThemeWatchesAudio" },
+  { id: "auto-security", key: "blogThemeAutoSecurity" },
+  { id: "guides", key: "blogThemeGuides" },
+];
+
+function matchesBlogTheme(post, theme) {
+  if (!theme || theme === "all") return true;
+  const haystack = [
+    post.category || "",
+    post.title || "",
+    post.excerpt || "",
+    post.content || "",
+  ]
+    .join(" ")
+    .toLowerCase();
+  if (theme === "smart-home") {
+    return (
+      post.category === "smart-home" ||
+      /smart ?home|domotique|maison connect|connect[ée]|منزل|ذكي/.test(haystack)
+    );
+  }
+  if (theme === "watches-audio") {
+    return /montre|watch|écouteur|ecouteur|audio|casque|speaker|ساعة|سماعة|صوت/.test(haystack);
+  }
+  if (theme === "auto-security") {
+    return /auto|voiture|caméra|camera|sécurité|securite|dashcam|سيارة|كاميرا|أمان/.test(haystack);
+  }
+  if (theme === "guides") {
+    return (
+      post.category === "tutoriels" ||
+      post.category === "conseils" ||
+      /guide|acheter|choisir|comparatif|دليل|شراء|اختيار/.test(haystack)
+    );
+  }
+  return true;
 }
 
 /* ============================================================ VALIDATION IMAGES (whitelist) ============================================================ Accepte : - http://... / https://... - /chemin/relatif/... Refuse : - data: (base64, vecteur XSS) - javascript: (XSS) - //evil.com (protocol-relative) - "" / null / undefined ============================================================ */
@@ -130,6 +172,10 @@ export function getFilteredPosts() {
     list = list.filter((p) => p.category === filters.category);
   }
 
+  if (filters.theme && filters.theme !== "all") {
+    list = list.filter((p) => matchesBlogTheme(p, filters.theme));
+  }
+
   if (filters.search && filters.search.trim()) {
     const q = filters.search.toLowerCase().trim();
     list = list.filter((p) => {
@@ -158,6 +204,7 @@ export async function renderBlogList() {
   }
 
   renderBlogFilters();
+  renderBlogThemes();
 
   const filtered = getFilteredPosts();
   const total = filtered.length;
@@ -177,8 +224,9 @@ export async function renderBlogList() {
   const pagePosts = filtered.slice(start, start + POSTS_PER_PAGE);
 
   let html = "";
+  const useHero = currentPage === 1 && pagePosts.length > 1;
   pagePosts.forEach((post, index) => {
-    html += renderBlogCard(post, index);
+    html += renderBlogCard(post, index, useHero && index === 0);
   });
   grid.innerHTML = html;
 
@@ -194,10 +242,10 @@ export async function renderBlogList() {
 }
 
 /* ============================================================ CARTE ARTICLE ============================================================ */
-function renderBlogCard(post, index) {
+export function renderBlogCard(post, index, isHero = false) {
   const title = escapeHTML(post.title || "Sans titre");
   const excerpt = escapeHTML(
-    truncateWords(post.excerpt || post.content || "", 130)
+    truncateWords(post.excerpt || post.content || "", isHero ? 220 : 130)
   );
   const categoryLabel = escapeHTML(tCategory(post.category || "general"));
   const date = formatDate(post.publishedAt || post.createdAt) || "";
@@ -226,12 +274,59 @@ function renderBlogCard(post, index) {
     imgHtml = `<span style="font-size:3rem;">${catEmoji}</span>`;
   }
 
-  return ` <article class="blog-card" data-id="${escapeHTML( post.id )}" style="cursor:pointer;"> <div class="blog-img ${hasImg ? "" : gradientClass}"> ${imgHtml} </div> <div class="blog-body"> <div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.5rem;"> <span class="blog-category-tag">${catEmoji} ${categoryLabel}</span> </div> <div class="blog-date">${date} - ${tReadTime(readTime)}</div> <h2 class="blog-title">${title}</h2> <p class="blog-excerpt">${excerpt}</p> <span class="blog-read-more">${ t("blogReadMore") || "Lire la suite" } →</span> </div> </article> `;
+  return `<article class="blog-card${isHero ? " blog-hero-card" : ""}" data-id="${escapeHTML(post.id)}" style="cursor:pointer;" tabindex="0">
+    <div class="blog-img ${hasImg ? "" : gradientClass}">
+      ${isHero ? `<span class="blog-hero-badge">${escapeHTML(shopT("blogHeroBadge"))}</span>` : ""}
+      ${imgHtml}
+    </div>
+    <div class="blog-body">
+      <div class="blog-card-tags"><span class="blog-category-tag">${catEmoji} ${categoryLabel}</span></div>
+      <div class="blog-date">${date} - ${tReadTime(readTime)}</div>
+      <h2 class="blog-title">${title}</h2>
+      <p class="blog-excerpt">${excerpt}</p>
+      <span class="blog-read-more">${escapeHTML(shopT("blogReadArticle"))} →</span>
+    </div>
+  </article>`;
 }
 
 /* ============================================================ FILTRES CATÉGORIES ============================================================ */
 
 /** * Re-render la barre de filtres (catégories + counts). * @returns {void} */
+/**
+ * Rend la barre de thématiques éditoriales.
+ */
+export function renderBlogThemes() {
+  const container = document.getElementById("blogThemes");
+  if (!container) return;
+  const filters = getBlogFilters();
+  const active = filters.theme || "all";
+  container.setAttribute("aria-label", shopT("blogThemesAria"));
+  container.innerHTML = BLOG_THEMES.map(
+    (theme) =>
+      `<button type="button" class="blog-theme-pill${active === theme.id ? " is-active" : ""}" data-blog-theme="${theme.id}" aria-pressed="${active === theme.id ? "true" : "false"}">${escapeHTML(shopT(theme.key))}</button>`
+  ).join("");
+  container.querySelectorAll("[data-blog-theme]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      setBlogFilters({ theme: btn.dataset.blogTheme });
+      setBlogPagination({ currentPage: 1 });
+      renderBlogList();
+    });
+  });
+}
+
+/**
+ * Rend un lot de cartes pour l'aperçu accueil.
+ * @param {Array} posts
+ * @param {number} limit
+ * @returns {string}
+ */
+export function renderBlogPreviewCards(posts, limit = 3) {
+  return (Array.isArray(posts) ? posts : [])
+    .slice(0, limit)
+    .map((post, index) => renderBlogCard(post, index, false))
+    .join("");
+}
+
 export function renderBlogFilters() {
   const container = document.getElementById("blogFilters");
   if (!container) return;
@@ -332,6 +427,28 @@ function renderBlogPagination(totalPages, currentPage) {
 /* ============================================================ OUVRIR UN ARTICLE (modale) ============================================================ */
 
 /** * Ouvre la modale de lecture d'un article. * @param {string} postId */
+function updateBlogReadingProgress() {
+  const modal = document.getElementById("blogArticleModal");
+  const wrapper = document.getElementById("blogReadingProgress");
+  const bar = wrapper ? wrapper.querySelector("span") : null;
+  if (!modal || !wrapper || !bar) return;
+  const max = Math.max(0, modal.scrollHeight - modal.clientHeight);
+  const percent = max > 0 ? Math.min(100, Math.round((modal.scrollTop / max) * 100)) : 0;
+  bar.style.width = `${percent}%`;
+  wrapper.setAttribute("aria-valuenow", String(percent));
+  wrapper.classList.toggle("is-visible", modal.classList.contains("open"));
+}
+
+function resetBlogReadingProgress() {
+  const wrapper = document.getElementById("blogReadingProgress");
+  const bar = wrapper ? wrapper.querySelector("span") : null;
+  if (bar) bar.style.width = "0%";
+  if (wrapper) {
+    wrapper.setAttribute("aria-valuenow", "0");
+    wrapper.classList.remove("is-visible");
+  }
+}
+
 export function openBlogArticle(postId) {
   const post = getBlogPosts().find((p) => p.id === postId);
   if (!post) {
@@ -376,6 +493,8 @@ export function openBlogArticle(postId) {
   modal.classList.add("open");
   document.body.style.overflow = "hidden";
   modal.scrollTop = 0;
+  modal.onscroll = updateBlogReadingProgress;
+  updateBlogReadingProgress();
 
   document
     .getElementById("closeBlogArticleBtn")
@@ -410,6 +529,8 @@ export function closeBlogArticle() {
   if (!modal) return;
   modal.classList.remove("open");
   document.body.style.overflow = "";
+  modal.onscroll = null;
+  resetBlogReadingProgress();
 
   if (_currentEscHandler) {
     document.removeEventListener("keydown", _currentEscHandler);
@@ -436,6 +557,16 @@ export async function initBlogPage() {
     await promise;
 
     await renderBlogList();
+
+    const articleId = new URLSearchParams(window.location.search).get("article");
+    if (articleId) openBlogArticle(articleId);
+
+    if (!window.__blogLangBound) {
+      window.__blogLangBound = true;
+      document.addEventListener("lang-changed", () => {
+        renderBlogList();
+      });
+    }
   } finally {
     _initInProgress = false;
   }

@@ -2,6 +2,7 @@
 
 import { t, setLang, getLang } from "./utils.js";
 import { showToast } from "./ui-core.js";
+import { shopT } from "./shop-i18n.js";
 
 /* ============================================================ GUARD GLOBAL (anti double-attach) ============================================================ Si attachEvents() est appelé 2× (double include, HMR), le 2ème appel est silencieusement ignoré. Empêche le cumul de listeners sur document. ============================================================ */
 let _eventsAttached = false;
@@ -413,7 +414,21 @@ export function attachEvents() {
       e.preventDefault();
       const rawId = addBtn.dataset.id || addBtn.dataset.productId;
       if (rawId != null && rawId !== "") {
-        import("./cart.js").then((m) => m.addToCart(rawId));
+        const label = addBtn.querySelector(".btn-label") || addBtn;
+        const original = label.textContent;
+        addBtn.classList.add("is-adding");
+        import("./cart.js")
+          .then((m) => m.addToCart(rawId))
+          .then(() => {
+            addBtn.classList.remove("is-adding");
+            addBtn.classList.add("is-added");
+            label.textContent = shopT("shopAdded");
+            window.setTimeout(() => {
+              addBtn.classList.remove("is-added");
+              label.textContent = original;
+            }, 1500);
+          })
+          .catch(() => addBtn.classList.remove("is-adding"));
         return;
       }
     }

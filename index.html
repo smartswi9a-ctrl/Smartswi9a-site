@@ -2,6 +2,23 @@
 <html lang="fr" dir="ltr">
 <head>
     <meta charset="UTF-8">
+    <script>
+        /* Langue + RTL avant le premier paint : évite tout layout shift. */
+        (function () {
+            try {
+                var q = new URLSearchParams(location.search).get("lang");
+                var raw = localStorage.getItem("swi9a_lang");
+                var stored = "fr";
+                if (raw) {
+                    try { stored = JSON.parse(raw); } catch (e) { stored = raw; }
+                }
+                var lang = q || stored;
+                if (["fr", "en", "ar"].indexOf(lang) < 0) lang = "fr";
+                document.documentElement.lang = lang;
+                document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
+            } catch (e) { /* ignore */ }
+        })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Smartswika | Gadgets & Smart Home au Maroc – Livraison 24-72h</title>
     <meta name="description" content="Smartswika : gadgets, montres connectées, écouteurs et Smart Home au Maroc. Livraison 24-72h, paiement à la livraison partout au Maroc.">
@@ -190,6 +207,7 @@
     <link rel="stylesheet" href="/css/spacing.18d35167.css">
     <link rel="stylesheet" href="/css/pwa.5a9c7c93.css">
     <link rel="stylesheet" href="/css/events.e814ffbc.css">
+    <link rel="stylesheet" href="/css/shop-modern.css?v=1">
     <script src="/translations.72210d87.js"></script>
 </head>
 <body>
@@ -285,6 +303,25 @@
         </div>
     </section>
 
+    <div class="shop-stats-strip" id="shopStats" role="list" aria-label="Smartswika">
+        <div class="shop-stat" role="listitem">
+            <strong data-shop-count="404">404</strong>
+            <span data-shop-i18n="statCities">Villes livrées</span>
+        </div>
+        <div class="shop-stat" role="listitem">
+            <strong data-shop-count="24" data-shop-suffix="-72h">24-72h</strong>
+            <span data-shop-i18n="statDelivery">Livraison</span>
+        </div>
+        <div class="shop-stat" role="listitem">
+            <strong data-shop-count="15" data-shop-suffix="j">15j</strong>
+            <span data-shop-i18n="statWarranty">Garantie</span>
+        </div>
+        <div class="shop-stat" role="listitem">
+            <strong data-shop-count="7" data-shop-suffix="/7">7/7</strong>
+            <span data-shop-i18n="statSupport">Support</span>
+        </div>
+    </div>
+
     <div class="trust-bar" id="trustBar" role="list" aria-label="Trust">
         <div class="trust-item" role="listitem">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
@@ -374,6 +411,8 @@
     <section class="section koulchi-home" id="koulchiSection" aria-labelledby="koulchiHomeTitle" hidden></section>
     </div>
 
+    <section class="section koulchi-experience" id="koulchiExperience" aria-labelledby="koulchiExperienceTitle" data-koulchi-simulator></section>
+
     <section class="section" id="produits" aria-labelledby="productsTitle">
         <div class="products-wrap">
             <div style="text-align:center;margin-bottom:1rem;">
@@ -394,6 +433,8 @@
                     <input type="text" id="productSearch" data-action="products:search" data-key="searchProductsPlaceholder" placeholder="Rechercher un produit..." data-aria-key="ariaSearchProduct" style="width: 100%;">
                 </div>
             </div>
+
+            <div class="shop-quick-filters" id="shopQuickFilters" role="group" aria-label="Filtrer les produits"></div>
 
             <div class="products-toolbar" id="productsToolbar">
                 <!-- ✅ CONTENEUR PRINCIPAL INJECTÉ PAR JS (Bande défilante) -->
@@ -548,6 +589,22 @@
         </div>
     </section>
 
+    <section class="section shop-blog-preview" id="homeBlog" aria-labelledby="homeBlogTitle">
+        <div class="shop-section-head">
+            <span class="section-tag" data-shop-i18n="blogPreviewTag">Journal tech</span>
+            <h2 class="section-title" id="homeBlogTitle" data-shop-i18n="blogPreviewTitle">Le journal Smartswika</h2>
+            <p class="section-sub" data-shop-i18n="blogPreviewSub">Conseils, tendances et guides pour mieux choisir vos gadgets au Maroc.</p>
+        </div>
+        <div class="shop-blog-grid" id="homeBlogGrid" aria-live="polite">
+            <div class="shop-blog-skeleton" aria-hidden="true"></div>
+            <div class="shop-blog-skeleton" aria-hidden="true"></div>
+            <div class="shop-blog-skeleton" aria-hidden="true"></div>
+        </div>
+        <div class="shop-section-foot">
+            <a class="btn-secondary" href="/blog" data-shop-i18n="blogPreviewCta">Voir tous les articles</a>
+        </div>
+    </section>
+
     <section class="section" id="legal" aria-labelledby="legalTitle">
         <div style="max-width:800px;margin:0 auto;text-align:left;">
             <div style="text-align:center;">
@@ -645,5 +702,6 @@
             await initDynamicTestimonials();
         });
     </script>
+    <script type="module" src="/js/shop-ui.js?v=1"></script>
 </body>
 </html>

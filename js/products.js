@@ -37,6 +37,7 @@ import {
   getDiscountPercent,
   toDate,
 } from "./utils.js";
+import { shopT } from "./shop-i18n.js";
 /* Vente flash : remise temporaire appliquee par-dessus product.price. */
 import { applyFlashSales, getEffectivePrice, startFlashCountdown } from "./flash-sales.js";
 import {
@@ -366,6 +367,26 @@ export function getFilteredProducts() {
     list = list.filter((p) => p.price >= filters.priceMin);
   if (filters.priceMax < 99999)
     list = list.filter((p) => p.price <= filters.priceMax);
+
+  /* Filtres rapides vitrine (pills). Aucun impact sur le tri. */
+  const quick = filters.quick || "all";
+  if (quick === "new") {
+    list = list.filter((p) => p.isNew === true);
+  } else if (quick === "flash") {
+    list = list.filter(
+      (p) => Number(p.flashPrice) > 0 && Number(p.flashPrice) < Number(p.price)
+    );
+  } else if (quick === "smart") {
+    list = list.filter((p) => !p.vendorId || p.vendorId === "smartswi9a");
+  } else if (quick === "vendors") {
+    list = list.filter((p) => p.vendorId && p.vendorId !== "smartswi9a");
+  } else if (quick === "stock") {
+    list = list.filter((p) =>
+      Array.isArray(p.variants) && p.variants.length > 0
+        ? p.variants.some((v) => (Number(v.stock) || 0) > 0)
+        : (Number(p.stock) || 0) > 0
+    );
+  }
 
   switch (filters.sort) {
     case "relevance":
@@ -736,12 +757,23 @@ export async function renderProducts() {
 
   if (pageProducts.length === 0) {
     const filters = getFilters();
-    let emptyMessage = t("noProductsFound");
-    if (filters.category === "favorites") emptyMessage = t("noFavorites");
-    else if (filters.category !== "all")
-      emptyMessage = t("noProductsInCategory");
+    const catalogEmpty = getProducts().length === 0;
+    let emptyTitle = shopT("catalogFilterEmpty");
+    if (catalogEmpty) emptyTitle = shopT("catalogPreparingTitle");
+    else if (filters.category === "favorites") emptyTitle = t("noFavorites");
+    else if (filters.category !== "all") emptyTitle = t("noProductsInCategory");
 
-    grid.innerHTML = `<div style="text-align:center;padding:3rem 1rem;color:var(--text-muted);grid-column:1/-1;font-size:0.95rem;"><div style="font-size:3rem;margin-bottom:1rem;">🔍</div><p style="margin:0;">${emptyMessage}</p></div>`;
+    const emptyDesc = catalogEmpty ? shopT("catalogPreparingDesc") : "";
+    const resetHtml = catalogEmpty
+      ? ""
+      : `<button type="button" class="shop-empty-reset" data-action="products:filter-reset">${escapeHTML(shopT("catalogReset"))}</button>`;
+
+    grid.innerHTML = `<div class="shop-catalog-empty" role="status" aria-live="polite">
+      <div class="shop-catalog-empty-icon" aria-hidden="true">${catalogEmpty ? "🏬" : "🔍"}</div>
+      <h3>${escapeHTML(emptyTitle)}</h3>
+      ${emptyDesc ? `<p>${escapeHTML(emptyDesc)}</p>` : ""}
+      ${resetHtml}
+    </div>`;
     return;
   }
 
@@ -772,31 +804,41 @@ export async function renderProducts() {
     const vendorOwner =
       p.vendorId && p.vendorId !== "smartswi9a" ? p.vendorId : null;
 
+    const isSmartProduct = vendorInfo.type === "smart";
+    const vendorName = escapeHTML(vendorInfo.name || "");
+    const vendorSep = `<span class="shop-origin-sep" aria-hidden="true">${escapeHTML(shopT("badgeVendorSep"))}</span>`;
     let vendorBadgeHtml;
-    if (vendorInfo.type === "smart") {
-      vendorBadgeHtml = `<div style="font-size:0.68rem;color:var(--gold);font-weight:700;margin-top:0.2rem;">✅ ${ t("vendorSmartSwi9a") || "Smartswika" }</div>`;
+    if (isSmartProduct) {
+      vendorBadgeHtml = `<div class="shop-origin shop-origin--smart">${escapeHTML(shopT("badgeSmart"))}</div>`;
     } else if (vendorOwner) {
-      vendorBadgeHtml = `<a href="/boutique.html?v=${encodeURIComponent( vendorOwner )}" style="font-size:0.68rem;color:#6b46c1;font-weight:700;text-decoration:none;display:block;margin-top:0.2rem;background:rgba(107,70,193,0.1);padding:2px 6px;border-radius:4px;width:max-content;" onclick="event.stopPropagation();">🏪 ${escapeHTML( vendorInfo.name )}</a>`;
+      vendorBadgeHtml = `<div class="shop-origin shop-origin--vendor">${escapeHTML(shopT("badgeVendor"))}${vendorSep}<a href="/boutique.html?v=${encodeURIComponent(vendorOwner)}" class="shop-vendor-name" onclick="event.stopPropagation();">${vendorName}</a></div>`;
     } else {
-      vendorBadgeHtml = `<div style="font-size:0.68rem;color:#6b46c1;font-weight:700;margin-top:0.2rem;">🏪 ${escapeHTML( vendorInfo.name )}</div>`;
+      vendorBadgeHtml = `<div class="shop-origin shop-origin--vendor">${escapeHTML(shopT("badgeVendor"))}${vendorSep}<span class="shop-vendor-name">${vendorName}</span></div>`;
     }
+    const koulchiEligible =
+      !(Array.isArray(p.variants) && p.variants.length > 0) &&
+      Number(p.koulchiPrice) > 0 &&
+      Number(p.koulchiPrice) < Number(p.price);
+    const koulchiBadgeHtml = koulchiEligible
+      ? `<span class="shop-koulchi-badge">${escapeHTML(shopT("badgeKoulchi"))}</span>`
+      : "";
 
     const hasVariants = Array.isArray(p.variants) && p.variants.length > 0;
     const optionsBadge = hasVariants
-      ? `<span class="badge" style="background:var(--info);color:#fff;font-size:0.6rem;padding:0.15rem 0.4rem;border-radius:30px;position:absolute;top:0.5rem;right:0.5rem;z-index:2;">⚙️ Options</span>`
+      ? `<span class="badge shop-badge-options">⚙️ ${escapeHTML(shopT("badgeOptions"))}</span>`
       : "";
 
     /* Badge vente flash : prioritaire sur le badge promo classique.
        Affiche -X% + un compte a rebours court (donnees fetchhees). */
     const flashBadgeHtml = hasFlash
-      ? `<span class="badge flash-badge" data-flash-ends="${escapeHTML(flashEndsAt ? new Date(flashEndsAt).toISOString() : "")}">⚡ -${discountPercent}%</span>`
+      ? `<span class="badge flash-badge shop-flash-badge" data-flash-ends="${escapeHTML(flashEndsAt ? new Date(flashEndsAt).toISOString() : "")}">⚡ -${discountPercent}%</span>`
       : "";
 
     /* Prix de reference barre : le prix normal quand une vente flash court,
        sinon l ancien prix. */
     const strikePrice = hasFlash ? Number(p.price) : (oldPrice ? Number(oldPrice) : 0);
     const flashBannerHtml = hasFlash
-      ? `<div class="flash-card-countdown" data-flash-ends="${escapeHTML(flashEndsAt ? new Date(flashEndsAt).toISOString() : "")}">⚡ Vente flash <span class="flash-timer">--:--:--</span></div>`
+      ? `<div class="flash-card-countdown shop-flash-banner" data-flash-ends="${escapeHTML(flashEndsAt ? new Date(flashEndsAt).toISOString() : "")}">⚡ ${escapeHTML(shopT("quickFlash"))} <span class="flash-timer">--:--:--</span></div>`
       : "";
 
     const r = stats[String(pid)] || { avg: null, count: 0 };
@@ -805,18 +847,31 @@ export async function renderProducts() {
     const reviewCount = r.count || 0;
     const favAriaLabel = isFav ? t("favRemoved") : t("favAdded");
 
-    const btnHtml = hasVariants
-      ? `<button class="btn-choose-options" data-slug="${escapeHTML( p.slug || "" )}" style="background:var(--gold);color:#fff;border:none;padding:0.3rem 0.7rem;border-radius:30px;font-size:0.7rem;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:0.3rem;">⚙️ ${ t("chooseOptions") || "Choisir" }</button>`
-      : `<button class="btn-add-to-cart" data-id="${escapeHTML( String(pid) )}">🛒 ${t("addToCart")}</button>`;
-
     const isOutOfStock = hasVariants
       ? !p.variants.some((v) => (Number(v.stock) || 0) > 0)
       : stock === 0;
 
-    html += ` <div class="product-card${ hasFlash ? " has-flash" : "" }" data-id="${escapeHTML( String(pid) )}" data-slug="${escapeHTML(p.slug || "")}"> <div class="product-img"> <img src="${img}" alt="${name}" width="400" height="400" loading="lazy" onerror="this.onerror=null; this.src='${getFallbackImage( name )}'"> <button class="favorite-btn ${ isFav ? "is-fav" : "" }" data-id="${escapeHTML( String(pid) )}" aria-label="${favAriaLabel}">${isFav ? "❤️" : "🤍"}</button> ${optionsBadge} ${ isOutOfStock ? `<span class="badge badge-hot">${t( "outOfStock" )}</span>` : "" } ${flashBadgeHtml} ${ isPromo ? `<span class="badge badge-promo">-${discountPercent}%</span>` : "" } ${ isNew && !isOutOfStock && !isPromo && !hasFlash ? `<span class="badge badge-new">${t( "trending" )}</span>` : "" } </div> <div class="product-body"> ${flashBannerHtml} <div class="p-name">${name}</div> ${vendorBadgeHtml} <div class="p-desc">${desc}</div> <div class="p-stats">⭐ ${avgRating} <span style="color:var(--text-muted)">(${reviewCount})</span></div> <div class="p-footer"> <div class="p-price${ hasFlash ? " p-price-flash" : "" }">${price} ${t("currency")} ${ strikePrice > 0 ? `<small>${strikePrice} ${t("currency")}</small>` : "" }</div> ${btnHtml} </div> </div> </div> `;
+    const productUrl = `https://smartswika.ma/produit?slug=${encodeURIComponent(p.slug || pid)}`;
+    const waMessage = shopT("whatsappPrefill", {
+      product: getProductName(p),
+      url: productUrl,
+    });
+    const waHref = `https://wa.me/212656613303?text=${encodeURIComponent(waMessage)}`;
+    const addAria = escapeHTML(shopT("shopAriaAdd", { product: getProductName(p) }));
+    const waAria = escapeHTML(shopT("shopAriaWhatsApp", { product: getProductName(p) }));
+
+    const btnHtml = hasVariants
+      ? `<button class="btn-choose-options shop-btn shop-btn--primary" data-slug="${escapeHTML(p.slug || "")}" aria-label="${escapeHTML(shopT("shopChooseOptions"))}">⚙️ <span>${escapeHTML(shopT("shopChooseOptions"))}</span></button>`
+      : `<button class="btn-add-to-cart shop-btn shop-btn--primary" data-id="${escapeHTML(String(pid))}" aria-label="${addAria}"><span class="btn-label">🛒 ${escapeHTML(shopT("shopAddToCart"))}</span></button>`;
+    const waBtn = `<a class="shop-wa-btn" href="${waHref}" target="_blank" rel="noopener noreferrer" aria-label="${waAria}" onclick="event.stopPropagation();"><span aria-hidden="true">💬</span><span>${escapeHTML(shopT("shopWhatsApp"))}</span></a>`;
+
+    html += ` <div class="product-card shop-card ${ isSmartProduct ? "shop-card--smart" : "shop-card--vendor" }${ hasFlash ? " has-flash" : "" }" data-id="${escapeHTML( String(pid) )}" data-slug="${escapeHTML(p.slug || "")}" data-origin="${ isSmartProduct ? "smart" : "vendor" }"> <div class="product-img"> <img src="${img}" alt="${name}" width="400" height="400" loading="lazy" decoding="async" onerror="this.onerror=null; this.src='${getFallbackImage( name )}'"> <button class="favorite-btn ${ isFav ? "is-fav" : "" }" data-id="${escapeHTML( String(pid) )}" aria-label="${favAriaLabel}">${isFav ? "❤️" : "🤍"}</button> <div class="shop-card-badges"> ${optionsBadge} ${ isOutOfStock ? `<span class="badge badge-hot shop-badge-stock">${escapeHTML(shopT("shopOutOfStock"))}</span>` : "" } ${flashBadgeHtml} ${ isPromo ? `<span class="badge badge-promo shop-badge-discount">-${discountPercent}%</span>` : "" } ${ isNew && !isOutOfStock && !isPromo && !hasFlash ? `<span class="badge badge-new shop-badge-new">${t( "trending" )}</span>` : "" } </div> </div> <div class="product-body"> ${flashBannerHtml} <div class="p-name">${name}</div> ${vendorBadgeHtml} ${koulchiBadgeHtml} <div class="p-desc">${desc}</div> <div class="p-stats shop-stars">⭐ ${avgRating} <span style="color:var(--text-muted)">(${reviewCount})</span></div> <div class="p-footer"> <div class="p-price${ hasFlash ? " p-price-flash" : "" }">${price} ${t("currency")} ${ strikePrice > 0 ? `<small>${strikePrice} ${t("currency")}</small>` : "" }</div> <div class="p-actions">${btnHtml}${waBtn}</div> </div> </div> </div> `;
   });
 
   grid.innerHTML = html;
+  document.dispatchEvent(
+    new CustomEvent("shop-products-rendered", { detail: { count: pageProducts.length } })
+  );
 
   /* Compte a rebours des ventes flash affichees sur cette page. */
   startFlashCountdown();

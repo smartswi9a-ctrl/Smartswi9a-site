@@ -17,6 +17,7 @@ let state = {
   /* Filtres produits */
   filters: {
     category: "all",
+    quick: "all",
     search: "",
     sort: "relevance",
     inStock: false,
@@ -28,6 +29,7 @@ let state = {
   /* Filtres blog */
   blogFilters: {
     category: "all",
+    theme: "all",
     search: "",
   },
 
@@ -192,6 +194,7 @@ export function resetFilters() {
   setState({
     filters: {
       category: "all",
+      quick: "all",
       search: "",
       sort: "relevance",
       inStock: false,
@@ -230,6 +233,7 @@ export function resetBlogFilters() {
   setState({
     blogFilters: {
       category: "all",
+      theme: "all",
       search: "",
     },
   });
