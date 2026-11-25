@@ -37,6 +37,7 @@
     <link rel="stylesheet" href="/css/spacing.18d35167.css">
     <link rel="stylesheet" href="/css/pwa.5a9c7c93.css">
     <link rel="stylesheet" href="/vendor-style.css">
+    <link rel="stylesheet" href="/vendor-ui.css?v=1">
 
     <!-- Fallback critique (indépendant de vendor-style.css) -->
     <style>
@@ -47,12 +48,23 @@
         .v-banners { display: flex; flex-direction: column; gap: 12px; margin-bottom: 1.5rem; }
         .v-banners:empty { display: none; }
 
-        /* Skip link accessible */
+        /* Skip link accessible (sans overflow horizontal en RTL) */
         .skip-link {
-            position: absolute; left: -9999px; top: 0;
-            background: #000; color: #fff; padding: 8px 12px; z-index: 10000;
+            position: absolute;
+            width: 1px; height: 1px;
+            padding: 0; margin: -1px;
+            overflow: hidden;
+            clip: rect(0 0 0 0);
+            white-space: nowrap;
+            border: 0;
         }
-        .skip-link:focus { left: 8px; top: 8px; }
+        .skip-link:focus {
+            position: fixed; left: 8px; top: 8px;
+            width: auto; height: auto;
+            padding: 8px 12px; margin: 0;
+            overflow: visible; clip: auto;
+            background: #000; color: #fff; z-index: 10000;
+        }
 
         /* Sélecteur de langue FR / AR / EN du tableau de bord */
         .v-lang-select {
@@ -80,6 +92,9 @@
 
     <!-- T11 : traductions marketplace vendeur (fusion dans window.translations) -->
     <script src="/js/translations-vendor.js?v=64640380" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"
+            integrity="sha384-e6nUZLBkQ86NJ6TVVKAeSaK8jWa3NhkYWZFomE39AvDbQWeie9PlQqM3pmYW5d1g"
+            crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <link rel="manifest" href="/manifest.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -88,7 +103,18 @@
 </head>
 <body class="vendor-page">
 
-    <a href="#vTabContent" class="skip-link">Aller au contenu principal</a>
+    <svg aria-hidden="true" focusable="false" style="position:absolute;width:0;height:0;overflow:hidden">
+        <symbol id="vi-dashboard" viewBox="0 0 24 24"><path fill="currentColor" d="M3 3h8v8H3V3zm10 0h8v5h-8V3zM3 13h8v8H3v-8zm10-3h8v11h-8V10z"/></symbol>
+        <symbol id="vi-products" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8M12 13v8"/></symbol>
+        <symbol id="vi-bolt" viewBox="0 0 24 24"><path fill="currentColor" d="M13 2 4.5 13.5H11l-1 8.5L19.5 10H13l0-8z"/></symbol>
+        <symbol id="vi-koulchi" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M8 12l2.5 2.5L16 9"/><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+        <symbol id="vi-warehouse" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M3 21V9l9-6 9 6v12"/><path fill="none" stroke="currentColor" stroke-width="2" d="M7 21v-7h10v7M7 17h10"/></symbol>
+        <symbol id="vi-orders" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M9 4h6a2 2 0 0 1 2 2v14l-3-2-2 2-2-2-3 2V6a2 2 0 0 1 2-2z"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M9 8h6M9 12h6M9 16h4"/></symbol>
+        <symbol id="vi-wallet" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M3 7a2 2 0 0 1 2-2h13v4M3 7v10a2 2 0 0 0 2 2h16V9H5a2 2 0 0 1-2-2z"/><circle cx="16" cy="14" r="1.4" fill="currentColor"/></symbol>
+        <symbol id="vi-shop" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M4 9l1-5h14l1 5a3 3 0 0 1-6 0 3 3 0 0 1-6 0 3 3 0 0 1-4 0zM5 11v10h14V11M9 21v-6h6v6"/></symbol>
+    </svg>
+
+    <a href="#vTabContent" class="skip-link" data-vendor-i18n="skipToContent">Aller au contenu principal</a>
 
     <noscript>
         <div style="background:#fff3cd;border:1px solid #ffeeba;color:#856404;padding:12px;text-align:center;font-family:system-ui,sans-serif;">
@@ -99,76 +125,120 @@
     <!-- Overlay pour mobile (invisible sans .open) -->
     <div class="v-mobile-overlay" id="vOverlay" aria-hidden="true"></div>
 
-    <main class="v-layout">
+    <main class="v-layout" id="vLayout">
 
         <!-- SIDEBAR -->
         <aside class="v-sidebar" id="vSidebar" aria-label="Navigation vendeur">
-            <div class="v-shop-header">
-                <h2 class="v-shop-name" id="vShopName" data-i18n="vendor.shop.loading">Chargement...</h2>
-                <span class="v-shop-status" id="vShopStatus" data-i18n="vendor.shop.status.pending">⏳ En attente</span>
-                <span class="v-shop-status" id="vShippingMode" style="display:block;margin:0.65rem auto 0;max-width:max-content;">Mode logistique : …</span>
+            <div class="v-sidebar-brand">
+                <img src="/assets/logo-64.png" alt="" width="34" height="34" class="v-sidebar-logo">
+                <span class="v-sidebar-brand-text">SMARTSWIKA</span>
+                <button id="vSidebarToggle" class="v-sidebar-toggle" type="button"
+                        aria-label="Reduce sidebar" aria-controls="vSidebar">
+                    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M15.4 7.4 14 6l-6 6 6 6 1.4-1.4L10.8 12z"/></svg>
+                </button>
             </div>
 
-            <nav class="v-nav" role="tablist" aria-label="Onglets du tableau de bord">
+            <nav class="v-nav" id="vNav" role="tablist" aria-label="Onglets du tableau de bord">
+                <div class="v-nav-group" data-vendor-i18n="groupPilotage">Pilotage</div>
                 <button class="v-nav-link active" type="button" data-tab="overview" role="tab" aria-selected="true" aria-controls="vTabContent">
-                    <span class="v-nav-icon" aria-hidden="true">📊</span>
-                    <span class="v-nav-label" data-i18n="vendor.nav.overview">Vue d'ensemble</span>
+                    <svg class="v-nav-ico" aria-hidden="true"><use href="#vi-dashboard"></use></svg>
+                    <span class="v-nav-label" data-vendor-i18n="navOverview" data-i18n="vendor.nav.overview">Vue d'ensemble</span>
                 </button>
+
+                <div class="v-nav-group" data-vendor-i18n="groupCatalog">Catalogue</div>
                 <button class="v-nav-link" type="button" data-tab="products" role="tab" aria-selected="false" aria-controls="vTabContent">
-                    <span class="v-nav-icon" aria-hidden="true">📦</span>
-                    <span class="v-nav-label" data-i18n="vendor.nav.products">Mes produits</span>
-                </button>
-                <button class="v-nav-link" type="button" data-tab="orders" role="tab" aria-selected="false" aria-controls="vTabContent">
-                    <span class="v-nav-icon" aria-hidden="true">📋</span>
-                    <span class="v-nav-label" data-i18n="vendor.nav.orders">Commandes</span>
-                    <span class="v-nav-badge" id="navOrdersBadge" style="display:none;">0</span>
-                </button>
-                <button class="v-nav-link" type="button" data-tab="wallet" role="tab" aria-selected="false" aria-controls="vTabContent">
-                    <span class="v-nav-icon" aria-hidden="true">💰</span>
-                    <span class="v-nav-label" data-i18n="vendor.nav.wallet">Mon Wallet</span>
-                </button>
-                <button class="v-nav-link" type="button" data-tab="stock" role="tab" aria-selected="false" aria-controls="vTabContent">
-                    <span class="v-nav-icon" aria-hidden="true">📥</span>
-                    <span class="v-nav-label" data-i18n="vendor.nav.stock">Stock Fulfillment</span>
+                    <svg class="v-nav-ico" aria-hidden="true"><use href="#vi-products"></use></svg>
+                    <span class="v-nav-label" data-vendor-i18n="navProducts" data-i18n="vendor.nav.products">Mes Produits &amp; Stock Entrepôt</span>
+                    <span class="v-nav-badge" id="navProductsBadge" hidden>0</span>
                 </button>
                 <button class="v-nav-link" type="button" data-tab="flash" role="tab" aria-selected="false" aria-controls="vTabContent">
-                    <span class="v-nav-icon" aria-hidden="true">⚡</span>
-                    <span class="v-nav-label" data-i18n="vendor.nav.flash">Ventes Flash</span>
+                    <svg class="v-nav-ico" aria-hidden="true"><use href="#vi-bolt"></use></svg>
+                    <span class="v-nav-label" data-vendor-i18n="navFlash" data-i18n="vendor.nav.flash">Ventes Flash</span>
                 </button>
                 <button class="v-nav-link" type="button" data-tab="koulchi" role="tab" aria-selected="false" aria-controls="vTabContent">
-                    <span class="v-nav-icon" aria-hidden="true">🤝</span>
-                    <span class="v-nav-label" data-i18n="vendor.nav.koulchi">Koulchi dialk</span>
+                    <svg class="v-nav-ico" aria-hidden="true"><use href="#vi-koulchi"></use></svg>
+                    <span class="v-nav-label" data-vendor-i18n="navKoulchi" data-i18n="vendor.nav.koulchi">Koulchi dialk</span>
                 </button>
+
+                <div class="v-nav-group" data-vendor-i18n="groupLogistics">Logistique &amp; Ventes</div>
+                <button class="v-nav-link" type="button" data-tab="stock" role="tab" aria-selected="false" aria-controls="vTabContent">
+                    <svg class="v-nav-ico" aria-hidden="true"><use href="#vi-warehouse"></use></svg>
+                    <span class="v-nav-label" data-vendor-i18n="navStock" data-i18n="vendor.nav.stock">Demandes de Ramassage Entrepôt</span>
+                    <span class="v-nav-badge" id="navStockBadge" hidden>0</span>
+                </button>
+                <button class="v-nav-link" type="button" data-tab="orders" role="tab" aria-selected="false" aria-controls="vTabContent">
+                    <svg class="v-nav-ico" aria-hidden="true"><use href="#vi-orders"></use></svg>
+                    <span class="v-nav-label" data-vendor-i18n="navOrders" data-i18n="vendor.nav.orders">Mes Commandes</span>
+                    <span class="v-nav-badge" id="navOrdersBadge" hidden>0</span>
+                </button>
+
+                <div class="v-nav-group" data-vendor-i18n="groupFinance">Finance</div>
+                <button class="v-nav-link" type="button" data-tab="wallet" role="tab" aria-selected="false" aria-controls="vTabContent">
+                    <svg class="v-nav-ico" aria-hidden="true"><use href="#vi-wallet"></use></svg>
+                    <span class="v-nav-label" data-vendor-i18n="navWallet" data-i18n="vendor.nav.wallet">Mes Revenus &amp; Retraits Wafacash</span>
+                    <span class="v-nav-badge" id="navWalletBadge" hidden>0</span>
+                </button>
+
+                <div class="v-nav-group" data-vendor-i18n="groupShop">Boutique</div>
                 <button class="v-nav-link" type="button" data-tab="guide" role="tab" aria-selected="false" aria-controls="vTabContent">
-                    <span class="v-nav-icon" aria-hidden="true">📘</span>
-                    <span class="v-nav-label" data-i18n="vendor.nav.guide">Guide vendeur</span>
+                    <svg class="v-nav-ico" aria-hidden="true"><use href="#vi-shop"></use></svg>
+                    <span class="v-nav-label" data-vendor-i18n="navGuide" data-i18n="vendor.nav.guide">Paramètres Boutique &amp; Contrat</span>
                 </button>
             </nav>
 
             <div class="v-sidebar-help">
-                <button class="v-nav-link" type="button" id="logoutBtn">
-                    <span class="v-nav-icon" aria-hidden="true">🚪</span>
-                    <span class="v-nav-label" data-i18n="vendor.nav.logout">Déconnexion</span>
-                </button>
+                <span class="v-sidebar-help-text" data-vendor-i18n="supportHint">Support 7/7 · WhatsApp</span>
+                <a href="https://wa.me/212656613303" target="_blank" rel="noopener noreferrer" class="v-sidebar-help-link">+212 6 56 61 33 03</a>
             </div>
         </aside>
 
         <!-- CONTENU -->
         <div class="v-content">
-            <header class="v-header">
-                <button class="v-mobile-toggle"
-                        type="button"
-                        id="vMobileToggle"
-                        aria-label="Ouvrir le menu"
-                        aria-expanded="false"
-                        aria-controls="vSidebar">☰</button>
-                <h1 class="v-page-title" id="vPageTitle" data-i18n="vendor.page.overview">Vue d'ensemble</h1>
-                <select id="langSelect" class="v-lang-select" data-aria-key="ariaLangChange" aria-label="Changer la langue">
-                    <option value="ar">AR</option>
-                    <option value="fr" selected>FR</option>
-                    <option value="en">EN</option>
-                </select>
+            <header class="v-header v-topbar">
+                <div class="v-topbar-left">
+                    <button class="v-mobile-toggle"
+                            type="button"
+                            id="vMobileToggle"
+                            aria-label="Ouvrir le menu"
+                            aria-expanded="false"
+                            aria-controls="vSidebar">☰</button>
+                    <div class="v-topbar-shop">
+                        <h1 class="v-page-title" id="vPageTitle" data-vendor-i18n="navOverview">Vue d'ensemble</h1>
+                        <div class="v-topbar-shop-meta">
+                            <strong class="v-shop-name" id="vShopName" data-i18n="vendor.shop.loading">Chargement...</strong>
+                            <span class="v-shop-status pending" id="vShopStatus" data-i18n="vendor.shop.status.pending">⏳ En attente</span>
+                            <span class="v-shipping-mode" id="vShippingMode" style="display:none;">Mode logistique : …</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="v-topbar-actions">
+                    <label class="v-lang-wrap" title="Language / Langue / اللغة">
+                        <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm6.9 6h-2.95a15.6 15.6 0 0 0-1.38-3.56A8.03 8.03 0 0 1 18.9 8zM12 4.04c.83 1.2 1.48 2.53 1.91 3.96h-3.82A13.4 13.4 0 0 1 12 4.04zM4.26 14A7.8 7.8 0 0 1 4 12c0-.7.1-1.37.26-2h3.38a16.5 16.5 0 0 0 0 4H4.26zm.84 2h2.95c.32 1.25.78 2.45 1.38 3.56A8.03 8.03 0 0 1 5.1 16zm2.95-8H5.1a8.03 8.03 0 0 1 4.33-3.56A15.6 15.6 0 0 0 8.05 8zM12 19.96a13.4 13.4 0 0 1-1.91-3.96h3.82A13.4 13.4 0 0 1 12 19.96zM14.34 14H9.66a14.6 14.6 0 0 1 0-4h4.68a14.6 14.6 0 0 1 0 4zm.23 5.56c.6-1.11 1.06-2.31 1.38-3.56h2.95a8.03 8.03 0 0 1-4.33 3.56zM16.36 14a16.5 16.5 0 0 0 0-4h3.38c.16.63.26 1.3.26 2 0 .7-.1 1.37-.26 2h-3.38z"/></svg>
+                        <select id="langSelect" class="v-lang-select" data-aria-key="ariaLangChange" aria-label="Changer la langue">
+                            <option value="fr" selected>FR</option>
+                            <option value="en">EN</option>
+                            <option value="ar">AR</option>
+                        </select>
+                    </label>
+
+                    <div class="v-notif-wrap">
+                        <button type="button" id="vNotifBell" class="v-icon-btn" aria-label="Notifications"
+                                aria-expanded="false" aria-controls="vNotifPanel">
+                            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M18 16H6l1.5-2.5V9a4.5 4.5 0 0 1 9 0v4.5L18 16z"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M10 19a2 2 0 0 0 4 0"/></svg>
+                            <span id="vNotifBadge" class="v-notif-badge" hidden>0</span>
+                        </button>
+                        <div id="vNotifPanel" class="v-notif-panel" hidden></div>
+                    </div>
+
+                    <button type="button" id="logoutBtn" class="v-btn v-btn-secondary v-logout-btn">
+                        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/></svg>
+                        <span data-vendor-i18n="logout">Déconnexion</span>
+                    </button>
+                </div>
             </header>
+
+            <!-- Workflow entrepôt guide (3 etapes) -->
+            <div id="vWarehouseWorkflow" class="v-workflow" aria-live="polite"></div>
 
             <!-- Zone de bannières (aria-live pour lecteurs d'écran) -->
             <div id="vBanners" class="v-banners" role="status" aria-live="polite"></div>
@@ -185,6 +255,7 @@
     </main>
 
     <!-- Le module vendor-dashboard.js injecte les modales dynamiquement -->
+    <script type="module" src="/js/vendor-ui.js?v=1"></script>
     <script type="module" src="/js/vendor-dashboard.js?v=20261116-pr82"></script>
 </body>
 </html>
