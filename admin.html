@@ -664,6 +664,70 @@
         [dir="rtl"] .admin-search-bar select { text-align: right; }
         [dir="rtl"] .admin-sidebar-toggle svg { transform: rotate(180deg); }
         [dir="rtl"] #adminTabs > button[data-tab] { text-align: right; }
+
+        /* --- PRESENCE TEMPS REEL : pastilles Connecte / Deconnecte --- */
+        .admin-presence-bar {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            flex-wrap: wrap;
+            margin-bottom: 0.8rem;
+        }
+        .admin-presence-count {
+            font-size: 0.82rem;
+            font-weight: 700;
+            color: var(--text-muted);
+        }
+        .admin-presence-filter {
+            min-height: 44px;
+            padding: 0.4rem 0.9rem;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            background: var(--bg-card);
+            color: var(--text-muted);
+            font-size: 0.78rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: border-color 180ms ease, color 180ms ease, background 180ms ease;
+        }
+        .admin-presence-filter:hover { border-color: #10B981; color: #10B981; }
+        .admin-presence-filter.is-active {
+            border-color: #10B981;
+            background: rgba(16, 185, 129, 0.12);
+            color: #10B981;
+        }
+        .admin-presence-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            margin-inline-start: 0.35rem;
+            padding: 0.1rem 0.5rem;
+            border-radius: 999px;
+            font-size: 0.68rem;
+            font-weight: 800;
+            white-space: nowrap;
+        }
+        .admin-presence-pill.is-online {
+            background: rgba(16, 185, 129, 0.14);
+            color: #10B981;
+            border: 1px solid rgba(16, 185, 129, 0.45);
+        }
+        .admin-presence-pill.is-offline {
+            background: rgba(239, 68, 68, 0.12);
+            color: #EF4444;
+            border: 1px solid rgba(239, 68, 68, 0.4);
+        }
+        .admin-suspension-note {
+            display: block;
+            margin-top: 0.35rem;
+            padding: 0.4rem 0.6rem;
+            border-radius: 8px;
+            border: 1px solid rgba(239, 68, 68, 0.35);
+            background: rgba(239, 68, 68, 0.08);
+            color: var(--text);
+            font-size: 0.78rem;
+            line-height: 1.5;
+        }
     </style>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" integrity="sha384-e6nUZLBkQ86NJ6TVVKAeSaK8jWa3NhkYWZFomE39AvDbQWeie9PlQqM3pmYW5d1g" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
@@ -1105,6 +1169,9 @@
 
         <div class="admin-content" id="tab-vendors">
             <h3 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;">🏪 <span data-admin-i18n="vendorsTitle">Gestion des Vendeurs</span></h3>
+            <div class="admin-presence-bar">
+                <span class="admin-presence-count" id="vendorsOnlineCount" aria-live="polite">—</span>
+            </div>
             <div id="adminPickupRequests" class="admin-form" style="margin-bottom:1rem;"></div>
             <div class="admin-signup-filters" id="vendorStatusFilters">
                 <button class="active" data-vendor-filter="pending">⏳ En attente</button>
@@ -1156,6 +1223,10 @@
 
         <div class="admin-content" id="tab-users">
             <h3 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;">👥 <span data-admin-i18n="navUsers">Clients</span></h3>
+            <div class="admin-presence-bar">
+                <span class="admin-presence-count" id="usersOnlineCount" aria-live="polite">—</span>
+                <button type="button" class="admin-presence-filter" id="usersOnlineFilter" aria-pressed="false"><span data-admin-i18n="onlineFilter">🟢 En ligne</span></button>
+            </div>
             <div class="admin-signup-filters">
                 <button class="active" data-signup-filter="all">📊 Tous</button>
                 <button data-signup-filter="otp">🔐 OTP</button>
@@ -1704,6 +1775,33 @@
                 <button class="alert-badge alert-info" id="alertStockLowBtn" style="display: none;">🟠 <span id="alertStockLowCount">0</span> Stock(s) bas<span class="alert-tooltip" id="alertStockLowTooltip">—</span></button>
             </div>
             <button class="admin-alert-close" id="closeAlertBannerBtn">✕</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="vendorSuspendModal" style="z-index:2600;">
+        <div class="modal" style="max-width:480px;">
+            <button class="modal-close" id="closeVendorSuspendModalBtn" type="button">✕</button>
+            <h2 id="vendorSuspendTitle" data-admin-i18n="suspendTitle" style="font-family:var(--font-secondary);color:var(--gold);text-align:center;margin-bottom:0.4rem;">Suspendre le vendeur</h2>
+            <p id="vendorSuspendShop" style="text-align:center;font-weight:700;margin:0 0 1rem;color:var(--text-muted);"></p>
+            <div class="admin-form-row">
+                <div>
+                    <label data-admin-i18n="suspendType">Type de suspension</label>
+                    <select id="vendorSuspendType">
+                        <option value="temporary" data-admin-i18n="suspendTemporary">Temporaire</option>
+                        <option value="permanent" data-admin-i18n="suspendPermanent">Définitive</option>
+                    </select>
+                </div>
+                <div>
+                    <label data-admin-i18n="suspendUntil">Jusqu'au</label>
+                    <input type="date" id="vendorSuspendUntil">
+                </div>
+            </div>
+            <div style="margin-top:0.6rem;">
+                <label data-admin-i18n="suspendCause">Cause de la suspension</label>
+                <textarea id="vendorSuspendCause" rows="3" maxlength="300" style="width:100%;padding:0.6rem;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);font-family:inherit;"></textarea>
+            </div>
+            <p id="vendorSuspendError" style="color:var(--danger);font-size:0.8rem;min-height:1rem;margin:0.4rem 0 0;"></p>
+            <button class="admin-btn-primary" id="vendorSuspendConfirm" type="button" style="width:100%;justify-content:center;margin-top:0.6rem;">🚫 <span data-admin-i18n="suspendConfirm">Suspendre</span></button>
         </div>
     </div>
 

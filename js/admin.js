@@ -84,6 +84,20 @@ let lastOrdersForStatusChart = [];
 let currentChartPeriod = 7;
 let chartListenersAttached = false;
 
+/* ============================================================
+   PRESENCE TEMPS REEL (Clients + Vendeurs)
+   ------------------------------------------------------------
+   Un compte est « Connecté » si isOnline === true ET si son
+   lastSeenAt date de moins de 2 minutes (battement de coeur 60 s).
+   Les ecoutes onSnapshot ne sont ouvertes que sur l onglet Clients
+   ou Vendeurs, pour ne pas payer des lectures inutiles.
+   ============================================================ */
+const ONLINE_WINDOW_MS = 120000;
+let usersPresenceUnsub = null;
+let vendorsPresenceUnsub = null;
+let presenceTab = null;
+let usersOnlineOnly = false;
+
 /* Redessine les graphiques dans la langue courante (admin-ui.js emet
    admin-lang-changed apres avoir applique FR / EN / AR). */
 document.addEventListener('admin-lang-changed', () => {
@@ -692,6 +706,7 @@ function initAdmin() {
             btn.classList.add('active');
             const tab = btn.dataset.tab;
             document.getElementById(`tab-${tab}`)?.classList.add('active');
+            setPresenceTab(tab);
             refreshAdminAlerts();
             if (tab === 'tools') loadCollectionsStatus();
             else if (tab === 'blog') loadBlogPosts();
@@ -1849,6 +1864,139 @@ async function deleteProduct(id) {
 /* ============================================================
    CLIENTS
    ============================================================ */
+/* ============================================================
+   HELPERS PRESENCE (Clients + Vendeurs)
+   ============================================================ */
+function adminTKey(key) {
+    return window.__adminT ? window.__adminT(key) : key;
+}
+
+/**
+ * Un compte est-il en ligne ? (isOnline + lastSeenAt < 2 minutes)
+ * @param {object} account
+ * @returns {boolean}
+ */
+function isAccountOnline(account) {
+    if (!account || account.isOnline !== true) return false;
+    const seen = toDate(account.lastSeenAt);
+    if (!seen) return false;
+    return Date.now() - seen.getTime() < ONLINE_WINDOW_MS;
+}
+
+/**
+ * Date lisible de derniere activite, dans la langue de l admin.
+ * @param {*} value
+ * @returns {string}
+ */
+function formatPresenceDate(value) {
+    const date = toDate(value);
+    if (!date) return '';
+    const lang = typeof window.__adminGetLang === 'function' ? window.__adminGetLang() : 'fr';
+    const locale = lang === 'ar' ? 'ar-MA' : lang === 'en' ? 'en-GB' : 'fr-FR';
+    try {
+        return date.toLocaleString(locale);
+    } catch (e) {
+        return date.toISOString();
+    }
+}
+
+/**
+ * Pastille « Connecté » (vert) / « Déconnecté » (rouge) + infobulle.
+ * @param {object} account
+ * @returns {string}
+ */
+function presencePillHtml(account) {
+    const online = isAccountOnline(account);
+    const last = formatPresenceDate(account && account.lastSeenAt);
+    const title = last
+        ? adminTKey('presenceLastSeen').replace('{t}', last)
+        : adminTKey('presenceNever');
+    const label = online ? adminTKey('presenceOnline') : adminTKey('presenceOffline');
+    return `<span class="admin-presence-pill ${online ? 'is-online' : 'is-offline'}" data-presence-state="${online ? 'online' : 'offline'}" title="${escapeHTML(title)}">${escapeHTML(label)}</span>`;
+}
+
+/**
+ * Met a jour les compteurs « X en ligne maintenant ».
+ */
+function updateOnlineCounters() {
+    const label = adminTKey('onlineNow');
+    const usersCount = (cachedUsers || []).filter(isAccountOnline).length;
+    const vendorsCount = (cachedVendors || []).filter(isAccountOnline).length;
+    const usersEl = document.getElementById('usersOnlineCount');
+    if (usersEl) usersEl.textContent = label.replace('{n}', String(usersCount));
+    const vendorsEl = document.getElementById('vendorsOnlineCount');
+    if (vendorsEl) vendorsEl.textContent = label.replace('{n}', String(vendorsCount));
+}
+
+function sortVendorsCache() {
+    cachedVendors.sort((a, b) => {
+        const sa = a.vendorInfo?.status || 'pending';
+        const sb = b.vendorInfo?.status || 'pending';
+        const oa = VENDOR_STATUS_ORDER[sa] ?? 99;
+        const ob = VENDOR_STATUS_ORDER[sb] ?? 99;
+        if (oa !== ob) return oa - ob;
+        return (toDate(b.createdAt)?.getTime() || 0) - (toDate(a.createdAt)?.getTime() || 0);
+    });
+}
+
+/**
+ * Arrete les ecoutes temps reel (onglet Clients / Vendeurs ferme).
+ */
+function stopPresenceStreams() {
+    if (usersPresenceUnsub) {
+        usersPresenceUnsub();
+        usersPresenceUnsub = null;
+    }
+    if (vendorsPresenceUnsub) {
+        vendorsPresenceUnsub();
+        vendorsPresenceUnsub = null;
+    }
+}
+
+/**
+ * Ouvre l ecoute temps reel de l onglet courant, une seule fois.
+ * @param {string} tab
+ */
+function startPresenceStream(tab) {
+    if (tab === 'users' && !usersPresenceUnsub) {
+        usersPresenceUnsub = onSnapshot(
+            query(collection(db, 'users'), limit(500)),
+            (snap) => {
+                cachedUsers = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                if (presenceTab === 'users') filterUsersList();
+                updateOnlineCounters();
+            },
+            (error) => console.warn('[admin] presence clients :', error.message)
+        );
+    }
+    if (tab === 'vendors' && !vendorsPresenceUnsub) {
+        vendorsPresenceUnsub = onSnapshot(
+            query(collection(db, 'users'), where('role', '==', 'vendor'), limit(500)),
+            (snap) => {
+                cachedVendors = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                sortVendorsCache();
+                if (presenceTab === 'vendors') applyVendorFilters();
+                updateOnlineCounters();
+            },
+            (error) => console.warn('[admin] presence vendeurs :', error.message)
+        );
+    }
+}
+
+/**
+ * Bascule le suivi de presence selon l onglet ouvert.
+ * @param {string} tab
+ */
+function setPresenceTab(tab) {
+    presenceTab = tab === 'users' || tab === 'vendors' ? tab : null;
+    if (!presenceTab) {
+        stopPresenceStreams();
+        return;
+    }
+    startPresenceStream(presenceTab);
+    updateOnlineCounters();
+}
+
 async function loadUsers() {
     const container = document.getElementById('adminUsersList');
     if (!container) return;
@@ -1868,6 +2016,7 @@ async function loadUsers() {
         }
 
         renderUsersList(cachedUsers);
+        updateOnlineCounters();
     } catch (e) {
         console.error('[admin] loadUsers :', e);
         container.innerHTML = `<div class="admin-empty" style="color:var(--danger);">Erreur</div>`;
@@ -1896,7 +2045,7 @@ function renderUsersList(users) {
 
         const roleBadge = role === 'vendor' ? `<span style="background:var(--info);color:#fff;padding:0.15rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;">Vendeur</span>` : '';
 
-        html += `<div class="admin-list-item" data-user-id="${u.id}"><div class="admin-list-item-info"><strong>${name}</strong> ${roleBadge}<div style="font-size:0.8rem;color:var(--text-muted);margin-top:0.2rem;">${email} ${phone ? `· ${phone}` : ''}</div><div style="font-size:0.75rem;color:var(--text-dim);margin-top:0.2rem;display:flex;gap:0.6rem;flex-wrap:wrap;"><span>${methodEmoji} ${methodLabel}</span><span>Rôle : <strong style="color:${role === 'admin' ? 'var(--gold)' : 'var(--text-muted)'};">${role}</strong></span></div></div><div class="admin-list-item-actions"><select class="admin-btn-icon" data-action="change-role" data-id="${u.id}" style="padding:0.3rem 0.6rem;border-radius:30px;"><option value="user" ${role === 'user' ? 'selected' : ''}>User</option><option value="admin" ${role === 'admin' ? 'selected' : ''}>Admin</option></select><button class="admin-btn-icon admin-btn-danger" data-action="delete-user" data-id="${u.id}" title="${deleteLabel}" aria-label="${deleteLabel}">🗑️</button></div></div>`;
+        html += `<div class="admin-list-item" data-user-id="${u.id}"><div class="admin-list-item-info"><strong>${name}</strong> ${roleBadge}${presencePillHtml(u)}<div style="font-size:0.8rem;color:var(--text-muted);margin-top:0.2rem;">${email} ${phone ? `· ${phone}` : ''}</div><div style="font-size:0.75rem;color:var(--text-dim);margin-top:0.2rem;display:flex;gap:0.6rem;flex-wrap:wrap;"><span>${methodEmoji} ${methodLabel}</span><span>Rôle : <strong style="color:${role === 'admin' ? 'var(--gold)' : 'var(--text-muted)'};">${role}</strong></span></div></div><div class="admin-list-item-actions"><select class="admin-btn-icon" data-action="change-role" data-id="${u.id}" style="padding:0.3rem 0.6rem;border-radius:30px;"><option value="user" ${role === 'user' ? 'selected' : ''}>User</option><option value="admin" ${role === 'admin' ? 'selected' : ''}>Admin</option></select><button class="admin-btn-icon admin-btn-danger" data-action="delete-user" data-id="${u.id}" title="${deleteLabel}" aria-label="${deleteLabel}">🗑️</button></div></div>`;
     });
     container.innerHTML = html;
 
@@ -1950,6 +2099,9 @@ function filterUsersList() {
     let filtered = cachedUsers;
     if (signupFilter !== 'all') {
         filtered = filtered.filter(u => (u.signupMethod || 'otp') === signupFilter);
+    }
+    if (usersOnlineOnly) {
+        filtered = filtered.filter(isAccountOnline);
     }
     if (search) {
         filtered = filtered.filter(u => {
@@ -4314,15 +4466,9 @@ async function loadVendors() {
         const q = query(collection(db, "users"), where("role", "==", "vendor"), limit(500));
         const snap = await getDocs(q);
         cachedVendors = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        cachedVendors.sort((a, b) => {
-            const sa = a.vendorInfo?.status || 'pending';
-            const sb = b.vendorInfo?.status || 'pending';
-            const oa = VENDOR_STATUS_ORDER[sa] ?? 99;
-            const ob = VENDOR_STATUS_ORDER[sb] ?? 99;
-            if (oa !== ob) return oa - ob;
-            return (toDate(b.createdAt)?.getTime() || 0) - (toDate(a.createdAt)?.getTime() || 0);
-        });
+        sortVendorsCache();
         applyVendorFilters();
+        updateOnlineCounters();
     } catch (e) {
         console.error('[admin] loadVendors :', e);
         container.innerHTML = `<div class="admin-empty" style="color:var(--danger);">Erreur de chargement.</div>`;
@@ -4496,12 +4642,15 @@ function renderVendorsList(vendors) {
 
     let html = '';
     vendors.forEach(v => {
+        const at = adminTKey;
         const shopName = escapeHTML(v.vendorInfo?.shopName || v.name || 'Boutique');
         const email = escapeHTML(v.email || '');
         const phone = escapeHTML(v.phone || '');
         const city = escapeHTML(v.vendorInfo?.city || '');
         const iceCin = escapeHTML(v.vendorInfo?.iceCin || '');
         const status = v.vendorInfo?.status || 'pending';
+        const suspension = v.vendorInfo?.suspension || null;
+        const isSuspended = status === 'suspended' || v.suspended === true;
         const shippingMethod = v.vendorInfo?.shippingMethod || '';
         const createdAt = toDate(v.createdAt)?.toLocaleDateString('fr-FR') || '—';
         const contractStatus = v.vendorInfo?.contractStatus || 'pending';
@@ -4511,6 +4660,13 @@ function renderVendorsList(vendors) {
             String(contractVersion) === String(CONFIG.VENDOR.CONTRACT_VERSION);
         const contractSignedAt = toDate(v.vendorInfo?.contractSignedAt)?.toLocaleString('fr-FR') || '—';
         const delayCount = Number(v.vendorInfo?.delayCount) || 0;
+
+        /* Cause de suspension : affichee noir sur blanc a l admin, avec la
+           date de fin eventuelle. Le vendeur recoit la meme information par
+           push + email (functions/triggers.js -> onUserWritten). */
+        const suspensionNoteHtml = suspension && isSuspended
+            ? `<span class="admin-suspension-note">⛔ <strong>${escapeHTML(at('suspendedCauseLabel'))}</strong> ${escapeHTML(String(suspension.cause || '—'))}${suspension.until ? ` · <strong>${escapeHTML(at('suspendedUntilLabel'))}</strong> ${escapeHTML(String(suspension.until))}` : ''}</span>`
+            : '';
 
         const walletStatus = String(v.wallet_status || 'active').toLowerCase();
         const walletBadgeBase = 'padding:0.2rem 0.6rem;border-radius:30px;font-size:0.7rem;font-weight:700;';
@@ -4550,7 +4706,9 @@ function renderVendorsList(vendors) {
                 <button class="admin-btn-icon admin-btn-danger" data-action="vendor-reject" data-id="${v.id}">Rejeter</button>
             `;
         } else if (status === 'approved') {
-            actionsHtml = `<button class="admin-btn-icon admin-btn-danger" data-action="vendor-suspend" data-id="${v.id}">Suspendre</button>`;
+            actionsHtml = `<button class="admin-btn-icon admin-btn-danger" data-action="vendor-suspend" data-id="${v.id}" data-shop="${shopName}">🚫 Suspendre</button>`;
+        } else if (status === 'suspended') {
+            actionsHtml = `<button class="admin-btn-approve" data-action="vendor-unsuspend" data-id="${v.id}" data-shop="${shopName}">✅ Annuler la suspension</button>`;
         } else {
             const approveDisabled = contractCurrent ? '' : 'disabled title="Le contrat doit être signé dans sa version actuelle"';
             const approveStyle = contractCurrent ? '' : 'opacity:0.5;cursor:not-allowed;';
@@ -4574,7 +4732,7 @@ function renderVendorsList(vendors) {
                 <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">
                     <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;">
                         <strong style="color:var(--gold);font-size:1rem;">${shopName}</strong>
-                        ${statusBadge}${contractBadge}${delayBadge}${walletBadge}
+                        ${statusBadge}${presencePillHtml(v)}${contractBadge}${delayBadge}${walletBadge}
                     </div>
                     <div style="font-size:0.8rem;color:var(--text-dim);">Inscrit le ${createdAt}</div>
                 </div>
@@ -4582,6 +4740,7 @@ function renderVendorsList(vendors) {
                     ${email} · ${phone} · ${city} · ${iceCin}<br>
                     Mode de ramassage : <strong>🏬 Entrepôt Smart Swika</strong> (mode unique)<br>
                     Contrat : version <strong>${escapeHTML(String(contractVersion))}</strong> · signé le <strong>${escapeHTML(contractSignedAt)}</strong>
+                    ${suspensionNoteHtml}
                 </div>
                 <div style="display:flex;justify-content:flex-end;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem;">
                     ${actionsHtml}
@@ -4600,7 +4759,10 @@ function renderVendorsList(vendors) {
         btn.addEventListener('click', () => handleVendorAction(btn.dataset.id, VENDOR_STATUS.REJECTED));
     });
     container.querySelectorAll('[data-action="vendor-suspend"]').forEach(btn => {
-        btn.addEventListener('click', () => handleVendorAction(btn.dataset.id, VENDOR_STATUS.SUSPENDED));
+        btn.addEventListener('click', () => openVendorSuspendModal(btn.dataset.id, btn.dataset.shop));
+    });
+    container.querySelectorAll('[data-action="vendor-unsuspend"]').forEach(btn => {
+        btn.addEventListener('click', () => handleVendorUnsuspend(btn.dataset.id, btn.dataset.shop));
     });
     container.querySelectorAll('[data-action="vendor-delete"]').forEach(btn => {
         btn.addEventListener('click', () => handleVendorAction(btn.dataset.id, 'deleted', btn.dataset.shop));
@@ -4611,6 +4773,158 @@ function renderVendorsList(vendors) {
     container.querySelectorAll('[data-action="wallet-unfreeze"]').forEach(btn => {
         btn.addEventListener('click', () => handleWalletAction(btn.dataset.id, 'unfreeze', btn.dataset.shop));
     });
+}
+
+let pendingSuspendVendor = null;
+
+/**
+ * Appelle la Cloud Function adminVendorAction (region europe-west1).
+ * Les champs de suspension (type / cause / date de fin) sont transmis au
+ * serveur, qui les ecrit dans vendorInfo.suspension : le trigger
+ * onUserWritten envoie alors le push + l email au vendeur avec la cause.
+ *
+ * @param {string} vendorId
+ * @param {string} action approved | rejected | suspended | deleted
+ * @param {object} extras champs additionnels (suspensionType, suspensionCause, suspensionUntil)
+ * @returns {Promise<object>}
+ */
+async function callAdminVendorAction(vendorId, action, extras = {}) {
+    const adminUser = auth.currentUser;
+    if (!adminUser) throw new Error('Session administrateur expirée. Reconnectez-vous.');
+    const idToken = await adminUser.getIdToken(true);
+    const response = await fetch('/api/adminVendorAction', {
+        method: 'POST',
+        cache: 'no-store',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${idToken}`,
+            'Accept': 'application/json'
+        },
+        body: JSON.stringify({ vendorId, action, ...extras })
+    });
+    const responseText = await response.text();
+    let result = {};
+    try { result = responseText ? JSON.parse(responseText) : {}; }
+    catch (_) { result = { message: responseText.slice(0, 300) }; }
+    if (!response.ok || !result.success) {
+        const statusHint = response.status === 404
+            ? ' La fonction adminVendorAction est absente ou pas encore déployée dans europe-west1.'
+            : response.status === 405
+                ? ' La fonction refuse cette méthode HTTP : vérifiez que la version serveur adminVendorAction est bien déployée.'
+                : response.status === 403
+                    ? ' Vérifiez le rôle administrateur du compte connecté et les autorisations CORS.'
+                    : response.status === 401
+                        ? ' La session administrateur a expiré : reconnectez-vous.'
+                        : '';
+        throw new Error((result.message || `Action vendeur impossible (HTTP ${response.status}).`) + statusHint);
+    }
+    return result;
+}
+
+/**
+ * Ouvre la modale de suspension (type + cause + date de fin).
+ * @param {string} vendorId
+ * @param {string} shopName
+ */
+function openVendorSuspendModal(vendorId, shopName) {
+    if (!vendorId) return;
+    const modal = document.getElementById('vendorSuspendModal');
+    if (!modal) return;
+    pendingSuspendVendor = { id: vendorId, shop: shopName || '' };
+
+    const shopEl = document.getElementById('vendorSuspendShop');
+    if (shopEl) shopEl.textContent = shopName || '';
+
+    const typeEl = document.getElementById('vendorSuspendType');
+    if (typeEl) typeEl.value = 'temporary';
+
+    const untilEl = document.getElementById('vendorSuspendUntil');
+    if (untilEl) {
+        untilEl.value = '';
+        untilEl.min = new Date().toISOString().slice(0, 10);
+    }
+
+    const causeEl = document.getElementById('vendorSuspendCause');
+    if (causeEl) {
+        causeEl.value = '';
+        causeEl.placeholder = adminTKey('suspendCausePlaceholder');
+    }
+
+    const errEl = document.getElementById('vendorSuspendError');
+    if (errEl) errEl.textContent = '';
+
+    modal.classList.add('open');
+}
+
+function closeVendorSuspendModal() {
+    document.getElementById('vendorSuspendModal')?.classList.remove('open');
+    pendingSuspendVendor = null;
+}
+
+/**
+ * Enregistre la suspension : type + cause obligatoires, puis Firestore.
+ */
+async function submitVendorSuspension() {
+    const target = pendingSuspendVendor;
+    if (!target) return;
+
+    const type = document.getElementById('vendorSuspendType')?.value === 'permanent' ? 'permanent' : 'temporary';
+    const cause = (document.getElementById('vendorSuspendCause')?.value || '').trim();
+    const until = (document.getElementById('vendorSuspendUntil')?.value || '').trim();
+    const errEl = document.getElementById('vendorSuspendError');
+
+    if (!cause) {
+        if (errEl) errEl.textContent = adminTKey('suspendCauseRequired');
+        return;
+    }
+    if (errEl) errEl.textContent = '';
+
+    const btn = document.getElementById('vendorSuspendConfirm');
+    if (btn) btn.disabled = true;
+    try {
+        await callAdminVendorAction(target.id, VENDOR_STATUS.SUSPENDED, {
+            suspensionType: type,
+            suspensionCause: cause,
+            suspensionUntil: type === 'permanent' ? '' : until
+        });
+        showToast('Vendeur suspendu. Notification et email envoyés avec la cause.');
+        closeVendorSuspendModal();
+        await loadVendors();
+    } catch (e) {
+        console.error('[admin] suspension vendeur :', e);
+        if (errEl) errEl.textContent = e.message || 'Erreur';
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+/**
+ * Annule la suspension : repasse le vendeur en `approved`, reactive son
+ * compte/catalogue et notifie le vendeur (push + in-app cote serveur).
+ * @param {string} vendorId
+ * @param {string} shopName
+ */
+async function handleVendorUnsuspend(vendorId, shopName) {
+    if (!vendorId) return;
+    const confirmed = await confirmAction(
+        adminTKey('unsuspendMessage'),
+        {
+            title: adminTKey('unsuspendTitle'),
+            confirmText: adminTKey('unsuspendConfirm'),
+            cancelText: adminTKey('cancel'),
+            variant: 'primary'
+        }
+    );
+    if (!confirmed) return;
+
+    try {
+        await callAdminVendorAction(vendorId, VENDOR_STATUS.APPROVED);
+        showToast(`Suspension annulée${shopName ? ' : ' + shopName : ''}. Vendeur réactivé.`);
+        await loadVendors();
+    } catch (e) {
+        console.error('[admin] annulation de suspension :', e);
+        showToast(e.message || 'Erreur');
+    }
 }
 
 async function handleVendorAction(vendorId, newStatus, shopName) {
@@ -5689,6 +6003,15 @@ function attachAllRemainingEvents() {
 
     /* Clients. */
     document.getElementById('userSearchAdmin')?.addEventListener('input', filterUsersList);
+    document.getElementById('usersOnlineFilter')?.addEventListener('click', () => {
+        usersOnlineOnly = !usersOnlineOnly;
+        const btn = document.getElementById('usersOnlineFilter');
+        if (btn) {
+            btn.classList.toggle('is-active', usersOnlineOnly);
+            btn.setAttribute('aria-pressed', usersOnlineOnly ? 'true' : 'false');
+        }
+        filterUsersList();
+    });
     document.querySelectorAll('[data-signup-filter]').forEach(btn => {
         btn.addEventListener('click', () => {
             document.querySelectorAll('[data-signup-filter]').forEach(b => b.classList.remove('active'));
@@ -5699,6 +6022,14 @@ function attachAllRemainingEvents() {
 
     /* Vendeurs. */
     document.getElementById('vendorSearchAdmin')?.addEventListener('input', applyVendorFilters);
+    document.getElementById('closeVendorSuspendModalBtn')?.addEventListener('click', closeVendorSuspendModal);
+    document.getElementById('vendorSuspendConfirm')?.addEventListener('click', submitVendorSuspension);
+    document.getElementById('vendorSuspendModal')?.addEventListener('click', (event) => {
+        if (event.target && event.target.id === 'vendorSuspendModal') closeVendorSuspendModal();
+    });
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') closeVendorSuspendModal();
+    });
     document.querySelectorAll('[data-vendor-filter]').forEach(btn => {
         btn.addEventListener('click', () => {
             document.querySelectorAll('[data-vendor-filter]').forEach(b => b.classList.remove('active'));

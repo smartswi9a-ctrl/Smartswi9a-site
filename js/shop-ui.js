@@ -230,6 +230,7 @@ function updateKoulchiSimulator(container) {
   if (badge) badge.textContent = `−${percent} %`;
 }
 
+
 function mountKoulchiSimulator(container) {
   if (!container) return;
   const qty = Math.max(0, Math.min(10, Number(container.dataset.simQty) || 0));
@@ -237,45 +238,42 @@ function mountKoulchiSimulator(container) {
   const steps = sortedKoulchiTiers()
     .map(
       (tier, index) => `<button type="button" class="koulchi-sim-step" data-sim-qty="${tier.min}" aria-label="${escapeShop(shopT("koulchiTier" + (index + 1)))} ${tier.percent}%">
-        <span class="koulchi-sim-step-num">0${index + 1}</span>
-        <strong>${escapeShop(shopT("koulchiTier" + (index + 1)))}</strong>
-        <small>${tier.min} ${escapeShop(shopT("koulchiItems"))} = −${tier.percent} %</small>
+        <span class="koulchi-sim-step-min">${tier.min}</span>
+        <span class="koulchi-sim-step-arrow" aria-hidden="true">→</span>
+        <strong>−${tier.percent} %</strong>
       </button>`
     )
     .join("");
 
-  container.innerHTML = `<div class="koulchi-sim-head">
-      <span class="section-tag">Koulchi dialk</span>
-      <h2 class="section-title" id="koulchiExperienceTitle" data-shop-i18n="koulchiExperienceTitle"></h2>
-      <p class="section-sub" data-shop-i18n="koulchiExperienceSub"></p>
-    </div>
-    <div class="koulchi-sim-layout">
-      <div class="koulchi-sim-steps" role="group" aria-label="${escapeShop(shopT("koulchiExperienceTitle"))}">${steps}</div>
-      <div class="koulchi-sim-panel">
-        <div class="koulchi-sim-qty">
-          <button type="button" class="koulchi-sim-round" data-sim-dec aria-label="${escapeShop(shopT("koulchiSimMinus"))}">−</button>
-          <strong><span data-sim-count>${qty}</span> <small data-shop-i18n="koulchiItems"></small></strong>
-          <button type="button" class="koulchi-sim-round" data-sim-inc aria-label="${escapeShop(shopT("koulchiSimPlus"))}">+</button>
-        </div>
-        <label class="koulchi-sim-range">
-          <span data-shop-i18n="koulchiAvgBasket"></span>
-          <output data-sim-avg-out></output>
-          <input type="range" min="49" max="999" step="10" value="${avg}" data-sim-avg aria-label="${escapeShop(shopT("koulchiSimAvgAria"))}">
-        </label>
-        <div class="koulchi-sim-progress" data-sim-progress role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+  const markers = sortedKoulchiTiers()
+    .map((tier) => `<li>−${tier.percent} %</li>`)
+    .join("");
+
+  container.innerHTML = `<div class="koulchi-sim koulchi-sim--compact">
+      <div class="koulchi-sim-row koulchi-sim-row--head">
+        <h2 class="koulchi-sim-short" id="koulchiExperienceTitle" data-shop-i18n="koulchiSimShortTitle"></h2>
+        <div class="koulchi-sim-steps" role="group" aria-label="${escapeShop(shopT("koulchiSimShortTitle"))}">${steps}</div>
+        <span class="koulchi-sim-flag" data-shop-i18n="koulchiSimNonCumul"></span>
+      </div>
+      <div class="koulchi-sim-row koulchi-sim-row--bar">
+        <div class="koulchi-sim-progress" data-sim-progress role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="${escapeShop(shopT("koulchiSimShortTitle"))}">
           <span data-sim-bar></span>
         </div>
-        <p class="koulchi-sim-next" data-sim-next></p>
-        <div class="koulchi-sim-totals">
-          <div><span data-shop-i18n="koulchiSubtotal"></span><strong data-sim-subtotal></strong></div>
-          <div class="is-saving"><span data-shop-i18n="koulchiSavings"></span><strong data-sim-savings></strong><em data-sim-percent></em></div>
-          <div class="is-total"><span data-shop-i18n="koulchiTotal"></span><strong data-sim-total></strong></div>
-        </div>
-        <p class="koulchi-sim-note" data-shop-i18n="koulchiFlashExcluded"></p>
-        <a class="btn-secondary koulchi-sim-cta" href="/koulchi.html" data-shop-i18n="koulchiSimCta"></a>
+        <ol class="koulchi-sim-markers" role="list">${markers}</ol>
+      </div>
+      <div class="koulchi-sim-row koulchi-sim-row--summary">
+        <span class="koulchi-sim-sum"><strong data-sim-count>${qty}</strong> <span data-shop-i18n="koulchiItems"></span></span>
+        <span class="koulchi-sim-sum koulchi-sim-sum--saving"><span data-shop-i18n="koulchiSavings"></span> <strong data-sim-savings></strong><em data-sim-percent></em></span>
+        <span class="koulchi-sim-sum koulchi-sim-sum--total"><span data-shop-i18n="koulchiTotal"></span> <strong data-sim-total></strong></span>
+        <span class="koulchi-sim-next" data-sim-next></span>
+        <span class="koulchi-sim-stepper">
+          <button type="button" class="koulchi-sim-round" data-sim-dec aria-label="${escapeShop(shopT("koulchiSimMinus"))}">−</button>
+          <button type="button" class="koulchi-sim-round" data-sim-inc aria-label="${escapeShop(shopT("koulchiSimPlus"))}">+</button>
+        </span>
       </div>
     </div>`;
 
+  container.dataset.simAvg = String(avg);
   applyShopTranslations(container);
   updateKoulchiSimulator(container);
 
@@ -292,10 +290,6 @@ function mountKoulchiSimulator(container) {
       container.dataset.simQty = btn.dataset.simQty;
       updateKoulchiSimulator(container);
     });
-  });
-  container.querySelector("[data-sim-avg]")?.addEventListener("input", (event) => {
-    container.dataset.simAvg = event.target.value;
-    updateKoulchiSimulator(container);
   });
 }
 

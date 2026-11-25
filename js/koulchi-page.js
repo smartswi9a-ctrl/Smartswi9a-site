@@ -1,17 +1,17 @@
 /* ============================================================
    js/koulchi-page.js
-   KOULCHI DIALK - FACADE COMMERCIALE (K6)
+   KOULCHI DIALK - VITRINE COMPACTE DE L ACCUEIL (K7)
    ============================================================
-   Section dediee sur l accueil : regle des paliers, filtres par
-   categorie, cartes produit avec prix de groupe.
+   Remplace l ancien simulateur de l accueil par une CARTE VITRINE
+   placee a gauche de la section Ventes Flash (disposition 2 colonnes
+   type AliExpress). La carte est toujours visible, meme si le
+   catalogue groupe est vide : elle affiche alors un visuel d appel.
 
    PRINCIPES
-     - La section reste `hidden` si aucun produit n a de prix de
-       groupe valide : jamais de bloc vide, jamais de promesse vaine.
-     - Les produits a variantes sont exclus (prix de groupe = prix
-       produit), comme partout ailleurs.
-     - Aucun prix n est invente : tout vient du catalogue.
-     - Le rendu suit la langue courante (re-render sur lang-changed).
+     - Aucun texte en dur : tout passe par t() (FR / EN / AR).
+     - Aucun prix invente : les miniatures viennent du catalogue.
+     - Aucun cumul : les produits en vente flash sont exclus (koulchi.js).
+     - Le titre reste un lien vers /koulchi.html (accessibilite + SEO).
 
    ALERTE 1 : aucun commentaire de ligne dans ce fichier.
    ============================================================ */
@@ -25,13 +25,10 @@ import {
   getDiscountPercent,
 } from "./utils.js";
 import { getProducts, getProductsLoadedPromise } from "./store.js";
-import { getCategoryById } from "./config.js?v=2";
 import { getKoulchiCatalog, KOULCHI_TIERS } from "./koulchi.js";
 
-let activeCategory = "";
-
 /**
- * Produits reellement affichables dans la facade.
+ * Produits reellement affichables dans la vitrine.
  * @returns {Array}
  */
 function eligibleProducts() {
@@ -39,165 +36,113 @@ function eligibleProducts() {
 }
 
 /**
- * Carte produit de la facade.
+ * Miniature d un produit eligible (3 maximum).
  * @param {object} product
  * @returns {string}
  */
-function renderCard(product) {
-  const groupPrice = Number(product.koulchiPrice) || 0;
-  const classicPrice = Number(product.price) || 0;
-  const percent = getDiscountPercent(classicPrice, groupPrice);
+function renderThumb(product) {
   const name = escapeHTML(getProductName(product));
   const img = getProductImageUrl(product);
   const fallback = getFallbackImage(name);
+  const percent = getDiscountPercent(
+    Number(product.price) || 0,
+    Number(product.koulchiPrice) || 0
+  );
   const url = `/produit?slug=${encodeURIComponent(product.slug || "")}`;
-  const safeId = escapeHTML(String(product.id ?? ""));
 
-  /* Preuve sociale facon marketplace : etoiles et nombre de ventes.
-     Rien n est affiche si la donnee manque (pas de « 0 vendu »). */
-  const sold = Math.round(Number(product.salesCount) || 0);
-  const rating = Number(product.ratingAvg) || 0;
-  const reviews = Math.round(Number(product.ratingCount) || 0);
-  const metaHtml =
-    sold > 0 || rating > 0
-      ? `<span class="koulchi-card-meta">${
-          rating > 0
-            ? `<span class="koulchi-card-stars">★ ${rating.toFixed(1)}${
-                reviews > 0 ? ` <i>(${reviews})</i>` : ""
-              }</span>`
-            : ""
-        }${
-          sold > 0
-            ? `<span class="koulchi-card-sold">${escapeHTML(
-                t("soldCount").replace("{n}", sold)
-              )}</span>`
-            : ""
-        }</span>`
-      : "";
-
-  return `<li class="koulchi-card" role="listitem" data-product-id="${safeId}">
-      <a class="koulchi-card-link" href="${url}">
-        <span class="koulchi-card-badge">−${percent} %</span>
-        <img class="koulchi-card-img" src="${img}" alt="${name}" width="160" height="160" loading="lazy" onerror="this.onerror=null;this.src='${fallback}'">
-        <span class="koulchi-card-name">${name}</span>
-        ${metaHtml}
-        <span class="koulchi-card-prices">
-          <strong>${groupPrice} ${t("currency")}</strong>
-          <s>${classicPrice} ${t("currency")}</s>
-        </span>
-        <span class="koulchi-card-cta">${t("koulchiCardCta")}</span>
+  return `<li class="koulchi-vitrine-thumb" role="listitem">
+      <a href="${url}" aria-label="${name}">
+        <img src="${img}" alt="${name}" width="72" height="72" loading="lazy" onerror="this.onerror=null;this.src='${fallback}'">
+        <span class="koulchi-vitrine-thumb-off">−${percent} %</span>
       </a>
     </li>`;
 }
 
 /**
- * Filtres par categorie (affiches seulement s il y en a plusieurs).
- * @param {Array} products
+ * Paliers compacts : 3 art. = −5 % · 6 art. = −10 % · 9 art. = −15 %.
  * @returns {string}
  */
-function renderChips(products) {
-  const categories = [];
-  for (const product of products) {
-    const id = String(product.category || "");
-    if (!id || categories.includes(id)) continue;
-    categories.push(id);
-  }
-  if (categories.length < 2) return "";
-
-  const chips = [
-    `<button type="button" class="koulchi-chip${
-      activeCategory ? "" : " is-active"
-    }" data-koulchi-category="">${t("koulchiHomeAll")}</button>`,
-  ];
-
-  for (const id of categories) {
-    const category = getCategoryById(id);
-    const label = category
-      ? `${category.emoji} ${t(category.label)}`
-      : escapeHTML(id);
-    chips.push(
-      `<button type="button" class="koulchi-chip${
-        activeCategory === id ? " is-active" : ""
-      }" data-koulchi-category="${escapeHTML(id)}">${label}</button>`
-    );
-  }
-
-  return `<div class="koulchi-chips" role="group">${chips.join("")}</div>`;
-}
-
-/**
- * Rend (ou masque) la facade commerciale.
- */
-export function renderKoulchiHome() {
-  const section = document.getElementById("koulchiSection");
-  if (!section) return;
-
-  const all = eligibleProducts();
-  if (all.length === 0) {
-    section.hidden = true;
-    section.innerHTML = "";
-    return;
-  }
-
-  if (
-    activeCategory &&
-    !all.some((product) => String(product.category) === activeCategory)
-  ) {
-    activeCategory = "";
-  }
-  const visible = activeCategory
-    ? all.filter((product) => String(product.category) === activeCategory)
-    : all;
-
-  const rules = KOULCHI_TIERS.slice()
+function renderTiers() {
+  return KOULCHI_TIERS.slice()
     .sort((a, b) => a.min - b.min)
     .map(
       (tier) =>
-        `<li><span>${tier.min}+</span><strong>−${tier.percent} %</strong></li>`
+        `<li class="koulchi-vitrine-tier" role="listitem"><strong>${tier.min} ${escapeHTML(
+          t("koulchiVitrineItemsShort")
+        )}</strong><span>= −${tier.percent} %</span></li>`
     )
     .join("");
+}
 
-  section.innerHTML = `<div class="koulchi-home-inner" id="koulchi">
-      <div class="koulchi-home-head">
-        <span class="koulchi-home-tag">${t("koulchiHomeTag")}</span>
-        <a class="koulchi-home-title-link" href="/koulchi.html"><h2 class="section-title" id="koulchiHomeTitle">${t("koulchiHomeTitle")}</h2></a>
-        <p class="section-sub">${t("koulchiHomeSubtitle")}</p>
+/**
+ * Rend (ou rafraichit) la carte vitrine de l accueil.
+ * La carte est TOUJOURS visible : catalogue vide = visuel d appel.
+ */
+export function renderKoulchiHome() {
+  const section = document.getElementById("koulchiVitrine");
+  const body = document.getElementById("koulchiVitrineBody");
+  if (!section || !body) return;
+
+  const products = eligibleProducts();
+  const preview = products.slice(0, 3);
+
+  const previewHtml = preview.length
+    ? `<ul class="koulchi-vitrine-thumbs" role="list">${preview
+        .map(renderThumb)
+        .join("")}</ul>`
+    : `<div class="koulchi-vitrine-empty" role="presentation">
+        <span class="koulchi-vitrine-empty-icon" aria-hidden="true">🛍️</span>
+        <span class="koulchi-vitrine-empty-text">${escapeHTML(
+          t("koulchiVitrineEmpty")
+        )}</span>
+      </div>`;
+
+  body.innerHTML = `<div class="koulchi-vitrine-card">
+      <div class="koulchi-vitrine-head">
+        <span class="koulchi-vitrine-badge">⚡ ${escapeHTML(
+          t("koulchiVitrineBadge")
+        )}</span>
+        <a class="koulchi-home-title-link" href="/koulchi.html"><h2 class="section-title" id="koulchiHomeTitle">${escapeHTML(
+          t("koulchiVitrineTitle")
+        )}</h2></a>
+        <p class="koulchi-vitrine-sub">${escapeHTML(t("koulchiVitrineSub"))}</p>
       </div>
-      <ul class="koulchi-home-rules">${rules}</ul>
-      ${renderChips(all)}
-      <ul class="koulchi-home-track" id="koulchiHomeTrack" role="list">${visible
-        .map(renderCard)
-        .join("")}</ul>
-      <div class="koulchi-home-foot">
-        <span class="koulchi-home-rule-text">${t("koulchiHomeRules")}</span>
-        <span class="koulchi-home-actions">
-          <a class="btn-secondary" href="/panier">${t("koulchiHomeCta")}</a>
-          <a class="btn-secondary koulchi-home-seeall" href="/koulchi.html">${t(
-            "koulchiHomeSeeAll"
-          )}</a>
-        </span>
+      <ul class="koulchi-vitrine-tiers" role="list">${renderTiers()}</ul>
+      <div class="koulchi-vitrine-preview">
+        <span class="koulchi-vitrine-preview-label">${escapeHTML(
+          t("koulchiVitrinePreview")
+        )}</span>
+        ${previewHtml}
+      </div>
+      <div class="koulchi-vitrine-foot">
+        <span class="koulchi-vitrine-note">${escapeHTML(
+          t("koulchiVitrineNonCumul")
+        )}</span>
+        <a class="koulchi-vitrine-cta" href="/koulchi.html">${escapeHTML(
+          t("koulchiVitrineCta")
+        )}</a>
       </div>
     </div>`;
 
   section.hidden = false;
-
-  section.querySelectorAll("[data-koulchi-category]").forEach((button) => {
-    button.addEventListener("click", () => {
-      activeCategory = button.dataset.koulchiCategory || "";
-      renderKoulchiHome();
-    });
-  });
+  section.dataset.tierCount = String(KOULCHI_TIERS.length);
+  section.dataset.previewCount = String(preview.length);
 }
 
 async function initKoulchiHome() {
+  /* Premier rendu IMMEDIAT : la vitrine ne doit jamais apparaitre vide,
+     meme si Firestore met plusieurs secondes a repondre. */
+  renderKoulchiHome();
+  document.addEventListener("lang-changed", renderKoulchiHome);
+
   try {
     const ready = getProductsLoadedPromise();
     if (ready) await ready;
   } catch (e) {
-    /* catalogue indisponible : la section reste masquee */
+    /* catalogue indisponible : la carte garde le visuel d appel */
+    return;
   }
   renderKoulchiHome();
-  document.addEventListener("lang-changed", renderKoulchiHome);
 }
 
 if (document.readyState === "loading") {
@@ -206,4 +151,4 @@ if (document.readyState === "loading") {
   initKoulchiHome();
 }
 
-console.log("[koulchi] facade commerciale chargee (K6)");
+console.log("[koulchi] vitrine compacte de l accueil chargee (K7)");
