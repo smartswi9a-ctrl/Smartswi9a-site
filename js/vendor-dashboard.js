@@ -75,6 +75,18 @@ let _contractSignatureSource = "dashboard";
 let _productsLoading = false;
 let _renderInProgress = false;
 
+/* --- Tableau de bord vendeur moderne (2026-11-25) --- */
+let overviewOrders = [];
+let overviewStats = null;
+let overviewPeriod = 7;
+let vendorChartInstances = [];
+let warehouseState = {
+    loaded: false,
+    received: false,
+    pending: false,
+    approvedNotReceived: false
+};
+
 /* ============================================================
    HELPERS FORMATAGE
    ============================================================ */
@@ -86,6 +98,14 @@ function formatMAD(value) {
     const n = Number(value);
     if (!Number.isFinite(n)) return madFormatter.format(0);
     return madFormatter.format(n);
+}
+
+/* i18n du nouveau tableau de bord vendeur (js/vendor-ui.js). */
+function vt(key, fallback) {
+    return window.__vendorT ? window.__vendorT(key, fallback) : (fallback || key);
+}
+function vfmt(value) {
+    return window.__vendorFormatMAD ? window.__vendorFormatMAD(value) : formatMAD(value);
 }
 
 function escapeHTML(str) {
@@ -184,6 +204,112 @@ function isVendorApproved() {
         getContractStatus() === CONTRACT_STATUS.ACCEPTED &&
         String(currentVendor?.vendorInfo?.contractVersion || '') === CONFIG.VENDOR.CONTRACT_VERSION;
 }
+
+/* ============================================================
+   ENTREPÔT — VERROU & WORKFLOW GUIDE
+   ============================================================ */
+function getVendorCommissionRate() {
+    const rate = Number(currentVendor?.vendorInfo?.commissionRate);
+    if (Number.isFinite(rate) && rate > 0 && rate < 1) return rate;
+    return Number(CONFIG.VENDOR.COMMISSION_RATE) || 0.07;
+}
+
+function hasWarehouseReceipt() {
+    return warehouseState.received === true;
+}
+
+function updateVendorBadges() {
+    const setBadge = (id, count) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const n = Math.max(0, Number(count) || 0);
+        if (n > 0) {
+            el.textContent = n > 99 ? '99+' : String(n);
+            el.hidden = false;
+        } else {
+            el.hidden = true;
+        }
+    };
+
+    const pendingProducts = (cachedProducts || []).filter(
+        (p) => (p.status || PRODUCT_STATUS.PENDING_ADMIN_APPROVAL) === PRODUCT_STATUS.PENDING_ADMIN_APPROVAL
+    ).length;
+    const lowStock = (cachedProducts || []).filter(
+        (p) => p.status === PRODUCT_STATUS.APPROVED && (Number(p.stock) || 0) <= 5
+    ).length;
+    setBadge('navProductsBadge', pendingProducts + lowStock);
+
+    setBadge('navStockBadge', (cachedPickupRequests || []).filter((r) => r.status === 'pending').length);
+    setBadge('navOrdersBadge', (cachedOrders || []).filter((o) => (o.status || 'pending') === 'pending').length);
+    setBadge('navWalletBadge', (cachedWithdrawals || []).filter(
+        (w) => normalizePayoutStatus(w.status) === 'pending'
+    ).length);
+
+    if (window.__vendorI18n && typeof window.__vendorI18n.refreshNotifications === 'function') {
+        window.__vendorI18n.refreshNotifications();
+    }
+}
+
+function renderWarehouseWorkflow() {
+    const host = document.getElementById('vWarehouseWorkflow');
+    if (!host) return;
+    if (!warehouseState.loaded || warehouseState.received) {
+        host.innerHTML = '';
+        return;
+    }
+
+    const step1Done = warehouseState.pending || warehouseState.approvedNotReceived;
+    const step1DoneClass = step1Done ? ' is-done' : ' is-current';
+    const step2DoneClass = warehouseState.approvedNotReceived ? ' is-current' : '';
+    const showCta = !warehouseState.pending && !warehouseState.approvedNotReceived;
+
+    host.innerHTML = `
+        <div class="v-workflow-head">
+            <h2 class="v-workflow-title">${escapeHTML(vt('wfTitle', 'Débloquez la publication de vos produits'))}</h2>
+            <span class="v-shop-status pending">${escapeHTML(vt('wfWaiting', 'En attente de réception'))}</span>
+        </div>
+        <p class="v-workflow-intro">${escapeHTML(vt('wfIntro', "Le stock vendeur est stocké à l'entrepôt Smart Swika. Suivez ces 3 étapes pour activer l'ajout de produits."))}</p>
+        <div class="v-workflow-steps">
+            <div class="v-workflow-step${step1DoneClass}">
+                <span class="v-workflow-num">1</span>
+                <div><p class="v-workflow-step-title">${escapeHTML(vt('wfStep1Title', 'Créer une demande de ramassage'))}</p><p class="v-workflow-step-desc">${escapeHTML(vt('wfStep1Desc', 'Déclarez vos produits et quantités à remettre à l’entrepôt.'))}</p></div>
+            </div>
+            <div class="v-workflow-step${step2DoneClass}">
+                <span class="v-workflow-num">2</span>
+                <div><p class="v-workflow-step-title">${escapeHTML(vt('wfStep2Title', 'Réception et contrôle à l’entrepôt'))}</p><p class="v-workflow-step-desc">${escapeHTML(vt('wfStep2Desc', 'L’équipe Smart Swika vérifie et réceptionne physiquement la marchandise.'))}</p></div>
+            </div>
+            <div class="v-workflow-step">
+                <span class="v-workflow-num">3</span>
+                <div><p class="v-workflow-step-title">${escapeHTML(vt('wfStep3Title', 'Déblocage automatique'))}</p><p class="v-workflow-step-desc">${escapeHTML(vt('wfStep3Desc', 'L’ajout de produits est débloqué dès que la réception est confirmée.'))}</p></div>
+            </div>
+        </div>
+        ${showCta ? `<div style="margin-top:.8rem;"><button type="button" class="v-btn v-btn-primary" data-vendor-goto="stock">${escapeHTML(vt('wfCtaPickup', 'Créer ma demande de ramassage'))}</button></div>` : ''}
+    `;
+
+    host.querySelectorAll('[data-vendor-goto]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            document.querySelector(`.v-nav-link[data-tab="${btn.getAttribute('data-vendor-goto')}"]`)?.click();
+        });
+    });
+}
+
+async function refreshWarehouseState() {
+    await loadPickupRequests();
+    const requests = cachedPickupRequests || [];
+    warehouseState = {
+        loaded: true,
+        received: requests.some((r) => r.status === 'approved' && r.received_at_warehouse === true),
+        pending: requests.some((r) => r.status === 'pending'),
+        approvedNotReceived: requests.some((r) => r.status === 'approved' && r.received_at_warehouse !== true)
+    };
+    renderWarehouseWorkflow();
+    updateVendorBadges();
+    if (currentVendor) updateSidebarUI(currentVendor);
+    return warehouseState;
+}
+
+window.__vendorRefreshWarehouse = refreshWarehouseState;
+window.__vendorWarehouseReceived = hasWarehouseReceipt;
 
 function getPendingWithdrawalTotal() {
     return cachedWithdrawals.filter(w => w.status === 'pending').reduce((sum, w) => sum + (Number(w.amount) || 0), 0);
@@ -313,7 +439,9 @@ function updateSidebarUI(profile) {
 
     const status = vendorInfo.status || VENDOR_STATUS.PENDING;
     const mapping = {
-        [VENDOR_STATUS.APPROVED]:  { text: tr('vendor.shop.status.approved',  'Approuvé'),  cls: 'approved' },
+        [VENDOR_STATUS.APPROVED]:  warehouseState.loaded && !warehouseState.received
+            ? { text: vt('statusAwaitingWarehouse', 'En attente entrepôt'), cls: 'pending' }
+            : { text: vt('statusActive', 'Actif'), cls: 'approved' },
         [VENDOR_STATUS.PENDING]:   { text: tr('vendor.shop.status.pending',   'En attente'), cls: 'pending' },
         [VENDOR_STATUS.REJECTED]:  { text: tr('vendor.shop.status.rejected',  'Rejeté'),     cls: 'rejected' },
         [VENDOR_STATUS.SUSPENDED]: { text: tr('vendor.shop.status.suspended', 'Suspendu'),   cls: 'suspended' }
@@ -337,6 +465,9 @@ function updateSidebarUI(profile) {
         shippingEl.style.maxWidth = 'max-content';
     }
     if (stockTab) stockTab.hidden = shippingMethod !== 'fulfillment';
+
+    updateVendorBadges();
+    renderWarehouseWorkflow();
 }
 
 /* ============================================================
@@ -1484,22 +1615,172 @@ function renderEmptyState(icon, title, desc, actionHtml = '') {
 }
 
 async function renderOverview(container) {
-    const available = formatMAD(currentWallet?.availableBalance);
-    const pending = formatMAD(currentWallet?.pendingBalance);
-    const totalEarnings = formatMAD(currentWallet?.totalEarnings);
-    const totalWithdrawn = formatMAD(currentWallet?.totalWithdrawn);
+    await prepareOverviewData();
     const contractSectionHtml = await renderContractSection();
+    container.innerHTML = buildOverviewHtml(contractSectionHtml);
+    attachOverviewHandlers(container);
+    renderVendorCharts();
+}
 
-    container.innerHTML = `
+function normalizeVendorOrderStatus(status) {
+    const s = String(status || 'pending').toLowerCase();
+    if (s === 'validated') return 'confirmed';
+    if (s === 'received') return 'delivered';
+    return s;
+}
+
+function vendorBucketDate(value) {
+    try {
+        if (value && typeof value.toDate === 'function') return value.toDate();
+        if (value instanceof Date) return value;
+        if (typeof value === 'number') return new Date(value);
+        if (typeof value === 'string') return new Date(value);
+    } catch (e) { /* ignore */ }
+    return null;
+}
+
+async function prepareOverviewData() {
+    const rate = getVendorCommissionRate();
+
+    if (!cachedProducts.length) {
+        try { await loadVendorProducts(); } catch (e) { /* non bloquant */ }
+    }
+
+    if (!overviewOrders.length && currentUserUid) {
+        try {
+            const q = query(
+                collection(db, "vendor_orders", currentUserUid, "orders"),
+                where("privacySafe", "==", true),
+                orderBy("createdAt", "desc"),
+                limit(500)
+            );
+            const snap = await getDocs(q);
+            overviewOrders = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        } catch (e) {
+            try {
+                const snap = await getDocs(query(
+                    collection(db, "vendor_orders", currentUserUid, "orders"),
+                    where("privacySafe", "==", true),
+                    limit(500)
+                ));
+                overviewOrders = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+            } catch (e2) {
+                overviewOrders = [];
+            }
+        }
+    }
+
+    const delivered = overviewOrders.filter((o) => normalizeVendorOrderStatus(o.status) === 'delivered');
+    const inProgress = overviewOrders.filter(
+        (o) => !['delivered', 'returned', 'cancelled'].includes(normalizeVendorOrderStatus(o.status))
+    );
+
+    let gross = 0;
+    delivered.forEach((o) => {
+        (Array.isArray(o.items) ? o.items : []).forEach((item) => {
+            gross += (Number(item.price) || 0) * (Number(item.quantity) || 0);
+        });
+    });
+    let effectiveRate = rate;
+    let net = Math.round(gross * (1 - rate) * 100) / 100;
+    try {
+        const commissionInfo = calculateVendorCommission(gross, currentVendor);
+        if (commissionInfo && Number.isFinite(Number(commissionInfo.netToPay))) {
+            net = Math.round(Number(commissionInfo.netToPay) * 100) / 100;
+        }
+        if (commissionInfo && Number.isFinite(Number(commissionInfo.commissionRate))) {
+            effectiveRate = Number(commissionInfo.commissionRate);
+        }
+    } catch (e) {
+        console.warn('[vendor-dashboard] commission overview :', e);
+    }
+
+    const stock = (cachedProducts || []).reduce((sum, p) => {
+        const warehouse = p.delivery_mode === 'smartswika_warehouse' || p.warehouse_received === true;
+        if (!warehouse) return sum;
+        return sum + Math.max(0, Number(p.stock_warehouse ?? p.stock) || 0);
+    }, 0);
+
+    overviewStats = {
+        rate: effectiveRate,
+        gross,
+        net,
+        delivered: delivered.length,
+        inProgress: inProgress.length,
+        stock
+    };
+    return overviewStats;
+}
+
+function buildOverviewHtml(contractSectionHtml) {
+    const s = overviewStats || { net: 0, gross: 0, delivered: 0, inProgress: 0, stock: 0 };
+    return `
         <div class="v-kpi-grid">
-            <div class="v-kpi-card primary"><div class="v-kpi-header"><span class="v-kpi-icon" aria-hidden="true">💰</span><span class="v-kpi-label">${escapeHTML(tr('vendor.kpi.available', 'Solde disponible'))}</span></div><p class="v-kpi-value">${available}</p></div>
-            <div class="v-kpi-card"><div class="v-kpi-header"><span class="v-kpi-icon" aria-hidden="true">⏳</span><span class="v-kpi-label">${escapeHTML(tr('vendor.kpi.pending', 'En attente'))}</span></div><p class="v-kpi-value">${pending}</p></div>
-            <div class="v-kpi-card"><div class="v-kpi-header"><span class="v-kpi-icon" aria-hidden="true">📈</span><span class="v-kpi-label">${escapeHTML(tr('vendor.kpi.totalEarnings', 'Gains cumulés'))}</span></div><p class="v-kpi-value">${totalEarnings}</p></div>
-            <div class="v-kpi-card"><div class="v-kpi-header"><span class="v-kpi-icon" aria-hidden="true">🏦</span><span class="v-kpi-label">${escapeHTML(tr('vendor.kpi.totalWithdrawn', 'Total retiré'))}</span></div><p class="v-kpi-value">${totalWithdrawn}</p></div>
+            <div class="v-kpi-card primary">
+                <span class="v-kpi-icon" aria-hidden="true">💰</span>
+                <span class="v-kpi-label">${escapeHTML(vt('kpiNet', 'Revenus Nets Vendeur'))}</span>
+                <p class="v-kpi-value">${vfmt(s.net)}</p>
+                <span class="v-kpi-sub">${escapeHTML(vt('kpiNetSub', 'Après commission 7 % · MAD'))}</span>
+            </div>
+            <div class="v-kpi-card">
+                <span class="v-kpi-icon" aria-hidden="true">📈</span>
+                <span class="v-kpi-label">${escapeHTML(vt('kpiGross', "Chiffre d'affaires Brut"))}</span>
+                <p class="v-kpi-value">${vfmt(s.gross)}</p>
+                <span class="v-kpi-sub">${escapeHTML(vt('kpiGrossSub', 'Ventes livrées · MAD'))}</span>
+            </div>
+            <div class="v-kpi-card">
+                <span class="v-kpi-icon" aria-hidden="true">📦</span>
+                <span class="v-kpi-label">${escapeHTML(vt('kpiOrders', 'Commandes Livrées vs En cours'))}</span>
+                <p class="v-kpi-value">${s.delivered} / ${s.inProgress}</p>
+                <span class="v-kpi-sub">${escapeHTML(vt('kpiOrdersSub', 'Livrées / en cours'))}</span>
+            </div>
+            <div class="v-kpi-card">
+                <span class="v-kpi-icon" aria-hidden="true">🏬</span>
+                <span class="v-kpi-label">${escapeHTML(vt('kpiStock', "Stock à l'entrepôt Smart Swika"))}</span>
+                <p class="v-kpi-value">${s.stock}</p>
+                <span class="v-kpi-sub">${escapeHTML(vt('kpiStockSub', 'Unités disponibles'))}</span>
+            </div>
         </div>
-        <div class="v-card"><h3 class="v-card-title">${escapeHTML(tr('vendor.overview.welcomeTitle', 'Bienvenue sur votre espace'))}</h3><p style="color:var(--text-muted); font-size:0.9rem;">${escapeHTML(tr('vendor.overview.welcomeDesc', 'Utilisez le menu pour gérer vos produits, commandes, wallet et stock.'))}</p></div>
-        ${contractSectionHtml}
+
+        <div class="v-chart-grid">
+            <div class="v-chart-card">
+                <div class="v-chart-head">
+                    <h3>${escapeHTML(vt('chartSalesTitle', 'Évolution des ventes et revenus nets (MAD)'))}</h3>
+                    <div class="v-chart-periods">
+                        <button type="button" class="v-btn v-btn-secondary v-chart-period-btn active" data-vendor-chart-period="7">${escapeHTML(vt('period7', '7j'))}</button>
+                        <button type="button" class="v-btn v-btn-secondary v-chart-period-btn" data-vendor-chart-period="30">${escapeHTML(vt('period30', '30j'))}</button>
+                        <button type="button" class="v-btn v-btn-secondary v-chart-period-btn" data-vendor-chart-period="90">${escapeHTML(vt('period90', '90j'))}</button>
+                    </div>
+                </div>
+                <div class="v-chart-box"><canvas id="vendorRevenueChart"></canvas></div>
+            </div>
+            <div class="v-chart-card">
+                <div class="v-chart-head"><h3>${escapeHTML(vt('chartOrdersTitle', 'Répartition de mes commandes par statut'))}</h3></div>
+                <div class="v-chart-box">
+                    <canvas id="vendorOrdersChart"></canvas>
+                    <div class="v-donut-total"><strong id="vendorDonutTotal">0</strong><span>${escapeHTML(vt('chartTotalOrders', 'commandes'))}</span></div>
+                </div>
+            </div>
+            <div class="v-chart-card wide">
+                <div class="v-chart-head"><h3>${escapeHTML(vt('chartTopTitle', 'Top produits les plus vendus'))}</h3></div>
+                <div class="v-chart-box short"><canvas id="vendorTopProductsChart"></canvas></div>
+            </div>
+        </div>
+
+        ${contractSectionHtml || ''}
     `;
+}
+
+function attachOverviewHandlers(container) {
+    container.querySelectorAll('[data-vendor-chart-period]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            overviewPeriod = parseInt(btn.dataset.vendorChartPeriod, 10) || 7;
+            container.querySelectorAll('[data-vendor-chart-period]').forEach((b) => {
+                b.classList.toggle('active', b === btn);
+            });
+            renderVendorCharts();
+        });
+    });
 
     document.getElementById('vSignContractBtn')?.addEventListener('click', () => openContractModal(true));
     document.getElementById('vViewContractBtn')?.addEventListener('click', handleViewContract);
@@ -1509,14 +1790,296 @@ async function renderOverview(container) {
     document.getElementById('vResignContractBtn')?.addEventListener('click', () => openContractModal(true));
 }
 
+function destroyVendorCharts() {
+    vendorChartInstances.forEach((chart) => {
+        try { chart.destroy(); } catch (e) { /* ignore */ }
+    });
+    vendorChartInstances = [];
+}
+
+function renderVendorCharts() {
+    if (typeof window.Chart === 'undefined') {
+        document.querySelectorAll('.v-chart-box canvas').forEach((canvas) => {
+            const parent = canvas.parentElement;
+            if (parent) {
+                parent.innerHTML = `<div class="v-empty" style="border:0;background:transparent;padding:1rem;"><p class="v-empty-desc">${escapeHTML(vt('noData', 'Aucune donnée sur la période'))}</p></div>`;
+            }
+        });
+        return;
+    }
+    destroyVendorCharts();
+    renderVendorRevenueChart();
+    renderVendorOrdersDonut();
+    renderVendorTopProductsChart();
+
+    /* Laisse la grille se stabiliser avant de recalculer les tailles
+       (le donut peut naitre dans une colonne pas encore mesuree). */
+    window.setTimeout(() => {
+        vendorChartInstances.forEach((chart) => {
+            try { chart.resize(); } catch (e) { /* ignore */ }
+        });
+    }, 80);
+}
+
+function vendorPeriodOrders(period) {
+    const days = Math.max(1, Number(period) || 7);
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    start.setDate(start.getDate() - days + 1);
+    return (overviewOrders || []).filter((o) => {
+        const date = vendorBucketDate(o.createdAt);
+        return date && date >= start;
+    });
+}
+
+function renderVendorRevenueChart() {
+    const canvas = document.getElementById('vendorRevenueChart');
+    if (!canvas) return;
+    const isAr = window.__vendorGetLang && window.__vendorGetLang() === 'ar';
+    const days = Math.max(1, Number(overviewPeriod) || 7);
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    start.setDate(start.getDate() - days + 1);
+
+    const buckets = {};
+    for (let i = 0; i < days; i++) {
+        const d = new Date(start);
+        d.setDate(start.getDate() + i);
+        buckets[d.toISOString().slice(0, 10)] = { date: d, gross: 0, net: 0 };
+    }
+    const rate = overviewStats ? overviewStats.rate : getVendorCommissionRate();
+    vendorPeriodOrders(days).forEach((o) => {
+        if (normalizeVendorOrderStatus(o.status) !== 'delivered') return;
+        const date = vendorBucketDate(o.createdAt);
+        if (!date) return;
+        const key = date.toISOString().slice(0, 10);
+        if (!buckets[key]) return;
+        const gross = (Array.isArray(o.items) ? o.items : [])
+            .reduce((sum, item) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 0), 0);
+        buckets[key].gross += gross;
+        buckets[key].net += gross * (1 - rate);
+    });
+
+    const keys = Object.keys(buckets).sort();
+    const locale = isAr ? 'ar-MA' : (window.__vendorGetLang && window.__vendorGetLang() === 'en' ? 'en-GB' : 'fr-FR');
+    const labels = keys.map((k) => buckets[k].date.toLocaleDateString(locale, { day: '2-digit', month: '2-digit' }));
+    const grossData = keys.map((k) => Math.round(buckets[k].gross * 100) / 100);
+    const netData = keys.map((k) => Math.round(buckets[k].net * 100) / 100);
+
+    const ctx = canvas.getContext('2d');
+    const grossGradient = ctx.createLinearGradient(0, 0, 0, 300);
+    grossGradient.addColorStop(0, 'rgba(180, 131, 62, 0.30)');
+    grossGradient.addColorStop(1, 'rgba(180, 131, 62, 0.02)');
+    const netGradient = ctx.createLinearGradient(0, 0, 0, 300);
+    netGradient.addColorStop(0, 'rgba(46, 204, 113, 0.24)');
+    netGradient.addColorStop(1, 'rgba(46, 204, 113, 0.02)');
+
+    const chart = new window.Chart(ctx, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                {
+                    label: vt('grossSeries', 'CA brut'),
+                    data: grossData,
+                    borderColor: '#B4833E',
+                    backgroundColor: grossGradient,
+                    fill: true,
+                    tension: 0.4,
+                    borderWidth: 2,
+                    pointRadius: 2,
+                    pointHoverRadius: 5
+                },
+                {
+                    label: vt('netSeries', 'Revenus nets'),
+                    data: netData,
+                    borderColor: '#2ecc71',
+                    backgroundColor: netGradient,
+                    fill: true,
+                    tension: 0.4,
+                    borderWidth: 2,
+                    pointRadius: 2,
+                    pointHoverRadius: 5
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: { duration: 800, easing: 'easeOutQuart' },
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { position: 'bottom', rtl: isAr, labels: { usePointStyle: true, boxWidth: 8 } },
+                tooltip: {
+                    rtl: isAr,
+                    callbacks: {
+                        label: (item) => `${item.dataset.label}: ${vfmt(item.parsed.y)}`
+                    }
+                }
+            },
+            scales: {
+                x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true } },
+                y: {
+                    beginAtZero: true,
+                    ticks: { callback: (value) => `${value} MAD` },
+                    grid: { color: 'rgba(0,0,0,0.06)' }
+                }
+            }
+        }
+    });
+    vendorChartInstances.push(chart);
+}
+
+function renderVendorOrdersDonut() {
+    const canvas = document.getElementById('vendorOrdersChart');
+    if (!canvas) return;
+    const isAr = window.__vendorGetLang && window.__vendorGetLang() === 'ar';
+    const groups = {
+        preparing: { key: 'statusPreparing', color: '#8e44ad', value: 0 },
+        shipping: { key: 'statusShipping', color: '#3498db', value: 0 },
+        delivered: { key: 'statusDelivered', color: '#2ecc71', value: 0 },
+        returned: { key: 'statusReturned', color: '#e74c3c', value: 0 }
+    };
+    (overviewOrders || []).forEach((o) => {
+        const status = normalizeVendorOrderStatus(o.status);
+        if (status === 'delivered') groups.delivered.value += 1;
+        else if (['in_transit', 'shipping', 'picked_up', 'pickup_requested'].includes(status)) groups.shipping.value += 1;
+        else if (['returned', 'cancelled'].includes(status)) groups.returned.value += 1;
+        else groups.preparing.value += 1;
+    });
+
+    const entries = Object.values(groups).filter((g) => g.value > 0);
+    const total = entries.reduce((sum, g) => sum + g.value, 0);
+    const totalEl = document.getElementById('vendorDonutTotal');
+    if (totalEl) totalEl.textContent = String(total);
+    const hasData = entries.length > 0;
+
+    const chart = new window.Chart(canvas.getContext('2d'), {
+        type: 'doughnut',
+        data: {
+            labels: hasData ? entries.map((g) => vt(g.key, g.key)) : [''],
+            datasets: [{
+                data: hasData ? entries.map((g) => g.value) : [1],
+                backgroundColor: hasData ? entries.map((g) => g.color) : ['rgba(0,0,0,0.08)'],
+                borderWidth: 0,
+                hoverOffset: 6
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '68%',
+            animation: { duration: 800, easing: 'easeOutQuart' },
+            plugins: {
+                legend: { position: 'bottom', rtl: isAr, labels: { usePointStyle: true, boxWidth: 8, padding: 12 } },
+                tooltip: {
+                    rtl: isAr,
+                    enabled: hasData,
+                    callbacks: {
+                        label: (item) => {
+                            const value = Number(item.parsed) || 0;
+                            const pct = total ? Math.round((value / total) * 100) : 0;
+                            return `${item.label}: ${value} (${pct}%)`;
+                        }
+                    }
+                }
+            }
+        }
+    });
+    vendorChartInstances.push(chart);
+}
+
+function renderVendorTopProductsChart() {
+    const canvas = document.getElementById('vendorTopProductsChart');
+    if (!canvas) return;
+    const isAr = window.__vendorGetLang && window.__vendorGetLang() === 'ar';
+    const rate = overviewStats ? overviewStats.rate : getVendorCommissionRate();
+    const products = new Map();
+
+    (overviewOrders || []).forEach((o) => {
+        if (normalizeVendorOrderStatus(o.status) !== 'delivered') return;
+        (Array.isArray(o.items) ? o.items : []).forEach((item) => {
+            const name = String(item.name || item.productName || 'Produit').trim() || 'Produit';
+            const key = String(item.productId || name);
+            const qty = Number(item.quantity) || 0;
+            const revenue = (Number(item.price) || 0) * qty * (1 - rate);
+            const entry = products.get(key) || { name, qty: 0, revenue: 0 };
+            entry.qty += qty;
+            entry.revenue += revenue;
+            products.set(key, entry);
+        });
+    });
+
+    const top = [...products.values()].sort((a, b) => b.qty - a.qty).slice(0, 8);
+    const labels = top.length ? top.map((p) => p.name) : [vt('noData', 'Aucune donnée sur la période')];
+    const qtyData = top.length ? top.map((p) => p.qty) : [0];
+    const revenueData = top.length ? top.map((p) => Math.round(p.revenue * 100) / 100) : [0];
+
+    const chart = new window.Chart(canvas.getContext('2d'), {
+        type: 'bar',
+        data: {
+            labels,
+            datasets: [{
+                label: `${vt('qtyLabel', 'Quantité')} / ${vt('netRevenueLabel', 'Revenus nets')} (MAD)`,
+                data: qtyData,
+                backgroundColor: 'rgba(180, 131, 62, 0.75)',
+                borderRadius: 8,
+                maxBarThickness: 22
+            }]
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: { duration: 800, easing: 'easeOutQuart' },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    rtl: isAr,
+                    callbacks: {
+                        label: (item) => {
+                            const idx = item.dataIndex;
+                            const qty = qtyData[idx] || 0;
+                            const revenue = revenueData[idx] || 0;
+                            return `${vt('qtyLabel', 'Quantité')}: ${qty} · ${vt('netRevenueLabel', 'Revenus nets')}: ${vfmt(revenue)}`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: 'rgba(0,0,0,0.06)' } },
+                y: { grid: { display: false } }
+            }
+        }
+    });
+    vendorChartInstances.push(chart);
+}
+
 async function renderProducts(container) {
     if (!isVendorApproved()) {
         container.innerHTML = renderEmptyState('📦', tr('vendor.products.locked.title', 'Publication verrouillée'), tr('vendor.products.locked.desc', "Votre compte doit être approuvé et votre contrat signé pour publier des produits."));
         return;
     }
 
+    if (!warehouseState.loaded) {
+        try { await refreshWarehouseState(); } catch (e) { /* non bloquant */ }
+    }
+    if (!hasWarehouseReceipt()) {
+        container.innerHTML = renderEmptyState(
+            '🏬',
+            vt('lockedTitle', 'Publication verrouillée'),
+            vt('lockedDesc', "Votre marchandise doit d'abord être reçue et contrôlée à l'entrepôt Smart Swika avant de pouvoir publier un produit."),
+            `<div class="v-locked-cta"><button type="button" class="v-btn v-btn-primary" data-goto-pickup>${escapeHTML(vt('lockedCta', 'Voir mes demandes de ramassage'))}</button></div>`
+        );
+        container.querySelector('[data-goto-pickup]')?.addEventListener('click', () => {
+            document.querySelector('.v-nav-link[data-tab="stock"]')?.click();
+        });
+        return;
+    }
+
     if (!cachedProducts.length) await loadVendorProducts();
-    const newBtnHtml = `<div style="display:flex;justify-content:flex-end;margin-bottom:1rem;"><button type="button" id="vNewProductBtn" class="v-btn v-btn-primary">Nouveau produit</button></div>`;
+    updateVendorBadges();
+    const newBtnHtml = `<div style="display:flex;justify-content:flex-end;margin-bottom:1rem;"><button type="button" id="vNewProductBtn" class="v-btn v-btn-primary">${escapeHTML(vt('newProduct', 'Nouveau produit'))}</button></div>`;
 
     if (!cachedProducts.length) {
         container.innerHTML = newBtnHtml + renderEmptyState('📦', tr('vendor.products.empty.title', 'Aucun produit'), tr('vendor.products.empty.desc', 'Publiez votre premier produit pour commencer à vendre.'));
@@ -1546,10 +2109,10 @@ async function renderProducts(container) {
         return `
             <div class="v-product-item">
                 ${image ? `<img src="${image}" alt="${name}" loading="lazy" class="v-product-img">` : `<div class="v-product-img" style="display:flex;align-items:center;justify-content:center;font-size:1.5rem;">📦</div>`}
-                <div class="v-product-info"><div class="v-product-name">${name}</div><div class="v-product-meta">${price} · Stock : ${stock}</div><div style="margin-top:0.3rem;">${deliveryBadge}${statusBadge}</div>${rejectionHtml}</div>
+                <div class="v-product-info"><div class="v-product-name">${name}</div><div class="v-product-meta">${price} · ${escapeHTML(vt('stockLabel', 'Stock'))} : ${stock}</div><div style="margin-top:0.3rem;">${deliveryBadge}${statusBadge}</div>${rejectionHtml}</div>
                 <div class="v-product-actions">
-                    <button type="button" class="v-btn v-btn-secondary" data-edit-product="${escapeHTML(p.id)}" style="padding:0.4rem 0.8rem;font-size:0.8rem;" title="Éditer">Éditer</button>
-                    <button type="button" class="v-btn v-btn-secondary" data-delete-product="${escapeHTML(p.id)}" style="padding:0.4rem 0.8rem;font-size:0.8rem;" title="Supprimer">Supprimer</button>
+                    <button type="button" class="v-btn v-btn-secondary" data-edit-product="${escapeHTML(p.id)}" style="padding:0.4rem 0.8rem;font-size:0.8rem;" title="${escapeHTML(vt('edit', 'Éditer'))}">${escapeHTML(vt('edit', 'Éditer'))}</button>
+                    <button type="button" class="v-btn v-btn-secondary" data-delete-product="${escapeHTML(p.id)}" style="padding:0.4rem 0.8rem;font-size:0.8rem;" title="${escapeHTML(vt('delete', 'Supprimer'))}">${escapeHTML(vt('delete', 'Supprimer'))}</button>
                 </div>
             </div>`;
     }).join('');
@@ -1584,6 +2147,7 @@ async function renderOrders(container) {
         }
     }
 
+    updateVendorBadges();
     if (!cachedOrders.length) {
         container.innerHTML = renderEmptyState('📋', tr('vendor.orders.empty.title', 'Aucune commande pour le moment'), tr('vendor.orders.empty.desc', 'Vos commandes apparaîtront ici dès que vos produits seront vendus.'));
         return;
@@ -1717,6 +2281,7 @@ async function renderStock(container) {
     }
 
     await loadPickupRequests();
+    updateVendorBadges();
 
     const statusLabel = {
         pending: tr('vendor.pickup.status.pending', '⏳ En attente de validation admin'),
@@ -1911,6 +2476,7 @@ async function submitSmartPickupRequest() {
         showToast(tr('vendor.pickup.sent', 'Demande de ramassage envoyée. En attente de validation admin.'));
         cachedPickupRequests = [];
         await renderStock(document.getElementById('vTabContent'));
+        try { await refreshWarehouseState(); } catch (e) { /* non bloquant */ }
     } catch (e) {
         console.error('[vendor-dashboard] demande ramassage :', e);
         if (errEl) errEl.textContent = trParams('vendor.pickup.errGeneric', { message: (e.message || 'inconnue') }, 'Erreur : {message}');
@@ -1929,6 +2495,7 @@ function normalizePayoutStatus(status) {
 async function renderWallet(container) {
     if (!cachedWithdrawals.length) await loadWithdrawals();
     await loadWalletTransactions();
+    updateVendorBadges();
     const available = formatMAD(currentWallet?.availableBalance);
     const pending = formatMAD(currentWallet?.pendingBalance);
     const negativeBalance = Math.max(0, -(Number(currentWallet?.negativeBalance) || 0));
@@ -2354,13 +2921,44 @@ async function renderKoulchi(container) {
    l entrepot Smart Swika, Livo livre aux acheteurs.
    Contenu statique, aucune lecture Firestore.
    ============================================================ */
-function renderGuide(container) {
+async function renderGuide(container) {
     const lang = getCurrentLanguage();
-    if (lang === 'ar') { container.innerHTML = guideArHtml(); return; }
-    if (lang === 'en') { container.innerHTML = guideEnHtml(); return; }
+    const settingsHtml = await renderContractSection();
+    const shop = currentVendor?.vendorInfo || {};
+
+    const status = getVendorStatus();
+    const statusLabel = status === VENDOR_STATUS.APPROVED
+        ? tr('vendor.shop.status.approved', 'Approuvé')
+        : status === VENDOR_STATUS.REJECTED
+            ? tr('vendor.shop.status.rejected', 'Rejeté')
+            : status === VENDOR_STATUS.SUSPENDED
+                ? tr('vendor.shop.status.suspended', 'Suspendu')
+                : tr('vendor.shop.status.pending', 'En attente');
+    const contractLabel = getContractStatus() === CONTRACT_STATUS.ACCEPTED
+        ? tr('vendor.contract.statusUpToDate', '✅ Contrat à jour')
+        : tr('vendor.contract.statusMissing', '❌ Aucun contrat signé');
+    const shippingLabel = shop.shippingMethod === 'fulfillment'
+        ? tr('vendor.shipping.fulfillment', 'Mode logistique : Entrepôt Smart Swika')
+        : tr('vendor.shipping.unset', 'Mode logistique : à configurer');
+
+    const shopCard = `
+        <div class="v-card">
+            <h3 class="v-card-title">${escapeHTML(vt('settingsShopTitle', 'Boutique & contrat'))}</h3>
+            <div class="v-settings-grid">
+                <div><span class="v-kpi-sub">${escapeHTML(vt('settingsShopName', 'Nom de la boutique'))}</span><strong>${escapeHTML(shop.shopName || currentVendor?.name || '—')}</strong></div>
+                <div><span class="v-kpi-sub">${escapeHTML(vt('settingsStatus', 'Statut du compte'))}</span><strong>${escapeHTML(statusLabel)}</strong></div>
+                <div><span class="v-kpi-sub">${escapeHTML(vt('settingsShipping', 'Mode logistique'))}</span><strong>${escapeHTML(shippingLabel)}</strong></div>
+                <div><span class="v-kpi-sub">${escapeHTML(vt('settingsContract', 'Contrat vendeur'))}</span><strong>${escapeHTML(contractLabel)}</strong></div>
+            </div>
+        </div>`;
+
+    let guideHtml;
+    if (lang === 'ar') guideHtml = guideArHtml();
+    else if (lang === 'en') guideHtml = guideEnHtml();
+    else {
     const card = 'class="v-card" style="margin-top:1rem;"';
     const list = 'style="line-height:1.75;padding-left:1.2rem;margin:0;"';
-    container.innerHTML = `<div dir="ltr" style="text-align:left;">
+    guideHtml = `<div dir="ltr" style="text-align:left;">
         <div class="v-card">
             <h3 class="v-card-title">📘 Guide vendeur Smart Swika</h3>
             <p style="color:var(--text-muted);line-height:1.7;margin:0;">
@@ -2442,6 +3040,16 @@ function renderGuide(container) {
             </ul>
         </div>
     </div>`;
+    }
+
+    container.innerHTML = `${shopCard}${settingsHtml}<div id="vVendorGuideContent">${guideHtml}</div>`;
+
+    document.getElementById('vSignContractBtn')?.addEventListener('click', () => openContractModal(true));
+    document.getElementById('vViewContractBtn')?.addEventListener('click', handleViewContract);
+    document.getElementById('vPrintContractBtn')?.addEventListener('click', handlePrintContract);
+    document.getElementById('vDownloadContractBtn')?.addEventListener('click', handleDownloadContract);
+    document.getElementById('vVerifyContractBtn')?.addEventListener('click', handleVerifyContract);
+    document.getElementById('vResignContractBtn')?.addEventListener('click', () => openContractModal(true));
 }
 
 async function renderTab(tabName) {
@@ -2455,7 +3063,7 @@ async function renderTab(tabName) {
         if (tabName === 'wallet')   return await renderWallet(container);
         if (tabName === 'stock')    return await renderStock(container);
         if (tabName === 'koulchi')  return await renderKoulchi(container);
-        if (tabName === 'guide')    return renderGuide(container);
+        if (tabName === 'guide')    return await renderGuide(container);
   /* Ventes flash vendeur : module separe (js/vendor-flash.js).
      Le vendeur cree ses propres ventes, sans validation admin, sur SES
      produits uniquement. Import dynamique pour ne pas alourdir le bundle
@@ -2512,18 +3120,7 @@ function setupNavigation() {
         try { await logoutUser(); } catch (e) { console.warn(e); }
         window.location.href = '/';
     });
-    const sidebar = document.getElementById('vSidebar');
-    const overlay = document.getElementById('vOverlay');
-    const toggle  = document.getElementById('vMobileToggle');
-    if (toggle && sidebar && overlay) {
-        toggle.addEventListener('click', () => {
-            const open = !sidebar.classList.contains('open');
-            if (open) { sidebar.classList.add('open'); overlay.classList.add('open'); toggle.setAttribute('aria-expanded', 'true'); }
-            else closeMobileSidebar();
-        });
-        overlay.addEventListener('click', () => closeMobileSidebar());
-        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMobileSidebar(); });
-    }
+    /* Le menu tiroir mobile est gere par js/vendor-ui.js (shell moderne). */
 }
 
 /* ============================================================
@@ -2776,6 +3373,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     try { currentContractDoc = await loadCurrentContract(); } catch (_) { currentContractDoc = null; }
     document.querySelectorAll('.v-nav-link[data-tab]').forEach(link => { link.hidden = false; });
     updateSidebarUI(currentVendor);
+    try { await refreshWarehouseState(); } catch (e) { console.warn('[vendor-dashboard] workflow entrepôt :', e); }
     setActiveTab('overview');
     await renderTab('overview');
 });
