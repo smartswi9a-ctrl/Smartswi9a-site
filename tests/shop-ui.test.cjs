@@ -152,7 +152,68 @@ check("CSS : grille produits 4 colonnes", css.includes("grid-template-columns: r
 check("CSS : tablette/mobile 2 colonnes", css.includes("@media (max-width: 1023px)") && css.includes("grid-template-columns: repeat(2, minmax(0, 1fr))"));
 check("CSS : blog 3 / 2 / 1 colonnes", css.includes(".shop-blog-grid") && css.includes("@media (max-width: 767px)"));
 check("CSS : simulateur compact 3 lignes", css.includes(".koulchi-sim-row--head") && css.includes(".koulchi-sim-row--bar") && css.includes(".koulchi-sim-row--summary"));
-check("CSS : duo vitrine + ventes flash 2 colonnes des 1024px", /@media \(min-width: 1024px\)[\s\S]{0,160}\.promo-duo\.is-pair/.test(css) && css.includes(".koulchi-vitrine-card"));
+/* Duo jumeau : la grille doit rester en 2 colonnes sur mobile (390 px),
+   tablette (768 px) ET desktop (1366 px) — jamais d empilement, jamais de
+   carte pleine largeur. Les deux cartes partagent la classe .duo-card. */
+const duoCss = (() => {
+  const start = css.indexOf(".promo-duo {");
+  const end = css.indexOf("#promoDuo .duo-card");
+  return start >= 0 && end > start ? css.slice(start, end) : "";
+})();
+
+check(
+  "CSS : duo toujours en 2 colonnes cote a cote",
+  /grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/.test(duoCss) &&
+    !/grid-template-columns:\s*minmax\(0,\s*1fr\);/.test(duoCss),
+  duoCss ? "bloc duo trouve" : "bloc duo introuvable"
+);
+check(
+  "CSS : gaps duo 8 px mobile / 14 px tablette / 16 px desktop",
+  /gap:\s*8px/.test(duoCss) &&
+    /@media \(min-width: 768px\)[\s\S]{0,80}gap:\s*14px/.test(duoCss) &&
+    /@media \(min-width: 1024px\)[\s\S]{0,80}gap:\s*16px/.test(duoCss)
+);
+check(
+  "CSS : aucun etat pleine largeur (is-single neutralise en 2 colonnes)",
+  /\.promo-duo\.is-single,[\s\S]{0,160}grid-template-columns:\s*repeat\(2,/.test(css)
+);
+check(
+  "CSS : cartes jumelles — meme skin .duo-card (bordure, rayon, fond, hauteur)",
+  css.includes("#promoDuo .duo-card") &&
+    css.includes("justify-content: space-between") &&
+    css.includes("height: 100%") &&
+    css.includes("border-radius: 16px")
+);
+check(
+  "CSS : miniatures 1:1 (2 mobile/tablette, 3 desktop)",
+  css.includes("aspect-ratio: 1 / 1") &&
+    css.includes("#promoDuo .duo-thumb:nth-child(3) { display: none; }") &&
+    css.includes("#promoDuo .duo-thumb:nth-child(3) { display: block; }")
+);
+check(
+  "CSS : titre duo court clamp(0.85rem, 2.5vw, 1.15rem)",
+  css.includes("clamp(0.85rem, 2.5vw, 1.15rem)")
+);
+check(
+  "accueil : carte Ventes Flash toujours affichee (plus de hidden)",
+  !/<section class="section flash-hero"[^>]*\shidden/.test(index) &&
+    index.includes('class="flash-hero-inner duo-card"')
+);
+check(
+  "accueil : les deux cartes portent .duo-card",
+  index.includes('class="flash-hero-inner duo-card"') &&
+    pageJs.includes("koulchi-vitrine-card duo-card")
+);
+check(
+  "ventes flash : etat vide harmonise sans masquer la section",
+  read("js/flash-sales.js").includes("renderFlashPlaceholders") &&
+    !read("js/flash-sales.js").includes("section.hidden = true")
+);
+check(
+  "promo-duo : aucun passage en pleine largeur",
+  !read("js/promo-duo.js").includes('toggle("is-single"') &&
+    read("js/promo-duo.js").includes("classList.remove(\"is-single\")")
+);
 check("CSS : image produit ratio 1:1", css.includes("aspect-ratio: 1 / 1"));
 check("CSS : zoom 1.05", css.includes("scale(1.05)"));
 check("CSS : reveal + reduced motion", css.includes(".shop-reveal") && css.includes("prefers-reduced-motion: reduce"));
@@ -160,6 +221,26 @@ check("CSS : glassmorphism badges", css.includes("backdrop-filter: blur(10px)"))
 check("CSS : zones tactiles 44px", css.includes("min-height: 44px"));
 check("CSS : RTL", css.includes('[dir="rtl"]'));
 check("espacements compacts preserves", index.includes("spacing.18d35167.css") && fs.existsSync(path.join(ROOT, "css/spacing.18d35167.css")));
+/* --------------------------------------------- 3 bis. cache / i18n duo */
+check("cache-busting : shop-modern.css?v=3", index.includes("/css/shop-modern.css?v=3"));
+check(
+  "cache-busting : koulchi-page.js?v=3 + promo-duo.js?v=3",
+  index.includes("/js/koulchi-page.js?v=3") && index.includes("/js/promo-duo.js?v=3")
+);
+check(
+  "cache-busting : SW_VERSION incremente",
+  read("firebase-messaging-sw.js").includes("sw-2026-11-25-v3")
+);
+
+const translationsSrc = read("translations.js");
+check(
+  "i18n : cles duo flash presentes en FR / EN / AR",
+  ["flashEmpty", "flashCta", "flashNonCumul"].every(
+    (key) => (translationsSrc.match(new RegExp("\\b" + key + ":", "g")) || []).length === 3
+  )
+);
+
+
 
 /* --------------------------------------------- 4. tri / produits */
 check("produits : tri relevance conserve", products.includes("sortByRelevance(list, getRankingSnapshot())"));

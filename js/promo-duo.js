@@ -1,56 +1,77 @@
 /* ============================================================
    js/promo-duo.js
-   VITRINE KOULCHI DIALK + VENTES FLASH COTE A COTE (K7)
+   VITRINE KOULCHI DIALK + VENTES FLASH : DUO JUMEAU (K8)
    ============================================================
-   AliExpress affiche ses bandeaux commerciaux cote a cote sur grand
-   ecran. On reproduit ce principe avec trois garde-fous :
+   AliExpress affiche ses deux blocs commerciaux cote a cote sur TOUS
+   les ecrans. La grille CSS est desormais TOUJOURS en 2 colonnes
+   (voir css/shop-modern.css) : ce module ne fait plus que :
 
-     1. La carte vitrine Koulchi est TOUJOURS affichee : elle ne
-        depend pas du catalogue (visuel d appel si vide).
-     2. Sans vente flash active, la vitrine prend TOUTE la largeur
-        (un 50/50 avec une colonne vide donnerait l impression d un
-        site casse).
-     3. Sous 1024 px, empilement vertical : deux demi-blocs sont
-        illisibles sur tablette et mobile.
+     1. garantir la classe `is-pair` (aucun etat « pleine largeur ») ;
+     2. retirer les anciennes classes `is-single` / `is-empty` ;
+     3. relier le CTA « Voir les ventes flash » au filtre rapide ⚡ de
+        la grille produits (aucun texte ni style en dur ici).
 
-   L ordre est celui du DOM : vitrine d abord (gauche en FR/EN,
-   droite en AR grace a dir="rtl" qui inverse la grille). Aucun
-   `order` explicite n est donc necessaire.
+   L ordre est celui du DOM : vitrine d abord (gauche en FR/EN, droite
+   en AR grace a dir="rtl" qui inverse la grille). Aucun `order` n est
+   donc necessaire.
 
    ALERTE 1 : aucun commentaire de ligne dans ce fichier.
    ============================================================ */
 
+const DUO_ID = "promoDuo";
 const VITRINE_ID = "koulchiVitrine";
 const FLASH_ID = "flashSection";
 
 /**
- * Met le conteneur dans le bon mode :
- *   is-empty  aucune section -> rien du tout
- *   is-single une seule       -> pleine largeur
- *   is-pair   les deux        -> deux colonnes (desktop uniquement)
+ * Force le duo en mode jumeau (2 colonnes, meme si une carte est vide).
  */
 function syncDuo() {
-  const duo = document.getElementById("promoDuo");
+  const duo = document.getElementById(DUO_ID);
   if (!duo) return;
 
   const vitrine = document.getElementById(VITRINE_ID);
   const flash = document.getElementById(FLASH_ID);
   const vitrineVisible = Boolean(vitrine && !vitrine.hidden);
   const flashVisible = Boolean(flash && !flash.hidden);
-  const visible = (vitrineVisible ? 1 : 0) + (flashVisible ? 1 : 0);
 
-  duo.classList.toggle("is-empty", visible === 0);
-  duo.classList.toggle("is-single", visible === 1);
-  duo.classList.toggle("is-pair", visible === 2);
+  duo.classList.remove("is-single");
+  duo.classList.toggle("is-pair", vitrineVisible || flashVisible);
+  duo.classList.toggle("is-empty", !vitrineVisible && !flashVisible);
+}
+
+/**
+ * CTA de la carte Ventes Flash : applique le filtre rapide ⚡ de la
+ * grille produits puis fait defiler jusqu a la section. Le lien garde
+ * son href="#produits" en repli sans JavaScript.
+ */
+function onDuoClick(event) {
+  const trigger = event.target.closest("[data-duo-quick]");
+  if (!trigger) return;
+
+  const quick = trigger.getAttribute("data-duo-quick");
+  if (!quick) return;
+
+  const pill = document.querySelector(`[data-shop-quick="${quick}"]`);
+  if (!pill) return;
+
+  event.preventDefault();
+  pill.click();
+
+  const target = document.getElementById("produits");
+  if (target && typeof target.scrollIntoView === "function") {
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 }
 
 function initPromoDuo() {
-  if (!document.getElementById("promoDuo")) return;
+  const duo = document.getElementById(DUO_ID);
+  if (!duo) return;
 
   syncDuo();
+  duo.addEventListener("click", onDuoClick);
 
-  /* La vente flash est remplie puis affichee de facon asynchrone
-     (produits Firestore). On observe donc l attribut `hidden`. */
+  /* La vitrine et la vente flash sont rendues de facon asynchrone :
+     on observe l attribut `hidden` pour garder `is-pair` a jour. */
   const observer = new MutationObserver(syncDuo);
   for (const id of [VITRINE_ID, FLASH_ID]) {
     const section = document.getElementById(id);
@@ -69,4 +90,4 @@ if (document.readyState === "loading") {
   initPromoDuo();
 }
 
-console.log("[promo] duo vitrine Koulchi + ventes flash actif (K7)");
+console.log("[promo] duo jumeau Koulchi + ventes flash actif (K8)");
