@@ -696,6 +696,12 @@
 }
 
 #promoDuo .koulchi-vitrine-empty { display: block; }
+
+/* Garde-fou cache : un ancien js/flash-sales.js encore servi par un Service
+   Worker pouvait poser `hidden` sur la section. La carte du duo doit rester
+   visible (etat vide harmonise) : on neutralise l attribut ici, meme avant
+   que le nouveau module ne s execute. */
+#promoDuo #flashSection[hidden] { display: block; }
 /* ---- Rang 3 : trois pastilles compactes (paliers / remises) ---- */
 
 #promoDuo .duo-stats,

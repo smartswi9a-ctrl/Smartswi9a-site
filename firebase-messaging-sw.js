@@ -14,7 +14,7 @@
 importScripts('https://www.gstatic.com/firebasejs/11.0.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/11.0.0/firebase-messaging-compat.js');
 
-const SW_VERSION = 'sw-2026-11-25-v3';
+const SW_VERSION = 'sw-2026-11-25-v4';
 const CACHE_NAME = 'smartswika-' + SW_VERSION;
 const PRECACHE = [
   '/',
