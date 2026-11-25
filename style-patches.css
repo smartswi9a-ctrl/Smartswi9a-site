@@ -3747,3 +3747,106 @@ html body.vendor-login-page .login-topbar .logo-img {
         padding: 0.85rem 0.85rem 1.25rem;
     }
 }
+/* ============================================================
+   PANIER — PROGRESSION KOULCHI DIALK + CROSS-SELL COMPACT
+   ------------------------------------------------------------
+   Proprietes logiques (inline/block) -> compatible RTL (ar).
+   Aucune largeur fixe : rien ne deborde en mobile 390px.
+   ============================================================ */
+.koulchi-progress {
+    margin-block: 0 0.75rem;
+    padding: 0.7rem 0.85rem 0.6rem;
+    border: 1px solid rgba(212, 175, 55, 0.35);
+    border-radius: 12px;
+    background: linear-gradient(180deg, rgba(212, 175, 55, 0.12), rgba(212, 175, 55, 0.03));
+}
+.koulchi-progress__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-block-end: 0.45rem;
+}
+.koulchi-progress__title { font-weight: 800; font-size: 0.9rem; color: var(--gold, #a57b2e); }
+.koulchi-progress__count { font-size: 0.78rem; color: var(--text-muted, #6b6b6b); font-variant-numeric: tabular-nums; }
+.koulchi-bar {
+    position: relative;
+    block-size: 9px;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+}
+.koulchi-bar__fill {
+    block-size: 100%;
+    border-radius: 6px;
+    background: linear-gradient(90deg, #d4af37, #9a6b26);
+    transition: inline-size 320ms ease;
+}
+.koulchi-bar__scale {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.35rem;
+    margin-block: 0.35rem 0.45rem;
+    font-size: 0.7rem;
+    line-height: 1.2;
+    color: var(--text-muted, #6b6b6b);
+}
+.koulchi-bar__marker { white-space: nowrap; }
+.koulchi-bar__marker.is-reached { color: var(--gold, #a57b2e); font-weight: 800; }
+.koulchi-progress__msg { margin: 0; font-size: 0.82rem; line-height: 1.45; color: var(--text, #1a1a1a); }
+.koulchi-progress__save { margin: 0.3rem 0 0; font-size: 0.8rem; font-weight: 800; color: #1c8a4b; }
+.koulchi-progress__flash { margin: 0.35rem 0 0; font-size: 0.74rem; line-height: 1.4; color: #b26a00; }
+
+.cart-xsell {
+    margin-block: 0.85rem 0;
+    padding: 0.7rem 0.75rem 0.75rem;
+    border: 1px dashed rgba(212, 175, 55, 0.5);
+    border-radius: 12px;
+    background: rgba(212, 175, 55, 0.06);
+}
+.cart-xsell__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-block-end: 0.5rem;
+}
+.cart-xsell__title { margin: 0; font-size: 0.88rem; color: var(--gold, #a57b2e); }
+.cart-xsell__hint { font-size: 0.72rem; color: var(--text-muted, #6b6b6b); }
+.cart-xsell__grid { display: grid; gap: 0.5rem; grid-template-columns: 1fr; }
+@media (min-width: 560px) {
+    .cart-xsell__grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+.cart-xsell__card {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-inline-size: 0;
+    padding: 0.4rem 0.5rem;
+    border: 1px solid rgba(0, 0, 0, 0.07);
+    border-radius: 10px;
+    background: var(--bg-card, #fff);
+}
+.cart-xsell__img { inline-size: 44px; block-size: 44px; border-radius: 8px; object-fit: cover; flex: 0 0 auto; }
+.cart-xsell__body { display: flex; flex-direction: column; gap: 0.1rem; min-inline-size: 0; flex: 1 1 auto; }
+.cart-xsell__name { font-size: 0.78rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cart-xsell__price { font-size: 0.76rem; font-weight: 800; color: var(--gold, #a57b2e); }
+.cart-xsell__btn {
+    flex: 0 0 auto;
+    padding: 0.35rem 0.55rem;
+    border: 1px solid rgba(154, 107, 38, 0.55);
+    border-radius: 20px;
+    background: var(--gold, #d4af37);
+    color: #1a1a1a;
+    font-size: 0.72rem;
+    font-weight: 800;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.cart-xsell__btn:hover { filter: brightness(1.05); }
+.cart-xsell__btn:disabled { opacity: 0.6; cursor: default; }
+/* RTL : les libelles numeriques des paliers et le compteur restent lisibles
+   en arabe (isolation bidi, ordre 3 · -5 %). */
+.koulchi-bar__marker { direction: ltr; unicode-bidi: isolate; }
+.koulchi-progress__count { direction: ltr; unicode-bidi: isolate; }
