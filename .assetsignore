@@ -42,6 +42,10 @@ node_modules
 .wrangler
 .wrangler-home
 
+# Fichiers temporaires locaux (audits, probes, serveur de preview)
+.tmp
+.tmp-*
+
 # Documentation en vrac (les pages HTML restent publiées)
 README.md
 *.md

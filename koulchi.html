@@ -2,6 +2,23 @@
 <html lang="fr" dir="ltr">
 <head>
     <meta charset="UTF-8">
+    <script>
+        /* Langue + RTL avant le premier paint : évite tout layout shift. */
+        (function () {
+            try {
+                var q = new URLSearchParams(location.search).get("lang");
+                var raw = localStorage.getItem("swi9a_lang");
+                var stored = "fr";
+                if (raw) {
+                    try { stored = JSON.parse(raw); } catch (e) { stored = raw; }
+                }
+                var lang = q || stored;
+                if (["fr", "en", "ar"].indexOf(lang) < 0) lang = "fr";
+                document.documentElement.lang = lang;
+                document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
+            } catch (e) { /* ignore */ }
+        })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Offres groupées | Smartswika</title>
     <meta name="description" content="Achetez ensemble et payez moins cher : jusqu à −15 % dès 3 articles sur les gadgets et objets connectés Smartswika. Livraison 24-72h au Maroc.">
@@ -51,6 +68,7 @@
     <link rel="stylesheet" href="/css/style-patches.1109c3ea.css">
     <link rel="stylesheet" href="/css/spacing.18d35167.css">
     <link rel="stylesheet" href="/css/pwa.5a9c7c93.css">
+    <link rel="stylesheet" href="/css/shop-modern.css?v=1">
     <script src="/translations.72210d87.js"></script>
 
     <style>
@@ -327,6 +345,7 @@
         </aside>
 
         <div class="koulchi-main">
+          <section class="koulchi-experience koulchi-experience--page" aria-labelledby="koulchiExperienceTitle" data-koulchi-simulator></section>
           <section class="koulchi-suggest" aria-labelledby="koulchiSuggestTitle">
             <div class="koulchi-suggest-head">
               <h2 id="koulchiSuggestTitle" data-key="koulchiSuggestTitle">Meilleures remises</h2>
@@ -377,5 +396,6 @@
     <script src="/js/navbar.js"></script>
     <script type="module" src="/js/app.js?v=3"></script>
     <script type="module" src="/js/koulchi-catalog.js"></script>
+    <script type="module" src="/js/shop-ui.js?v=1"></script>
 </body>
 </html>
