@@ -40,6 +40,7 @@ import {
 import { aggregateTraffic, computeOnline, dayKey, buildTrafficSeries } from "./analytics-core.js";
 import { buildTrafficSvg } from "./traffic-chart.js";
 import { pickupSku, normalizeReceivedQuantity } from "./domain/pickup-sku.js";
+import { initPush } from "./push.js?v=3";
 
 /* admin.html ne charge pas app.js : personne ne resoudrait appReadyPromise
    (avertissement "timeout (10s)" en console). On utilise le contrat window
@@ -618,7 +619,7 @@ function initAdmin() {
             else if (tab === 'notifications') {
                 /* Onglet Campagnes & Notifications : module séparé, chargé à la demande. */
                 try {
-                    const m = await import('./admin-notifications.js?v=3');
+                    const m = await import('./admin-notifications.js?v=5');
                     await m.initNotificationsTab();
                 } catch (e) {
                     console.error('[admin] initNotificationsTab impossible :', e);
@@ -5554,3 +5555,24 @@ initAdmin();
    LOG FINAL
    ============================================================ */
 console.log('[admin] v12.2.1 chargé (Sécurisation des actions admin, imports nettoyés)');
+
+/* ============================================================
+   PUSH sur /admin (cette page ne charge pas app.js)
+   ------------------------------------------------------------
+   Sans cet appel, window.smartswikaPushStatus n'existe pas et
+   l'encart « État Push sur cet appareil » affichait
+   « Module push indisponible sur cette page ».
+   Pas de bandeau d'invite ici (showCta: false) : le diagnostic
+   et le bouton « Autoriser maintenant » suffisent.
+   ============================================================ */
+try {
+    initPush({ showCta: false })
+        .then(() => {
+            document.dispatchEvent(new CustomEvent('smartswika:push-ready'));
+        })
+        .catch(() => {
+            /* jamais bloquant pour le panneau */
+        });
+} catch (error) {
+    /* idem */
+}

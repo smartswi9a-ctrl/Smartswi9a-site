@@ -175,7 +175,10 @@ check("push : activation automatique au 1er geste (click + touchend, une seule f
 check("push : iOS hors PWA = invite d'installation, jamais de demande", () => {
   const push = read("js/push.js");
   assert.ok(push.includes("iosNeedsInstall"), "détection iOS absente");
-  assert.ok(/if \(iosNeedsInstall\(\)\) \{\s*\n\s*showPushCta/.test(push), "invite d'installation non conservée");
+  assert.ok(
+    /if \(iosNeedsInstall\(\)\) \{[\s\S]{0,80}?showPushCta/.test(push),
+    "invite d'installation non conservée"
+  );
 });
 
 check("push : synchro silencieuse uniquement si permission accordée", () => {
@@ -219,6 +222,22 @@ check("serveur : adminTestPush protégé (ID token + rôle admin + token posséd
   assert.ok(block.includes("not_admin"), "contrôle du rôle absent");
   assert.ok(block.includes("token_not_owned"), "contrôle de propriété du token absent");
   assert.ok(block.includes("sendPush([token]"), "envoi absent");
+});
+
+check("admin : push initialisé sur la page admin (sinon « Module indisponible »)", () => {
+  const admin = read("js/admin.js");
+  assert.ok(/import \{ initPush \} from "\.\/push\.js\?v=\d+"/.test(admin), "admin.js n'importe pas push.js");
+  assert.ok(/initPush\(\{ showCta: false \}\)/.test(admin), "initPush non appelé sur /admin");
+  assert.ok(admin.includes("smartswika:push-ready"), "événement de disponibilité absent");
+});
+
+check("push : enregistre le Service Worker s'il n'existe pas (pages sans app.js)", () => {
+  const push = read("js/push.js");
+  assert.ok(push.includes("ensureSwRegistration"), "helper absent");
+  assert.ok(
+    /serviceWorker\.register\("\/firebase-messaging-sw\.js", \{ scope: "\/" \}\)/.test(push),
+    "enregistrement explicite du SW absent"
+  );
 });
 
 console.log("\n" + checks + " verification(s), " + failures + " echec(s)");
