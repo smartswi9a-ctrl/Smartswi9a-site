@@ -1,6 +1,6 @@
 /* ============================================================ js/store.js STORE CENTRALISÉ - SMARTSWIKA Version 9.0.0 - Lot 3/30 : consolidation (JSDoc, cohérence API) CHANGEMENTS v9.0.0 : - Ajout : getDeliveryData() pour symétrie avec setDeliveryData(). - Ajout : JSDoc sur tous les exports publics. - Documentation : resolveAppReady() marqué comme alternative à window._appReadyResolve. - Documentation : getState() déconseillé pour les usages ciblés (préférer les getters spécifiques). - Aucune régression : signatures et comportements inchangés. NOTE : state n'est PAS réactif (pas de Proxy). Les composants UI doivent s'abonner aux CustomEvents (cart-updated, auth-updated, lang-changed, etc.) et relire le state au moment du rendu. ALERTE 1 : plus aucun commentaire de ligne (//) en début de ligne utile. Tout est en bloc. ============================================================ */
 
-import { CONFIG } from "./config.js";
+import { CONFIG } from "./config.js?v=2";
 
 /* ============================================================ ÉTAT GLOBAL ============================================================ Structure volontairement plate : tous les domaines (produits, panier, utilisateur, villes, blog, filtres, pagination) vivent dans le même objet. setState() remplace le state par un nouvel objet fusionné (shallow merge) - voir plus bas. ============================================================ */
 let state = {

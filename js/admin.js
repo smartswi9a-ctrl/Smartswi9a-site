@@ -19,7 +19,7 @@ import {
     ROLES, ORDER_STATUS, CATEGORY_GROUPS, CONFIG, normalizeOrderStatus,
     normalizeCategory, getCategoryById, LIVO_SYNCABLE_STATUSES,
     VENDOR_STATUS, CONTRACT_STATUS
-} from "./config.js";
+} from "./config.js?v=2";
 import {
     escapeHTML, slugify, getStoragePathFromUrl, isStorageUrl,
     getSignupMethodLabel, getSignupMethodEmoji, toDate, t, getCityName,

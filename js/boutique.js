@@ -8,7 +8,7 @@ import {
     doc, getDoc, collection, query, where, getDocs, limit, startAfter, orderBy
 } from "firebase/firestore";
 import { db } from "./firebase.js";
-import { CONFIG, VENDOR_STATUS, PRODUCT_STATUS, getCategoryById } from "./config.js";
+import { CONFIG, VENDOR_STATUS, PRODUCT_STATUS, getCategoryById } from "./config.js?v=2";
 import {
     t, escapeHTML, getProductName, getProductImageUrl, getFallbackImage,
     getDiscountPercent, toDate

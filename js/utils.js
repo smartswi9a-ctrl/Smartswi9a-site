@@ -9,7 +9,7 @@ import {
   REVIEW_STATUS,
   normalizeOrderStatus,
   getReturnedQuantities,
-} from "./config.js";
+} from "./config.js?v=2";
 
 /* ============================================================ LANGUE (évite le ReferenceError au chargement) ============================================================ */
 let currentLang = "fr";

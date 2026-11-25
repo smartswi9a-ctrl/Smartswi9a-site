@@ -37,7 +37,7 @@ import {
     SIGNUP_METHODS,
     LANGUAGES,
     DEFAULT_LANGUAGE
-} from "./config.js";
+} from "./config.js?v=2";
 import { safeGetItem } from "./utils.js";
 import { showToast } from "./ui-core.js";
 

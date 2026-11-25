@@ -20,7 +20,7 @@ import {
 } from "firebase/auth";
 import { doc, setDoc, getDoc, deleteDoc, Timestamp, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "./firebase.js";
-import { CONFIG, SIGNUP_METHODS, ROLES, VENDOR_STATUS, CONTRACT_STATUS } from "./config.js";
+import { CONFIG, SIGNUP_METHODS, ROLES, VENDOR_STATUS, CONTRACT_STATUS } from "./config.js?v=2";
 import { t, safeGetItem, safeSetItem, safeRemoveItem, isValidEmail, cleanEmail } from "./utils.js";
 import { setUser, getUser } from "./store.js";
 import { showToast } from "./ui-core.js";

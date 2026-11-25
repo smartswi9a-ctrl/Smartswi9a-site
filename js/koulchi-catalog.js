@@ -47,7 +47,7 @@ import {
   removeFromCart,
 } from "./cart.js";
 import { showToast } from "./ui-core.js";
-import { getCategoryById } from "./config.js";
+import { getCategoryById } from "./config.js?v=2";
 
 /* Nombre d offres ajoutees a chaque declenchement du defilement infini. */
 const PAGE_SIZE = 12;

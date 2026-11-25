@@ -28,7 +28,7 @@ import {
   serverTimestamp,
   Timestamp,
 } from "firebase/firestore";
-import { CONFIG } from "./config.js";
+import { CONFIG } from "./config.js?v=2";
 import { safeGetItem, safeSetItem } from "./utils.js";
 import {
   dayKey,

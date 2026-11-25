@@ -14,7 +14,7 @@ import {
     CONFIG, ORDER_STATUS, normalizeOrderStatus, NOTIFICATION_TYPES,
     mapLivoStatusToSmart,
     ORDER_STATUS_ORDER, ORDER_DEPRECATED_STATUSES
-} from "./config.js";
+} from "./config.js?v=2";
 import {
     t, escapeHTML, formatDateTime,
     getOrderStatusEmoji,

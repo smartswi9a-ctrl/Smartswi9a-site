@@ -2,7 +2,7 @@
 
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "./firebase.js";
-import { CONFIG, VIDEO_BASE_URL, getProductOwner } from "./config.js";
+import { CONFIG, VIDEO_BASE_URL, getProductOwner } from "./config.js?v=2";
 import {
   t,
   escapeHTML,

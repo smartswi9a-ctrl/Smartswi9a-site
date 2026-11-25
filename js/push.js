@@ -19,7 +19,7 @@ import {
 } from "firebase/firestore";
 import { db } from "./firebase.js";
 import { getCurrentUser } from "./auth.js";
-import { PWA_CONFIG } from "./config.js";
+import { PWA_CONFIG } from "./config.js?v=2";
 import { getSwRegistration, getPlatform, showPushCta } from "./pwa.js";
 import { showToast } from "./ui-core.js";
 import { t } from "./utils.js";
