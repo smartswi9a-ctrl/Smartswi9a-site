@@ -113,6 +113,12 @@ self.addEventListener('fetch', (event) => {
 const messaging = firebase.messaging();
 
 messaging.onBackgroundMessage((payload) => {
+  /* Depuis l'ajout du bloc natif `notification` (haute priorité), le
+     navigateur affiche lui-même la bannière : on ne double pas. */
+  if (payload && payload.notification && (payload.notification.title || payload.notification.body)) {
+    return;
+  }
+
   const data = payload.data || {};
   const title = data.title || 'Smartswika';
   const body = data.body || '';

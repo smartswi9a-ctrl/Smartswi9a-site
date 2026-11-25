@@ -217,11 +217,24 @@ check("serveur : adminTestPush protégé (ID token + rôle admin + token posséd
   const triggers = read("functions/triggers.js");
   const start = triggers.indexOf("exports.adminTestPush");
   assert.ok(start > 0, "fonction absente");
-  const block = triggers.slice(start, start + 2200);
+  const block = triggers.slice(start, start + 3000);
   assert.ok(block.includes("verifyIdToken"), "vérification du jeton absente");
   assert.ok(block.includes("not_admin"), "contrôle du rôle absent");
   assert.ok(block.includes("token_not_owned"), "contrôle de propriété du token absent");
-  assert.ok(block.includes("sendPush([token]"), "envoi absent");
+  assert.ok(block.includes("sendPush(tokens"), "envoi absent");
+  assert.ok(/where\('uid', '==', decoded\.uid\)/.test(block), "tous les appareils de l'admin non récupérés");
+});
+
+check("push haute priorité : bloc natif notification + webpush riche", () => {
+  const notif = read("functions/notifications.js");
+  assert.ok(notif.includes("const notification = { title: data.title, body: data.body }"), "bloc notification natif absent");
+  assert.ok(notif.includes("requireInteraction: true"), "requireInteraction absent");
+  assert.ok(notif.includes("assets/pwa-192.png"), "icône/badge absents");
+  assert.ok(notif.includes("Urgency: 'high'"), "urgence absente");
+  assert.ok(notif.includes("TTL: '86400'"), "TTL absent");
+  assert.ok(notif.includes("fcmOptions: { link: absoluteUrl(data.targetUrl) }"), "lien de clic absent");
+  const sw = read("firebase-messaging-sw.js");
+  assert.ok(sw.includes("payload.notification"), "anti-doublon SW absent");
 });
 
 check("admin : push initialisé sur la page admin (sinon « Module indisponible »)", () => {

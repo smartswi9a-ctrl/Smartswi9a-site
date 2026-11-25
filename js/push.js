@@ -417,19 +417,20 @@ export async function sendTestPush() {
   const account = await resolveAccount();
   if (!account) return { ok: false, error: "no_user" };
 
-  /* 2. Token NEUF de cet appareil, enregistré sous ce compte. */
+  /* 2. Token de cet appareil si disponible — sinon le serveur enverra à
+        TOUS les appareils actifs du compte admin (PC + téléphone + PWA). */
   let token = await refreshDeviceToken(account);
   if (!token) token = await registerToken({ user: account });
   if (!token) token = currentToken;
   if (!token) {
-    const result = await enablePush({ silent: true });
-    token = result && result.token;
+    const enabled = await enablePush({ silent: true }).catch(() => null);
+    token = enabled && enabled.token;
   }
-  if (!token) return { ok: false, error: "no_token" };
 
-  /* 3. Envoi, puis auto-réparation si FCM refuse le token. */
-  let result = await postTestPush(account, token);
-  if (!result.ok && result.error === "delivery_failed") {
+  /* 3. Envoi vers tous les appareils du compte, puis auto-réparation
+        si le token local est refusé par FCM. */
+  let result = await postTestPush(account, token || "");
+  if (token && !result.ok && result.error === "delivery_failed") {
     const fresh = await hardResetDeviceToken(account);
     if (fresh && fresh !== token) result = await postTestPush(account, fresh);
   }
