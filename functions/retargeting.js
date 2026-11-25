@@ -279,14 +279,22 @@ async function markViewsSent({ uid, lines, nowMs }) {
  */
 async function processScheduledEmails({ nowMs, limit = 15 } = {}) {
   const now = Number(nowMs) || Date.now();
-  let due = null;
+  let dueDocs = [];
   try {
-    due = await db
+    /* Requête mono-champ (scheduledFor ≤ maintenant) + filtre status en mémoire :
+       évite tout index composite Firestore, donc aucun blocage silencieux. */
+    const snap = await db
       .collection(SCHEDULED)
-      .where('status', '==', 'pending')
       .where('scheduledFor', '<=', new Date(now))
-      .limit(limit)
+      .orderBy('scheduledFor', 'asc')
+      .limit(limit * 3)
       .get();
+    dueDocs = snap.docs
+      .filter((doc) => {
+        const status = String((doc.data() || {}).status || 'pending');
+        return status === 'pending';
+      })
+      .slice(0, limit);
   } catch (error) {
     console.warn('[retargeting] processScheduledEmails :', error.message);
     return { due: 0, sent: 0, skipped: 0, failed: 0 };
@@ -297,7 +305,7 @@ async function processScheduledEmails({ nowMs, limit = 15 } = {}) {
   let skipped = 0;
   let failed = 0;
 
-  for (const doc of due.docs) {
+  for (const doc of dueDocs) {
     const data = doc.data() || {};
     const digest = core.buildDigest(data.items, now);
     if (!digest) {
@@ -340,7 +348,7 @@ async function processScheduledEmails({ nowMs, limit = 15 } = {}) {
     await doc.ref.set({ status: 'failed', reason: String(result.reason || '') }, { merge: true });
   }
 
-  return { due: due.size, sent, skipped, failed };
+  return { due: dueDocs.length, sent, skipped, failed };
 }
 
 module.exports = {
