@@ -618,7 +618,7 @@ function initAdmin() {
             else if (tab === 'notifications') {
                 /* Onglet Campagnes & Notifications : module séparé, chargé à la demande. */
                 try {
-                    const m = await import('./admin-notifications.js?v=2');
+                    const m = await import('./admin-notifications.js?v=3');
                     await m.initNotificationsTab();
                 } catch (e) {
                     console.error('[admin] initNotificationsTab impossible :', e);
