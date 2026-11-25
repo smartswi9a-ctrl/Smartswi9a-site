@@ -33,6 +33,9 @@ const VENDOR_I18N = {
     navGuide: "Paramètres Boutique & Contrat",
     supportHint: "Support 7/7 · WhatsApp",
     logout: "Déconnexion",
+    menuOpen: "Ouvrir le menu",
+    menuClose: "Fermer le menu",
+    sidebarToggleLabel: "Réduire ou afficher la navigation",
     settingsShopTitle: "Boutique & contrat",
     settingsShopName: "Nom de la boutique",
     settingsStatus: "Statut du compte",
@@ -111,6 +114,9 @@ const VENDOR_I18N = {
     navGuide: "Shop Settings & Contract",
     supportHint: "Support 7/7 · WhatsApp",
     logout: "Sign out",
+    menuOpen: "Open menu",
+    menuClose: "Close menu",
+    sidebarToggleLabel: "Collapse or expand navigation",
     settingsShopTitle: "Shop & contract",
     settingsShopName: "Shop name",
     settingsStatus: "Account status",
@@ -189,6 +195,9 @@ const VENDOR_I18N = {
     navGuide: "إعدادات المتجر والعقد",
     supportHint: "الدعم 7/7 · واتساب",
     logout: "تسجيل الخروج",
+    menuOpen: "افتح القائمة",
+    menuClose: "أغلق القائمة",
+    sidebarToggleLabel: "طي أو توسيع التنقل",
     settingsShopTitle: "المتجر والعقد",
     settingsShopName: "اسم المتجر",
     settingsStatus: "حالة الحساب",
@@ -473,6 +482,19 @@ export function applyVendorLang(lang, { persist = true, notify = true } = {}) {
 const vMqMobile = window.matchMedia("(max-width: 767px)");
 const vMqTablet = window.matchMedia("(min-width: 768px) and (max-width: 1023px)");
 
+/**
+ * Le tiroir mobile s'ouvre sous la Topbar sticky : on mesure sa hauteur
+ * pour positionner la sidebar et laisser le bouton menu accessible.
+ */
+function syncVendorTopbarOffset() {
+  const topbar = document.querySelector(".v-topbar");
+  const height = topbar ? Math.ceil(topbar.getBoundingClientRect().height) : 0;
+  document.documentElement.style.setProperty(
+    "--v-topbar-offset",
+    `${Math.max(64, height + 20)}px`
+  );
+}
+
 function initVendorLayout() {
   const layout = document.getElementById("vLayout");
   if (!layout) return;
@@ -480,19 +502,33 @@ function initVendorLayout() {
   const sidebar = document.getElementById("vSidebar");
   const overlay = document.getElementById("vOverlay");
   const mobileToggle = document.getElementById("vMobileToggle");
+  const topbar = document.querySelector(".v-topbar");
 
-  const closeDrawer = () => {
-    if (sidebar) sidebar.classList.remove("open");
-    if (overlay) overlay.classList.remove("open");
-    mobileToggle?.setAttribute("aria-expanded", "false");
+  const setDrawerOpen = (open) => {
+    sidebar?.classList.toggle("open", open);
+    overlay?.classList.toggle("open", open);
+    document.body.classList.toggle("v-drawer-open", open);
+    if (mobileToggle) {
+      mobileToggle.setAttribute("aria-expanded", open ? "true" : "false");
+      mobileToggle.setAttribute("aria-label", vendorT(open ? "menuClose" : "menuOpen"));
+    }
+    if (open) syncVendorTopbarOffset();
   };
+
+  const closeDrawer = () => setDrawerOpen(false);
 
   const applyDefault = () => {
     layout.classList.remove("v-collapsed", "v-expanded");
-    if (vMqMobile.matches || vMqTablet.matches) return;
-    try {
-      if (localStorage.getItem(VENDOR_SIDEBAR_KEY) === "1") layout.classList.add("v-collapsed");
-    } catch (e) { /* ignore */ }
+    setDrawerOpen(false);
+    if (!vMqMobile.matches && !vMqTablet.matches) {
+      try {
+        if (localStorage.getItem(VENDOR_SIDEBAR_KEY) === "1") layout.classList.add("v-collapsed");
+      } catch (e) { /* ignore */ }
+    }
+    if (toggle) {
+      toggle.setAttribute("aria-expanded", layout.classList.contains("v-collapsed") ? "false" : "true");
+    }
+    syncVendorTopbarOffset();
   };
 
   const toggleFn = () => {
@@ -501,37 +537,67 @@ function initVendorLayout() {
       return;
     }
     if (vMqTablet.matches) {
-      layout.classList.toggle("v-expanded");
+      const expanded = layout.classList.toggle("v-expanded");
+      mobileToggle?.setAttribute("aria-expanded", expanded ? "true" : "false");
       return;
     }
     const collapsed = layout.classList.toggle("v-collapsed");
+    toggle?.setAttribute("aria-expanded", collapsed ? "false" : "true");
     try { localStorage.setItem(VENDOR_SIDEBAR_KEY, collapsed ? "1" : "0"); } catch (e) { /* ignore */ }
   };
 
-  toggle?.addEventListener("click", toggleFn);
+  if (toggle) {
+    toggle.setAttribute("aria-label", vendorT("sidebarToggleLabel"));
+    toggle.setAttribute("aria-expanded", layout.classList.contains("v-collapsed") ? "false" : "true");
+    toggle.addEventListener("click", toggleFn);
+  }
 
-  /* Menu tiroir mobile : gere ici pour rester fonctionnel des le chargement
-     du shell (avant l'authentification / le module metier). */
+  /* Menu principal : tiroir mobile ET depliage de la rail tablette.
+     Le handler est attache des le shell, avant l'authentification. */
   mobileToggle?.addEventListener("click", (event) => {
-    if (!vMqMobile.matches) return;
     event.preventDefault();
-    const open = !sidebar?.classList.contains("open");
-    sidebar?.classList.toggle("open", open);
-    overlay?.classList.toggle("open", open);
-    mobileToggle.setAttribute("aria-expanded", open ? "true" : "false");
+    event.stopPropagation();
+    if (vMqMobile.matches) {
+      setDrawerOpen(!sidebar?.classList.contains("open"));
+      return;
+    }
+    if (vMqTablet.matches) {
+      const expanded = layout.classList.toggle("v-expanded");
+      mobileToggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+    }
   });
+  mobileToggle?.setAttribute("aria-label", vendorT("menuOpen"));
+
+  /* Sur mobile, un clic sur un onglet referme le tiroir. */
+  document.getElementById("vNav")?.addEventListener("click", (event) => {
+    if (!vMqMobile.matches) return;
+    if (event.target.closest(".v-nav-link")) closeDrawer();
+  });
+
   overlay?.addEventListener("click", closeDrawer);
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") closeDrawer();
   });
 
+  const onViewportChange = () => {
+    applyDefault();
+    syncVendorTopbarOffset();
+  };
   if (vMqMobile.addEventListener) {
-    vMqMobile.addEventListener("change", applyDefault);
-    vMqTablet.addEventListener("change", applyDefault);
+    vMqMobile.addEventListener("change", onViewportChange);
+    vMqTablet.addEventListener("change", onViewportChange);
   } else {
-    vMqMobile.addListener(applyDefault);
-    vMqTablet.addListener(applyDefault);
+    vMqMobile.addListener(onViewportChange);
+    vMqTablet.addListener(onViewportChange);
   }
+  window.addEventListener("resize", syncVendorTopbarOffset, { passive: true });
+  window.addEventListener("orientationchange", syncVendorTopbarOffset, { passive: true });
+  document.addEventListener("vendor-lang-changed", syncVendorTopbarOffset);
+  document.addEventListener("lang-changed", syncVendorTopbarOffset);
+  if (topbar && "ResizeObserver" in window) {
+    try { new ResizeObserver(syncVendorTopbarOffset).observe(topbar); } catch (e) { /* ignore */ }
+  }
+
   applyDefault();
 }
 

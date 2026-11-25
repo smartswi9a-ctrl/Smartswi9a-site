@@ -33,6 +33,7 @@ import { normalizeProductId } from "./domain/product-id.js";
 import { buildCanonicalUrl, applySeoLinks } from "./seo.js";
 import { applyProductJsonLd, clearProductJsonLd } from "./structured-data.js";
 import { isKoulchiEligible, isKoulchiBlockedByFlash, KOULCHI_TIERS } from "./koulchi.js";
+import { shopT } from "./shop-i18n.js";
 
 /* ============================================================ HELPERS LOCAUX ============================================================ */
 
@@ -41,6 +42,14 @@ import { isKoulchiEligible, isKoulchiBlockedByFlash, KOULCHI_TIERS } from "./kou
 /* ============================================================ ÉTAT LOCAL ============================================================ */
 let currentProduct = null;
 let currentVideoElement = null;
+/* QA/E2E : verrouille le rendu sur un produit injecte (aucun Firestore). */
+let _fixtureLocked = false;
+/* Snapshot du markup initial : permet de restaurer la fiche si app.js a
+   deja rendu l'etat "produit introuvable" avant l'injection de test. */
+const PRODUCT_MAIN_HTML = (() => {
+  const main = document.querySelector("main[data-product-page]");
+  return main ? main.innerHTML : "";
+})();
 
 /* État de sélection des variantes. */
 let selectedSize = null;
@@ -64,6 +73,7 @@ function getSlugFromUrl() {
 export async function renderProductDetail() {
   const mainEl = document.querySelector("main[data-product-page]");
   if (!mainEl) return;
+  if (_fixtureLocked) return;
 
   const slug = getSlugFromUrl();
   if (!slug) {
@@ -120,6 +130,7 @@ export async function renderProductDetail() {
   renderBreadcrumbs(product);
   renderMediaGallery(product);
   renderInfoSection(product);
+  renderProductReassurance();
   renderVariantsSection(product);
   renderDimensions(product);
   renderFeaturesSection(product);
@@ -127,6 +138,35 @@ export async function renderProductDetail() {
   renderRelatedProducts(product);
 
   attachProductEvents(product);
+}
+
+/* ============================================================
+   QA / E2E : rendu déterministe d'un produit injecté.
+   Aucune lecture Firestore, aucun effet en production (appel explicite).
+   ============================================================ */
+export function renderProductFixture(product) {
+  _fixtureLocked = true;
+  const mainEl = document.querySelector("main[data-product-page]");
+  if (mainEl && PRODUCT_MAIN_HTML) mainEl.innerHTML = PRODUCT_MAIN_HTML;
+  currentProduct = product;
+  selectedSize = null;
+  selectedColor = null;
+  currentVariant = null;
+  showAllReviews = false;
+  _relatedForProductId = null;
+  _relatedProductsCache = null;
+  document.title = `${getProductName(product)} | Smartswika`;
+  updateMetaTags(product);
+  renderBreadcrumbs(product);
+  renderMediaGallery(product);
+  renderInfoSection(product);
+  renderProductReassurance();
+  renderVariantsSection(product);
+  renderDimensions(product);
+  renderFeaturesSection(product);
+  renderRelatedProducts(product);
+  attachProductEvents(product);
+  return true;
 }
 
 /* ============================================================ PRODUIT NON TROUVÉ ============================================================ */
@@ -269,6 +309,9 @@ function renderMediaGallery(product) {
   if (!wrapper || !galleryContainer) return;
 
   const mainImageUrl = getProductImageUrl(product);
+  wrapper.setAttribute("aria-label", shopT("pdpGalleryAria"));
+  wrapper.setAttribute("role", "group");
+  galleryContainer.setAttribute("role", "list");
   galleryContainer.innerHTML = "";
 
   if (currentVideoElement) {
@@ -291,8 +334,14 @@ function renderMediaGallery(product) {
       mainImg.addEventListener("click", () => openImageLightbox(mainImg.src));
     galleryContainer
       .querySelectorAll(".thumb-img, .thumb-video")
-      .forEach((el) => el.classList.remove("active"));
-    if (activeThumb) activeThumb.classList.add("active");
+      .forEach((el) => {
+        el.classList.remove("active");
+        el.removeAttribute("aria-current");
+      });
+    if (activeThumb) {
+      activeThumb.classList.add("active");
+      activeThumb.setAttribute("aria-current", "true");
+    }
   };
 
   const showVideo = (videoUrl, activeThumb) => {
@@ -300,8 +349,14 @@ function renderMediaGallery(product) {
     currentVideoElement = document.getElementById("mainVideo");
     galleryContainer
       .querySelectorAll(".thumb-img, .thumb-video")
-      .forEach((el) => el.classList.remove("active"));
-    if (activeThumb) activeThumb.classList.add("active");
+      .forEach((el) => {
+        el.classList.remove("active");
+        el.removeAttribute("aria-current");
+      });
+    if (activeThumb) {
+      activeThumb.classList.add("active");
+      activeThumb.setAttribute("aria-current", "true");
+    }
   };
 
   /* B10 : déduplique [img, ...gallery] via Set. */
@@ -323,7 +378,17 @@ function renderMediaGallery(product) {
         : "/" + imgUrl;
     thumb.alt = `${getProductName(product)} - ${index + 1}`;
     thumb.loading = "lazy";
+    thumb.decoding = "async";
+    thumb.setAttribute("role", "button");
+    thumb.setAttribute("tabindex", "0");
+    thumb.setAttribute("aria-label", `${shopT("pdpGalleryAria")} — ${index + 1}`);
     thumb.addEventListener("click", () => showImage(thumb.src, thumb));
+    thumb.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        thumb.click();
+      }
+    });
     if (index === 0) firstImageThumb = thumb;
     galleryContainer.appendChild(thumb);
   });
@@ -340,8 +405,17 @@ function renderMediaGallery(product) {
 
     videoThumb = document.createElement("div");
     videoThumb.className = "thumb-video";
+    videoThumb.setAttribute("role", "button");
+    videoThumb.setAttribute("tabindex", "0");
+    videoThumb.setAttribute("aria-label", `${getProductName(product)} — vidéo`);
     videoThumb.innerHTML = ` <img src="${escapeHTML( mainImageUrl )}" style="filter: brightness(0.5);"> <div class="play-icon-overlay"> <div><svg viewBox="0 0 24 24" fill="white" width="14" height="14" style="margin-left: 2px;"><path d="M8 5v14l11-7z"/></svg></div> </div> `;
     videoThumb.addEventListener("click", () => showVideo(videoUrl, videoThumb));
+    videoThumb.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        videoThumb.click();
+      }
+    });
     galleryContainer.insertBefore(videoThumb, galleryContainer.firstChild);
     showVideo(videoUrl, videoThumb);
     if (firstImageThumb) firstImageThumb.classList.remove("active");
@@ -482,6 +556,8 @@ function renderKoulchiOffer(product) {
   const btn = host.querySelector("#koulchiAddBtn");
   if (btn) {
     btn.addEventListener("click", () => {
+      btn.classList.add("is-adding");
+      window.setTimeout(() => btn.classList.remove("is-adding"), 650);
       import("./cart.js").then((m) =>
         m.addToCart(product.id, null, { mode: "koulchi" })
       );
@@ -509,9 +585,43 @@ function renderProductVendorBlock(product) {
     html = ` <div id="productVendorBlock" class="product-vendor-info" style="margin: 0.5rem 0 1rem; display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem;"> <span style="color: var(--text-muted);">${ t("vendorSoldBy") || "Vendu par" } :</span> <span class="product-vendor-info-smart" style="display: inline-flex; align-items: center; gap: 0.3rem; color: var(--gold); font-weight: 700; background: rgba(165, 123, 46, 0.1); padding: 0.2rem 0.6rem; border-radius: 30px; border: 1px solid var(--border-gold);"> <span>✅</span> <span>${t("vendorSmartSwi9a") || "Smartswika"}</span> </span> </div> `;
   }
   titleEl.insertAdjacentHTML("afterend", html);
+
+  /* Couche moderne : badge vendeur/garantie conforme CGV + JSON-LD. */
+  const block = document.getElementById("productVendorBlock");
+  if (block) {
+    block.removeAttribute("style");
+    block.className =
+      "product-vendor-block " +
+      (isVendorProduct ? "product-vendor-block--vendor" : "product-vendor-block--smart");
+    if (isVendorProduct) {
+      block.innerHTML = `<span>${escapeHTML(shopT("pdpBadgeVendor"))}</span><span class="shop-origin-sep" aria-hidden="true">${escapeHTML(shopT("pdpBadgeVendorSep"))}</span><a href="/boutique.html?v=${encodeURIComponent(owner)}" class="product-vendor-info-link" title="${escapeHTML(shopT("pdpVendorCta"))}"><span>${escapeHTML(vendorInfo.name)}</span> <span aria-hidden="true">→</span></a>`;
+    } else {
+      block.innerHTML = `<span>${escapeHTML(shopT("pdpBadgeSmart"))}</span>`;
+    }
+  }
 }
 
-/* ============================================================ SECTION DES VARIANTES (Tailles / Couleurs) ============================================================ */
+/* ============================================================
+   Réassurance : paiement à la livraison + Livo 24-72h + support
+   ============================================================ */
+function renderProductReassurance() {
+  const host = document.getElementById("productReassurance");
+  if (!host) return;
+  const cards = [
+    { icon: "💵", title: shopT("pdpCodTitle"), desc: shopT("pdpCodDesc") },
+    { icon: "🚚", title: shopT("pdpLivoTitle"), desc: shopT("pdpLivoDesc") },
+    { icon: "💬", title: shopT("pdpSupportTitle"), desc: shopT("pdpSupportDesc") },
+  ];
+  host.setAttribute("aria-label", shopT("pdpReassuranceAria"));
+  host.innerHTML = cards
+    .map(
+      (card) => `<div class="pdp-reassure-card">
+        <span class="pdp-reassure-icon" aria-hidden="true">${card.icon}</span>
+        <div><strong>${escapeHTML(card.title)}</strong><span>${escapeHTML(card.desc)}</span></div>
+      </div>`
+    )
+    .join("");
+}
 function renderVariantsSection(product) {
   const root = document.getElementById("productVariantsRoot");
   if (!root) return;
@@ -534,11 +644,11 @@ function renderVariantsSection(product) {
     : "";
 
   if (sizes.length > 0) {
-    html += ` <div class="variant-options-group"> <div class="variant-label"> <span>${t("sizeGuideSize")} : <span id="selectedSizeLabel" style="color:var(--gold);">${t("selectPlaceholder")}</span></span> ${guideBtnHtml} </div> <div class="variant-buttons" id="sizeButtons"> ${sizes .map( (s) => `<button type="button" class="variant-btn" data-size="${escapeHTML( s )}">${escapeHTML(s)}</button>` ) .join("")} </div> </div> `;
+    html += ` <div class="variant-options-group"> <div class="variant-label"> <span>${t("sizeGuideSize")} : <span id="selectedSizeLabel" style="color:var(--gold);">${t("selectPlaceholder")}</span></span> ${guideBtnHtml} </div> <div class="variant-buttons" id="sizeButtons"> ${sizes .map( (s) => `<button type="button" class="variant-btn" aria-pressed="false" data-size="${escapeHTML( s )}">${escapeHTML(s)}</button>` ) .join("")} </div> </div> `;
   }
 
   if (colors.length > 0) {
-    html += ` <div class="variant-options-group"> <div class="variant-label"> <span>Couleur : <span id="selectedColorLabel" style="color:var(--gold);">Sélectionnez</span></span> </div> <div class="variant-buttons" id="colorButtons"> ${colors .map( (c) => `<button type="button" class="variant-btn" data-color="${escapeHTML( c )}">${escapeHTML(c)}</button>` ) .join("")} </div> </div> `;
+    html += ` <div class="variant-options-group"> <div class="variant-label"> <span>Couleur : <span id="selectedColorLabel" style="color:var(--gold);">Sélectionnez</span></span> </div> <div class="variant-buttons" id="colorButtons"> ${colors .map( (c) => `<button type="button" class="variant-btn" aria-pressed="false" data-color="${escapeHTML( c )}">${escapeHTML(c)}</button>` ) .join("")} </div> </div> `;
   }
 
   root.innerHTML = html;
@@ -573,14 +683,22 @@ function selectVariantOption(type, value) {
     if (sizeLabel) sizeLabel.textContent = value;
     document
       .querySelectorAll("#sizeButtons .variant-btn")
-      .forEach((b) => b.classList.toggle("active", b.dataset.size === value));
+      .forEach((b) => {
+        const active = b.dataset.size === value;
+        b.classList.toggle("active", active);
+        b.setAttribute("aria-pressed", active ? "true" : "false");
+      });
   } else if (type === "color") {
     selectedColor = value;
     const colorLabel = document.getElementById("selectedColorLabel");
     if (colorLabel) colorLabel.textContent = value;
     document
       .querySelectorAll("#colorButtons .variant-btn")
-      .forEach((b) => b.classList.toggle("active", b.dataset.color === value));
+      .forEach((b) => {
+        const active = b.dataset.color === value;
+        b.classList.toggle("active", active);
+        b.setAttribute("aria-pressed", active ? "true" : "false");
+      });
   }
 
   if (!currentProduct || !Array.isArray(currentProduct.variants)) {
@@ -1101,6 +1219,15 @@ function renderRelatedProducts(product) {
   });
 }
 
+/* Retour visuel immédiat du bouton d'ajout (500-600 ms). */
+function pulseAddButton(btn) {
+  if (!btn) return;
+  btn.classList.add("is-adding");
+  window.setTimeout(() => btn.classList.remove("is-adding"), 600);
+  btn.classList.add("is-added");
+  window.setTimeout(() => btn.classList.remove("is-added"), 1200);
+}
+
 /* ============================================================ ÉVÉNEMENTS PRINCIPAUX ============================================================ */
 function attachProductEvents(product) {
   const addBtn = document.getElementById("addToCartBtn");
@@ -1129,11 +1256,13 @@ function attachProductEvents(product) {
           showToast(t("outOfStock"));
           return;
         }
-        import("./cart.js").then((m) =>
-          m.addToCart(currentProduct.id, currentVariant)
-        );
+        import("./cart.js")
+          .then((m) => m.addToCart(currentProduct.id, currentVariant))
+          .then(() => pulseAddButton(addBtn));
       } else {
-        import("./cart.js").then((m) => m.addToCart(currentProduct.id));
+        import("./cart.js")
+          .then((m) => m.addToCart(currentProduct.id))
+          .then(() => pulseAddButton(addBtn));
       }
     });
   }
@@ -1141,6 +1270,16 @@ function attachProductEvents(product) {
   const waBtn = document.getElementById("whatsappOrderBtn");
   if (waBtn) {
     waBtn.dataset.productId = String(product.id);
+  }
+
+  if (!window.__pdpLangBound) {
+    window.__pdpLangBound = true;
+    document.addEventListener("lang-changed", () => {
+      if (!currentProduct) return;
+      renderProductVendorBlock(currentProduct);
+      renderProductReassurance();
+      renderKoulchiOffer(currentProduct);
+    });
   }
 
   console.log("Page produit prête :", product.slug);

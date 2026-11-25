@@ -262,6 +262,16 @@ body.vendor-page {
 /* --- Etat verrouille (entrepôt non recu) --- */
 .v-locked-cta { display: inline-flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center; }
 
+/* --- Bouton menu (hamburger) : zone tactile 44x44 et cliquable --- */
+@media (max-width: 1023px) {
+    .v-mobile-toggle {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 44px; height: 44px; min-width: 44px; min-height: 44px;
+        position: relative; z-index: 2; flex: 0 0 auto;
+        touch-action: manipulation;
+    }
+}
+
 /* ============================================================
    RESPONSIVE
    ============================================================ */
@@ -308,11 +318,22 @@ body.vendor-page {
 }
 
 @media (max-width: 767px) {
-    .v-sidebar { width: 286px; transform: translateX(calc(-100% - 12px)); box-shadow: none; }
+    .v-sidebar {
+        width: 286px;
+        transform: translateX(calc(-100% - 12px));
+        box-shadow: none;
+        /* Tiroir sous la Topbar sticky : le bouton menu reste cliquable. */
+        top: var(--v-topbar-offset, 76px);
+        bottom: 0;
+        z-index: 120;
+        border-radius: 0 18px 18px 0;
+    }
     .v-sidebar.open { transform: translateX(0); box-shadow: var(--shadow-lg); }
     .v-content { margin-left: 0; padding: 0.8rem 0.7rem 2rem; }
     .v-mobile-toggle { display: inline-flex; }
-    .v-topbar { padding: 0.55rem 0.65rem; border-radius: 14px; }
+    .v-mobile-overlay { z-index: 110; }
+    .v-topbar { padding: 0.55rem 0.65rem; border-radius: 14px; z-index: 130; }
+    body.v-drawer-open { overflow: hidden; }
     .v-topbar-shop-meta { gap: 0.3rem; }
     .v-shop-name { max-width: 130px; font-size: 0.75rem; }
     .v-shipping-mode { display: none !important; }
@@ -357,7 +378,7 @@ body.vendor-page {
     [dir="rtl"] .v-layout.v-collapsed .v-content { margin-right: 72px; }
 }
 @media (max-width: 767px) {
-    [dir="rtl"] .v-sidebar { transform: translateX(calc(100% + 12px)); }
+    [dir="rtl"] .v-sidebar { transform: translateX(calc(100% + 12px)); border-radius: 18px 0 0 18px; }
     [dir="rtl"] .v-sidebar.open { transform: translateX(0); }
     [dir="rtl"] .v-content { margin-right: 0; margin-left: 0; }
 }
