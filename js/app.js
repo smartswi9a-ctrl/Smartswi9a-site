@@ -1,6 +1,6 @@
 /* ============================================================ js/app.js INITIALISATION PRINCIPALE - SMARTSWIKA Version 9.0.0 - Lot 25/30 : P2-20 + dette Lot 19 (cross-page cat) CHANGEMENTS v9.0.0 : - P2-20 (P2) : init() enveloppé dans try/finally. La fonction window._appReadyResolve() est TOUJOURS appelée, même si init() throw (Firebase HS, JSON invalide, etc.). Avant : les consommateurs de appReadyPromise attendaient 10s (timeout de store.js) au lieu de continuer. - Dette Lot 19 (P1) : initCategoriesMenuFromUrl() est maintenant appelée après le rendu de la home. Le fix /?cat=xxx#produits devient fonctionnel cross-page. NOTE : double render rare (uniquement si ?cat présent). Négligeable en pratique (chemin de navigation rare). - P2-20-bis : startup avec .catch() explicite. Les rejets de init() sont loggés au lieu de devenir "unhandled rejection" silencieux. - Logs préfixés [app] (retrait des emojis 🚀🎨✅❌⚠️ℹ️). - JSDoc sur init() et window._app. - Bump version 2.2.4 -> 9.0.0. ARCHITECTURE : app.js est le SEUL point d'entrée chargé sur toutes les pages (via <script type="module" src="/js/app.js">). Il : 1. Détecte la page courante (home / product / cart). 2. Initialise la langue, l'UI partagée, l'auth, le panier. 3. Charge les données (produits + villes en parallèle). 4. Rend la page selon le contexte (renderProducts / renderProductDetail / panier.js fait le reste). 5. Branche les modules secondaires (bannières, notifications, cookie consent, abandon cart). 6. Résout appReadyPromise (pour panier.js et autres). GUARD AUTH : window._authListenerInitialized empêche le double init d'auth si app.js est importé 2× (double include, HMR). ALERTE 1 : plus aucun commentaire de ligne (//) en début de ligne utile. Tout est en bloc. ============================================================ */
 
-import { t, initLang, loadCities } from "./utils.js";
+import { t, initLang, getLang, loadCities } from "./utils.js";
 import { getProducts, setProducts, setProductsLoadedPromise } from "./store.js";
 import {
   loadAllProducts,
@@ -25,6 +25,7 @@ import { loadNotifications } from "./notifications.js";
 import { initCategoriesMenuFromUrl } from "./categories-menu.js";
 import { initAnalytics } from "./analytics.js";
 import { initSeo } from "./seo.js";
+import { initStructuredData } from "./structured-data.js";
 import { initEventsCalendar } from "./events-calendar.js";
 import { initPWA } from "./pwa.js";
 import { initPush } from "./push.js?v=6";
@@ -53,6 +54,14 @@ async function init() {
     /* Canonical + hreflang cohérents (correctif audit 2026-11-20).
        Fait APRÈS initLang : la langue courante détermine l'URL. */
     initSeo();
+
+    /* JSON-LD Schema.org : OnlineStore + WebSite + FAQPage (accueil),
+       BreadcrumbList + Service (villes). Upsert par id, sans doublon. */
+    try {
+      initStructuredData(getLang());
+    } catch (e) {
+      console.warn("[app] JSON-LD indisponible :", e?.message);
+    }
 
     /* ============================================================
        Bannières saisonnières (11 visuels autonomes)
