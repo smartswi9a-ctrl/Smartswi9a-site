@@ -3893,3 +3893,10 @@ exports.releaseDueFunds = onRequest({ invoker: 'public', region: 'europe-west1',
   }
 });
 
+
+/* Notifications push + in-app + emails EmailJS : enregistre les déclencheurs.
+   IMPORTANT : Object.assign est obligatoire — `require('./triggers')` seul
+   posait les exports sur le module triggers.js, pas sur index.js, donc
+   AUCUNE fonction n'était déployée (bug corrigé le 2026-11-24). */
+Object.assign(exports, require('./triggers'));
+

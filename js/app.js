@@ -25,6 +25,9 @@ import { loadNotifications } from "./notifications.js";
 import { initCategoriesMenuFromUrl } from "./categories-menu.js";
 import { initAnalytics } from "./analytics.js";
 import { initSeo } from "./seo.js";
+import { initEventsCalendar } from "./events-calendar.js";
+import { initPWA } from "./pwa.js";
+import { initPush } from "./push.js";
 
 /* ============================================================ GUARD GLOBAL : éviter les doubles initialisations auth ============================================================ Si app.js est inclus 2× (double balise, HMR), le 2ème init ne réattache pas le listener auth. Empêche le cumul. ============================================================ */
 if (
@@ -50,6 +53,35 @@ async function init() {
     /* Canonical + hreflang cohérents (correctif audit 2026-11-20).
        Fait APRÈS initLang : la langue courante détermine l'URL. */
     initSeo();
+
+    /* ============================================================
+       Bannières saisonnières (11 visuels autonomes)
+       ------------------------------------------------------------
+       Rend immédiatement la bannière active (calendrier embarqué),
+       puis synchronise Firestore `config/events` en arrière-plan.
+       Hors plage : /assets/newphoto.webp. `?preview_event=<id>`
+       force un visuel pour les tests. Aucune décoration superposée.
+       ============================================================ */
+    try {
+      initEventsCalendar();
+    } catch (e) {
+      console.warn("[app] calendrier des bannières indisponible :", e?.message);
+    }
+
+    /* ============================================================
+       PWA + notifications push (non bloquant)
+       ------------------------------------------------------------
+       Enregistre le Service Worker unifié puis initialise FCM.
+       Si la clé VAPID n'est pas renseignée, push.js s'arrête
+       proprement : aucune erreur, le site reste intact.
+       ============================================================ */
+    try {
+      initPWA()
+        .then(() => initPush())
+        .catch((e) => console.warn("[app] PWA/push indisponible :", e?.message));
+    } catch (e) {
+      console.warn("[app] PWA/push indisponible :", e?.message);
+    }
 
     /* ============================================================ 2. UI Partagée (modale compte, cart flottant, etc.) ============================================================ */
     try {

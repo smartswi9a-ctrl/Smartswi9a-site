@@ -615,6 +615,16 @@ function initAdmin() {
                     showToast('Impossible de charger les ventes flash.', 5000);
                 }
             }
+            else if (tab === 'notifications') {
+                /* Onglet Campagnes & Notifications : module séparé, chargé à la demande. */
+                try {
+                    const m = await import('./admin-notifications.js');
+                    await m.initNotificationsTab();
+                } catch (e) {
+                    console.error('[admin] initNotificationsTab impossible :', e);
+                    showToast('Impossible de charger les notifications.', 5000);
+                }
+            }
             else if (tab === 'finances') await loadFinancesTab();
             else if (tab === 'users') await loadUsers();
             else if (tab === 'reviews') await loadReviews();
@@ -4070,7 +4080,7 @@ async function renderPickupRequestsAdmin() {
     try {
         const snap = await getDocs(query(
             collection(db, 'vendor_pickup_requests'),
-            where('status', '==', 'pending'),
+            where('status', 'in', ['pending', 'approved']),
             limit(100)
         ));
         if (snap.empty) {
@@ -4099,9 +4109,12 @@ async function renderPickupRequestsAdmin() {
                 </div>
                 <ul style="margin:.4rem 0;padding-left:1.1rem;font-size:.85rem;">${detail || '<li>—</li>'}</ul>
                 ${r.comment ? `<div style="font-size:.8rem;color:var(--text-muted);">${escapeHTML(r.comment)}</div>` : ''}
-                <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:.5rem;">
+                <div style="display:flex;gap:.5rem;justify-content:flex-end;flex-wrap:wrap;margin-top:.5rem;">
+                    ${r.status === 'pending' ? `
                     <button class="admin-btn" data-pickup-approve="${escapeHTML(d.id)}">✅ Approuver le ramassage</button>
-                    <button class="admin-btn" data-pickup-reject="${escapeHTML(d.id)}" style="background:var(--danger);border-color:var(--danger);color:#fff;">❌ Refuser</button>
+                    <button class="admin-btn" data-pickup-reject="${escapeHTML(d.id)}" style="background:var(--danger);border-color:var(--danger);color:#fff;">❌ Refuser</button>` : r.received_at_warehouse ? `
+                    <span style="font-size:.8rem;color:var(--success);font-weight:700;">📥 Réception entrepôt confirmée</span>` : `
+                    <button class="admin-btn" data-pickup-receive="${escapeHTML(d.id)}">📥 Confirmer réception entrepôt</button>`}
                 </div>
             </div>`;
         }).join('');
@@ -4112,9 +4125,39 @@ async function renderPickupRequestsAdmin() {
         container.querySelectorAll('[data-pickup-reject]').forEach(btn => {
             btn.addEventListener('click', () => reviewPickupRequest(btn.dataset.pickupReject, 'rejected', btn));
         });
+        container.querySelectorAll('[data-pickup-receive]').forEach(btn => {
+            btn.addEventListener('click', () => confirmWarehouseReceipt(btn.dataset.pickupReceive, btn));
+        });
     } catch (e) {
         console.error('[admin] demandes de ramassage :', e);
         container.innerHTML = '<div class="admin-empty" style="color:var(--danger);">Impossible de charger les demandes de ramassage.</div>';
+    }
+}
+
+/* Réception physique à l'entrepôt Smart Swika : débloque la création
+   de produits côté vendeur (règle Firestore pickupApproved + UI). */
+async function confirmWarehouseReceipt(requestId, btn) {
+    if (!requestId) return;
+    const ok = await confirmAction(
+        'Confirmer que la marchandise est physiquement arrivée à l’entrepôt Smart Swika ? Le vendeur pourra alors ajouter ses produits.',
+        { title: 'Réception entrepôt', confirmText: 'Confirmer la réception' }
+    );
+    if (!ok) return;
+    if (btn) btn.disabled = true;
+    try {
+        await updateDoc(doc(db, 'vendor_pickup_requests', requestId), {
+            received_at_warehouse: true,
+            receivedAt: Timestamp.now(),
+            receivedBy: currentAdmin ? currentAdmin.uid : '',
+            updatedAt: Timestamp.now()
+        });
+        showToast('Réception entrepôt confirmée. Le vendeur peut ajouter ses produits.');
+        await renderPickupRequestsAdmin();
+    } catch (e) {
+        console.error('[admin] confirmation réception entrepôt :', e);
+        showToast('Impossible de confirmer la réception.');
+    } finally {
+        if (btn) btn.disabled = false;
     }
 }
 

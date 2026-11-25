@@ -30,7 +30,11 @@ service cloud.firestore {
       return isSignedIn() &&
         exists(/databases/$(database)/documents/vendor_pickup_requests/$(requestId)) &&
         get(/databases/$(database)/documents/vendor_pickup_requests/$(requestId)).data.vendorId == request.auth.uid &&
-        get(/databases/$(database)/documents/vendor_pickup_requests/$(requestId)).data.status == 'approved';
+        get(/databases/$(database)/documents/vendor_pickup_requests/$(requestId)).data.status == 'approved' &&
+        /* VERROU ENTREPOT (2026-11-24) : la creation de produit n'est
+           autorisee qu'apres confirmation physique de la reception par
+           l'admin (received_at_warehouse = true). */
+        get(/databases/$(database)/documents/vendor_pickup_requests/$(requestId)).data.get('received_at_warehouse', false) == true;
     }
 
 
@@ -542,21 +546,21 @@ service cloud.firestore {
           isSignedIn() &&
           (
             resource.data.get('userId', '') == request.auth.uid ||
+            resource.data.get('recipientId', '') == request.auth.uid ||
             resource.data.get('vendorId', '') == request.auth.uid
           )
         );
       allow create: if isAdmin();
 
-      // Un utilisateur peut uniquement marquer ses propres notifications comme lues.
+      /* Le destinataire peut uniquement marquer comme lu.
+         `read` est le champ historique, `isRead` le champ unifie. */
       allow update: if isAdmin() || (
         isSignedIn() &&
         (
           resource.data.get('userId', '') == request.auth.uid ||
-          resource.data.get('vendorId', '') == request.auth.uid
+          resource.data.get('recipientId', '') == request.auth.uid
         ) &&
-        resource.data.get('read', false) == false &&
-        request.resource.data.get('read', false) == true &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'isRead'])
       );
 
       // La suppression reste limitée au propriétaire ou à un administrateur.
@@ -564,9 +568,41 @@ service cloud.firestore {
         isSignedIn() &&
         (
           resource.data.get('userId', '') == request.auth.uid ||
+          resource.data.get('recipientId', '') == request.auth.uid ||
           resource.data.get('vendorId', '') == request.auth.uid
         )
       );
+    }
+
+    /* ============================================================
+       TOKENS FCM (PWA / PUSH WEB)
+       ------------------------------------------------------------
+       Un utilisateur n'ecrit que SON token, et le role declare doit
+       correspondre a son profil reel (empeche un client de recevoir
+       les alertes admin). Lecture/suppression : proprietaire ou admin.
+       ============================================================ */
+
+    match /fcm_tokens/{token} {
+      function profileRole() {
+        return !exists(/databases/$(database)/documents/users/$(request.auth.uid))
+          ? 'client'
+          : get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+            ? 'admin'
+            : get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'vendor'
+              ? 'seller'
+              : 'client';
+      }
+
+      allow read: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
+
+      allow create, update: if isSignedIn() &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.token == token &&
+        request.resource.data.role == profileRole() &&
+        request.resource.data.role in ['admin', 'seller', 'client'] &&
+        request.resource.data.platform in ['web_browser', 'pwa_installed'];
+
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
     }
 
     /* ============================================================
@@ -603,6 +639,47 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    /* ============================================================
+       RECIBLAGE INTELLIGENT — VUES PRODUIT (module passif)
+       ------------------------------------------------------------
+       product_views/{uid}_{productId} : le client écrit UNIQUEMENT
+       ses propres vues, avec des champs bornés. Aucune lecture
+       croisée, aucune écriture serveur côté client.
+       scheduled_emails : file d'envoi différé, Cloud Functions only.
+       ============================================================ */
+
+    match /product_views/{viewId} {
+      allow read: if isAdmin() ||
+        (isSignedIn() && resource.data.get('uid', '') == request.auth.uid);
+
+      allow create: if isSignedIn() &&
+        request.resource.data.get('uid', '') == request.auth.uid &&
+        viewId == request.auth.uid + '_' + request.resource.data.get('productId', '') &&
+        request.resource.data.get('productId', '') is string &&
+        request.resource.data.get('productId', '').size() > 0 &&
+        request.resource.data.get('productId', '').size() <= 120 &&
+        request.resource.data.get('seenPrice', -1) is number &&
+        request.resource.data.get('seenPrice', -1) >= 0 &&
+        request.resource.data.get('viewCount', 0) is int &&
+        request.resource.data.get('viewCount', 0) >= 1 &&
+        request.resource.data.get('viewCount', 0) <= 1000;
+
+      allow update: if isSignedIn() &&
+        resource.data.get('uid', '') == request.auth.uid &&
+        request.resource.data.get('uid', '') == request.auth.uid &&
+        request.resource.data.get('productId', '') == resource.data.get('productId', '') &&
+        request.resource.data.get('viewCount', 0) is int &&
+        request.resource.data.get('viewCount', 0) >= 1 &&
+        request.resource.data.get('viewCount', 0) <= 1000;
+
+      allow delete: if isAdmin();
+    }
+
+    match /scheduled_emails/{docId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
     match /meta/{docId} {
       allow read, write: if false;
     }
@@ -613,6 +690,84 @@ service cloud.firestore {
        uniquement ; la lecture par les regles passe par get() et ne
        requiert aucune autorisation client.
        ============================================================ */
+
+    /* ============================================================
+       CALENDRIER DES BANNIÈRES SAISONNIÈRES (config/events)
+       ------------------------------------------------------------
+       Lecture publique : le navigateur doit connaître la bannière
+       active sans être connecté. Aucune écriture client : le
+       document se modifie depuis la console Firebase / Admin SDK,
+       ce qui permet d'ajuster les dates lunaires sans redéployer.
+       ============================================================ */
+
+    match /config/events {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    /* ============================================================
+       EMAILJS — QUOTA MENSUEL, ROTATION & CAMPAGNES
+       ------------------------------------------------------------
+       config/emailjs_usage        : compteur 200 emails / mois.
+       config/notifications_rotation : cycle 10:1 des produits vendeurs.
+       config/notifications_command  : commande admin (diffusion forcée).
+       email_logs                    : journal des envois.
+       campaigns                     : annonces manuelles admin.
+       Lecture admin ; écriture serveur (Cloud Functions) ou admin
+       validée. Aucun accès client.
+       ============================================================ */
+
+    function emailUsageWriteValid() {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['month', 'count', 'limit', 'resetAt', 'updatedAt']) &&
+        d.month is string &&
+        d.month.matches('^[0-9]{4}-[0-9]{2}$') &&
+        d.count is int && d.count >= 0 && d.count <= 100000 &&
+        d.limit is int && d.limit > 0;
+    }
+
+    function rotationWriteValid() {
+      let d = request.resource.data;
+      return d.keys().hasOnly([
+        'premiumCount', 'lowPriceQueue', 'cycles', 'thresholdMad',
+        'cycleSize', 'updatedAt', 'lastLowBroadcast', 'lastLowAt'
+      ]) &&
+        d.premiumCount is int && d.premiumCount >= 0 && d.premiumCount <= 10 &&
+        d.lowPriceQueue is list && d.lowPriceQueue.size() <= 200;
+    }
+
+    match /config/emailjs_usage {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && emailUsageWriteValid();
+    }
+
+    match /config/notifications_rotation {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && rotationWriteValid();
+    }
+
+    match /config/notifications_command {
+      allow read, write: if isAdmin();
+    }
+
+    match /email_logs/{logId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /campaigns/{campaignId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin() &&
+        request.resource.data.keys().hasAll(['title', 'body']) &&
+        request.resource.data.title is string &&
+        request.resource.data.title.size() >= 3 &&
+        request.resource.data.title.size() <= 120 &&
+        request.resource.data.body is string &&
+        request.resource.data.body.size() <= 1000;
+      /* Une campagne envoyée ne se modifie plus (statut écrit par la CF). */
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
 
     match /config/{docId} {
       allow read: if isAdmin();

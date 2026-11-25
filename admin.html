@@ -20,7 +20,8 @@
             "firebase/app": "https://www.gstatic.com/firebasejs/11.0.0/firebase-app.js",
             "firebase/auth": "https://www.gstatic.com/firebasejs/11.0.0/firebase-auth.js",
             "firebase/firestore": "https://www.gstatic.com/firebasejs/11.0.0/firebase-firestore.js",
-            "firebase/storage": "https://www.gstatic.com/firebasejs/11.0.0/firebase-storage.js"
+            "firebase/storage": "https://www.gstatic.com/firebasejs/11.0.0/firebase-storage.js",
+            "firebase/messaging": "https://www.gstatic.com/firebasejs/11.0.0/firebase-messaging.js"
         }
     }
     </script>
@@ -28,7 +29,10 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon-16.png">
     <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">
-    <link rel="manifest" href="/site.webmanifest">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Smartswika">
 
     <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
     <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
@@ -37,9 +41,11 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Inter:wght@400;500;700&family=Cairo:wght@400;600;700&family=Amiri:wght@400;700&display=swap" rel="stylesheet">
 
-    <link rel="stylesheet" href="/css/style.485f2e61.css">
-    <link rel="stylesheet" href="/css/style-patches.3c6376dd.css">
-    <script src="/translations.js"></script>
+    <link rel="stylesheet" href="/css/style.209d9175.css">
+    <link rel="stylesheet" href="/css/style-patches.e1e4f0d9.css">
+    <link rel="stylesheet" href="/css/spacing.18d35167.css">
+    <link rel="stylesheet" href="/css/pwa.5a9c7c93.css">
+    <script src="/translations.587b3d82.js"></script>
     <script src="/js/translations-livo.js" defer></script>
 
     <style>
@@ -449,6 +455,7 @@
             <button data-tab="blog">📝 Blog</button>
             <button data-tab="coupons">🎟️ Codes Promo</button>
   <button data-tab="flash">⚡ Ventes Flash</button>
+            <button data-tab="notifications">🔔 Campagnes &amp; Notifications</button>
             <button data-tab="finances">💰 Comptabilité</button>
             <button data-tab="wallets">💸 Retraits</button>
             <button data-tab="disputes">⚖️ Litiges / Retours</button>
@@ -877,6 +884,53 @@
         </div>
 
 
+        <div class="admin-content" id="tab-notifications">
+            <h2 style="font-family:var(--font-secondary);color:var(--gold);margin:0 0 1rem;">🔔 Campagnes &amp; Notifications</h2>
+
+            <div style="background:var(--card-bg,#141414);border:1px solid rgba(212,175,55,0.25);border-radius:12px;padding:1rem;margin-bottom:1rem;">
+                <h3 style="margin:0 0 0.5rem;font-size:1rem;color:var(--gold);">📧 Quota EmailJS</h3>
+                <div id="emailQuotaBox" style="font-size:0.95rem;color:#ddd;">Chargement…</div>
+                <p style="margin:0.5rem 0 0;font-size:0.78rem;color:#9a9a9a;">Mode économie : 5 emails automatiques par rôle (0 email admin). Remise à zéro automatique le 1er du mois (Africa/Casablanca).</p>
+            </div>
+
+            <div style="background:var(--card-bg,#141414);border:1px solid rgba(212,175,55,0.25);border-radius:12px;padding:1rem;margin-bottom:1rem;">
+                <h3 style="margin:0 0 0.5rem;font-size:1rem;color:var(--gold);">🔁 Cycle de diffusion vendeurs (10:1)</h3>
+                <div id="rotationBox" style="font-size:0.95rem;color:#ddd;">Chargement…</div>
+                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.75rem;">
+                    <input id="forceProductIdInput" type="text" placeholder="ID produit à diffuser" style="flex:1;min-width:200px;padding:0.55rem 0.7rem;border-radius:8px;border:1px solid #333;background:#0f0f0f;color:#eee;">
+                    <button class="admin-btn" id="forceBroadcastBtn" type="button">🚀 Forcer la diffusion</button>
+                </div>
+                <p style="margin:0.5rem 0 0;font-size:0.78rem;color:#9a9a9a;">Smartswika : diffusion immédiate. Vendeurs &gt; 500 MAD : immédiate (max 10). Vendeurs ≤ 500 MAD : file d'attente, diffusés au 11e tour.</p>
+            </div>
+
+            <div style="background:var(--card-bg,#141414);border:1px solid rgba(212,175,55,0.25);border-radius:12px;padding:1rem;">
+                <h3 style="margin:0 0 0.5rem;font-size:1rem;color:var(--gold);">📣 Nouvelle campagne</h3>
+                <div style="display:grid;gap:0.6rem;">
+                    <input id="campaignTitle" type="text" maxlength="120" placeholder="Titre (ex. Vente flash Ramadan)" style="padding:0.55rem 0.7rem;border-radius:8px;border:1px solid #333;background:#0f0f0f;color:#eee;">
+                    <textarea id="campaignBody" rows="3" maxlength="1000" placeholder="Message (240 caractères visibles en push)" style="padding:0.55rem 0.7rem;border-radius:8px;border:1px solid #333;background:#0f0f0f;color:#eee;resize:vertical;"></textarea>
+                    <input id="campaignTargetUrl" type="text" placeholder="/koulchi.html (lien ouvert au clic)" style="padding:0.55rem 0.7rem;border-radius:8px;border:1px solid #333;background:#0f0f0f;color:#eee;">
+                    <div style="display:flex;gap:0.75rem;flex-wrap:wrap;">
+                        <select id="campaignSegment" style="padding:0.55rem 0.7rem;border-radius:8px;border:1px solid #333;background:#0f0f0f;color:#eee;">
+                            <option value="clients">Clients</option>
+                            <option value="vendors">Vendeurs</option>
+                        </select>
+                        <select id="campaignChannel" style="padding:0.55rem 0.7rem;border-radius:8px;border:1px solid #333;background:#0f0f0f;color:#eee;">
+                            <option value="push">Push uniquement</option>
+                            <option value="both">Push + EmailJS</option>
+                        </select>
+                    </div>
+                    <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.88rem;color:#ddd;">
+                        <input id="campaignSendEmail" type="checkbox">
+                        Envoyer aussi par EmailJS (quota limité — décochée par défaut, 2,5 s entre chaque email, lien de désinscription inclus)
+                    </label>
+                    <div>
+                        <button class="admin-btn" id="campaignSendBtn" type="button">📤 Envoyer la campagne</button>
+                    </div>
+                    <div id="campaignLogBox" style="font-size:0.85rem;color:#9a9a9a;"></div>
+                </div>
+            </div>
+        </div>
+
         <div class="admin-content" id="tab-coupons">
             <div class="admin-form">
                 <h3 id="couponFormTitle">➕ Créer un code</h3>
@@ -1254,7 +1308,7 @@
     <div class="toast" id="cartToast" role="status" aria-live="polite"></div>
 
     <script src="/js/navbar.js"></script>
-    <script type="module" src="/js/admin.js?v=356a71fb"></script>
+    <script type="module" src="/js/admin.js?v=60dfb624"></script>
 
 <footer class="page-legal-footer" role="contentinfo">
     <nav class="footer-legal footer-legal--bar" aria-label="Informations légales">

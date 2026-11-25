@@ -15,7 +15,10 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon-16.png">
     <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">
-    <link rel="manifest" href="/site.webmanifest">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Smartswika">
 
     <meta property="og:title" content="Produit | Smartswika">
     <meta property="og:description" content="Découvrez nos produits tech et Smart Home au Maroc. Livraison rapide, paiement à la livraison.">
@@ -46,17 +49,20 @@
             "firebase/app": "https://www.gstatic.com/firebasejs/11.0.0/firebase-app.js",
             "firebase/auth": "https://www.gstatic.com/firebasejs/11.0.0/firebase-auth.js",
             "firebase/firestore": "https://www.gstatic.com/firebasejs/11.0.0/firebase-firestore.js",
-            "firebase/storage": "https://www.gstatic.com/firebasejs/11.0.0/firebase-storage.js"
+            "firebase/storage": "https://www.gstatic.com/firebasejs/11.0.0/firebase-storage.js",
+            "firebase/messaging": "https://www.gstatic.com/firebasejs/11.0.0/firebase-messaging.js"
         }
     }
     </script>
 
-    <link rel="stylesheet" href="/css/style.485f2e61.css">
-    <link rel="stylesheet" href="/css/style-patches.3c6376dd.css">
-    <script src="/translations.js"></script>
+    <link rel="stylesheet" href="/css/style.209d9175.css">
+    <link rel="stylesheet" href="/css/style-patches.e1e4f0d9.css">
+    <link rel="stylesheet" href="/css/spacing.18d35167.css">
+    <link rel="stylesheet" href="/css/pwa.5a9c7c93.css">
+    <script src="/translations.587b3d82.js"></script>
 
     <!-- Clés i18n complémentaires (product-detail, guide des tailles, avis).
-         DOIT être chargé APRÈS /translations.js : le fichier fait un Object.assign
+         DOIT être chargé APRÈS /translations.587b3d82.js : le fichier fait un Object.assign
          sur window.translations.
          Sans ce script, t("productDimensionsTitle") etc. renvoient la clé brute. -->
     <script src="/js/translations-livo.js"></script>
@@ -315,5 +321,6 @@
     <script src="/js/navbar.js"></script>
 
     <script type="module" src="/js/app.js"></script>
+<script type="module" src="/js/retargeting.js"></script>
 </body>
 </html>

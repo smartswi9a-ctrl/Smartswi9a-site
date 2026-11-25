@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Désinscription des emails — Smartswika</title>
+    <style>
+        :root { --gold:#d4af37; --bg:#0b0b0b; --card:#141414; --text:#f2f2f2; --muted:#9a9a9a; }
+        * { box-sizing: border-box; }
+        body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+               background:var(--bg); color:var(--text);
+               font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; padding:24px; }
+        .card { width:100%; max-width:460px; background:var(--card); border:1px solid rgba(212,175,55,.28);
+                border-radius:16px; padding:28px; text-align:center; }
+        .brand { letter-spacing:3px; font-weight:800; color:var(--gold); font-size:14px; margin:0 0 18px; }
+        h1 { font-size:20px; margin:0 0 12px; }
+        p { font-size:14px; line-height:1.6; color:#cfcfcf; margin:0 0 16px; }
+        button { background:var(--gold); color:#1a1a1a; border:0; border-radius:10px; padding:12px 22px;
+                 font-weight:700; font-size:14px; cursor:pointer; }
+        button:disabled { opacity:.55; cursor:default; }
+        .status { margin-top:16px; font-size:13px; color:var(--muted); }
+        .ok { color:#2ecc71; } .err { color:#e74c3c; }
+        a { color:var(--gold); }
+    </style>
+</head>
+<body>
+    <main class="card">
+        <p class="brand">SMARTSWIKA</p>
+        <h1>Désinscription des emails</h1>
+        <p>Vous ne souhaitez plus recevoir nos annonces par email ? Confirmez ci-dessous.
+           Vos alertes dans l’application (push) restent inchangées.</p>
+        <button id="unsubBtn" type="button">Me désinscrire des emails</button>
+        <p class="status" id="unsubStatus">Vérification du lien…</p>
+        <p><a href="/">Retour à la boutique</a></p>
+    </main>
+    <script>
+        (function () {
+            var ENDPOINT = 'https://europe-west1-smartswi9a-31063.cloudfunctions.net/unsubscribeEmail';
+            var token = new URLSearchParams(window.location.search).get('t') || '';
+            var button = document.getElementById('unsubBtn');
+            var status = document.getElementById('unsubStatus');
+
+            if (!token) {
+                status.textContent = 'Lien incomplet : jeton de désinscription absent.';
+                status.className = 'status err';
+                button.disabled = true;
+                return;
+            }
+            status.textContent = 'Cliquez pour confirmer votre désinscription.';
+
+            button.addEventListener('click', function () {
+                button.disabled = true;
+                status.textContent = 'Enregistrement…';
+                status.className = 'status';
+                fetch(ENDPOINT + '?t=' + encodeURIComponent(token), { method: 'POST' })
+                    .then(function (response) { return response.json().catch(function () { return {}; }); })
+                    .then(function (data) {
+                        if (data && data.ok) {
+                            status.textContent = '✅ Vous ne recevrez plus d’emails de Smartswika.';
+                            status.className = 'status ok';
+                        } else {
+                            status.textContent = 'Lien invalide ou expiré. Contactez smartswi9a@gmail.com.';
+                            status.className = 'status err';
+                            button.disabled = false;
+                        }
+                    })
+                    .catch(function () {
+                        status.textContent = 'Erreur réseau. Réessayez ou écrivez à smartswi9a@gmail.com.';
+                        status.className = 'status err';
+                        button.disabled = false;
+                    });
+            });
+        })();
+    </script>
+</body>
+</html>

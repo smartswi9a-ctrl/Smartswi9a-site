@@ -1,3 +1,22 @@
+
+/* ============================================================
+   PWA & NOTIFICATIONS PUSH (Firebase Cloud Messaging)
+   ------------------------------------------------------------
+   VAPID_KEY : clé publique « Web Push certificate » du projet.
+   Firebase ne l'expose PAS via API/CLI (console uniquement).
+
+   Activation en une commande (injecte + valide la clé) :
+     node scripts/vapid-activate.cjs "BExxxxxxxxxxxxxxxxxx..."
+   puis redéployer le hosting.
+
+   Tant qu'elle est vide, js/push.js désactive le push proprement
+   (aucune erreur, le reste du site fonctionne normalement).
+   ============================================================ */
+export const PWA_CONFIG = {
+    VAPID_KEY: '',
+    SW_URL: '/firebase-messaging-sw.js'
+};
+
 /* ============================================================
    js/config.js
    CONFIGURATION CENTRALISÉE - SMARTSWIKA

@@ -151,8 +151,16 @@ body {
     overflow-x: hidden;
     line-height: 1.7;
     min-height: 100dvh;
-    padding-top: calc(var(--nav-height) + 8px);
+    /* Décalage EXACT de la navbar fixe : aucun espace perdu en haut. */
+    padding-top: var(--nav-height);
     font-size: 16px;
+}
+
+/* Barre de navigation plus basse sur mobile : 10px récupérés en haut. */
+@media (max-width: 640px) {
+    :root {
+        --nav-height: 60px;
+    }
 }
 
 img {
@@ -3949,7 +3957,7 @@ body > *:not(.bg-particles):not(.bg-grid):not(.toast):not(.cart-btn-float):not(.
 
 @supports (padding-top: env(safe-area-inset-top)) {
     body {
-        padding-top: calc(var(--nav-height) + 8px + env(safe-area-inset-top, 0px));
+        padding-top: calc(var(--nav-height) + env(safe-area-inset-top, 0px));
     }
     #navbar {
         padding-top: env(safe-area-inset-top, 0px);
