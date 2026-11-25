@@ -30,6 +30,44 @@ let supported = null;
 let currentToken = null;
 let foregroundBound = false;
 let authBound = false;
+let gestureBound = false;
+let syncInFlight = null;
+
+/* ---------- Détection d'environnement (aucune erreur si non supporté) ---------- */
+
+function pushSupported() {
+  return typeof window !== "undefined" && "Notification" in window && "serviceWorker" in navigator;
+}
+
+function isIosDevice() {
+  const ua = navigator.userAgent || "";
+  if (/iPad|iPhone|iPod/.test(ua)) return true;
+  return navigator.platform === "MacIntel" && Number(navigator.maxTouchPoints) > 1;
+}
+
+function isStandalone() {
+  try {
+    if (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) return true;
+  } catch (error) {
+    /* matchMedia indisponible */
+  }
+  return navigator.standalone === true;
+}
+
+/**
+ * iOS Safari HORS PWA : l'API Push n'existe pas avant installation sur
+ * l'écran d'accueil. On n'y demande donc jamais la permission : on garde
+ * l'invite d'installation, puis l'activation se fait au 1er toucher
+ * une fois l'application ouverte.
+ */
+function iosNeedsInstall() {
+  return isIosDevice() && !isStandalone();
+}
+
+function currentPermission() {
+  if (!pushSupported()) return "unsupported";
+  return Notification.permission || "default";
+}
 
 /**
  * Chargement PARESSEUX du SDK messaging : un import statique casserait
@@ -97,76 +135,96 @@ async function forgetToken(token) {
   }
 }
 
-/** Synchronisation silencieuse (permission déjà accordée). */
-export async function syncPushToken() {
-  const user = getCurrentUser();
-  if (!user || !PWA_CONFIG.VAPID_KEY) return null;
-  if (!("Notification" in window) || Notification.permission !== "granted") return null;
+/** Récupère (ou renouvelle) le token et l'enregistre si un utilisateur est connu. */
+async function registerToken({ user = null } = {}) {
+  if (!pushSupported() || iosNeedsInstall()) return null;
+  if (!PWA_CONFIG.VAPID_KEY) return null;
+  if (Notification.permission !== "granted") return null;
 
   const msg = await ensureMessaging();
   if (!msg) return null;
 
   try {
-    const registration = getSwRegistration();
+    let registration = getSwRegistration();
+    if (!registration) {
+      try {
+        registration = await navigator.serviceWorker.ready;
+      } catch (error) {
+        registration = null;
+      }
+    }
     const token = await (await messagingApi()).getToken(msg, {
       vapidKey: PWA_CONFIG.VAPID_KEY,
       ...(registration ? { serviceWorkerRegistration: registration } : {}),
     });
     if (!token) return null;
     currentToken = token;
-    await saveToken(token, user, await resolveRole(user.uid));
+
+    const account = user || getCurrentUser();
+    if (account) {
+      await saveToken(token, account, await resolveRole(account.uid));
+    }
     return token;
   } catch (error) {
-    console.warn("[push] synchronisation token impossible :", error && error.message);
+    console.warn("[push] token indisponible :", error && error.message);
     return null;
   }
 }
 
-/** Demande d'activation explicite (clic utilisateur). */
-export async function enablePush() {
-  const user = getCurrentUser();
-  if (!user) {
-    showToast(t("loginRequired") || "Connectez-vous pour activer les alertes.");
-    return { ok: false, error: "no_user" };
-  }
-  if (!("Notification" in window)) {
-    showToast("Notifications non prises en charge par ce navigateur.");
+/** Synchronisation silencieuse (permission déjà accordée), à chaque visite. */
+export async function syncPushToken() {
+  if (!pushSupported() || iosNeedsInstall()) return null;
+  if (!PWA_CONFIG.VAPID_KEY) return null;
+  if (Notification.permission !== "granted") return null;
+  if (syncInFlight) return syncInFlight;
+
+  syncInFlight = registerToken().finally(() => {
+    syncInFlight = null;
+  });
+  return syncInFlight;
+}
+
+/**
+ * Activation. Appelée soit par le premier geste (silencieux), soit par un
+ * bouton explicite. Ne lève jamais d'exception.
+ */
+export async function enablePush(options = {}) {
+  const silent = options && options.silent === true;
+  const notify = (message) => {
+    if (!silent) showToast(message);
+  };
+
+  if (!pushSupported() || iosNeedsInstall()) {
+    notify("Notifications non prises en charge sur cet appareil.");
     return { ok: false, error: "unsupported" };
   }
   if (!PWA_CONFIG.VAPID_KEY) {
     console.warn("[push] VAPID_KEY absente : push désactivé.");
-    showToast("Alertes bientôt disponibles sur cet appareil.");
+    notify("Alertes bientôt disponibles sur cet appareil.");
     return { ok: false, error: "no_vapid" };
   }
 
-  const permission = await Notification.requestPermission();
+  let permission = Notification.permission;
+  if (permission === "default") {
+    try {
+      permission = await Notification.requestPermission();
+    } catch (error) {
+      permission = "denied";
+    }
+  }
   if (permission !== "granted") {
-    showToast("Notifications refusées. Réactivez-les dans les réglages du navigateur.");
-    return { ok: false, error: "denied" };
+    notify("Notifications refusées. Réactivez-les dans les réglages du navigateur.");
+    return { ok: false, error: permission === "denied" ? "denied" : "dismissed" };
   }
 
-  const msg = await ensureMessaging();
-  if (!msg) {
-    showToast("Notifications non prises en charge sur cet appareil.");
-    return { ok: false, error: "unsupported" };
-  }
-
-  try {
-    const registration = getSwRegistration();
-    const token = await (await messagingApi()).getToken(msg, {
-      vapidKey: PWA_CONFIG.VAPID_KEY,
-      ...(registration ? { serviceWorkerRegistration: registration } : {}),
-    });
-    if (!token) return { ok: false, error: "no_token" };
-    currentToken = token;
-    await saveToken(token, user, await resolveRole(user.uid));
-    showToast("🔔 Alertes activées");
-    return { ok: true, token };
-  } catch (error) {
-    console.warn("[push] activation impossible :", error && error.message);
-    showToast("Impossible d'activer les alertes pour le moment.");
+  const token = await registerToken();
+  if (!token) {
+    notify("Impossible d'activer les alertes pour le moment.");
     return { ok: false, error: "token_error" };
   }
+  notify("🔔 Alertes activées");
+  document.dispatchEvent(new CustomEvent("smartswika:push-token", { detail: { token } }));
+  return { ok: true, token };
 }
 
 async function bindForeground() {
@@ -213,31 +271,126 @@ function bindAuth() {
   });
 }
 
+/**
+ * Activation AUTOMATIQUE au tout premier clic / toucher n'importe où.
+ * Les navigateurs exigent un geste utilisateur : on l'utilise au lieu
+ * d'attendre que l'utilisateur trouve un bouton.
+ */
+function autoPromptOnFirstGesture() {
+  if (gestureBound || !pushSupported()) return;
+  if (currentPermission() !== "default") return;
+  if (iosNeedsInstall()) return;
+  gestureBound = true;
+
+  const trigger = () => {
+    try {
+      enablePush({ silent: true });
+    } catch (error) {
+      /* jamais bloquant pour la navigation */
+    }
+  };
+  document.addEventListener("click", trigger, { once: true, passive: true, capture: true });
+  document.addEventListener("touchend", trigger, { once: true, passive: true, capture: true });
+}
+
+/** État push de CET appareil (diagnostic admin, lecture seule). */
+export async function getPushDiagnostics() {
+  const permission = currentPermission();
+  let token = currentToken;
+  if (!token && permission === "granted") token = await syncPushToken();
+  const account = getCurrentUser();
+  return {
+    supported: pushSupported() && !iosNeedsInstall(),
+    permission,
+    platform: getPlatform(),
+    standalone: isStandalone(),
+    iosNeedsInstall: iosNeedsInstall(),
+    vapid: Boolean(PWA_CONFIG.VAPID_KEY),
+    token: token || "",
+    tokenHead: token ? token.slice(0, 18) : "",
+    uid: account ? account.uid : "",
+  };
+}
+
+const TEST_PUSH_ENDPOINT =
+  "https://europe-west1-smartswi9a-31063.cloudfunctions.net/adminTestPush";
+
+/** Notification push de test vers CET appareil (admin uniquement côté serveur). */
+export async function sendTestPush() {
+  const account = getCurrentUser();
+  if (!account) return { ok: false, error: "no_user" };
+
+  let token = currentToken || (await syncPushToken());
+  if (!token) {
+    const result = await enablePush({ silent: true });
+    token = result && result.token;
+  }
+  if (!token) return { ok: false, error: "no_token" };
+
+  try {
+    const idToken = await account.getIdToken();
+    const response = await fetch(TEST_PUSH_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
+      body: JSON.stringify({
+        token,
+        title: "🔔 Test Smartswika",
+        body: "Si cette notification apparaît, le push fonctionne sur cet appareil.",
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.sent) {
+      return { ok: false, error: payload.error || `http_${response.status}` };
+    }
+    return { ok: true, token };
+  } catch (error) {
+    return { ok: false, error: "network" };
+  }
+}
+
 /** Initialisation (idempotente). */
 export async function initPush() {
   if (typeof window === "undefined") return;
   if (window._pushInitialized) return;
   window._pushInitialized = true;
 
-  const msg = await ensureMessaging();
-  if (!msg) return;
-
-  bindForeground();
-  bindAuth();
+  /* API exposées même si le push n'est pas disponible : le panneau admin
+     peut ainsi afficher un état explicite sans jamais lever d'erreur. */
   window.smartswikaEnablePush = enablePush;
+  window.smartswikaPushStatus = getPushDiagnostics;
+  window.smartswikaSendTestPush = sendTestPush;
 
+  if (!pushSupported()) return; /* navigateur sans Push : silence total */
   if (!PWA_CONFIG.VAPID_KEY) {
     console.warn("[push] VAPID_KEY absente de js/config.js : push inactif.");
     return;
   }
 
-  if (getCurrentUser() && Notification.permission === "granted") {
-    await syncPushToken();
-  } else if (Notification.permission === "default") {
-    showPushCta(() => {
-      enablePush();
-    });
+  /* iOS Safari hors PWA : l'invite d'installation reste affichée, la
+     permission sera demandée au 1er toucher dans l'application installée. */
+  if (iosNeedsInstall()) {
+    showPushCta(() => enablePush());
+    return;
   }
+
+  const msg = await ensureMessaging();
+  if (!msg) return;
+
+  bindForeground();
+  bindAuth();
+
+  if (currentPermission() === "granted") {
+    /* 2. Synchro 100 % silencieuse à chaque visite (uid/rôle à jour). */
+    await syncPushToken();
+    return;
+  }
+
+  if (currentPermission() === "default") {
+    /* 1. Activation automatique au tout premier clic / toucher. */
+    autoPromptOnFirstGesture();
+    showPushCta(() => enablePush());
+  }
+  /* permission === "denied" : on ne redemande rien (impossible), zéro bruit. */
 }
 
 export default initPush;

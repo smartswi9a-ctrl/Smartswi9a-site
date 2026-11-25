@@ -22,6 +22,7 @@ const {
   notifyClient,
   notifyUids,
   notifyRole,
+  sendPush,
   claimOnce
 } = require('./notifications');
 
@@ -688,6 +689,69 @@ exports.unsubscribeEmail = onRequest(
     } catch (error) {
       console.error('[triggers] unsubscribeEmail :', error);
       res.status(500).json({ ok: false, error: 'server_error' });
+    }
+  }
+);
+
+/* ============================================================
+   PUSH DE TEST (admin) — « Envoyer une notification test »
+   Envoie un vrai push au token de l'appareil courant.
+   Sécurité : ID token Firebase + rôle admin + token appartenant à l'admin.
+   ============================================================ */
+
+exports.adminTestPush = onRequest(
+  { invoker: 'public', region: 'europe-west1', cors: true, maxInstances: 2, timeoutSeconds: 30 },
+  async (req, res) => {
+    try {
+      const header = String(req.headers.authorization || '');
+      const idToken = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+      if (!idToken) {
+        res.status(401).json({ sent: false, error: 'no_auth' });
+        return;
+      }
+
+      let decoded = null;
+      try {
+        decoded = await require('firebase-admin/auth').getAuth().verifyIdToken(idToken);
+      } catch (error) {
+        res.status(401).json({ sent: false, error: 'invalid_token' });
+        return;
+      }
+
+      const profile = await db.doc(`users/${decoded.uid}`).get();
+      const role = profile.exists ? String(profile.data().role || '') : '';
+      if (role !== 'admin') {
+        res.status(403).json({ sent: false, error: 'not_admin' });
+        return;
+      }
+
+      const token = String((req.body && req.body.token) || '').trim();
+      if (!token) {
+        res.status(400).json({ sent: false, error: 'no_token' });
+        return;
+      }
+
+      const tokenDoc = await db.doc(`fcm_tokens/${token}`).get();
+      if (!tokenDoc.exists || String(tokenDoc.data().uid || '') !== decoded.uid) {
+        res.status(403).json({ sent: false, error: 'token_not_owned' });
+        return;
+      }
+
+      const title = String((req.body && req.body.title) || '🔔 Test Smartswika').slice(0, 120);
+      const body = String((req.body && req.body.body) || 'Push opérationnel sur cet appareil.').slice(0, 240);
+
+      const result = await sendPush([token], {
+        title,
+        body,
+        targetUrl: '/',
+        type: 'test',
+        tag: `test-${Date.now()}`
+      });
+
+      res.json({ sent: (result.sent || 0) > 0, failed: result.failed || 0 });
+    } catch (error) {
+      console.error('[triggers] adminTestPush :', error);
+      res.status(500).json({ sent: false, error: 'server_error' });
     }
   }
 );

@@ -887,6 +887,16 @@
         <div class="admin-content" id="tab-notifications">
             <h2 style="font-family:var(--font-secondary);color:var(--gold);margin:0 0 1rem;">🔔 Campagnes &amp; Notifications</h2>
 
+            <div style="background:var(--card-bg,#141414);border:1px solid rgba(212,175,55,0.35);border-radius:12px;padding:1rem;margin-bottom:1rem;">
+                <h3 style="margin:0 0 0.5rem;font-size:1rem;color:var(--gold);">📡 État Push sur cet appareil</h3>
+                <div id="pushDiagState" style="font-size:0.92rem;color:#ddd;line-height:1.6;">Vérification…</div>
+                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.7rem;">
+                    <button class="admin-btn" id="pushAllowBtn" type="button" style="display:none;">🔔 Autoriser maintenant</button>
+                    <button class="admin-btn" id="pushTestBtn" type="button" style="display:none;">🔔 Envoyer une notification test sur cet appareil</button>
+                </div>
+                <div id="pushDiagLog" style="margin-top:0.5rem;font-size:0.82rem;color:#9a9a9a;"></div>
+            </div>
+
             <div style="background:var(--card-bg,#141414);border:1px solid rgba(212,175,55,0.25);border-radius:12px;padding:1rem;margin-bottom:1rem;">
                 <h3 style="margin:0 0 0.5rem;font-size:1rem;color:var(--gold);">📧 Quota EmailJS</h3>
                 <div id="emailQuotaBox" style="font-size:0.95rem;color:#ddd;">Chargement…</div>
@@ -1308,7 +1318,7 @@
     <div class="toast" id="cartToast" role="status" aria-live="polite"></div>
 
     <script src="/js/navbar.js"></script>
-    <script type="module" src="/js/admin.js?v=8b3f1d05"></script>
+    <script type="module" src="/js/admin.js?v=5d2c8a41"></script>
 
 <footer class="page-legal-footer" role="contentinfo">
     <nav class="footer-legal footer-legal--bar" aria-label="Informations légales">

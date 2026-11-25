@@ -158,5 +158,68 @@ check("admin : confirmation réception entrepôt + bouton", () => {
   assert.ok(admin.includes("received_at_warehouse"), "champ absent");
 });
 
+check("push : activation automatique au 1er geste (click + touchend, une seule fois)", () => {
+  const push = read("js/push.js");
+  assert.ok(push.includes("autoPromptOnFirstGesture"), "mécanisme absent");
+  assert.ok(
+    /document\.addEventListener\("click", trigger, \{ once: true, passive: true, capture: true \}\)/.test(push),
+    "écouteur click mal configuré"
+  );
+  assert.ok(
+    /document\.addEventListener\("touchend", trigger, \{ once: true, passive: true, capture: true \}\)/.test(push),
+    "écouteur touchend mal configuré"
+  );
+  assert.ok(/currentPermission\(\) !== "default"\) return;/.test(push), "garde-fou permission absent");
+});
+
+check("push : iOS hors PWA = invite d'installation, jamais de demande", () => {
+  const push = read("js/push.js");
+  assert.ok(push.includes("iosNeedsInstall"), "détection iOS absente");
+  assert.ok(/if \(iosNeedsInstall\(\)\) \{\s*\n\s*showPushCta/.test(push), "invite d'installation non conservée");
+});
+
+check("push : synchro silencieuse uniquement si permission accordée", () => {
+  const push = read("js/push.js");
+  assert.ok(/Notification\.permission !== "granted"\) return null;/.test(push), "garde-fou granted absent");
+  assert.ok(push.includes("syncInFlight"), "anti-doublon absent");
+});
+
+check("push : diagnostic + push de test exposés", () => {
+  const push = read("js/push.js");
+  assert.ok(push.includes("getPushDiagnostics"), "diagnostic absent");
+  assert.ok(push.includes("sendTestPush"), "test push absent");
+  assert.ok(push.includes("adminTestPush"), "endpoint test absent");
+  assert.ok(push.includes("window.smartswikaPushStatus"), "API window absente");
+  assert.ok(push.includes("window.smartswikaSendTestPush"), "API window test absente");
+});
+
+check("push : aucune erreur console en cas de non-support (pas de console.error)", () => {
+  const push = read("js/push.js");
+  assert.equal(/console\.error/.test(push), false, "console.error interdit dans le module push");
+});
+
+check("admin : encart « État Push sur cet appareil » + boutons", () => {
+  const html = read("admin.html");
+  const mod = read("js/admin-notifications.js");
+  for (const id of ["pushDiagState", "pushAllowBtn", "pushTestBtn", "pushDiagLog"]) {
+    assert.ok(html.includes(`id="${id}"`), "élément manquant : " + id);
+  }
+  assert.ok(html.includes("État Push sur cet appareil"));
+  assert.ok(html.includes("Envoyer une notification test sur cet appareil"));
+  assert.ok(mod.includes("renderPushDiag"), "rendu du diagnostic absent");
+  assert.ok(mod.includes("window.smartswikaSendTestPush"), "bouton test non branché");
+});
+
+check("serveur : adminTestPush protégé (ID token + rôle admin + token possédé)", () => {
+  const triggers = read("functions/triggers.js");
+  const start = triggers.indexOf("exports.adminTestPush");
+  assert.ok(start > 0, "fonction absente");
+  const block = triggers.slice(start, start + 2200);
+  assert.ok(block.includes("verifyIdToken"), "vérification du jeton absente");
+  assert.ok(block.includes("not_admin"), "contrôle du rôle absent");
+  assert.ok(block.includes("token_not_owned"), "contrôle de propriété du token absent");
+  assert.ok(block.includes("sendPush([token]"), "envoi absent");
+});
+
 console.log("\n" + checks + " verification(s), " + failures + " echec(s)");
 process.exit(failures === 0 ? 0 : 1);
