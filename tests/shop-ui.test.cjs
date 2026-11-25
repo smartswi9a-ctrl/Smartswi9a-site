@@ -222,14 +222,19 @@ check("CSS : zones tactiles 44px", css.includes("min-height: 44px"));
 check("CSS : RTL", css.includes('[dir="rtl"]'));
 check("espacements compacts preserves", index.includes("spacing.18d35167.css") && fs.existsSync(path.join(ROOT, "css/spacing.18d35167.css")));
 /* --------------------------------------------- 3 bis. cache / i18n duo */
-check("cache-busting : shop-modern.css?v=3", index.includes("/css/shop-modern.css?v=3"));
+check("cache-busting : shop-modern.css?v=4", index.includes("/css/shop-modern.css?v=4"));
 check(
-  "cache-busting : koulchi-page.js?v=3 + promo-duo.js?v=3",
-  index.includes("/js/koulchi-page.js?v=3") && index.includes("/js/promo-duo.js?v=3")
+  "cache-busting : koulchi-page.js?v=3 + promo-duo.js?v=4",
+  index.includes("/js/koulchi-page.js?v=3") && index.includes("/js/promo-duo.js?v=4")
 );
 check(
   "cache-busting : SW_VERSION incremente",
-  read("firebase-messaging-sw.js").includes("sw-2026-11-25-v3")
+  read("firebase-messaging-sw.js").includes("sw-2026-11-25-v4")
+);
+check(
+  "duo : garde-fou cache (ancienne vente flash `hidden` neutralisee)",
+  css.includes("#promoDuo #flashSection[hidden] { display: block; }") &&
+    read("js/promo-duo.js").includes("if (flash && flash.hidden) flash.hidden = false;")
 );
 
 const translationsSrc = read("translations.js");

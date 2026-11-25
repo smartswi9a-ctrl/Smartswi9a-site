@@ -24,6 +24,9 @@ const FLASH_ID = "flashSection";
 
 /**
  * Force le duo en mode jumeau (2 colonnes, meme si une carte est vide).
+ * Garde-fou cache : un ancien js/flash-sales.js encore servi par un
+ * Service Worker peut poser `hidden` sur la carte Ventes Flash ; on le
+ * retire pour conserver les deux cartes cote a cote avec un etat vide.
  */
 function syncDuo() {
   const duo = document.getElementById(DUO_ID);
@@ -31,6 +34,7 @@ function syncDuo() {
 
   const vitrine = document.getElementById(VITRINE_ID);
   const flash = document.getElementById(FLASH_ID);
+  if (flash && flash.hidden) flash.hidden = false;
   const vitrineVisible = Boolean(vitrine && !vitrine.hidden);
   const flashVisible = Boolean(flash && !flash.hidden);
 
