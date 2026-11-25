@@ -255,7 +255,73 @@ function pickImage(product) {
 }
 
 /**
- * Construit et affiche la section ventes flash de l accueil.
+ * Miniature carree d un produit en vente flash. Markup ET classes
+ * identiques a la vitrine Koulchi (.duo-thumb) : les deux cartes du duo
+ * ont donc la meme grille de miniatures 1:1.
+ * @param {object} product
+ * @returns {string}
+ */
+function renderFlashThumb(product) {
+  const img = pickImage(product);
+  const lang = getLang();
+  const name = String(
+    (lang === "ar" && product.nameAr) ||
+      (lang === "en" && product.nameEn) ||
+      product.nameFr ||
+      product.nameEn ||
+      "Produit"
+  );
+  const slug = String(product.slug || product.id || "");
+  const pct = Number(product.flashPercent) || 0;
+
+  return `<a class="duo-thumb flash-duo-thumb" role="listitem" href="/produit?slug=${encodeURIComponent(
+    slug
+  )}" title="${esc(name)}" aria-label="${esc(name)}">
+      ${img ? `<img src="${esc(img)}" alt="${esc(name)}" loading="lazy" width="160" height="160">` : ""}
+      ${pct > 0 ? `<span class="duo-thumb-off">−${pct} %</span>` : ""}
+    </a>`;
+}
+
+/**
+ * Emplacements vides : trois carres de meme taille que les vraies
+ * miniatures. La carte garde donc EXACTEMENT la hauteur de la carte
+ * Koulchi dialk, meme quand aucune vente flash n est active.
+ * @returns {string}
+ */
+function renderFlashPlaceholders() {
+  const slot = `<span class="duo-thumb is-empty" role="listitem" aria-hidden="true">🛍️</span>`;
+  return slot.repeat(3);
+}
+
+/**
+ * Trois pastilles compactes : les meilleures remises en cours.
+ * @param {Array} items
+ * @returns {string}
+ */
+function renderFlashStats(items) {
+  const percents = [];
+  for (const product of items) {
+    const pct = Number(product.flashPercent) || 0;
+    if (pct > 0 && !percents.includes(pct)) percents.push(pct);
+  }
+  const slots = percents.slice(0, 3);
+  while (slots.length < 3) {
+    slots.push(slots.length ? slots[slots.length - 1] : 0);
+  }
+  return slots
+    .map(
+      (pct) =>
+        `<li class="duo-stat flash-duo-stat" role="listitem">${
+          pct > 0 ? `−${pct} %` : "—"
+        }</li>`
+    )
+    .join("");
+}
+
+/**
+ * Construit et affiche la carte ventes flash de l accueil.
+ * La carte est JUMELLE de la vitrine Koulchi : elle reste affichee en
+ * 2 colonnes, avec un etat vide harmonise si aucune vente n est active.
  * Ne fait rien si la section n existe pas dans le DOM.
  * @param {Array} products liste complete des produits charges
  * @returns {Promise<void>}
@@ -265,17 +331,36 @@ export async function renderFlashHero(products) {
   const track = document.getElementById("flashHeroTrack");
   if (!section || !track) return;
 
-  if (!Array.isArray(products) || products.length === 0) {
-    section.hidden = true;
+  const statsEl = document.getElementById("flashHeroStats");
+  const timerEl = document.getElementById("flashHeroTimer");
+  const subEl = section.querySelector(".flash-hero-sub");
+  const list = Array.isArray(products) ? products : [];
+
+  /* Produits effectivement en vente flash. */
+  const items = list.filter(
+    (p) =>
+      Number.isFinite(p.flashPrice) &&
+      p.flashPrice > 0 &&
+      p.flashPrice < Number(p.price)
+  );
+
+  section.hidden = false;
+  section.dataset.flashCount = String(items.length);
+
+  /* Etat vide harmonise : meme hauteur que la carte Koulchi (3 carres). */
+  if (items.length === 0) {
+    if (timerEl) {
+      timerEl.removeAttribute("data-flash-ends");
+      timerEl.textContent = "--:--:--";
+    }
+    if (subEl) subEl.textContent = t("flashEmpty");
+    if (statsEl) statsEl.innerHTML = renderFlashStats([]);
+    track.innerHTML = renderFlashPlaceholders();
     return;
   }
 
-  /* Produits effectivement en vente flash. */
-  const items = products.filter((p) => Number.isFinite(p.flashPrice) && p.flashPrice > 0 && p.flashPrice < Number(p.price));
-  if (items.length === 0) {
-    section.hidden = true;
-    return;
-  }
+  if (subEl) subEl.textContent = t("flashSub");
+  if (statsEl) statsEl.innerHTML = renderFlashStats(items);
 
   /* La fin la plus proche : c est elle qui doit s afficher dans le bandeau. */
   let nearestEnd = null;
@@ -284,96 +369,17 @@ export async function renderFlashHero(products) {
     if (d && (!nearestEnd || d < nearestEnd)) nearestEnd = d;
   }
 
-  const timerEl = document.getElementById("flashHeroTimer");
-  if (timerEl && nearestEnd) {
-    timerEl.setAttribute("data-flash-ends", new Date(nearestEnd).toISOString());
+  if (timerEl) {
+    if (nearestEnd) {
+      timerEl.setAttribute("data-flash-ends", new Date(nearestEnd).toISOString());
+    } else {
+      timerEl.removeAttribute("data-flash-ends");
+    }
   }
 
-  /* Pastille « Jusqu a -X % » dans le bandeau : on affiche la remise la
-     plus forte de la selection, comme les bandeaux des marketplaces.
-     Creee une seule fois puis mise a jour a chaque rendu. */
-  const maxPct = items.reduce(
-    (max, p) => Math.max(max, Number(p.flashPercent) || 0),
-    0
-  );
-  const titreBloc = section.querySelector(".flash-hero-title-wrap");
-  if (titreBloc && maxPct > 0) {
-    let deal = titreBloc.querySelector(".flash-hero-deal");
-    if (!deal) {
-      deal = document.createElement("span");
-      deal.className = "flash-hero-deal";
-      titreBloc.appendChild(deal);
-    }
-    deal.textContent = t("upToOff").replace("{p}", maxPct);
-  }
+  /* Trois miniatures maximum, comme la vitrine Koulchi (2 sous 1024 px). */
+  track.innerHTML = items.slice(0, 3).map(renderFlashThumb).join("");
 
-  track.innerHTML = items.map((p) => {
-    const img = pickImage(p);
-    /* Le nom du produit suit la langue active (FR / AR / EN). */
-    const lang = getLang();
-    const name = String(
-      (lang === "ar" && p.nameAr) ||
-        (lang === "en" && p.nameEn) ||
-        p.nameFr ||
-        p.nameEn ||
-        "Produit"
-    );
-    const slug = String(p.slug || p.id || "");
-    const pct = Number(p.flashPercent) || 0;
-    const nowPrice = Number(p.flashPrice) || 0;
-    const wasPrice = Number(p.price) || 0;
-
-    /* Preuve sociale (etoiles + ventes), affichee seulement si presente. */
-    const soldCount = Math.round(Number(p.salesCount) || 0);
-    const ratingAvg = Number(p.ratingAvg) || 0;
-    const metaHtml =
-      soldCount > 0 || ratingAvg > 0
-        ? `<div class="flash-item-meta">${
-            ratingAvg > 0
-              ? `<span class="flash-item-stars">★ ${ratingAvg.toFixed(1)}</span>`
-              : ""
-          }${
-            soldCount > 0
-              ? `<span>${esc(
-                  t("soldCount").replace("{n}", soldCount)
-                )}</span>`
-              : ""
-          }</div>`
-        : "";
-
-    /* Barre de progression si un quota est defini sur la vente. */
-    let progressHtml = "";
-    const sale = (p.flashSaleId && _flashCache.sales.find((s) => s.id === p.flashSaleId)) || null;
-    if (sale && sale.maxQuantity != null && Number(sale.maxQuantity) > 0) {
-      const sold = Number(sale.soldCount || 0);
-      const max = Number(sale.maxQuantity);
-      const ratio = Math.min(100, Math.round((sold / max) * 100));
-      const remaining = Math.max(0, max - sold);
-      /* Le libelle de stock suit la langue active. */
-      const stockLabel = remaining > 0 ? t("flashRemaining").replace("{n}", remaining) : t("flashSoldOut");
-      progressHtml = `
-        <div class="flash-item-progress" aria-hidden="true"><span style="width:${ratio}%"></span></div>
-        <div class="flash-item-stock">${esc(stockLabel)}</div>`;
-    }
-
-    return `<a class="flash-item" role="listitem" href="/produit?slug=${encodeURIComponent(slug)}">
-      <div class="flash-item-img">
-        ${img ? `<img src="${esc(img)}" alt="${esc(name)}" loading="lazy" width="300" height="300">` : ""}
-        ${pct > 0 ? `<span class="flash-item-pct">-${pct}%</span>` : ""}
-      </div>
-      <div class="flash-item-body">
-        <div class="flash-item-name">${esc(name)}</div>
-        <div class="flash-item-prices">
-          <span class="flash-item-now">${nowPrice} MAD</span>
-          ${wasPrice > nowPrice ? `<span class="flash-item-was">${wasPrice} MAD</span>` : ""}
-        </div>
-        ${metaHtml}
-        ${progressHtml}
-      </div>
-    </a>`;
-  }).join("");
-
-  section.hidden = false;
   startFlashCountdown();
 }
 

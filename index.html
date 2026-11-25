@@ -208,7 +208,7 @@
     <link rel="stylesheet" href="/css/pwa.5a9c7c93.css">
     <link rel="stylesheet" href="/css/secondary-modern.css?v=1">
     <link rel="stylesheet" href="/css/events.e814ffbc.css">
-    <link rel="stylesheet" href="/css/shop-modern.css?v=2">
+    <link rel="stylesheet" href="/css/shop-modern.css?v=3">
     <script src="/translations.72210d87.js"></script>
 </head>
 <body>
@@ -388,30 +388,34 @@
          Charte : or #a57b2e sur fond ivoire, rouge sombre #b03a2e
          uniquement pour le compte a rebours (urgence discrete).
          ============================================================ -->
-    <div class="promo-duo" id="promoDuo">
-    <!-- Vitrine Koulchi dialk : carte compacte cote a cote avec les Ventes Flash.
-         Contenu rendu par js/koulchi-page.js (FR / EN / AR, aucun texte en dur). -->
+    <div class="promo-duo is-pair" id="promoDuo">
+    <!-- Vitrine Koulchi dialk : carte jumelle cote a cote avec les Ventes Flash.
+         Contenu rendu par js/koulchi-page.js (FR / EN / AR, aucun texte en dur).
+         Les DEUX cartes partagent la meme structure interne (.duo-card) : en-tete
+         titre + badge sur une ligne, sous-titre, pastilles, miniatures 1:1, CTA.
+         La grille reste en 2 colonnes sur mobile, tablette ET desktop. -->
     <section class="section koulchi-vitrine" id="koulchiVitrine" aria-labelledby="koulchiHomeTitle">
         <div class="koulchi-vitrine-body" id="koulchiVitrineBody"></div>
     </section>
 
-    <section class="section flash-hero" id="flashSection" aria-labelledby="flashTitle" hidden>
-        <div class="flash-hero-inner">
-            <div class="flash-hero-head">
-                <div class="flash-hero-title-wrap">
-                    <span class="flash-hero-badge">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-                        <span data-key="flashTag">Ventes Flash</span>
-                    </span>
-                    <h2 class="flash-hero-title" id="flashTitle" data-key="flashTitle">Offres à durée limitée</h2>
-                    <p class="flash-hero-sub" data-key="flashSub">Remises exceptionnelles — jusqu'à épuisement du stock ou de la durée.</p>
-                </div>
-                <div class="flash-hero-timer" aria-live="polite">
-                    <span class="flash-hero-timer-label" data-key="flashEndsIn">Fin dans</span>
-                    <span class="flash-hero-timer-value" id="flashHeroTimer">--:--:--</span>
-                </div>
+    <!-- Ventes Flash : carte jumelle TOUJOURS affichee, meme sans vente active
+         (etat vide harmonise de meme hauteur). Produits rendus par js/flash-sales.js. -->
+    <section class="section flash-hero" id="flashSection" aria-labelledby="flashTitle">
+        <div class="flash-hero-inner duo-card" id="flashCard">
+            <div class="duo-head">
+                <h2 class="duo-title flash-hero-title" id="flashTitle" data-key="flashTag">Ventes Flash</h2>
+                <span class="duo-badge flash-duo-timer" aria-live="polite">
+                    <span class="flash-duo-timer-label" data-key="flashEndsIn">Fin dans</span>
+                    <span class="flash-duo-timer-value" id="flashHeroTimer">--:--:--</span>
+                </span>
             </div>
-            <div class="flash-hero-track" id="flashHeroTrack" role="list" aria-label="Produits en vente flash"></div>
+            <p class="duo-sub flash-hero-sub">Remises exceptionnelles — jusqu'à épuisement du stock ou de la durée.</p>
+            <ul class="duo-stats flash-duo-stats" id="flashHeroStats" role="list" aria-hidden="true"></ul>
+            <div class="duo-thumbs flash-hero-track" id="flashHeroTrack" role="list" aria-label="Produits en vente flash"><span class="duo-thumb is-empty" role="listitem" aria-hidden="true">🛍️</span><span class="duo-thumb is-empty" role="listitem" aria-hidden="true">🛍️</span><span class="duo-thumb is-empty" role="listitem" aria-hidden="true">🛍️</span></div>
+            <div class="duo-foot">
+                <span class="duo-note flash-duo-note" data-key="flashNonCumul">Non cumulable avec Koulchi dialk</span>
+                <a class="duo-cta flash-duo-cta" href="#produits" data-duo-quick="flash" data-key="flashCta">Voir les ventes flash</a>
+            </div>
         </div>
     </section>
 
@@ -688,9 +692,9 @@
 
     <script src="/js/navbar.js"></script>
 
-    <script type="module" src="/js/app.js?v=4"></script>
-    <script type="module" src="/js/koulchi-page.js?v=2"></script>
-    <script type="module" src="/js/promo-duo.js?v=2"></script>
+    <script type="module" src="/js/app.js?v=5"></script>
+    <script type="module" src="/js/koulchi-page.js?v=3"></script>
+    <script type="module" src="/js/promo-duo.js?v=3"></script>
     <script type="module" src="/js/ranking-sync.js"></script>
     <script type="module">
         import { initDynamicTestimonials } from '/js/testimonials.js';

@@ -36,6 +36,12 @@ function eligibleProducts() {
 }
 
 /**
+ * Nombre de miniatures affichees dans la carte (3 sur desktop, les deux
+ * premieres seulement sous 1024 px : la 3e est masquee en CSS).
+ */
+const VITRINE_MAX_THUMBS = 3;
+
+/**
  * Miniature d un produit eligible (3 maximum).
  * @param {object} product
  * @returns {string}
@@ -50,12 +56,22 @@ function renderThumb(product) {
   );
   const url = `/produit?slug=${encodeURIComponent(product.slug || "")}`;
 
-  return `<li class="koulchi-vitrine-thumb" role="listitem">
+  return `<li class="koulchi-vitrine-thumb duo-thumb" role="listitem">
       <a href="${url}" aria-label="${name}">
         <img src="${img}" alt="${name}" width="72" height="72" loading="lazy" onerror="this.onerror=null;this.src='${fallback}'">
         <span class="koulchi-vitrine-thumb-off">−${percent} %</span>
       </a>
     </li>`;
+}
+
+/**
+ * Emplacement vide : la miniature garde EXACTEMENT la taille d une vraie
+ * miniature (carre 1:1). Les deux cartes du duo conservent donc la meme
+ * hauteur, meme quand la vitrine n a aucun produit eligible.
+ * @returns {string}
+ */
+function renderEmptyThumb() {
+  return `<li class="koulchi-vitrine-thumb duo-thumb is-empty" role="listitem" aria-hidden="true">🛍️</li>`;
 }
 
 /**
@@ -67,16 +83,19 @@ function renderTiers() {
     .sort((a, b) => a.min - b.min)
     .map(
       (tier) =>
-        `<li class="koulchi-vitrine-tier" role="listitem"><strong>${tier.min} ${escapeHTML(
+        `<li class="koulchi-vitrine-tier duo-stat" role="listitem"><strong>${tier.min} ${escapeHTML(
           t("koulchiVitrineItemsShort")
         )}</strong><span>= −${tier.percent} %</span></li>`
     )
     .join("");
 }
 
+
 /**
  * Rend (ou rafraichit) la carte vitrine de l accueil.
- * La carte est TOUJOURS visible : catalogue vide = visuel d appel.
+ * La carte est TOUJOURS visible et JUMELLE de la carte Ventes Flash :
+ * meme structure interne (.duo-card > .duo-head / .duo-sub / .duo-stats /
+ * .duo-thumbs / .duo-foot), donc meme hauteur au pixel pres.
  */
 export function renderKoulchiHome() {
   const section = document.getElementById("koulchiVitrine");
@@ -84,38 +103,38 @@ export function renderKoulchiHome() {
   if (!section || !body) return;
 
   const products = eligibleProducts();
-  const preview = products.slice(0, 3);
+  const preview = products.slice(0, VITRINE_MAX_THUMBS);
 
-  const previewHtml = preview.length
-    ? `<ul class="koulchi-vitrine-thumbs" role="list">${preview
-        .map(renderThumb)
-        .join("")}</ul>`
-    : `<div class="koulchi-vitrine-empty" role="presentation">
-        <span class="koulchi-vitrine-empty-icon" aria-hidden="true">🛍️</span>
-        <span class="koulchi-vitrine-empty-text">${escapeHTML(
-          t("koulchiVitrineEmpty")
-        )}</span>
-      </div>`;
+  /* Toujours 3 emplacements : les carres vides gardent la hauteur du rang
+     et donc l alignement avec la carte Ventes Flash. */
+  const slots = preview.map(renderThumb);
+  while (slots.length < VITRINE_MAX_THUMBS) slots.push(renderEmptyThumb());
 
-  body.innerHTML = `<div class="koulchi-vitrine-card">
-      <div class="koulchi-vitrine-head">
-        <span class="koulchi-vitrine-badge">⚡ ${escapeHTML(
-          t("koulchiVitrineBadge")
-        )}</span>
+  const maxPercent = KOULCHI_TIERS.reduce(
+    (max, tier) => Math.max(max, Number(tier.percent) || 0),
+    0
+  );
+  const subText = preview.length
+    ? t("koulchiVitrineSub")
+    : t("koulchiVitrineEmpty");
+  const subClass = preview.length
+    ? "koulchi-vitrine-sub"
+    : "koulchi-vitrine-sub koulchi-vitrine-empty";
+
+  body.innerHTML = `<div class="koulchi-vitrine-card duo-card" data-duo-card="koulchi">
+      <div class="duo-head koulchi-vitrine-head">
         <a class="koulchi-home-title-link" href="/koulchi.html"><h2 class="section-title" id="koulchiHomeTitle">${escapeHTML(
           t("koulchiVitrineTitle")
         )}</h2></a>
-        <p class="koulchi-vitrine-sub">${escapeHTML(t("koulchiVitrineSub"))}</p>
+        <span class="duo-badge koulchi-vitrine-badge">−${maxPercent} %</span>
       </div>
-      <ul class="koulchi-vitrine-tiers" role="list">${renderTiers()}</ul>
-      <div class="koulchi-vitrine-preview">
-        <span class="koulchi-vitrine-preview-label">${escapeHTML(
-          t("koulchiVitrinePreview")
-        )}</span>
-        ${previewHtml}
-      </div>
-      <div class="koulchi-vitrine-foot">
-        <span class="koulchi-vitrine-note">${escapeHTML(
+      <p class="duo-sub ${subClass}">${escapeHTML(subText)}</p>
+      <ul class="duo-stats koulchi-vitrine-tiers" role="list">${renderTiers()}</ul>
+      <ul class="duo-thumbs koulchi-vitrine-thumbs" role="list">${slots.join(
+        ""
+      )}</ul>
+      <div class="duo-foot koulchi-vitrine-foot">
+        <span class="duo-note koulchi-vitrine-note">${escapeHTML(
           t("koulchiVitrineNonCumul")
         )}</span>
         <a class="koulchi-vitrine-cta" href="/koulchi.html">${escapeHTML(

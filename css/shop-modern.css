@@ -406,19 +406,59 @@
    5. VITRINE KOULCHI DIALK (accueil) + SIMULATEUR COMPACT (page)
    ============================================================ */
 
-/* Duo commercial : 2 colonnes des 1024 px, empilement en dessous.
-   L ordre suit le DOM (vitrine d abord) et bascule tout seul en RTL. */
-@media (min-width: 1024px) {
-  .promo-duo.is-pair {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    align-items: stretch;
-  }
-  .promo-duo.is-single { grid-template-columns: minmax(0, 1fr); }
+/* ============================================================
+   DUO JUMEAU KOULCHI DIALK + VENTES FLASH (accueil)
+   ------------------------------------------------------------
+   AliExpress affiche ses deux blocs commerciaux cote a cote sur TOUS
+   les ecrans. On reproduit exactement ce principe :
+
+     - 2 colonnes cote a cote des 320 px (JAMAIS d empilement) ;
+     - gap 8 px mobile, 14 px tablette (768-1023 px), 16 px desktop ;
+     - en dir="rtl" la grille s inverse seule : Koulchi dialk reste au
+       debut de lecture (a droite), Ventes Flash a gauche ;
+     - les deux cartes partagent la classe .duo-card : meme bordure,
+       meme rayon, meme fond, memes paddings, meme hauteur (100 %).
+
+   Aucun `order` n est necessaire : l ordre du DOM (vitrine puis flash)
+   et la direction du document suffisent. Aucun etat « pleine largeur »
+   (is-single) : meme sans vente flash active, les deux cartes restent
+   jumelles avec un etat vide harmonise.
+   ============================================================ */
+
+.promo-duo {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 8px;
+  width: min(1240px, calc(100% - 2rem));
+  margin: 1.1rem auto;
 }
 
-/* La carte vitrine porte son propre padding : on neutralise celui des
-   sections pour ne pas doubler la hauteur sur l accueil. */
-.promo-duo > .koulchi-vitrine { padding-block: 0; padding-inline: 0; min-width: 0; }
+@media (min-width: 768px) {
+  .promo-duo { gap: 14px; }
+}
+
+@media (min-width: 1024px) {
+  .promo-duo { gap: 16px; }
+}
+
+/* Neutralise l ancien mode « une seule carte » : la grille reste TOUJOURS
+   a deux colonnes, meme si le JS ajoutait encore is-single. */
+.promo-duo.is-single,
+.promo-duo.is-pair {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+}
+
+/* Les sections porteuses ne dessinent ni padding ni marge : c est la
+   carte (.duo-card) qui porte le bloc visuel. */
+.promo-duo > .section {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  height: 100%;
+}
 
 .koulchi-vitrine-body { height: 100%; }
 .koulchi-vitrine-card {
@@ -536,6 +576,328 @@
 }
 .koulchi-vitrine-cta:hover { filter: brightness(1.06); }
 .koulchi-vitrine-cta:active { transform: translateY(1px); }
+
+/* ============================================================
+   CARTES JUMELLES DU DUO — STRUCTURE INTERNE IDENTIQUE
+   ------------------------------------------------------------
+   Les deux cartes utilisent les MEMES classes .duo-* et les MEMES
+   hauteurs de rang : en-tete (titre + badge sur une ligne), sous-titre,
+   pastilles, miniatures 1:1, pied (note + CTA). L ecart de hauteur et
+   de position verticale mesure entre les deux cartes reste donc <= 2 px
+   sur mobile, tablette et desktop, en FR / EN / AR.
+
+   Les selecteurs sont prefixes par #promoDuo pour battre, SANS
+   !important, les regles historiques de style.css / style-patches.css
+   qui visaient l ancien carrousel flash.
+   ============================================================ */
+
+#promoDuo .duo-card,
+#promoDuo .koulchi-vitrine-card,
+#promoDuo #flashSection .flash-hero-inner {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 6px;
+  height: 100%;
+  min-width: 0;
+  max-width: none;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid rgba(180, 131, 62, 0.3);
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(255, 255, 255, 0.95), transparent 42%),
+    linear-gradient(135deg, #fffdf8, #f6eddc 58%, #efe2c8);
+  box-shadow: 0 18px 40px -34px rgba(90, 62, 18, 0.55);
+  overflow: hidden;
+}
+
+/* ---- Rang 1 : titre court + badge/compteur sur UNE seule ligne ---- */
+
+#promoDuo .duo-head {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  min-width: 0;
+  min-height: 18px;
+}
+
+#promoDuo .duo-title,
+#promoDuo .koulchi-home-title-link .section-title {
+  margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-secondary);
+  font-size: clamp(0.85rem, 2.5vw, 1.15rem);
+  line-height: 1.2;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#promoDuo .koulchi-home-title-link {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: block;
+  text-decoration: none;
+}
+
+#promoDuo .duo-badge,
+#promoDuo .koulchi-vitrine-badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 62%;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(180, 131, 62, 0.16);
+  color: var(--shop-gold-dark, #7a5a17);
+  font-size: 0.56rem;
+  font-weight: 900;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#promoDuo .flash-duo-timer {
+  gap: 4px;
+  background: rgba(176, 58, 46, 0.1);
+  color: var(--danger-text, #962d22);
+}
+
+#promoDuo .flash-duo-timer-label { font-size: 0.5rem; opacity: 0.85; }
+#promoDuo .flash-duo-timer-value { font-variant-numeric: tabular-nums; }
+
+/* Sous 1024 px la place est comptee : on ne garde que le compteur, sans
+   le libelle « Fin dans », pour que le titre « Ventes Flash » tienne
+   entierement sur sa ligne a cote de la pastille. */
+@media (max-width: 1023px) {
+  #promoDuo .flash-duo-timer-label { display: none; }
+}
+
+/* ---- Rang 2 : sous-titre sur une seule ligne (hauteur fixe) ---- */
+
+#promoDuo .duo-sub {
+  margin: 0;
+  height: 1.2em;
+  max-width: none;
+  font-size: 0.62rem;
+  line-height: 1.2;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#promoDuo .koulchi-vitrine-empty { display: block; }
+/* ---- Rang 3 : trois pastilles compactes (paliers / remises) ---- */
+
+#promoDuo .duo-stats,
+#promoDuo .koulchi-vitrine-tiers {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+#promoDuo .duo-stat,
+#promoDuo .koulchi-vitrine-tier {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  min-width: 0;
+  height: 28px;
+  min-height: 28px;
+  padding: 2px 1px;
+  border: 1px dashed rgba(180, 131, 62, 0.45);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--text);
+  font-size: 0.5rem;
+  font-weight: 700;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+#promoDuo .koulchi-vitrine-tier strong,
+#promoDuo .koulchi-vitrine-tier span {
+  font-size: 0.5rem;
+  line-height: 1.15;
+  color: inherit;
+}
+
+#promoDuo .flash-duo-stat { font-weight: 900; color: var(--shop-gold-dark, #7a5a17); }
+
+/* ---- Rang 4 : miniatures carrees 1:1 (2 mobile/tablette, 3 desktop) ---- */
+
+#promoDuo .duo-thumbs,
+#promoDuo .koulchi-vitrine-thumbs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-flow: row;
+  grid-auto-columns: auto;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow: hidden;
+  scroll-snap-type: none;
+}
+
+#promoDuo .duo-thumb,
+#promoDuo .koulchi-vitrine-thumb {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border: 1px solid rgba(180, 131, 62, 0.28);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+
+#promoDuo .duo-thumb > a,
+#promoDuo .koulchi-vitrine-thumb > a {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+#promoDuo .duo-thumb img,
+#promoDuo .koulchi-vitrine-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+#promoDuo .duo-thumb-off,
+#promoDuo .koulchi-vitrine-thumb-off {
+  position: absolute;
+  inset-block-start: 2px;
+  inset-inline-start: 2px;
+  padding: 0 4px;
+  border-radius: 6px;
+  background: var(--promo-red, #e5321b);
+  color: #fff;
+  font-size: 0.52rem;
+  font-weight: 900;
+  line-height: 1.5;
+}
+
+#promoDuo .duo-thumb.is-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(160deg, #fffaf0, #f4e8cf);
+  font-size: 1rem;
+  opacity: 0.75;
+}
+
+/* Deux miniatures seulement sous 1024 px : la 3e disparait SANS changer
+   la hauteur du rang (les cellules restent des carres de meme largeur).
+   Regle placee APRES .is-empty pour gagner a specificite egale. */
+#promoDuo .duo-thumb:nth-child(3) { display: none; }
+
+@media (min-width: 1024px) {
+  #promoDuo .duo-thumbs,
+  #promoDuo .koulchi-vitrine-thumbs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  #promoDuo .duo-thumb:nth-child(3) { display: block; }
+}
+
+/* ---- Rang 5 : pied identique (note + CTA de meme hauteur) ---- */
+
+#promoDuo .duo-foot,
+#promoDuo .koulchi-vitrine-foot {
+  margin-top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+
+#promoDuo .duo-note,
+#promoDuo .koulchi-vitrine-note {
+  height: 1.15em;
+  font-size: 0.56rem;
+  line-height: 1.15;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#promoDuo .duo-cta,
+#promoDuo .koulchi-vitrine-cta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #c79a4b, var(--shop-gold-dark, #7a5a17));
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 800;
+  line-height: 1.1;
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#promoDuo .duo-cta:hover,
+#promoDuo .koulchi-vitrine-cta:hover { filter: brightness(1.06); }
+
+#promoDuo .duo-cta:active,
+#promoDuo .koulchi-vitrine-cta:active { transform: translateY(1px); }
+
+/* ---- Confort desktop : memes valeurs pour les deux cartes ---- */
+
+@media (min-width: 1024px) {
+  #promoDuo .duo-card,
+  #promoDuo .koulchi-vitrine-card,
+  #promoDuo #flashSection .flash-hero-inner {
+    padding: 16px;
+    gap: 8px;
+    border-radius: 18px;
+  }
+
+  #promoDuo .duo-sub { font-size: 0.72rem; }
+  #promoDuo .duo-badge,
+  #promoDuo .koulchi-vitrine-badge { padding: 3px 8px; font-size: 0.62rem; }
+  #promoDuo .duo-stat,
+  #promoDuo .koulchi-vitrine-tier,
+  #promoDuo .koulchi-vitrine-tier strong,
+  #promoDuo .koulchi-vitrine-tier span { font-size: 0.62rem; }
+  #promoDuo .duo-stat,
+  #promoDuo .koulchi-vitrine-tier { height: 32px; min-height: 32px; }
+  #promoDuo .duo-note,
+  #promoDuo .koulchi-vitrine-note { font-size: 0.64rem; }
+  #promoDuo .duo-cta,
+  #promoDuo .koulchi-vitrine-cta { min-height: 40px; font-size: 0.78rem; }
+}
+
+
 
 /* Carte du simulateur : 3 lignes maximum (<= 140 px desktop). */
 .koulchi-experience {
