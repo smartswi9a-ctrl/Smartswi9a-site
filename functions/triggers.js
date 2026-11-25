@@ -725,22 +725,37 @@ exports.adminTestPush = onRequest(
         return;
       }
 
-      const token = String((req.body && req.body.token) || '').trim();
-      if (!token) {
-        res.status(400).json({ sent: false, error: 'no_token' });
-        return;
+      const requestedToken = String((req.body && req.body.token) || '').trim();
+
+      /* Tous les appareils actifs de CET admin (PC + téléphone + PWA). */
+      const ownTokens = [];
+      try {
+        const snap = await db.collection('fcm_tokens').where('uid', '==', decoded.uid).limit(50).get();
+        snap.docs.forEach((doc) => {
+          if (doc.data().active !== false) ownTokens.push(doc.id);
+        });
+      } catch (error) {
+        console.warn('[triggers] adminTestPush tokens :', error.message);
       }
 
-      const tokenDoc = await db.doc(`fcm_tokens/${token}`).get();
-      if (!tokenDoc.exists || String(tokenDoc.data().uid || '') !== decoded.uid) {
-        res.status(403).json({ sent: false, error: 'token_not_owned' });
+      const tokens = [...ownTokens];
+      if (requestedToken) {
+        const tokenDoc = await db.doc(`fcm_tokens/${requestedToken}`).get();
+        if (!tokenDoc.exists || String(tokenDoc.data().uid || '') !== decoded.uid) {
+          res.status(403).json({ sent: false, error: 'token_not_owned' });
+          return;
+        }
+        if (!tokens.includes(requestedToken)) tokens.push(requestedToken);
+      }
+      if (!tokens.length) {
+        res.status(400).json({ sent: false, error: 'no_token' });
         return;
       }
 
       const title = String((req.body && req.body.title) || '🔔 Test Smartswika').slice(0, 120);
       const body = String((req.body && req.body.body) || 'Push opérationnel sur cet appareil.').slice(0, 240);
 
-      const result = await sendPush([token], {
+      const result = await sendPush(tokens, {
         title,
         body,
         targetUrl: '/',
@@ -751,6 +766,7 @@ exports.adminTestPush = onRequest(
       res.json({
         sent: (result.sent || 0) > 0,
         failed: result.failed || 0,
+        tokens: tokens.length,
         ...(result.sent ? {} : { error: 'delivery_failed' })
       });
     } catch (error) {

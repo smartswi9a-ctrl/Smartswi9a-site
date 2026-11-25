@@ -120,7 +120,12 @@ async function getTokensForRole(role) {
   return snap.docs.filter((d) => d.data().active !== false).map((d) => d.id);
 }
 
-/** Envoie un push data-only et purge les tokens invalides. */
+/**
+ * Envoie un push HAUTE PRIORITÉ et purge les tokens invalides.
+ * Deux blocs sont envoyés pour réveiller l'écran (Android/iOS) :
+ *  - `notification` natif (bannière affichée même si l'onglet est fermé) ;
+ *  - `webpush.notification` (icône, badge, requireInteraction, clic).
+ */
 async function sendPush(tokens, payload) {
   const list = [...new Set((tokens || []).filter(Boolean))];
   if (!list.length) return { sent: 0, failed: 0, cleaned: 0 };
@@ -133,6 +138,24 @@ async function sendPush(tokens, payload) {
     tag: String(payload.tag || payload.type || 'smartswika')
   };
 
+  const ICON = 'https://smartswika.ma/assets/pwa-192.png';
+  const absoluteUrl = (value) => {
+    const raw = String(value || '/');
+    if (/^https?:\/\//i.test(raw)) return raw;
+    return `https://smartswika.ma${raw.startsWith('/') ? '' : '/'}${raw}`;
+  };
+
+  const notification = { title: data.title, body: data.body };
+  const webpushNotification = {
+    title: data.title,
+    body: data.body,
+    icon: ICON,
+    badge: ICON,
+    requireInteraction: true,
+    tag: data.tag,
+    data: { url: data.targetUrl, type: data.type }
+  };
+
   let sent = 0;
   let failed = 0;
   let cleaned = 0;
@@ -143,8 +166,11 @@ async function sendPush(tokens, payload) {
       const response = await getMessaging().sendEachForMulticast({
         tokens: chunk,
         data,
+        notification,
         webpush: {
-          headers: { Urgency: 'high', TTL: '86400' }
+          headers: { Urgency: 'high', TTL: '86400' },
+          notification: webpushNotification,
+          fcmOptions: { link: absoluteUrl(data.targetUrl) }
         }
       });
       sent += response.successCount;
