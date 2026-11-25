@@ -40,7 +40,7 @@ import {
 import { aggregateTraffic, computeOnline, dayKey, buildTrafficSeries } from "./analytics-core.js";
 import { buildTrafficSvg } from "./traffic-chart.js";
 import { pickupSku, normalizeReceivedQuantity } from "./domain/pickup-sku.js";
-import { initPush } from "./push.js?v=5";
+import { initPush } from "./push.js?v=6";
 
 /* admin.html ne charge pas app.js : personne ne resoudrait appReadyPromise
    (avertissement "timeout (10s)" en console). On utilise le contrat window
