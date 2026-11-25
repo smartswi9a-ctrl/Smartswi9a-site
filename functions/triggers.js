@@ -748,7 +748,11 @@ exports.adminTestPush = onRequest(
         tag: `test-${Date.now()}`
       });
 
-      res.json({ sent: (result.sent || 0) > 0, failed: result.failed || 0 });
+      res.json({
+        sent: (result.sent || 0) > 0,
+        failed: result.failed || 0,
+        ...(result.sent ? {} : { error: 'delivery_failed' })
+      });
     } catch (error) {
       console.error('[triggers] adminTestPush :', error);
       res.status(500).json({ sent: false, error: 'server_error' });

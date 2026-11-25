@@ -240,5 +240,24 @@ check("push : enregistre le Service Worker s'il n'existe pas (pages sans app.js)
   );
 });
 
+check("push test : utilisateur résolu via Firebase Auth (authStateReady + getIdToken(true))", () => {
+  const push = read("js/push.js");
+  assert.ok(push.includes("resolveAccount"), "résolution du compte absente");
+  assert.ok(push.includes("authStateReady()"), "attente de l'état d'auth absente");
+  assert.ok(push.includes("getIdToken(true)"), "jeton forcé absent");
+  assert.ok(/import \{ db, auth \} from "\.\/firebase\.js"/.test(push), "auth non importé");
+  assert.ok(
+    /registerToken\(\{ user: account \}\)/.test(push),
+    "le token doit être ré-enregistré sous le compte avant l'envoi"
+  );
+});
+
+check("push test : messages d'erreur explicites côté admin", () => {
+  const mod = read("js/admin-notifications.js");
+  for (const code of ["no_user", "not_admin", "token_not_owned", "invalid_token", "no_token"]) {
+    assert.ok(mod.includes(code + ":"), "message manquant pour " + code);
+  }
+});
+
 console.log("\n" + checks + " verification(s), " + failures + " echec(s)");
 process.exit(failures === 0 ? 0 : 1);

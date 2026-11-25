@@ -17,7 +17,8 @@ import {
   getDoc,
   serverTimestamp,
 } from "firebase/firestore";
-import { db } from "./firebase.js";
+import { db, auth } from "./firebase.js";
+import { onAuthStateChanged } from "firebase/auth";
 import { getCurrentUser } from "./auth.js";
 import { PWA_CONFIG } from "./config.js?v=2";
 import { getSwRegistration, getPlatform, showPushCta } from "./pwa.js";
@@ -67,6 +68,28 @@ function iosNeedsInstall() {
 function currentPermission() {
   if (!pushSupported()) return "unsupported";
   return Notification.permission || "default";
+}
+
+/**
+ * Utilisateur réellement connecté (source Firebase Auth).
+ * Sur /admin le store de ./auth.js n'est pas initialisé : getCurrentUser()
+ * peut renvoyer null alors que auth.currentUser est rempli. On attend
+ * authStateReady() pour couvrir un clic juste après la connexion.
+ */
+async function resolveAccount({ wait = true, timeoutMs = 6000 } = {}) {
+  if (auth && auth.currentUser) return auth.currentUser;
+  if (wait && auth && typeof auth.authStateReady === "function") {
+    try {
+      await Promise.race([
+        auth.authStateReady(),
+        new Promise((resolve) => setTimeout(resolve, timeoutMs)),
+      ]);
+    } catch (error) {
+      /* non bloquant */
+    }
+  }
+  if (auth && auth.currentUser) return auth.currentUser;
+  return getCurrentUser();
 }
 
 /**
@@ -176,7 +199,7 @@ async function registerToken({ user = null } = {}) {
     if (!token) return null;
     currentToken = token;
 
-    const account = user || getCurrentUser();
+    const account = user || (await resolveAccount({ wait: false }));
     if (account) {
       await saveToken(token, account, await resolveRole(account.uid));
     }
@@ -268,6 +291,16 @@ function bindAuth() {
   if (authBound) return;
   authBound = true;
 
+  /* Source de vérité : Firebase Auth (fonctionne aussi sur /admin, qui
+     n'initialise pas le store de ./auth.js). */
+  try {
+    onAuthStateChanged(auth, (user) => {
+      if (user) syncPushToken();
+    });
+  } catch (error) {
+    /* non bloquant */
+  }
+
   document.addEventListener("auth-updated", async (event) => {
     const user = event.detail && event.detail.user;
     if (user) {
@@ -314,7 +347,7 @@ export async function getPushDiagnostics() {
   const permission = currentPermission();
   let token = currentToken;
   if (!token && permission === "granted") token = await syncPushToken();
-  const account = getCurrentUser();
+  const account = auth.currentUser || getCurrentUser();
   return {
     supported: pushSupported() && !iosNeedsInstall(),
     permission,
@@ -331,12 +364,46 @@ export async function getPushDiagnostics() {
 const TEST_PUSH_ENDPOINT =
   "https://europe-west1-smartswi9a-31063.cloudfunctions.net/adminTestPush";
 
+/**
+ * Force un token NEUF pour cet appareil (deleteToken + getToken).
+ * Un token ancien peut être refusé par FCM : le bouton de test doit toujours
+ * partir d'un token fraîchement enregistré sous le compte courant.
+ */
+async function refreshDeviceToken(account) {
+  try {
+    const msg = await ensureMessaging();
+    if (!msg) return null;
+    const api = await messagingApi();
+    try {
+      await api.deleteToken(msg);
+    } catch (error) {
+      /* token déjà inexistant */
+    }
+    const registration = await ensureSwRegistration();
+    const token = await api.getToken(msg, {
+      vapidKey: PWA_CONFIG.VAPID_KEY,
+      ...(registration ? { serviceWorkerRegistration: registration } : {}),
+    });
+    if (!token) return null;
+    currentToken = token;
+    await saveToken(token, account, await resolveRole(account.uid));
+    return token;
+  } catch (error) {
+    console.warn("[push] rafraîchissement du token impossible :", error && error.message);
+    return null;
+  }
+}
+
 /** Notification push de test vers CET appareil (admin uniquement côté serveur). */
 export async function sendTestPush() {
-  const account = getCurrentUser();
+  /* 1. Utilisateur réellement connecté (Firebase Auth, pas le store). */
+  const account = await resolveAccount();
   if (!account) return { ok: false, error: "no_user" };
 
-  let token = currentToken || (await syncPushToken());
+  /* 2. Token NEUF de cet appareil, enregistré sous ce compte. */
+  let token = await refreshDeviceToken(account);
+  if (!token) token = await registerToken({ user: account });
+  if (!token) token = currentToken;
   if (!token) {
     const result = await enablePush({ silent: true });
     token = result && result.token;
@@ -344,7 +411,10 @@ export async function sendTestPush() {
   if (!token) return { ok: false, error: "no_token" };
 
   try {
-    const idToken = await account.getIdToken();
+    /* 3. Jeton d'identité Firebase forcé (getIdToken(true)). */
+    const idToken = await account.getIdToken(true);
+    if (!idToken) return { ok: false, error: "no_auth" };
+
     const response = await fetch(TEST_PUSH_ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },

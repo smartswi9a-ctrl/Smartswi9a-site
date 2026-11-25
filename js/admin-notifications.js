@@ -262,6 +262,19 @@ async function handlePushAllow() {
     }
 }
 
+const PUSH_TEST_ERRORS = {
+    no_user: 'Aucun administrateur connecté (session non résolue). Reconnectez-vous puis réessayez.',
+    no_auth: 'Jeton d’authentification indisponible. Reconnectez-vous.',
+    no_token: 'Aucun token push sur cet appareil. Autorisez les notifications puis réessayez.',
+    invalid_token: 'Session expirée : reconnectez-vous au panneau admin.',
+    not_admin: 'Ce compte n’a pas le rôle « admin » dans Firestore (users/{uid}.role).',
+    token_not_owned: 'Token non rattaché à votre compte : rechargez la page puis réessayez.',
+    delivery_failed: 'Token refusé par FCM (expiré). Rechargez la page pour le renouveler, puis réessayez.',
+    network: 'Erreur réseau pendant l’envoi du test.',
+    http_401: 'Session expirée (401) : reconnectez-vous.',
+    http_403: 'Accès refusé (403) : rôle admin ou token invalide.'
+};
+
 async function handlePushTest() {
     const log = document.getElementById('pushDiagLog');
     const button = document.getElementById('pushTestBtn');
@@ -269,13 +282,15 @@ async function handlePushTest() {
     if (log) log.textContent = 'Envoi du push de test…';
     try {
         const result = await window.smartswikaSendTestPush();
-        if (log) {
-            log.textContent =
-                result && result.ok
-                    ? '✅ Notification test envoyée — vérifiez votre écran (verrouillé ou en arrière-plan).'
-                    : `⚠️ Échec de l’envoi (${escapeHTML(String((result && result.error) || 'inconnu'))}).`;
+        if (result && result.ok) {
+            if (log) log.textContent = '✅ Notification test envoyée — verrouillez l’écran ou passez en arrière-plan pour la voir.';
+            showToast('Push de test envoyé.', 4000);
+            return;
         }
-        showToast(result && result.ok ? 'Push de test envoyé.' : 'Échec du push de test.', 4000);
+        const code = String((result && result.error) || 'inconnu');
+        const message = PUSH_TEST_ERRORS[code] || `Échec de l’envoi (${code}).`;
+        if (log) log.textContent = '⚠️ ' + message;
+        showToast(message, 6000);
     } catch (error) {
         if (log) log.textContent = '⚠️ Erreur réseau pendant l’envoi du test.';
     } finally {

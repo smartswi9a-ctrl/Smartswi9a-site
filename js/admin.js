@@ -40,7 +40,7 @@ import {
 import { aggregateTraffic, computeOnline, dayKey, buildTrafficSeries } from "./analytics-core.js";
 import { buildTrafficSvg } from "./traffic-chart.js";
 import { pickupSku, normalizeReceivedQuantity } from "./domain/pickup-sku.js";
-import { initPush } from "./push.js?v=3";
+import { initPush } from "./push.js?v=5";
 
 /* admin.html ne charge pas app.js : personne ne resoudrait appReadyPromise
    (avertissement "timeout (10s)" en console). On utilise le contrat window
@@ -619,7 +619,7 @@ function initAdmin() {
             else if (tab === 'notifications') {
                 /* Onglet Campagnes & Notifications : module séparé, chargé à la demande. */
                 try {
-                    const m = await import('./admin-notifications.js?v=5');
+                    const m = await import('./admin-notifications.js?v=7');
                     await m.initNotificationsTab();
                 } catch (e) {
                     console.error('[admin] initNotificationsTab impossible :', e);
