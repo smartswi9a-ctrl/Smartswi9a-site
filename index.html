@@ -51,41 +51,35 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Inter:wght@400;500;700&family=Cairo:wght@400;600;700&family=Amiri:wght@400;700&display=swap" rel="stylesheet">
 
-    <script type="application/ld+json">
+    <script type="application/ld+json" id="ld-onlinestore" data-ld-id="ld-onlinestore">
     {
         "@context": "https://schema.org",
-        "@type": "WebSite",
-        "name": "Smartswika",
-        "alternateName": "سمارت سويقة",
-        "url": "https://smartswika.ma/",
-        "description": "Boutique de gadgets et Smart Home au Maroc",
-        "inLanguage": ["fr", "ar", "en"],
-        "potentialAction": {
-            "@type": "SearchAction",
-            "target": "https://smartswika.ma/?search={search_term_string}",
-            "query-input": "required name=search_term_string"
-        }
-    }
-    </script>
-
-    <script type="application/ld+json">
-    {
-        "@context": "https://schema.org",
-        "@type": "Organization",
+        "@type": "OnlineStore",
+        "@id": "https://smartswika.ma/#store",
         "name": "Smartswika",
         "alternateName": "سمارت سويقة",
         "url": "https://smartswika.ma/",
         "logo": {
             "@type": "ImageObject",
+            "@id": "https://smartswika.ma/#logo",
             "url": "https://smartswika.ma/assets/logo.png",
             "width": 512,
             "height": 512
         },
         "image": "https://smartswika.ma/assets/og-image.jpg",
-        "description": "Boutique tech marocaine : gadgets, domotique et objets connectés livrés en 24-72h.",
+        "description": "Boutique tech marocaine en ligne : gadgets, montres connectées, écouteurs et maison connectée. Livraison 24-72h dans 404 villes du Maroc via Livo, paiement à la livraison en espèces.",
+        "telephone": "+212656613303",
+        "email": "smartswi9a@gmail.com",
+        "currenciesAccepted": "MAD",
+        "paymentAccepted": "Cash on Delivery, Paiement à la livraison en espèces",
+        "areaServed": "MA",
+        "address": {
+            "@type": "PostalAddress",
+            "addressCountry": "MA"
+        },
         "contactPoint": {
             "@type": "ContactPoint",
-            "telephone": "+212-656-613-303",
+            "telephone": "+212656613303",
             "contactType": "customer service",
             "areaServed": "MA",
             "availableLanguage": ["Arabic", "French", "English"]
@@ -95,6 +89,86 @@
             "https://instagram.com/smartswi9a",
             "https://tiktok.com/@smartswi9a",
             "https://wa.me/212656613303"
+        ]
+    }
+    </script>
+
+    <script type="application/ld+json" id="ld-website" data-ld-id="ld-website">
+    {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "@id": "https://smartswika.ma/#website",
+        "name": "Smartswika",
+        "alternateName": "سمارت سويقة",
+        "url": "https://smartswika.ma/",
+        "inLanguage": ["fr", "ar", "en"],
+        "publisher": { "@id": "https://smartswika.ma/#store" },
+        "potentialAction": {
+            "@type": "SearchAction",
+            "target": {
+                "@type": "EntryPoint",
+                "urlTemplate": "https://smartswika.ma/?search={search_term_string}"
+            },
+            "query-input": "required name=search_term_string"
+        }
+    }
+    </script>
+
+    <script type="application/ld+json" id="ld-faq" data-ld-id="ld-faq">
+    {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "@id": "https://smartswika.ma/#faq",
+        "inLanguage": "fr",
+        "mainEntity": [
+            {
+                "@type": "Question",
+                "name": "Quel est le délai de livraison de Smartswika au Maroc ?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "Smartswika livre en 24 à 72 heures dans 404 villes du Maroc via notre partenaire Livo. Le délai exact dépend de votre ville et est affiché sur la page Villes de livraison."
+                }
+            },
+            {
+                "@type": "Question",
+                "name": "Peut-on payer à la livraison ?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "Oui. Le paiement se fait en espèces à la livraison (Cash on Delivery) partout au Maroc. Tous les prix sont affichés en dirham marocain (MAD), sans frais cachés."
+                }
+            },
+            {
+                "@type": "Question",
+                "name": "Quels sont les frais de livraison ?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "Les frais de livraison correspondent aux tarifs Livo exacts, sans marge ajoutée par Smartswika. Ils commencent à 20 DH et varient selon la ville (environ 20 à 45 DH)."
+                }
+            },
+            {
+                "@type": "Question",
+                "name": "Quelle garantie sur les produits Smartswika ?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "Les produits vendus par Smartswika bénéficient d'une garantie totale de 15 jours : 3 jours pour signaler un problème et 12 jours d'essai."
+                }
+            },
+            {
+                "@type": "Question",
+                "name": "Quelle garantie sur les produits d'un vendeur partenaire ?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "Les produits vendus par un vendeur partenaire bénéficient d'une garantie totale de 7 jours : 3 jours pour signaler et 4 jours d'essai. Le retour est pris en charge par le vendeur en cas de défaut."
+                }
+            },
+            {
+                "@type": "Question",
+                "name": "Comment fonctionnent les retours et remboursements ?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "Un produit défectueux ou non conforme est retourné aux frais du vendeur (ou de Smartswika). En cas de changement d'avis, les frais de retour sont à votre charge. Le remboursement intervient après vérification, sous 48 à 72 heures ouvrées."
+                }
+            }
         ]
     }
     </script>

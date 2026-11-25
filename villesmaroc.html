@@ -46,6 +46,81 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Inter:wght@400;500;700&family=Cairo:wght@400;600;700&family=Amiri:wght@400;700&display=swap" rel="stylesheet">
 
+    <script type="application/ld+json" id="ld-cities-breadcrumb" data-ld-id="ld-cities-breadcrumb">
+    {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "@id": "https://smartswika.ma/villesmaroc#breadcrumb",
+        "itemListElement": [
+            {
+                "@type": "ListItem",
+                "position": 1,
+                "name": "Accueil",
+                "item": "https://smartswika.ma/"
+            },
+            {
+                "@type": "ListItem",
+                "position": 2,
+                "name": "Villes de livraison",
+                "item": "https://smartswika.ma/villesmaroc"
+            }
+        ]
+    }
+    </script>
+
+    <script type="application/ld+json" id="ld-delivery-service" data-ld-id="ld-delivery-service">
+    {
+        "@context": "https://schema.org",
+        "@type": "Service",
+        "@id": "https://smartswika.ma/villesmaroc#delivery-service",
+        "name": "Livraison Livo au Maroc (24-72h)",
+        "serviceType": "Livraison à domicile avec paiement à la livraison",
+        "description": "Livraison en 24 à 72 heures dans 404 villes du Maroc avec paiement en espèces à la livraison, assurée par Livo pour Smartswika.",
+        "inLanguage": "fr",
+        "provider": {
+            "@type": "OnlineStore",
+            "@id": "https://smartswika.ma/#store",
+            "name": "Smartswika",
+            "url": "https://smartswika.ma/",
+            "telephone": "+212656613303"
+        },
+        "areaServed": [
+            { "@type": "Country", "name": "MA" },
+            { "@type": "City", "name": "Casablanca" },
+            { "@type": "City", "name": "Rabat" },
+            { "@type": "City", "name": "Marrakech" },
+            { "@type": "City", "name": "Tanger" },
+            { "@type": "City", "name": "Fès" },
+            { "@type": "City", "name": "Agadir" },
+            { "@type": "City", "name": "Meknès" },
+            { "@type": "City", "name": "Kénitra" },
+            { "@type": "City", "name": "Tétouan" },
+            { "@type": "City", "name": "Oujda" }
+        ],
+        "availableChannel": {
+            "@type": "ServiceChannel",
+            "serviceUrl": "https://smartswika.ma/villesmaroc",
+            "servicePhone": "+212656613303",
+            "availableLanguage": ["fr", "ar", "en"]
+        },
+        "offers": {
+            "@type": "Offer",
+            "priceCurrency": "MAD",
+            "availability": "https://schema.org/InStock",
+            "priceSpecification": {
+                "@type": "DeliveryChargeSpecification",
+                "priceCurrency": "MAD",
+                "minPrice": 20,
+                "maxPrice": 45,
+                "eligibleRegion": { "@type": "Country", "name": "MA" },
+                "appliesToDeliveryMethod": "https://schema.org/ParcelService"
+            }
+        },
+        "paymentAccepted": "Cash on Delivery, Paiement à la livraison en espèces",
+        "termsOfService": "https://smartswika.ma/cgu-acheteur"
+    }
+    </script>
+
     <script type="importmap">
     {
         "imports": {
@@ -206,6 +281,53 @@
         }
         .villes-error button:hover { background: var(--danger); color: #fff; }
 
+        /* Contenu SEO éditorial (villes prioritaires, frais, process) */
+        .villes-seo {
+            max-width: 1000px;
+            margin: 2.5rem auto;
+        }
+        .villes-seo-intro {
+            color: var(--text-muted);
+            line-height: 1.8;
+            max-width: 760px;
+            margin: 0.6rem auto 1.2rem;
+            text-align: center;
+        }
+        .villes-seo-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1rem;
+        }
+        .ville-seo-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 1rem 1.1rem;
+            box-shadow: var(--shadow-sm);
+        }
+        .ville-seo-card h3 {
+            margin: 0 0 0.4rem;
+            font-size: 1.05rem;
+            color: var(--gold);
+        }
+        .ville-seo-card p {
+            margin: 0;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            line-height: 1.6;
+        }
+        .villes-seo-steps {
+            max-width: 700px;
+            margin: 1rem auto 0;
+            padding-inline-start: 1.4rem;
+            color: var(--text-muted);
+            line-height: 1.9;
+        }
+        [dir="rtl"] .villes-seo-steps {
+            padding-inline-start: 0;
+            padding-inline-end: 1.4rem;
+        }
+
         @media (max-width: 480px) {
             .villes-table th, .villes-table td { padding: 0.5rem 0.6rem; font-size: 0.8rem; }
             .ville-stat-card strong { font-size: 1.2rem; }
@@ -274,6 +396,53 @@
             <p class="section-sub" data-key="villesSub" data-key="deliveryTagline">Nous livrons partout au Maroc. Frais et délais selon votre ville.</p>
         </div>
 
+        <section class="villes-seo" aria-labelledby="majorCitiesTitle">
+            <h2 class="section-title" id="majorCitiesTitle" data-rich-key="majorTitle">Livraison rapide dans les grandes villes du Maroc</h2>
+            <p class="villes-seo-intro" data-rich-key="majorIntro">Retrouvez ci-dessous les délais indicatifs et les frais Livo exacts, sans marge, pour les principales villes desservies. Le paiement se fait en espèces à la livraison.</p>
+            <div class="villes-seo-grid">
+                <article class="ville-seo-card" data-city-card data-city-name="Casablanca" data-price="20" data-delay="24h">
+                    <h3>Casablanca</h3>
+                    <p data-city-text>Livraison en 24h à Casablanca — frais Livo exacts 20 DH, paiement en espèces à la livraison.</p>
+                </article>
+                <article class="ville-seo-card" data-city-card data-city-name="Rabat" data-price="35" data-delay="48h">
+                    <h3>Rabat</h3>
+                    <p data-city-text>Livraison en 48h à Rabat — frais Livo exacts 35 DH, paiement en espèces à la livraison.</p>
+                </article>
+                <article class="ville-seo-card" data-city-card data-city-name="Marrakech" data-price="35" data-delay="48h">
+                    <h3>Marrakech</h3>
+                    <p data-city-text>Livraison en 48h à Marrakech — frais Livo exacts 35 DH, paiement en espèces à la livraison.</p>
+                </article>
+                <article class="ville-seo-card" data-city-card data-city-name="Tanger" data-price="35" data-delay="48h">
+                    <h3>Tanger</h3>
+                    <p data-city-text>Livraison en 48h à Tanger — frais Livo exacts 35 DH, paiement en espèces à la livraison.</p>
+                </article>
+                <article class="ville-seo-card" data-city-card data-city-name="Fès" data-price="35" data-delay="48h">
+                    <h3>Fès</h3>
+                    <p data-city-text>Livraison en 48h à Fès — frais Livo exacts 35 DH, paiement en espèces à la livraison.</p>
+                </article>
+                <article class="ville-seo-card" data-city-card data-city-name="Agadir" data-price="35" data-delay="48h">
+                    <h3>Agadir</h3>
+                    <p data-city-text>Livraison en 48h à Agadir — frais Livo exacts 35 DH, paiement en espèces à la livraison.</p>
+                </article>
+                <article class="ville-seo-card" data-city-card data-city-name="Meknès" data-price="40" data-delay="48h">
+                    <h3>Meknès</h3>
+                    <p data-city-text>Livraison en 48h à Meknès — frais Livo exacts 40 DH, paiement en espèces à la livraison.</p>
+                </article>
+                <article class="ville-seo-card" data-city-card data-city-name="Kénitra" data-price="40" data-delay="48h">
+                    <h3>Kénitra</h3>
+                    <p data-city-text>Livraison en 48h à Kénitra — frais Livo exacts 40 DH, paiement en espèces à la livraison.</p>
+                </article>
+                <article class="ville-seo-card" data-city-card data-city-name="Tétouan" data-price="35" data-delay="48h">
+                    <h3>Tétouan</h3>
+                    <p data-city-text>Livraison en 48h à Tétouan — frais Livo exacts 35 DH, paiement en espèces à la livraison.</p>
+                </article>
+                <article class="ville-seo-card" data-city-card data-city-name="Oujda" data-price="45" data-delay="72h">
+                    <h3>Oujda</h3>
+                    <p data-city-text>Livraison en 72h à Oujda — frais Livo exacts 45 DH, paiement en espèces à la livraison.</p>
+                </article>
+            </div>
+        </section>
+
         <div class="villes-stats">
             <div class="ville-stat-card">
                 <strong id="villesCount" class="ltr-value" dir="ltr">—</strong>
@@ -292,6 +461,11 @@
                 <span data-key="villesSupportLabel">📞 Support WhatsApp</span>
             </div>
         </div>
+
+        <section class="villes-seo" aria-labelledby="villesFeesTitle">
+            <h2 class="section-title" id="villesFeesTitle" data-rich-key="feesTitle">Frais de livraison Livo exacts, sans marge</h2>
+            <p class="villes-seo-intro" data-rich-key="feesIntro">Chaque tarif affiché correspond au tarif réel facturé par Livo. Smartswika n'ajoute aucune marge. Le paiement est effectué en espèces à la livraison.</p>
+        </section>
 
         <div class="villes-search">
             <input type="text" id="villeSearch" data-key="searchCity" placeholder="Rechercher une ville" data-aria-key="ariaSearchCity">
@@ -320,6 +494,16 @@
                 </tbody>
             </table>
         </div>
+
+        <section class="villes-seo" aria-labelledby="villesHowTitle">
+            <h2 class="section-title" id="villesHowTitle" data-rich-key="howTitle">Comment fonctionne la livraison Livo ?</h2>
+            <ol class="villes-seo-steps">
+                <li data-rich-step="0">Vous commandez sur Smartswika et choisissez votre ville.</li>
+                <li data-rich-step="1">Smartswika prépare votre colis dans son entrepôt.</li>
+                <li data-rich-step="2">Livo récupère le colis et le livre en 24 à 72 heures.</li>
+                <li data-rich-step="3">Vous payez en espèces à la livraison, après réception du colis.</li>
+            </ol>
+        </section>
 
         <div style="text-align:center;padding:2rem 1rem;">
             <a href="/" class="btn-primary" data-key="villesCta">🛍️ Commander maintenant</a>
@@ -362,6 +546,7 @@
 
     <script type="module">
         import { t, setLang, getLang } from '/js/utils.js';
+        import { applyCitiesJsonLd, getCitiesCopy } from '/js/structured-data.js';
 
         const CACHE_KEY = 'swi9a_livo_fees_v1';
         const CACHE_TTL_MS = 5 * 60 * 1000; // 5 min
@@ -410,6 +595,42 @@
         }
 
         /* ============================================================
+           CONTENU SEO ÉDITORIAL (villes prioritaires / frais / process)
+           Textes localisés fournis par structured-data.js (getCitiesCopy).
+           ============================================================ */
+        function renderSeoContent() {
+            const copy = getCitiesCopy(getLang());
+            if (!copy) return;
+
+            document.querySelectorAll('[data-rich-key]').forEach((el) => {
+                const key = el.getAttribute('data-rich-key');
+                const value = copy[key];
+                if (value) el.textContent = value;
+            });
+
+            document.querySelectorAll('[data-city-card]').forEach((card) => {
+                const city = card.getAttribute('data-city-name') || '';
+                const price = card.getAttribute('data-price') || '';
+                const delay = card.getAttribute('data-delay') || '';
+                const delayLabel = getLang() === 'ar' ? delay.replace(/h$/i, ' ساعة') : delay;
+                const text = card.querySelector('[data-city-text]');
+                if (text && copy.cityTemplate) {
+                    text.textContent = copy.cityTemplate
+                        .replace('{city}', city)
+                        .replace('{price}', price)
+                        .replace('{delay}', delayLabel);
+                }
+            });
+
+            document.querySelectorAll('[data-rich-step]').forEach((el) => {
+                const idx = Number(el.getAttribute('data-rich-step'));
+                if (copy.howSteps && copy.howSteps[idx]) {
+                    el.textContent = copy.howSteps[idx];
+                }
+            });
+        }
+
+        /* ============================================================
            TRANSLATIONS (data-key)
            ============================================================ */
         function applyPageTranslations() {
@@ -455,6 +676,9 @@
                 document.querySelectorAll('.logo-text').forEach(el => { el.textContent = logoVal; });
                 document.querySelectorAll('.footer-logo').forEach(el => { el.textContent = logoVal; });
             }
+
+            /* Contenu SEO éditorial (10 villes prioritaires, frais, process). */
+            renderSeoContent();
         }
 
         /* ============================================================
@@ -624,6 +848,13 @@
             const filtered = filterCities(currentSearchQuery);
             renderVilles(filtered);
             updateCountLabel(filtered);
+            /* Enrichit le Service JSON-LD avec les 404 villes Livo dès
+               que la grille tarifaire est disponible (upsert par id). */
+            try {
+                applyCitiesJsonLd(getLang(), allCities);
+            } catch (e) {
+                /* non bloquant */
+            }
         }
 
         /* ============================================================

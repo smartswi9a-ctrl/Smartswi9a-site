@@ -2,7 +2,12 @@
 
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "./firebase.js";
-import { CONFIG, VIDEO_BASE_URL, getProductOwner } from "./config.js?v=2";
+import {
+  CONFIG,
+  VIDEO_BASE_URL,
+  getProductOwner,
+  getCategoryById,
+} from "./config.js?v=2";
 import {
   t,
   escapeHTML,
@@ -26,6 +31,7 @@ import {
 } from "./vendor-attribution.js";
 import { normalizeProductId } from "./domain/product-id.js";
 import { buildCanonicalUrl, applySeoLinks } from "./seo.js";
+import { applyProductJsonLd, clearProductJsonLd } from "./structured-data.js";
 import { isKoulchiEligible, isKoulchiBlockedByFlash, KOULCHI_TIERS } from "./koulchi.js";
 
 /* ============================================================ HELPERS LOCAUX ============================================================ */
@@ -131,7 +137,7 @@ function renderNotFound(mainEl) {
      on retire un éventuel JSON-LD produit devenu obsolète. */
   try {
     setMeta("name", "robots", "noindex, follow");
-    document.getElementById("product-schema-ld")?.remove();
+    clearProductJsonLd();
     /* Le libellé productPageTitle contient déjà la marque : pas de
        concaténation supplémentaire (évite « … | Smartswika | Smartswika »). */
     document.title = t("productPageTitle") || "Produit | Smartswika";
@@ -176,14 +182,6 @@ function updateMetaTags(product) {
   /* Canonical + hreflang fr/ar/en/x-default, cohérents entre eux. */
   applySeoLinks(url);
 
-  const schemaId = "product-schema-ld";
-  let schemaEl = document.getElementById(schemaId);
-  if (!schemaEl) {
-    schemaEl = document.createElement("script");
-    schemaEl.id = schemaId;
-    schemaEl.type = "application/ld+json";
-    document.head.appendChild(schemaEl);
-  }
   /* Marque : le vendeur réel quand il existe, sinon Smartswika. */
   let brandName = "Smartswika";
   try {
@@ -192,60 +190,43 @@ function updateMetaTags(product) {
   } catch (e) {
     /* non bloquant */
   }
-  const shipping = Number(product.shippingCost) || 0;
-  schemaEl.textContent = JSON.stringify({
-    "@context": "https://schema.org",
-    "@type": "Product",
-    name: name,
-    description: desc,
+
+  /* Product + Offer (MAD, livraison 24-72h, retour) + AggregateRating
+     conditionnel. Le builder partagé n'émet aggregateRating que si
+     ratingCount >= 1 et ratingAvg > 0 (consignes Google Rich Results). */
+  applyProductJsonLd({
+    name,
+    description: desc || name,
     image: absoluteImg,
-    sku: String(product.sku || product.id || ""),
-    brand: { "@type": "Brand", name: brandName },
-    offers:
-      product.price > 0
-        ? {
-            "@type": "Offer",
-            price: product.price,
-            priceCurrency: "MAD",
-            availability:
-              (product.stock || 0) > 0
-                ? "https://schema.org/InStock"
-                : "https://schema.org/OutOfStock",
-            itemCondition: "https://schema.org/NewCondition",
-            url: url,
-            shippingDetails: {
-              "@type": "OfferShippingDetails",
-              shippingRate: {
-                "@type": "MonetaryAmount",
-                value: String(shipping),
-                currency: "MAD",
-              },
-              deliveryTime: {
-                "@type": "ShippingDeliveryTime",
-                handlingTime: {
-                  "@type": "QuantitativeValue",
-                  minValue: 0,
-                  maxValue: 1,
-                  unitCode: "DAY",
-                },
-                transitTime: {
-                  "@type": "QuantitativeValue",
-                  minValue: 1,
-                  maxValue: 3,
-                  unitCode: "DAY",
-                },
-              },
-            },
-          }
-        : undefined,
-    aggregateRating: product.ratingAvg
-      ? {
-          "@type": "AggregateRating",
-          ratingValue: product.ratingAvg,
-          reviewCount: product.ratingCount || 1,
-        }
-      : undefined,
+    sku: product.sku || product.id || "",
+    brand: brandName,
+    category: getCategoryLabel(product),
+    categoryName: getCategoryLabel(product),
+    price: Number(product.price) || 0,
+    stock: Number(product.stock) || 0,
+    shippingCost: Number(product.shippingCost) || 0,
+    ratingAvg: Number(product.ratingAvg) || 0,
+    ratingCount: Number(product.ratingCount) || 0,
+    isVendor: brandName !== "Smartswika",
+    url,
+    homeName: t("productBreadcrumbHome") || "Accueil",
+    productName: name,
   });
+}
+
+/** Libellé localisé de la catégorie (fil d'Ariane + Product.category). */
+function getCategoryLabel(product) {
+  try {
+    const cat = getCategoryById(product && product.category);
+    if (cat) {
+      const translated = t(cat.label);
+      if (translated && translated !== cat.label) return translated;
+    }
+  } catch (e) {
+    /* non bloquant */
+  }
+  if (product && product.category) return String(product.category);
+  return t("productBreadcrumbProducts") || "Produits";
 }
 
 function setMeta(attrName, attrValue, content) {
@@ -263,34 +244,16 @@ function renderBreadcrumbs(product) {
   const el = document.getElementById("breadcrumbs");
   if (!el) return;
 
-  const breadcrumbSchema = {
-    "@context": "https://schema.org",
-    "@type": "BreadcrumbList",
-    itemListElement: [
-      {
-        "@type": "ListItem",
-        position: 1,
-        name: t("productBreadcrumbHome"),
-        item: CONFIG.SHOP.URL,
-      },
-      {
-        "@type": "ListItem",
-        position: 2,
-        name: t("productBreadcrumbProducts"),
-        item: `${CONFIG.SHOP.URL}/#produits`,
-      },
-      { "@type": "ListItem", position: 3, name: getProductName(product) },
-    ],
-  };
+  /* Le JSON-LD BreadcrumbList (Accueil > Catégorie > Produit) est émis
+     par updateMetaTags() via le builder partagé applyProductJsonLd(). */
 
-  let schemaEl = document.getElementById("breadcrumb-schema");
-  if (!schemaEl) {
-    schemaEl = document.createElement("script");
-    schemaEl.id = "breadcrumb-schema";
-    schemaEl.type = "application/ld+json";
-    document.head.appendChild(schemaEl);
+  const categoryLink = document.querySelector(
+    '#breadcrumbs a[data-key="productBreadcrumbProducts"]'
+  );
+  if (categoryLink) {
+    categoryLink.textContent = getCategoryLabel(product);
+    categoryLink.removeAttribute("data-key");
   }
-  schemaEl.textContent = JSON.stringify(breadcrumbSchema);
 
   const currentSpan = document.getElementById("breadcrumbCurrent");
   if (currentSpan) {
@@ -718,7 +681,7 @@ function renderDimensions(product) {
     return;
   }
 
-  let html = `<h4 style="font-family:var(--font-secondary);color:var(--gold);margin-top:1.5rem;margin-bottom:0.5rem;font-size:1.1rem;">${ t("productDimensionsTitle") || "Dimensions & Poids" }</h4><table class="dimensions-table">`;
+  let html = `<h3 style="font-family:var(--font-secondary);color:var(--gold);margin-top:1.5rem;margin-bottom:0.5rem;font-size:1.1rem;">${ t("productDimensionsTitle") || "Dimensions & Poids" }</h3><table class="dimensions-table">`;
   if (weight)
     html += `<tr><th>${t("productWeight") || "Poids"}</th><td>${escapeHTML( String(weight) )} g</td></tr>`;
   if (length)
@@ -806,7 +769,7 @@ async function renderReviewsSection(product) {
       ? await canUserReviewProduct(productId)
       : { canReview: false, reason: "not_logged" };
 
-    let html = `<h3 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;font-size:1.3rem;">${t( "reviews" )} (${allReviewsCache.length})</h3>`;
+    let html = `<h2 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;font-size:1.3rem;">${t( "reviews" )} (${allReviewsCache.length})</h2>`;
 
     if (allReviewsCache.length > 0) {
       const avg = (
@@ -1095,7 +1058,7 @@ function renderRelatedProducts(product) {
     ? user.favorites.map(normalizeProductId).filter((f) => f != null)
     : [];
 
-  let html = `<h4 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;font-size:1.2rem;">${t( "productRelatedTitle" )}</h4>`;
+  let html = `<h2 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;font-size:1.2rem;">${t( "productRelatedTitle" )}</h2>`;
   html += `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:1rem;">`;
 
   _relatedProductsCache.forEach((p) => {

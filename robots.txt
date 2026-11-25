@@ -12,6 +12,11 @@ Allow: /produits.json
 Allow: /robots.txt
 Allow: /sitemap.xml
 
+# Aperçus de bannières saisonnières (?preview_event=) : jamais indexés.
+# Le paramètre ?lang= reste évidemment autorisé (hreflang fr/ar/en).
+Disallow: /*?preview_event=
+Disallow: /*&preview_event=
+
 # Pages privées (à ne pas indexer)
 Disallow: /admin
 Disallow: /api
