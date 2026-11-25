@@ -76,9 +76,29 @@ let tempStockFilter = null;
 let tempProductStatusFilter = null;
 let orderStatusFilter = null;
 let isSyncingAllLivo = false;
-let revenueChartInstance = null;
+let revenueChartInstances = [];
+let trafficChartInstance = null;
+let ordersStatusChartInstance = null;
+let lastRevenueOrders = null;
+let lastOrdersForStatusChart = [];
 let currentChartPeriod = 7;
 let chartListenersAttached = false;
+
+/* Redessine les graphiques dans la langue courante (admin-ui.js emet
+   admin-lang-changed apres avoir applique FR / EN / AR). */
+document.addEventListener('admin-lang-changed', () => {
+    try {
+        if (trafficEntriesCache && trafficEntriesCache.length) {
+            renderTrafficChart(trafficEntriesCache, getTrafficPeriod());
+        }
+    } catch (e) { /* non bloquant */ }
+    try {
+        if (lastOrdersForStatusChart.length) renderOrdersStatusChart(lastOrdersForStatusChart);
+    } catch (e) { /* non bloquant */ }
+    try {
+        if (lastRevenueOrders) renderRevenueChart(currentChartPeriod, lastRevenueOrders);
+    } catch (e) { /* non bloquant */ }
+});
 const PRODUCTS_PER_PAGE = 20;
 let productsCurrentPage = 1;
 const BLOG_PER_PAGE = 15;
@@ -216,10 +236,15 @@ function activateAdminPanel() {
     const modeIndicator = document.getElementById('adminModeIndicator');
     if (modeIndicator) modeIndicator.textContent = 'MODE RÉEL';
     loadStats();
-    loadAllData();
+    loadAllData().finally(() => {
+        try { renderRevenueChart(currentChartPeriod); } catch (e) { /* non bloquant */ }
+        try { renderOrdersStatusChart(lastOrdersForStatusChart); } catch (e) { /* non bloquant */ }
+    });
     initAdminAlerts();
     attachChartListeners();
     loadTrafficStats();
+    try { renderRevenueChart(currentChartPeriod); } catch (e) { /* non bloquant */ }
+    loadDashboardCharts();
 }
 
 /* ============================================================
@@ -336,20 +361,91 @@ function renderTrafficChart(entries, days) {
     if (!host) return;
 
     const series = buildTrafficSeries(entries, days, new Date());
-    host.innerHTML =
-        buildTrafficSvg(series) +
-        `<div style="display:flex;gap:1rem;font-size:0.8rem;color:var(--text-muted);margin-top:0.4rem;flex-wrap:wrap;">
-            <span><span style="display:inline-block;width:10px;height:10px;background:#a57b2e;border-radius:2px;margin-right:0.3rem;"></span>Vues</span>
-            <span><span style="display:inline-block;width:14px;height:2px;background:#1b2a4a;vertical-align:middle;margin-right:0.3rem;"></span>Visiteurs uniques</span>
-        </div>`;
+    const at = (key) => (window.__adminT ? window.__adminT(key) : key);
+    const isRtl = window.__adminGetLang && window.__adminGetLang() === 'ar';
+    const labels = series.map((d) => {
+        const parts = String(d.date || '').split('-');
+        return parts.length === 3 ? `${parts[2]}/${parts[1]}` : String(d.date || '');
+    });
+    const views = series.map((d) => d.views);
+    const visitors = series.map((d) => d.visitors);
+
+    if (typeof window.Chart === 'undefined') {
+        host.innerHTML = buildTrafficSvg(series) +
+            `<div style="display:flex;gap:1rem;font-size:0.8rem;color:var(--text-muted);margin-top:0.4rem;flex-wrap:wrap;">
+                <span>● ${at('views')}</span><span>● ${at('uniqueVisitors')}</span>
+            </div>`;
+        return;
+    }
+
+    if (trafficChartInstance) {
+        trafficChartInstance.destroy();
+        trafficChartInstance = null;
+    }
+    host.innerHTML = '<div class="admin-chart-box" style="height:260px;"><canvas id="trafficCanvas"></canvas></div>';
+    const canvas = document.getElementById('trafficCanvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const goldGradient = ctx.createLinearGradient(0, 0, 0, 240);
+    goldGradient.addColorStop(0, 'rgba(165, 123, 46, 0.85)');
+    goldGradient.addColorStop(1, 'rgba(165, 123, 46, 0.28)');
+    const blueGradient = ctx.createLinearGradient(0, 0, 0, 240);
+    blueGradient.addColorStop(0, 'rgba(52, 152, 219, 0.85)');
+    blueGradient.addColorStop(1, 'rgba(52, 152, 219, 0.25)');
+
+    trafficChartInstance = new window.Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels,
+            datasets: [
+                {
+                    label: at('views'),
+                    data: views,
+                    backgroundColor: goldGradient,
+                    borderRadius: 8,
+                    maxBarThickness: 22
+                },
+                {
+                    label: at('uniqueVisitors'),
+                    data: visitors,
+                    backgroundColor: blueGradient,
+                    borderRadius: 8,
+                    maxBarThickness: 22
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: { duration: 800, easing: 'easeOutQuart' },
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    rtl: isRtl,
+                    labels: { usePointStyle: true, boxWidth: 8 }
+                },
+                tooltip: {
+                    rtl: isRtl,
+                    callbacks: {
+                        label: (ctxItem) => `${ctxItem.dataset.label}: ${ctxItem.parsed.y}`
+                    }
+                }
+            },
+            scales: {
+                x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true } },
+                y: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: 'rgba(0,0,0,0.06)' } }
+            }
+        }
+    });
 
     const summary = document.getElementById('trafficChartSummary');
     if (summary) {
-        const totalViews = series.reduce((s, d) => s + d.views, 0);
-        const maxViews = Math.max(0, ...series.map((d) => d.views));
+        const totalViews = views.reduce((s, v) => s + v, 0);
+        const maxViews = Math.max(0, ...views);
         summary.textContent =
-            'Total : ' + totalViews + ' vue(s) · pic : ' + maxViews + '/jour · moyenne : ' +
-            (totalViews / series.length).toFixed(1) + '/jour';
+            at('views') + ' : ' + totalViews + ' · max : ' + maxViews + '/j · ' +
+            (totalViews / Math.max(1, series.length)).toFixed(1) + '/j';
     }
 }
 
@@ -430,9 +526,10 @@ async function deleteCollectionInBatches(name) {
    La permission est portee par firestore.rules (allow delete: isAdmin). */
 async function resetTrafficStats() {
     const btn = document.getElementById('trafficResetBtn');
+    const at = (key) => (window.__adminT ? window.__adminT(key) : key);
     const ok = await confirmAction(
-        'Cette action supprime définitivement toutes les statistiques de trafic : vues, visiteurs uniques et présence. Aucune restauration n\'est possible.',
-        { title: '🗑️ Remettre le trafic à zéro', confirmText: 'Tout supprimer', variant: 'danger' }
+        at('resetTrafficMessage'),
+        { title: at('resetTrafficTitle'), confirmText: at('deleteAll'), variant: 'danger' }
     );
     if (!ok) return;
 
@@ -625,6 +722,9 @@ function initAdmin() {
                     console.error('[admin] initNotificationsTab impossible :', e);
                     showToast('Impossible de charger les notifications.', 5000);
                 }
+            }
+            else if (tab === 'dashboard') {
+                try { await loadDashboardCharts(); renderRevenueChart(currentChartPeriod); } catch (e) { /* non bloquant */ }
             }
             else if (tab === 'finances') await loadFinancesTab();
             else if (tab === 'users') await loadUsers();
@@ -1777,8 +1877,10 @@ async function loadUsers() {
 function renderUsersList(users) {
     const container = document.getElementById('adminUsersList');
     if (!container) return;
+    const at = (key) => (window.__adminT ? window.__adminT(key) : key);
+    const deleteLabel = at('delete');
     if (users.length === 0) {
-        container.innerHTML = `<div class="admin-empty">Aucun client.</div>`;
+        container.innerHTML = `<div class="admin-empty">${escapeHTML(at('noCustomers') || 'Aucun client.')}</div>`;
         return;
     }
 
@@ -1794,7 +1896,7 @@ function renderUsersList(users) {
 
         const roleBadge = role === 'vendor' ? `<span style="background:var(--info);color:#fff;padding:0.15rem 0.5rem;border-radius:30px;font-size:0.7rem;font-weight:700;">Vendeur</span>` : '';
 
-        html += `<div class="admin-list-item" data-user-id="${u.id}"><div class="admin-list-item-info"><strong>${name}</strong> ${roleBadge}<div style="font-size:0.8rem;color:var(--text-muted);margin-top:0.2rem;">${email} ${phone ? `· ${phone}` : ''}</div><div style="font-size:0.75rem;color:var(--text-dim);margin-top:0.2rem;display:flex;gap:0.6rem;flex-wrap:wrap;"><span>${methodEmoji} ${methodLabel}</span><span>Rôle : <strong style="color:${role === 'admin' ? 'var(--gold)' : 'var(--text-muted)'};">${role}</strong></span></div></div><div class="admin-list-item-actions"><select class="admin-btn-icon" data-action="change-role" data-id="${u.id}" style="padding:0.3rem 0.6rem;border-radius:30px;"><option value="user" ${role === 'user' ? 'selected' : ''}>User</option><option value="admin" ${role === 'admin' ? 'selected' : ''}>Admin</option></select><button class="admin-btn-icon admin-btn-danger" data-action="delete-user" data-id="${u.id}">Del</button></div></div>`;
+        html += `<div class="admin-list-item" data-user-id="${u.id}"><div class="admin-list-item-info"><strong>${name}</strong> ${roleBadge}<div style="font-size:0.8rem;color:var(--text-muted);margin-top:0.2rem;">${email} ${phone ? `· ${phone}` : ''}</div><div style="font-size:0.75rem;color:var(--text-dim);margin-top:0.2rem;display:flex;gap:0.6rem;flex-wrap:wrap;"><span>${methodEmoji} ${methodLabel}</span><span>Rôle : <strong style="color:${role === 'admin' ? 'var(--gold)' : 'var(--text-muted)'};">${role}</strong></span></div></div><div class="admin-list-item-actions"><select class="admin-btn-icon" data-action="change-role" data-id="${u.id}" style="padding:0.3rem 0.6rem;border-radius:30px;"><option value="user" ${role === 'user' ? 'selected' : ''}>User</option><option value="admin" ${role === 'admin' ? 'selected' : ''}>Admin</option></select><button class="admin-btn-icon admin-btn-danger" data-action="delete-user" data-id="${u.id}" title="${deleteLabel}" aria-label="${deleteLabel}">🗑️</button></div></div>`;
     });
     container.innerHTML = html;
 
@@ -1824,8 +1926,8 @@ function renderUsersList(users) {
                 showToast('Vous ne pouvez pas vous supprimer');
                 return;
             }
-            const confirmed = await confirmAction('Supprimer définitivement ce client ?', {
-                title: 'Supprimer', confirmText: 'Supprimer', cancelText: 'Annuler', variant: 'danger'
+            const confirmed = await confirmAction(at('confirmDeleteClient'), {
+                title: at('confirmDeleteTitle'), confirmText: at('delete'), cancelText: at('cancel'), variant: 'danger'
             });
             if (!confirmed) return;
             try {
@@ -3326,17 +3428,21 @@ function attachChartListeners() {
     if (buttons.length === 0) return;
     buttons.forEach(btn => {
         btn.addEventListener('click', async () => {
-            document.querySelectorAll('.chart-period-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            currentChartPeriod = parseInt(btn.dataset.chartPeriod) || 7;
+            const period = parseInt(btn.dataset.chartPeriod) || 7;
+            document.querySelectorAll('.chart-period-btn').forEach(b => {
+                b.classList.toggle('active', parseInt(b.dataset.chartPeriod) === period);
+            });
+            currentChartPeriod = period;
             await renderRevenueChart(currentChartPeriod);
         });
     });
 }
 
 async function renderRevenueChart(period = 7, preloadedOrders = null) {
-    const canvas = document.getElementById('revenueChart');
-    if (!canvas || typeof window.Chart === 'undefined') return;
+    const canvases = ['revenueChartDashboard', 'revenueChart']
+        .map((id) => document.getElementById(id))
+        .filter(Boolean);
+    if (!canvases.length || typeof window.Chart === 'undefined') return;
 
     try {
         const now = new Date();
@@ -3349,12 +3455,13 @@ async function renderRevenueChart(period = 7, preloadedOrders = null) {
             const ordersSnap = await getDocs(query(collection(db, "orders"), limit(500)));
             orders = ordersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
         }
+        lastRevenueOrders = orders;
 
         const buckets = {};
         for (let i = 0; i < period; i++) {
             const d = new Date(startDate);
             d.setDate(startDate.getDate() + i);
-            buckets[d.toISOString().split('T')[0]] = { revenue: 0, date: d };
+            buckets[d.toISOString().split('T')[0]] = { revenue: 0, cogs: 0, shipping: 0, date: d };
         }
 
         orders.forEach(o => {
@@ -3362,33 +3469,204 @@ async function renderRevenueChart(period = 7, preloadedOrders = null) {
             if (!date) return;
             const key = date.toISOString().split('T')[0];
             if (!buckets[key]) return;
-            const status = o.status === 'validated' ? 'confirmed' : (o.status === 'received' ? 'delivered' : o.status);
-            if (status === 'delivered') buckets[key].revenue += Number(o.total) || 0;
+            if (normalizeOrderStatus(o.status) !== 'delivered') return;
+            const bucket = buckets[key];
+            bucket.revenue += Number(o.total) || 0;
+            bucket.shipping += Number(o.deliveryFee) || 0;
+            (o.items || []).forEach(item => {
+                const product = cachedProducts.find(pp => String(pp.id) === String(item.productId));
+                const buyPrice = product ? Number(product.purchasePrice) || 0 : 0;
+                bucket.cogs += buyPrice * (Number(item.quantity) || 1);
+            });
         });
 
         const sortedKeys = Object.keys(buckets).sort();
-        const labels = sortedKeys.map(k => buckets[k].date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }));
+        const isAr = window.__adminGetLang && window.__adminGetLang() === 'ar';
+        const isEn = window.__adminGetLang && window.__adminGetLang() === 'en';
+        const locale = isAr ? 'ar-MA' : (isEn ? 'en-GB' : 'fr-FR');
+        const labels = sortedKeys.map(k => buckets[k].date.toLocaleDateString(locale, { day: '2-digit', month: '2-digit' }));
         const revenueData = sortedKeys.map(k => buckets[k].revenue);
+        const netData = sortedKeys.map(k => Math.max(0, buckets[k].revenue - buckets[k].cogs - buckets[k].shipping));
+        const at = (key) => (window.__adminT ? window.__adminT(key) : key);
 
-        if (revenueChartInstance) revenueChartInstance.destroy();
+        revenueChartInstances.forEach(chart => chart.destroy());
+        revenueChartInstances = [];
 
-        revenueChartInstance = new window.Chart(canvas.getContext('2d'), {
-            type: 'line',
-            data: {
-                labels,
-                datasets: [{
-                    label: 'CA (Livré)',
-                    data: revenueData,
-                    borderColor: '#a57b2e',
-                    backgroundColor: 'rgba(165, 123, 46, 0.12)',
-                    fill: true,
-                    tension: 0.3
-                }]
-            },
-            options: { responsive: true, maintainAspectRatio: false }
+        canvases.forEach((canvas) => {
+            const ctx = canvas.getContext('2d');
+            const revGradient = ctx.createLinearGradient(0, 0, 0, 300);
+            revGradient.addColorStop(0, 'rgba(165, 123, 46, 0.28)');
+            revGradient.addColorStop(1, 'rgba(165, 123, 46, 0.02)');
+            const netGradient = ctx.createLinearGradient(0, 0, 0, 300);
+            netGradient.addColorStop(0, 'rgba(46, 204, 113, 0.22)');
+            netGradient.addColorStop(1, 'rgba(46, 204, 113, 0.02)');
+
+            const chart = new window.Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [
+                        {
+                            label: at('revenueSeries'),
+                            data: revenueData,
+                            borderColor: '#a57b2e',
+                            backgroundColor: revGradient,
+                            fill: true,
+                            tension: 0.4,
+                            borderWidth: 2,
+                            pointRadius: 2,
+                            pointHoverRadius: 5
+                        },
+                        {
+                            label: at('netSeries'),
+                            data: netData,
+                            borderColor: '#2ecc71',
+                            backgroundColor: netGradient,
+                            fill: true,
+                            tension: 0.4,
+                            borderWidth: 2,
+                            pointRadius: 2,
+                            pointHoverRadius: 5
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: { duration: 800, easing: 'easeOutQuart' },
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            rtl: isAr,
+                            labels: { usePointStyle: true, boxWidth: 8 }
+                        },
+                        tooltip: {
+                            rtl: isAr,
+                            callbacks: {
+                                label: (ctxItem) => `${ctxItem.dataset.label}: ${formatMAD(ctxItem.parsed.y)}`
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true } },
+                        y: {
+                            beginAtZero: true,
+                            ticks: { callback: (value) => `${value} MAD` },
+                            grid: { color: 'rgba(0,0,0,0.06)' }
+                        }
+                    }
+                }
+            });
+            revenueChartInstances.push(chart);
         });
     } catch (e) {
         console.error('[admin] renderRevenueChart :', e);
+    }
+}
+
+/* ============================================================
+   DASHBOARD — DONUT COMMANDES PAR STATUT
+   ============================================================ */
+const ORDER_STATUS_CHART_META = {
+    pending: { key: 'statusPending', color: '#e67e22' },
+    confirmed: { key: 'statusConfirmed', color: '#3498db' },
+    preparing: { key: 'statusPreparing', color: '#8e44ad' },
+    prepared: { key: 'statusPrepared', color: '#16a085' },
+    pickup_requested: { key: 'statusPickupRequested', color: '#f39c12' },
+    picked_up: { key: 'statusPickedUp', color: '#2980b9' },
+    in_transit: { key: 'statusInTransit', color: '#d35400' },
+    shipping: { key: 'statusShipping', color: '#d35400' },
+    delivered: { key: 'statusDelivered', color: '#2ecc71' },
+    returned: { key: 'statusReturned', color: '#9b59b6' },
+    cancelled: { key: 'statusCancelled', color: '#b03a2e' }
+};
+
+let dashboardChartsLoadedAt = 0;
+
+function renderOrdersStatusChart(orders) {
+    const canvas = document.getElementById('ordersStatusChart');
+    if (!canvas || typeof window.Chart === 'undefined') return;
+    const at = (key) => (window.__adminT ? window.__adminT(key) : key);
+    const isAr = window.__adminGetLang && window.__adminGetLang() === 'ar';
+
+    const counts = {};
+    (orders || []).forEach((order) => {
+        const status = normalizeOrderStatus(order.status);
+        counts[status] = (counts[status] || 0) + 1;
+    });
+
+    const entries = Object.keys(ORDER_STATUS_CHART_META)
+        .filter((status) => counts[status] > 0)
+        .map((status) => ({ status, value: counts[status], meta: ORDER_STATUS_CHART_META[status] }));
+
+    const total = entries.reduce((sum, entry) => sum + entry.value, 0);
+    const totalEl = document.getElementById('ordersStatusTotal');
+    if (totalEl) totalEl.textContent = String(total);
+
+    if (ordersStatusChartInstance) {
+        ordersStatusChartInstance.destroy();
+        ordersStatusChartInstance = null;
+    }
+
+    const hasData = entries.length > 0;
+    const data = hasData ? entries.map((entry) => entry.value) : [1];
+    const colors = hasData ? entries.map((entry) => entry.meta.color) : ['rgba(0,0,0,0.08)'];
+    const labels = hasData ? entries.map((entry) => at(entry.meta.key)) : [''];
+
+    ordersStatusChartInstance = new window.Chart(canvas.getContext('2d'), {
+        type: 'doughnut',
+        data: {
+            labels,
+            datasets: [{
+                data,
+                backgroundColor: colors,
+                borderWidth: 0,
+                hoverOffset: 6
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '68%',
+            animation: { duration: 800, easing: 'easeOutQuart' },
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    rtl: isAr,
+                    labels: { usePointStyle: true, boxWidth: 8, padding: 12 }
+                },
+                tooltip: {
+                    rtl: isAr,
+                    enabled: hasData,
+                    callbacks: {
+                        label: (ctxItem) => {
+                            const value = Number(ctxItem.parsed) || 0;
+                            const pct = total ? Math.round((value / total) * 100) : 0;
+                            return `${ctxItem.label}: ${value} (${pct}%)`;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+async function loadDashboardCharts(force = false) {
+    const canvas = document.getElementById('ordersStatusChart');
+    if (!canvas) return;
+    if (!force && Date.now() - dashboardChartsLoadedAt < 60000 && lastOrdersForStatusChart.length) {
+        renderOrdersStatusChart(lastOrdersForStatusChart);
+        return;
+    }
+    try {
+        const snap = await getDocs(query(collection(db, 'orders'), limit(1000)));
+        lastOrdersForStatusChart = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        dashboardChartsLoadedAt = Date.now();
+        renderOrdersStatusChart(lastOrdersForStatusChart);
+    } catch (e) {
+        console.warn('[admin] loadDashboardCharts :', e);
+        renderOrdersStatusChart([]);
     }
 }
 
@@ -3898,7 +4176,10 @@ function renderFinanceProductSelection() {
     if (!container) return;
 
     if (!cachedProducts || cachedProducts.length === 0) {
-        container.innerHTML = `<p style="text-align:center;color:var(--text-muted);font-size:0.85rem;padding:1rem;">Chargement des produits...</p>`;
+        const at = (key) => (window.__adminT ? window.__adminT(key) : key);
+        const message = at('simNoProducts') || 'Aucun produit publié dans le catalogue pour le moment.';
+        const hint = at('simNoProductsHint') || '';
+        container.innerHTML = `<p style="text-align:center;color:var(--text-muted);font-size:0.85rem;padding:1rem;">${escapeHTML(message)}${hint ? '<br><span style="font-size:0.8rem;">' + escapeHTML(hint) + '</span>' : ''}</p>`;
         return;
     }
 
@@ -4103,7 +4384,7 @@ async function renderPickupRequestsAdmin() {
                     ${i.sku ? ` · SKU <strong>${escapeHTML(i.sku)}</strong>` : ''}
                 </li>`;
             }).join('');
-            return `<div class="admin-list-item" style="flex-direction:column;align-items:stretch;padding:.8rem;margin-bottom:.5rem;">
+            return `<div class="admin-list-item pickup-card" style="flex-direction:column;align-items:stretch;padding:.8rem;margin-bottom:.5rem;">
                 <div style="display:flex;justify-content:space-between;gap:.5rem;flex-wrap:wrap;">
                     <strong>${escapeHTML(r.vendorName || r.vendorId || 'Vendeur')}</strong>
                     <span style="font-size:.8rem;color:var(--text-muted);">Date : ${escapeHTML(String(r.desiredDate || '—'))}</span>
@@ -4119,7 +4400,7 @@ async function renderPickupRequestsAdmin() {
                 </div>
             </div>`;
         }).join('');
-        container.innerHTML = `<h3 style="font-family:var(--font-secondary);color:var(--gold);margin:0 0 .6rem;">📦 Demandes de ramassage en attente</h3>${cards}`;
+        container.innerHTML = `<h3 style="font-family:var(--font-secondary);color:var(--gold);margin:0 0 .6rem;">📦 Demandes de ramassage en attente</h3><div class="pickup-grid">${cards}</div>`;
         container.querySelectorAll('[data-pickup-approve]').forEach(btn => {
             btn.addEventListener('click', () => reviewPickupRequest(btn.dataset.pickupApprove, 'approved', btn));
         });
@@ -4139,9 +4420,10 @@ async function renderPickupRequestsAdmin() {
    de produits côté vendeur (règle Firestore pickupApproved + UI). */
 async function confirmWarehouseReceipt(requestId, btn) {
     if (!requestId) return;
+    const at = (key) => (window.__adminT ? window.__adminT(key) : key);
     const ok = await confirmAction(
-        'Confirmer que la marchandise est physiquement arrivée à l’entrepôt Smart Swika ? Le vendeur pourra alors ajouter ses produits.',
-        { title: 'Réception entrepôt', confirmText: 'Confirmer la réception' }
+        at('warehouseMessage'),
+        { title: at('warehouseTitle'), confirmText: at('confirmReceipt') }
     );
     if (!ok) return;
     if (btn) btn.disabled = true;
@@ -4164,11 +4446,10 @@ async function confirmWarehouseReceipt(requestId, btn) {
 
 async function reviewPickupRequest(requestId, status, btn) {
     if (!requestId || !['approved', 'rejected'].includes(status)) return;
+    const at = (key) => (window.__adminT ? window.__adminT(key) : key);
     const ok = await confirmAction(
-        status === 'approved'
-            ? 'Confirmer que le stock a bien été reçu à l’entrepôt Smart Swika ?'
-            : 'Refuser cette demande de ramassage ?',
-        { title: 'Demande de ramassage', confirmText: status === 'approved' ? 'Approuver' : 'Refuser' }
+        status === 'approved' ? at('pickupApproveMessage') : at('pickupRejectMessage'),
+        { title: at('pickupTitle'), confirmText: status === 'approved' ? at('approve') : at('reject') }
     );
     if (!ok) return;
     if (btn) btn.disabled = true;

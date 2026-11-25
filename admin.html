@@ -406,11 +406,289 @@
             .alert-tooltip { display: none; }
         }
 
+        /* ============================================================
+           ADMIN UI MODERNE — shell, sidebar, topbar (2026-11-25)
+           ============================================================ */
+        .admin-container { max-width: 1680px; margin: 1rem auto; padding: 0 1rem; }
+        .admin-topbar {
+            position: sticky; top: 0; z-index: 60; margin-bottom: 1rem;
+            padding: 0.7rem 1rem; border-radius: var(--radius-lg);
+            background: var(--bg-card);
+            backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+        }
+        .admin-topbar-left { display: flex; align-items: center; gap: 0.6rem; min-width: 0; }
+        .admin-topbar-left h1 { font-size: 1.15rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .admin-menu-toggle {
+            display: none; width: 44px; height: 44px; flex: 0 0 44px;
+            border-radius: 12px; border: 1px solid var(--border);
+            background: var(--bg-surface); color: var(--text); cursor: pointer;
+            align-items: center; justify-content: center;
+        }
+        .admin-menu-toggle:hover { border-color: var(--gold); color: var(--gold); }
+        .admin-user-email { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .admin-lang-wrap {
+            display: inline-flex; align-items: center; gap: 0.35rem;
+            padding: 0.15rem 0.35rem 0.15rem 0.55rem; border: 1px solid var(--border);
+            border-radius: 30px; background: var(--bg-surface); color: var(--text-muted);
+        }
+        .admin-lang-wrap svg { flex: 0 0 auto; }
+        .admin-lang-wrap select {
+            border: 0; background: transparent; color: var(--text);
+            font-weight: 700; font-size: 0.8rem; padding: 0.4rem 0.2rem; cursor: pointer;
+        }
+        .admin-logout { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.5rem 0.85rem; min-height: 40px; }
+
+        .admin-shell {
+            display: grid; grid-template-columns: 240px minmax(0, 1fr);
+            gap: 1.1rem; align-items: start;
+            transition: grid-template-columns 0.18s ease;
+        }
+        .admin-sidebar {
+            position: sticky; top: 82px; align-self: start;
+            max-height: calc(100vh - 96px); overflow-y: auto; overflow-x: hidden;
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--radius-lg); padding: 0.6rem;
+            box-shadow: var(--shadow-sm);
+            transition: width 0.18s ease, transform 0.18s ease;
+        }
+        .admin-sidebar-head {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 0.4rem; padding: 0.2rem 0.35rem 0.55rem;
+            border-bottom: 1px solid var(--border); margin-bottom: 0.4rem;
+        }
+        .admin-sidebar-title {
+            font-size: 0.68rem; font-weight: 800; letter-spacing: 0.09em;
+            text-transform: uppercase; color: var(--text-dim, var(--text-muted));
+        }
+        .admin-sidebar-toggle {
+            width: 32px; height: 32px; border-radius: 9px; border: 1px solid var(--border);
+            background: transparent; color: var(--text-muted); cursor: pointer;
+            display: inline-flex; align-items: center; justify-content: center;
+            transition: transform 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+        }
+        .admin-sidebar-toggle:hover { color: var(--gold); border-color: var(--gold); }
+        .admin-shell.is-collapsed .admin-sidebar-toggle { transform: rotate(180deg); }
+        #adminTabs { display: flex; flex-direction: column; gap: 0.15rem; border: 0; margin: 0 0 0.25rem; padding: 0; flex-wrap: nowrap; }
+        .admin-nav-group-label {
+            font-size: 0.64rem; font-weight: 800; letter-spacing: 0.1em;
+            text-transform: uppercase; color: var(--text-dim, var(--text-muted));
+            padding: 0.7rem 0.6rem 0.25rem;
+        }
+        #adminTabs > button[data-tab] {
+            display: flex; align-items: center; gap: 0.6rem; width: 100%;
+            min-height: 44px; padding: 0.52rem 0.6rem; border: 0; border-radius: 10px;
+            background: transparent; color: var(--text-muted); font-size: 0.86rem;
+            font-weight: 600; text-align: start; cursor: pointer; position: relative;
+            transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
+        }
+        #adminTabs > button[data-tab]:hover { background: rgba(165, 123, 46, 0.09); color: var(--gold); }
+        #adminTabs > button[data-tab].active {
+            background: linear-gradient(135deg, var(--gold), #7d5a1d); color: #fff;
+            box-shadow: 0 6px 16px -8px rgba(120, 88, 20, 0.75);
+        }
+        #adminTabs > button[data-tab] .nav-ico { width: 20px; height: 20px; flex: 0 0 20px; }
+        #adminTabs > button[data-tab] .nav-label {
+            flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .nav-badge {
+            min-width: 20px; height: 20px; padding: 0 6px; border-radius: 30px;
+            background: var(--danger); color: #fff; font-size: 0.68rem; font-weight: 800;
+            display: inline-flex; align-items: center; justify-content: center;
+        }
+        .nav-badge[hidden] { display: none; }
+        .admin-main { min-width: 0; padding-bottom: 3.5rem; }
+        .admin-content { animation: adminFade 0.18s ease both; }
+        @keyframes adminFade { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+        .admin-sidebar-backdrop[hidden] { display: none; }
+        /* --- KPI : 4 colonnes x 2 lignes (desktop) --- */
+        #adminStats, #accKPIs, #financesResults .admin-stats, #tab-traffic .admin-stats {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+        #adminStats { gap: 0.9rem; }
+        #adminStats .admin-stat-card {
+            text-align: start; padding: 1rem 1rem 1rem 3.6rem; min-height: 96px;
+            display: flex; flex-direction: column; justify-content: center;
+            position: relative; overflow: hidden;
+        }
+        #adminStats .admin-stat-card::after {
+            content: ""; position: absolute; inset-inline-end: -20%; bottom: -60%;
+            width: 110px; height: 110px; border-radius: 50%;
+            background: radial-gradient(circle, rgba(165, 123, 46, 0.13), transparent 70%);
+            pointer-events: none;
+        }
+        .kpi-ico {
+            position: absolute; inset-inline-start: 1rem; top: 50%; transform: translateY(-50%);
+            width: 2.1rem; height: 2.1rem; border-radius: 11px; display: grid; place-items: center;
+            font-size: 1.05rem; background: rgba(165, 123, 46, 0.13); color: var(--gold);
+        }
+        .kpi-ico.is-green { background: rgba(46, 204, 113, 0.15); color: #1e7e34; }
+        .kpi-ico.is-red { background: rgba(176, 58, 46, 0.12); color: var(--danger); }
+        .kpi-ico.is-blue { background: rgba(52, 152, 219, 0.15); color: #2471a3; }
+        .kpi-ico.is-purple { background: rgba(142, 68, 173, 0.15); color: #7d3c98; }
+        .kpi-trend { font-size: 0.7rem; color: var(--text-muted); margin-top: 0.15rem; }
+        [dir="rtl"] #adminStats .admin-stat-card { padding: 1rem 3.6rem 1rem 1rem; }
+        .admin-stat-card .stat-value { font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+
+        /* --- Cartes de graphiques --- */
+        .admin-chart-grid { display: grid; grid-template-columns: 1.55fr 1fr; gap: 1rem; margin-top: 1.1rem; }
+        .admin-chart-card {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--radius-lg); padding: 1rem; box-shadow: var(--shadow-sm);
+            min-width: 0;
+        }
+        .admin-chart-head { display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 0.7rem; }
+        .admin-chart-head h3 { margin: 0; font-family: var(--font-secondary); color: var(--gold); font-size: 1rem; }
+        .admin-chart-box { position: relative; height: 300px; }
+        .admin-donut-box { position: relative; height: 300px; }
+        .admin-donut-total {
+            position: absolute; inset: 0; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; pointer-events: none;
+        }
+        .admin-donut-total strong { font-size: 1.6rem; color: var(--gold); line-height: 1; }
+        .admin-donut-total span { font-size: 0.72rem; color: var(--text-muted); }
+
+        /* --- Tableaux : jamais de debordement horizontal de page --- */
+        #adminOrdersList, #adminProductsList, #adminUsersList, #adminDisputesList,
+        #adminLivoList, #adminWarehousePrepList, #accWaterfall, #purchasesList,
+        #expensesList, #transactionsList, #reportContent, #adminVendorsList,
+        #payoutsList, #reviewsList, #trafficDailyTable {
+            overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%;
+        }
+        #adminOrdersList table, #adminProductsList table, #adminDisputesList table,
+        #accWaterfall table, #purchasesList table, #expensesList table,
+        #transactionsList table, #reportContent table {
+            min-width: 720px;
+        }
+        .acc-table th { text-align: start; }
+        [dir="rtl"] .acc-table th { text-align: right; }
+
+        /* Bilan detaille : tableau financier compact et aligne */
+        #accWaterfall .acc-table { max-width: 680px; margin: 0 auto; font-size: 0.82rem; }
+        #accWaterfall .acc-table td { padding: 0.45rem 0.65rem; }
+
+        /* --- Vendeurs : grille des demandes de ramassage --- */
+        #adminPickupRequests .pickup-grid {
+            display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 0.75rem; margin-top: 0.6rem;
+        }
+        #adminPickupRequests .pickup-card { margin: 0; height: 100%; }
+        @media (max-width: 1023px) {
+            #adminPickupRequests .pickup-grid { grid-template-columns: 1fr; }
+        }
+
+        /* --- Simulateur libre --- */
+        .finance-free-box {
+            background: var(--bg-surface); border: 1px dashed var(--border-gold);
+            border-radius: var(--radius-md); padding: 1rem; margin: 1rem 0;
+        }
+        .finance-free-results { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.6rem; margin-top: 0.8rem; }
+        .finance-free-results .admin-stat-card { min-height: 80px; padding: 0.8rem; text-align: center; }
+        .finance-free-results .stat-value { font-size: 1.15rem; }
+        /* --- Responsive : tablette 768-1023px (sidebar compacte 72px) --- */
+        @media (min-width: 768px) and (max-width: 1023px) {
+            .admin-shell { grid-template-columns: 72px minmax(0, 1fr); }
+            .admin-shell .nav-label, .admin-shell .nav-badge,
+            .admin-shell .admin-nav-group-label, .admin-shell .admin-sidebar-title { display: none; }
+            #adminTabs > button[data-tab] { justify-content: center; padding-inline: 0.4rem; }
+            .admin-shell.is-expanded { grid-template-columns: 240px minmax(0, 1fr); }
+            .admin-shell.is-expanded .nav-label,
+            .admin-shell.is-expanded .admin-nav-group-label,
+            .admin-shell.is-expanded .admin-sidebar-title { display: inline; }
+            .admin-shell.is-expanded .nav-badge { display: inline-flex; }
+            .admin-shell.is-expanded #adminTabs > button[data-tab] { justify-content: flex-start; padding-inline: 0.6rem; }
+            .admin-menu-toggle { display: inline-flex; }
+            .admin-chart-grid { grid-template-columns: 1fr 1fr; }
+            #adminStats, #accKPIs, #financesResults .admin-stats, #tab-traffic .admin-stats {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+            .admin-chart-box, .admin-donut-box { height: 280px; }
+        }
+
+        /* --- Desktop >= 1024px : sidebar 240px, repliable a 72px --- */
+        @media (min-width: 1024px) {
+            .admin-shell.is-collapsed { grid-template-columns: 72px minmax(0, 1fr); }
+            .admin-shell.is-collapsed .nav-label, .admin-shell.is-collapsed .nav-badge,
+            .admin-shell.is-collapsed .admin-nav-group-label,
+            .admin-shell.is-collapsed .admin-sidebar-title { display: none; }
+            .admin-shell.is-collapsed #adminTabs > button[data-tab] {
+                justify-content: center; padding-inline: 0.4rem;
+            }
+        }
+
+        /* --- Mobile < 768px : menu tiroir + backdrop --- */
+        @media (max-width: 767px) {
+            .admin-container { padding: 0 0.6rem; margin: 0.5rem auto; }
+            .admin-topbar { padding: 0.55rem 0.7rem; }
+            .admin-menu-toggle { display: inline-flex; }
+            .admin-user-email { display: none; }
+            .admin-shell { grid-template-columns: minmax(0, 1fr); }
+            .admin-sidebar {
+                position: fixed; inset-block: 0; inset-inline-start: 0;
+                width: 286px; max-height: none; height: 100vh; height: 100dvh; z-index: 90;
+                border-radius: 0; transform: translateX(-105%);
+                transition: transform 0.18s ease;
+            }
+            .admin-shell.is-open .admin-sidebar { transform: translateX(0); }
+            [dir="rtl"] .admin-sidebar { transform: translateX(105%); }
+            [dir="rtl"] .admin-shell.is-open .admin-sidebar { transform: translateX(0); }
+            .admin-sidebar-backdrop {
+                position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); z-index: 85;
+            }
+            #adminStats, #accKPIs, #financesResults .admin-stats, #tab-traffic .admin-stats {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+            #adminStats .admin-stat-card { min-height: 88px; padding: 0.8rem 0.7rem 0.8rem 2.9rem; }
+            .kpi-ico { inset-inline-start: 0.65rem; width: 1.75rem; height: 1.75rem; font-size: 0.9rem; }
+            [dir="rtl"] #adminStats .admin-stat-card { padding: 0.8rem 2.9rem 0.8rem 0.7rem; }
+            .admin-chart-grid { grid-template-columns: 1fr; }
+            .admin-chart-box, .admin-donut-box { height: 240px; }
+            .admin-form-row, .admin-form-row.cols-3, .admin-form-row.cols-4 { grid-template-columns: 1fr; }
+            .finance-free-results { grid-template-columns: 1fr; }
+            #adminPickupRequests .pickup-grid { grid-template-columns: 1fr; }
+            #adminTabs > button[data-tab] { min-height: 46px; }
+            .admin-btn-primary, .admin-btn-secondary, .admin-btn,
+            .admin-btn-icon, .admin-signup-filters button { min-height: 44px; }
+            .admin-topbar-left h1 { font-size: 1rem; }
+            .admin-logout { padding: 0.5rem 0.65rem; min-width: 44px; min-height: 44px; justify-content: center; }
+            .admin-logout span { display: none; }
+            .admin-user-info { row-gap: 0.4rem; }
+            .admin-sidebar-toggle { width: 44px; height: 44px; }
+            .admin-lang-wrap { min-height: 44px; }
+        }
+
+        /* --- RTL : alignements et icones --- */
+        [dir="rtl"] .admin-list-item-info,
+        [dir="rtl"] .admin-form label { text-align: right; }
+        [dir="rtl"] .admin-search-bar input,
+        [dir="rtl"] .admin-search-bar select { text-align: right; }
+        [dir="rtl"] .admin-sidebar-toggle svg { transform: rotate(180deg); }
+        [dir="rtl"] #adminTabs > button[data-tab] { text-align: right; }
     </style>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" integrity="sha384-e6nUZLBkQ86NJ6TVVKAeSaK8jWa3NhkYWZFomE39AvDbQWeie9PlQqM3pmYW5d1g" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 </head>
 <body>
+
+    <svg aria-hidden="true" focusable="false" style="position:absolute;width:0;height:0;overflow:hidden">
+        <symbol id="i-dashboard" viewBox="0 0 24 24"><path fill="currentColor" d="M3 3h8v8H3V3zm10 0h8v5h-8V3zM3 13h8v8H3v-8zm10-3h8v11h-8V10z"/></symbol>
+        <symbol id="i-traffic" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3 17l6-6 4 4 8-8"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M15 7h6v6"/></symbol>
+        <symbol id="i-products" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8M12 13v8"/></symbol>
+        <symbol id="i-bolt" viewBox="0 0 24 24"><path fill="currentColor" d="M13 2 4.5 13.5H11l-1 8.5L19.5 10H13l0-8z"/></symbol>
+        <symbol id="i-coupon" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v3a2 2 0 0 0 0 4v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3a2 2 0 0 0 0-4V7z"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-dasharray="2 3" d="M12 6v12"/></symbol>
+        <symbol id="i-orders" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M9 4h6a2 2 0 0 1 2 2v14l-3-2-2 2-2-2-3 2V6a2 2 0 0 1 2-2z"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M9 8h6M9 12h6M9 16h4"/></symbol>
+        <symbol id="i-warehouse" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M3 21V9l9-6 9 6v12"/><path fill="none" stroke="currentColor" stroke-width="2" d="M7 21v-7h10v7M7 17h10"/></symbol>
+        <symbol id="i-truck" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3 7h10v9H3V7zm10 3h4l3 3v3h-7v-6z"/><circle cx="7" cy="18" r="2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="17" cy="18" r="2" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+        <symbol id="i-scale" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 3v18M6 21h12M4 7h16M7 7l-3 6h6L7 7zm10 0-3 6h6l-3-6z"/></symbol>
+        <symbol id="i-store" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M4 9l1-5h14l1 5a3 3 0 0 1-6 0 3 3 0 0 1-6 0 3 3 0 0 1-4 0zM5 11v10h14V11M9 21v-6h6v6"/></symbol>
+        <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="2"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M16 5.5a3 3 0 0 1 0 5.8M17.5 14.4c2 .8 3.5 2.8 3.5 5.1"/></symbol>
+        <symbol id="i-star" viewBox="0 0 24 24"><path fill="currentColor" d="m12 2 2.95 6.26L22 9.27l-5 4.87L18.18 21 12 17.77 5.82 21 7 14.14l-5-4.87 7.05-1.01L12 2z"/></symbol>
+        <symbol id="i-blog" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M6 3h9l4 4v14H6V3z"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M9 9h6M9 13h6M9 17h4"/></symbol>
+        <symbol id="i-chart" viewBox="0 0 24 24"><path fill="currentColor" d="M4 20V10h4v10H4zm6 0V4h4v16h-4zm6 0v-7h4v7h-4z"/></symbol>
+        <symbol id="i-cash" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2.6" fill="none" stroke="currentColor" stroke-width="2"/><path fill="none" stroke="currentColor" stroke-width="2" d="M7 9v6M17 9v6"/></symbol>
+        <symbol id="i-bell" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M18 16H6l1.5-2.5V9a4.5 4.5 0 0 1 9 0v4.5L18 16z"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M10 19a2 2 0 0 0 4 0"/></symbol>
+        <symbol id="i-tools" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M14.7 6.3a3.5 3.5 0 0 0 4.6 4.6L21 9.3V5l-2.3 1.3-4 4zM9 9l-6 6 3 3 6-6"/></symbol>
+        <symbol id="i-trash" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14M10 11v6M14 11v6"/></symbol>
+    </svg>
 
     <div class="admin-login-box" id="adminLoginBox">
         <h2>🔐 Administration</h2>
@@ -427,60 +705,171 @@
     <!-- ═══════════════════════════════════════════════════════════════ -->
     <!-- FIN DE LA PARTIE 1/2                                          -->
     <!-- La PARTIE 2/2 (prochain message) commence par :               -->
-    <!--   <div class="admin-container" id="adminPanel" ...>            -->
+    <!--   <div class="admin-container" ...>                            -->
     <!-- Elle contient : 12 onglets + migration Speedaf→Livo +         -->
     <!-- alert banner + pickup modal + toast + scripts + </html>       -->
     <!-- ═══════════════════════════════════════════════════════════════ -->
         <div class="admin-container" id="adminPanel" style="display:none;">
 
-        <div class="admin-header">
-            <h1><img src="/assets/logo-64.png" alt="" width="40" height="40" class="admin-logo">⚙️ Administration Smartswika</h1>
+        <div class="admin-header admin-topbar">
+            <div class="admin-topbar-left">
+                <button id="adminMenuToggle" class="admin-menu-toggle" type="button"
+                        aria-label="Menu" aria-controls="adminSidebar" aria-expanded="false">
+                    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M3 6h18v2H3V6zm0 5h18v2H3v-2zm0 5h18v2H3v-2z"/></svg>
+                </button>
+                <h1><img src="/assets/logo-64.png" alt="" width="40" height="40" class="admin-logo"><span data-admin-i18n="appTitle">Administration Smartswika</span></h1>
+            </div>
             <div class="admin-user-info">
                 <span id="adminModeIndicator" style="font-size:0.8rem;font-weight:700;"></span>
-                <span id="adminUserEmail">—</span>
-                <button class="admin-btn-danger" id="adminLogoutBtn">🚪 Déconnexion</button>
+                <span id="adminUserEmail" class="admin-user-email">—</span>
+                <label class="admin-lang-wrap" title="Language / Langue / اللغة">
+                    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm6.9 6h-2.95a15.6 15.6 0 0 0-1.38-3.56A8.03 8.03 0 0 1 18.9 8zM12 4.04c.83 1.2 1.48 2.53 1.91 3.96h-3.82A13.4 13.4 0 0 1 12 4.04zM4.26 14A7.8 7.8 0 0 1 4 12c0-.7.1-1.37.26-2h3.38a16.5 16.5 0 0 0 0 4H4.26zm.84 2h2.95c.32 1.25.78 2.45 1.38 3.56A8.03 8.03 0 0 1 5.1 16zm2.95-8H5.1a8.03 8.03 0 0 1 4.33-3.56A15.6 15.6 0 0 0 8.05 8zM12 19.96a13.4 13.4 0 0 1-1.91-3.96h3.82A13.4 13.4 0 0 1 12 19.96zM14.34 14H9.66a14.6 14.6 0 0 1 0-4h4.68a14.6 14.6 0 0 1 0 4zm.23 5.56c.6-1.11 1.06-2.31 1.38-3.56h2.95a8.03 8.03 0 0 1-4.33 3.56zM16.36 14a16.5 16.5 0 0 0 0-4h3.38c.16.63.26 1.3.26 2 0 .7-.1 1.37-.26 2h-3.38z"/></svg>
+                    <select id="adminLangSelect" aria-label="Language">
+                        <option value="fr">FR</option>
+                        <option value="en">EN</option>
+                        <option value="ar">AR</option>
+                    </select>
+                </label>
+                <button class="admin-btn-danger admin-logout" id="adminLogoutBtn">🚪 <span data-admin-i18n="logout">Déconnexion</span></button>
             </div>
         </div>
 
-        <div class="admin-tabs">
-            <button class="active" data-tab="dashboard">📊 Tableau de bord</button>
-            <button data-tab="traffic">📈 Trafic</button>
-            <button data-tab="products">📦 Produits</button>
-            <button data-tab="orders">📋 Commandes</button>
-            <button data-tab="preparation">🏬 Préparation Commandes</button>
-            <button data-tab="vendors">🏪 Vendeurs</button>
-            <button data-tab="livo">🚚 Livo</button>
-            <button data-tab="users">👥 Clients</button>
-            <button data-tab="reviews">⭐ Avis</button>
-            <button data-tab="blog">📝 Blog</button>
-            <button data-tab="coupons">🎟️ Codes Promo</button>
-  <button data-tab="flash">⚡ Ventes Flash</button>
-            <button data-tab="notifications">🔔 Campagnes &amp; Notifications</button>
-            <button data-tab="finances">💰 Comptabilité</button>
-            <button data-tab="wallets">💸 Retraits</button>
-            <button data-tab="disputes">⚖️ Litiges / Retours</button>
-            <button data-tab="tools">🛠️ Outils</button>
-        </div>
+        <div class="admin-shell" id="adminShell">
+            <aside class="admin-sidebar" id="adminSidebar" aria-label="Navigation administration">
+                <div class="admin-sidebar-head">
+                    <span class="admin-sidebar-title" data-admin-i18n="navTitle">Navigation</span>
+                    <button id="adminSidebarToggle" class="admin-sidebar-toggle" type="button"
+                            aria-label="Reduce sidebar" aria-controls="adminSidebar">
+                        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M15.4 7.4 14 6l-6 6 6 6 1.4-1.4L10.8 12z"/></svg>
+                    </button>
+                </div>
+                <div class="admin-tabs" id="adminTabs" role="tablist" aria-orientation="vertical">
+                    <div class="admin-nav-group-label" data-admin-i18n="groupPilotage">Pilotage</div>
+                    <button class="active" data-tab="dashboard" role="tab" aria-selected="true">
+                        <svg class="nav-ico" aria-hidden="true"><use href="#i-dashboard"></use></svg>
+                        <span class="nav-label" data-admin-i18n="navDashboard">Tableau de bord</span>
+                    </button>
+                    <button data-tab="traffic" role="tab" aria-selected="false">
+                        <svg class="nav-ico" aria-hidden="true"><use href="#i-traffic"></use></svg>
+                        <span class="nav-label" data-admin-i18n="navTraffic">Trafic</span>
+                    </button>
+
+                    <div class="admin-nav-group-label" data-admin-i18n="groupCatalog">Catalogue</div>
+                    <button data-tab="products" role="tab" aria-selected="false">
+                        <svg class="nav-ico" aria-hidden="true"><use href="#i-products"></use></svg>
+                        <span class="nav-label" data-admin-i18n="navProducts">Produits</span>
+                        <span class="nav-badge" id="navBadgeProducts" hidden></span>
+                    </button>
+                    <button data-tab="flash" role="tab" aria-selected="false">
+                        <svg class="nav-ico" aria-hidden="true"><use href="#i-bolt"></use></svg>
+                        <span class="nav-label" data-admin-i18n="navFlash">Ventes Flash</span>
+                    </button>
+                    <button data-tab="coupons" role="tab" aria-selected="false">
+                        <svg class="nav-ico" aria-hidden="true"><use href="#i-coupon"></use></svg>
+                        <span class="nav-label" data-admin-i18n="navCoupons">Codes Promo</span>
+                    </button>
+
+                    <div class="admin-nav-group-label" data-admin-i18n="groupLogistics">Logistique &amp; Ventes</div>
+                    <button data-tab="orders" role="tab" aria-selected="false">
+                        <svg class="nav-ico" aria-hidden="true"><use href="#i-orders"></use></svg>
+                        <span class="nav-label" data-admin-i18n="navOrders">Commandes</span>
+                        <span class="nav-badge" id="navBadgeOrders" hidden></span>
+                    </button>
+                    <button data-tab="preparation" role="tab" aria-selected="false">
+                        <svg class="nav-ico" aria-hidden="true"><use href="#i-warehouse"></use></svg>
+                        <span class="nav-label" data-admin-i18n="navPrep">Préparation Commandes</span>
+                    </button>
+                    <button data-tab="livo" role="tab" aria-selected="false">
+                        <svg class="nav-ico" aria-hidden="true"><use href="#i-truck"></use></svg>
+                        <span class="nav-label" data-admin-i18n="navLivo">Livraisons Livo</span>
+                    </button>
+                    <button data-tab="disputes" role="tab" aria-selected="false">
+                        <svg class="nav-ico" aria-hidden="true"><use href="#i-scale"></use></svg>
+                        <span class="nav-label" data-admin-i18n="navDisputes">Litiges / Retours</span>
+                    </button>
+
+                    <div class="admin-nav-group-label" data-admin-i18n="groupCommunity">Communauté</div>
+                    <button data-tab="vendors" role="tab" aria-selected="false">
+                        <svg class="nav-ico" aria-hidden="true"><use href="#i-store"></use></svg>
+                        <span class="nav-label" data-admin-i18n="navVendors">Vendeurs</span>
+                    </button>
+                    <button data-tab="users" role="tab" aria-selected="false">
+                        <svg class="nav-ico" aria-hidden="true"><use href="#i-users"></use></svg>
+                        <span class="nav-label" data-admin-i18n="navUsers">Clients</span>
+                    </button>
+                    <button data-tab="reviews" role="tab" aria-selected="false">
+                        <svg class="nav-ico" aria-hidden="true"><use href="#i-star"></use></svg>
+                        <span class="nav-label" data-admin-i18n="navReviews">Avis</span>
+                        <span class="nav-badge" id="navBadgeReviews" hidden></span>
+                    </button>
+                    <button data-tab="blog" role="tab" aria-selected="false">
+                        <svg class="nav-ico" aria-hidden="true"><use href="#i-blog"></use></svg>
+                        <span class="nav-label" data-admin-i18n="navBlog">Blog</span>
+                    </button>
+
+                    <div class="admin-nav-group-label" data-admin-i18n="groupFinance">Finance &amp; Système</div>
+                    <button data-tab="finances" role="tab" aria-selected="false">
+                        <svg class="nav-ico" aria-hidden="true"><use href="#i-chart"></use></svg>
+                        <span class="nav-label" data-admin-i18n="navFinances">Comptabilité</span>
+                    </button>
+                    <button data-tab="wallets" role="tab" aria-selected="false">
+                        <svg class="nav-ico" aria-hidden="true"><use href="#i-cash"></use></svg>
+                        <span class="nav-label" data-admin-i18n="navWallets">Retraits</span>
+                    </button>
+                    <button data-tab="notifications" role="tab" aria-selected="false">
+                        <svg class="nav-ico" aria-hidden="true"><use href="#i-bell"></use></svg>
+                        <span class="nav-label" data-admin-i18n="navNotifications">Campagnes &amp; Notifications</span>
+                    </button>
+                    <button data-tab="tools" role="tab" aria-selected="false">
+                        <svg class="nav-ico" aria-hidden="true"><use href="#i-tools"></use></svg>
+                        <span class="nav-label" data-admin-i18n="navTools">Outils</span>
+                    </button>
+                </div>
+            </aside>
+            <main class="admin-main" id="adminMain">
 
         <div class="admin-content active" id="tab-dashboard">
-                        <div class="admin-stats" id="adminStats">
-                <div class="admin-stat-card"><span class="stat-value" id="statProducts">—</span><span class="stat-label">📦 Produits</span></div>
-                <div class="admin-stat-card"><span class="stat-value" id="statProductsPending">—</span><span class="stat-label">⏳ Produits à valider</span></div>
-                <div class="admin-stat-card"><span class="stat-value" id="statOrders">—</span><span class="stat-label">📋 Commandes</span></div>
-                <div class="admin-stat-card"><span class="stat-value" id="statUsers">—</span><span class="stat-label">👥 Clients</span></div>
-                <div class="admin-stat-card"><span class="stat-value" id="statReviewsPending">—</span><span class="stat-label">⭐ Avis en attente</span></div>
-                <div class="admin-stat-card"><span class="stat-value" id="statOrdersPending">—</span><span class="stat-label">⏳ Commandes en attente</span></div>
-                <div class="admin-stat-card"><span class="stat-value" id="statRevenue">—</span><span class="stat-label">💰 Chiffre d'affaires</span></div>
-                <div class="admin-stat-card"><span class="stat-value" id="statCities">—</span><span class="stat-label">🏙️ Villes</span></div>
+            <div class="admin-stats" id="adminStats">
+                <div class="admin-stat-card"><span class="kpi-ico" aria-hidden="true">📦</span><span class="stat-value" id="statProducts">0</span><span class="stat-label" data-admin-i18n="kpiProducts">Produits</span><span class="kpi-trend" data-admin-i18n="kpiTrendCatalog">Catalogue</span></div>
+                <div class="admin-stat-card"><span class="kpi-ico is-red" aria-hidden="true">⏳</span><span class="stat-value" id="statProductsPending">0</span><span class="stat-label" data-admin-i18n="kpiProductsPending">Produits à valider</span><span class="kpi-trend" data-admin-i18n="kpiTrendValidate">À valider</span></div>
+                <div class="admin-stat-card"><span class="kpi-ico is-blue" aria-hidden="true">📋</span><span class="stat-value" id="statOrders">0</span><span class="stat-label" data-admin-i18n="kpiOrders">Commandes</span><span class="kpi-trend" data-admin-i18n="kpiTrendAllOrders">Toutes commandes</span></div>
+                <div class="admin-stat-card"><span class="kpi-ico is-purple" aria-hidden="true">👥</span><span class="stat-value" id="statUsers">0</span><span class="stat-label" data-admin-i18n="kpiClients">Clients</span><span class="kpi-trend" data-admin-i18n="kpiTrendCommunity">Communauté</span></div>
+                <div class="admin-stat-card"><span class="kpi-ico is-red" aria-hidden="true">⭐</span><span class="stat-value" id="statReviewsPending">0</span><span class="stat-label" data-admin-i18n="kpiReviewsPending">Avis en attente</span><span class="kpi-trend" data-admin-i18n="kpiTrendModerate">À modérer</span></div>
+                <div class="admin-stat-card"><span class="kpi-ico is-red" aria-hidden="true">🕒</span><span class="stat-value" id="statOrdersPending">0</span><span class="stat-label" data-admin-i18n="kpiOrdersPending">Commandes en attente</span><span class="kpi-trend" data-admin-i18n="kpiTrendProcess">À traiter</span></div>
+                <div class="admin-stat-card"><span class="kpi-ico is-green" aria-hidden="true">💰</span><span class="stat-value" id="statRevenue">0</span><span class="stat-label" data-admin-i18n="kpiRevenue">Chiffre d'affaires</span><span class="kpi-trend" data-admin-i18n="kpiTrendDelivered">Commandes livrées</span></div>
+                <div class="admin-stat-card"><span class="kpi-ico is-blue" aria-hidden="true">🏙️</span><span class="stat-value" id="statCities">0</span><span class="stat-label" data-admin-i18n="kpiCities">Villes</span><span class="kpi-trend" data-admin-i18n="kpiTrendLivo">Couverture Livo</span></div>
+            </div>
+
+            <div class="admin-chart-grid">
+                <div class="admin-chart-card">
+                    <div class="admin-chart-head">
+                        <h3 data-admin-i18n="chartRevenueTitle">Chiffre d'affaires vs Bénéfice NET</h3>
+                        <div style="display:flex;gap:0.35rem;flex-wrap:wrap;">
+                            <button class="admin-btn-secondary chart-period-btn active" data-chart-period="7">7j</button>
+                            <button class="admin-btn-secondary chart-period-btn" data-chart-period="30">30j</button>
+                            <button class="admin-btn-secondary chart-period-btn" data-chart-period="90">90j</button>
+                        </div>
+                    </div>
+                    <div class="admin-chart-box"><canvas id="revenueChartDashboard"></canvas></div>
+                </div>
+                <div class="admin-chart-card">
+                    <div class="admin-chart-head">
+                        <h3 data-admin-i18n="chartOrdersTitle">Répartition des commandes par statut</h3>
+                    </div>
+                    <div class="admin-donut-box">
+                        <canvas id="ordersStatusChart"></canvas>
+                        <div class="admin-donut-total"><strong id="ordersStatusTotal">—</strong><span data-admin-i18n="chartOrdersTotal">commandes</span></div>
+                    </div>
+                </div>
             </div>
         </div>
 
         <div class="admin-content" id="tab-traffic">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;">
-                <h2 style="font-family:var(--font-secondary);color:var(--gold);margin:0;">📈 Trafic du site</h2>
+                <h2 style="font-family:var(--font-secondary);color:var(--gold);margin:0;">📈 <span data-admin-i18n="trafficTitle">Trafic du site</span></h2>
                 <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
-                    <button class="admin-btn" id="trafficRefreshBtn" type="button">🔄 Actualiser</button>
-                    <button class="admin-btn" id="trafficResetBtn" type="button" style="background:var(--danger);border-color:var(--danger);color:#fff;">🗑️ Remettre à zéro</button>
+                    <button class="admin-btn" id="trafficRefreshBtn" type="button">🔄 <span data-admin-i18n="refresh">Actualiser</span></button>
+                    <button class="admin-btn" id="trafficResetBtn" type="button" style="background:var(--danger);border-color:var(--danger);color:#fff;">🗑️ <span data-admin-i18n="resetTraffic">Remettre à zéro</span></button>
                 </div>
             </div>
 
@@ -674,11 +1063,11 @@
 
         <div class="admin-content" id="tab-orders">
             <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.8rem;margin-bottom:1rem;">
-                <h3 style="font-family:var(--font-secondary);color:var(--gold);margin:0;">📋 Commandes</h3>
+                <h3 style="font-family:var(--font-secondary);color:var(--gold);margin:0;">📋 <span data-admin-i18n="navOrders">Commandes</span></h3>
                 <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;">
                     <span id="groupedPickupCounter" style="font-size:0.85rem;color:var(--text-muted);">⏳ Chargement…</span>
-                    <button class="admin-btn-primary" id="groupedPickupBtn" disabled>🚚 Demander un ramassage groupé</button>
-                    <button class="admin-btn-secondary" id="exportOrdersCSVBtn">📥 Exporter CSV</button>
+                    <button class="admin-btn-primary" id="groupedPickupBtn" disabled>🚚 <span data-admin-i18n="groupedPickup">Demander un ramassage groupé</span></button>
+                    <button class="admin-btn-secondary" id="exportOrdersCSVBtn">📥 <span data-admin-i18n="exportCsv">Exporter CSV</span></button>
                 </div>
             </div>
             <div class="admin-search-bar">
@@ -703,8 +1092,8 @@
 
         <div class="admin-content" id="tab-preparation">
             <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.8rem;margin-bottom:1rem;">
-                <h3 style="font-family:var(--font-secondary);color:var(--gold);margin:0;">🏬 Préparation Commandes</h3>
-                <button class="admin-btn-secondary" id="refreshWarehousePrepBtn">🔄 Rafraîchir</button>
+                <h3 style="font-family:var(--font-secondary);color:var(--gold);margin:0;">🏬 <span data-admin-i18n="navPrep">Préparation Commandes</span></h3>
+                <button class="admin-btn-secondary" id="refreshWarehousePrepBtn">🔄 <span data-admin-i18n="refresh">Actualiser</span></button>
             </div>
             <div style="background:rgba(212,175,55,0.08);border:1px solid var(--border-gold);border-radius:var(--radius-sm);padding:0.8rem 1rem;margin-bottom:1rem;font-size:0.85rem;line-height:1.6;color:var(--text-muted);">
                 Commandes dont <strong>tous les produits</strong> sont stockés à l'entrepôt Smart Swika, en statut <strong>pending</strong> ou <strong>confirmed</strong>.
@@ -714,7 +1103,7 @@
         </div>
 
         <div class="admin-content" id="tab-vendors">
-            <h3 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;">🏪 Gestion des Vendeurs</h3>
+            <h3 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;">🏪 <span data-admin-i18n="vendorsTitle">Gestion des Vendeurs</span></h3>
             <div id="adminPickupRequests" class="admin-form" style="margin-bottom:1rem;"></div>
             <div class="admin-signup-filters" id="vendorStatusFilters">
                 <button class="active" data-vendor-filter="pending">⏳ En attente</button>
@@ -733,7 +1122,7 @@
 
         <div class="admin-content" id="tab-livo">
             <div class="admin-header" style="margin-bottom:1rem; padding:1rem; display:flex; justify-content:space-between; flex-wrap:wrap; gap:1rem;">
-                <h2 style="font-family:var(--font-secondary);color:var(--gold);margin:0;">🚚 Livraisons Livo</h2>
+                <h2 style="font-family:var(--font-secondary);color:var(--gold);margin:0;">🚚 <span data-admin-i18n="navLivo">Livraisons Livo</span></h2>
                 <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
                     <button class="admin-btn-secondary" id="pickupLivoBtn" style="margin:0;">📦 Ramassage</button>
                     <button class="admin-btn-primary" id="syncAllLivoBtn" style="margin:0;">🔄 Synchroniser</button>
@@ -765,7 +1154,7 @@
         </div>
 
         <div class="admin-content" id="tab-users">
-            <h3 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;">👥 Clients</h3>
+            <h3 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;">👥 <span data-admin-i18n="navUsers">Clients</span></h3>
             <div class="admin-signup-filters">
                 <button class="active" data-signup-filter="all">📊 Tous</button>
                 <button data-signup-filter="otp">🔐 OTP</button>
@@ -779,7 +1168,7 @@
         </div>
 
         <div class="admin-content" id="tab-reviews">
-            <h3 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;">⭐ Avis</h3>
+            <h3 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;">⭐ <span data-admin-i18n="navReviews">Avis</span></h3>
             <div id="reviewsList"><div class="admin-loading">⏳ Chargement...</div></div>
         </div>
 
@@ -987,15 +1376,15 @@
         </div>
 
         <div class="admin-content" id="tab-finances">
-            <h2 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;">💰 Comptabilité</h2>
+            <h2 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;">💰 <span data-admin-i18n="navFinances">Comptabilité</span></h2>
 
             <div class="admin-tabs" style="margin-bottom: 1.5rem;">
-                <button class="active" data-acc-tab="overview">📊 Vue d'ensemble</button>
-                <button data-acc-tab="purchases">📦 Achats</button>
-                <button data-acc-tab="expenses">📉 Dépenses</button>
-                <button data-acc-tab="transactions">💸 Transactions</button>
-                <button data-acc-tab="reports">📈 Rapports</button>
-                <button data-acc-tab="simulator">🧮 Simulateur</button>
+                <button class="active" data-acc-tab="overview">📊 <span data-admin-i18n="accOverview">Vue d'ensemble</span></button>
+                <button data-acc-tab="purchases">📦 <span data-admin-i18n="accPurchases">Achats</span></button>
+                <button data-acc-tab="expenses">📉 <span data-admin-i18n="accExpenses">Dépenses</span></button>
+                <button data-acc-tab="transactions">💸 <span data-admin-i18n="accTransactions">Transactions</span></button>
+                <button data-acc-tab="reports">📈 <span data-admin-i18n="accReports">Rapports</span></button>
+                <button data-acc-tab="simulator">🧮 <span data-admin-i18n="accSimulator">Simulateur</span></button>
             </div>
 
             <div class="acc-content active" id="acc-overview">
@@ -1132,18 +1521,18 @@
             </div>
 
             <div class="acc-content" id="acc-simulator">
-                <h3 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;">🧮 Simulateur</h3>
+                <h3 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;">🧮 <span data-admin-i18n="accSimulator">Simulateur</span></h3>
                 <div class="admin-form">
-                    <h4 style="color:var(--gold);font-size:1rem;margin-bottom:1rem;">1. Paramètres</h4>
+                    <h4 style="color:var(--gold);font-size:1rem;margin-bottom:1rem;" data-admin-i18n="simParams">1. Paramètres</h4>
                     <div class="admin-form-row cols-3">
-                        <div><label>📢 Budget Pub (MAD)</label><input type="number" id="finAdSpend" value="800" min="0"></div>
-                        <div><label>📦 Emballage (MAD)</label><input type="number" id="finPackaging" value="3" min="0" step="0.01"></div>
-                        <div><label>🔄 Frais retour (MAD)</label><input type="number" id="finReturnShipping" value="35" min="0"></div>
+                        <div><label data-admin-i18n="simAdSpend">📢 Budget Pub (MAD)</label><input type="number" id="finAdSpend" value="800" min="0"></div>
+                        <div><label data-admin-i18n="simPackaging">📦 Emballage (MAD)</label><input type="number" id="finPackaging" value="3" min="0" step="0.01"></div>
+                        <div><label data-admin-i18n="simReturnShipping">🔄 Frais retour (MAD)</label><input type="number" id="finReturnShipping" value="35" min="0"></div>
                     </div>
                     <div class="admin-form-row" style="margin-top:0.8rem;">
-                        <div><label>🛡️ Marge sécurité (%)</label><input type="number" id="finSafetyMargin" value="20" min="0" max="100"></div>
+                        <div><label data-admin-i18n="simSafetyMargin">🛡️ Marge sécurité (%)</label><input type="number" id="finSafetyMargin" value="20" min="0" max="100"></div>
                         <div>
-                            <label>📉 Taux retour (%)</label>
+                            <label data-admin-i18n="simReturnRate">📉 Taux retour (%)</label>
                             <div class="finance-slider-box" style="margin:0;">
                                 <label style="margin-bottom:0.3rem;">
                                     <span style="font-size:0.85rem;color:var(--text-muted);">0-80%</span>
@@ -1153,15 +1542,29 @@
                             </div>
                         </div>
                     </div>
-                    <h4 style="color:var(--gold);font-size:1rem;margin:1.5rem 0 0.5rem;">2. Produits à analyser</h4>
+                    <h4 style="color:var(--gold);font-size:1rem;margin:1.5rem 0 0.5rem;" data-admin-i18n="simProductsTitle">2. Produits à analyser</h4>
                     <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.8rem;">
-                        <button type="button" class="admin-btn-secondary" id="finSelectTop5">🌟 Top 5</button>
-                        <button type="button" class="admin-btn-secondary" id="finSelectAll">☑️ Tous</button>
-                        <button type="button" class="admin-btn-secondary" id="finSelectProfitable">✅ Rentables</button>
-                        <button type="button" class="admin-btn-secondary" id="finSelectNone">✖️ Aucun</button>
+                        <button type="button" class="admin-btn-secondary" id="finSelectTop5">🌟 <span data-admin-i18n="simTop5">Top 5</span></button>
+                        <button type="button" class="admin-btn-secondary" id="finSelectAll">☑️ <span data-admin-i18n="simAll">Tous</span></button>
+                        <button type="button" class="admin-btn-secondary" id="finSelectProfitable">✅ <span data-admin-i18n="simProfitable">Rentables</span></button>
+                        <button type="button" class="admin-btn-secondary" id="finSelectNone">✖️ <span data-admin-i18n="simNone">Aucun</span></button>
                     </div>
                     <div id="financeProductSelector" style="max-height:350px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.5rem;margin-bottom:1rem;"></div>
-                    <button class="admin-btn-primary" id="calculateFinancesBtn" style="width:100%;">🧮 Lancer l'analyse</button>
+                    <button class="admin-btn-primary" id="calculateFinancesBtn" style="width:100%;">🧮 <span data-admin-i18n="simRun">Lancer l'analyse</span></button>
+                </div>
+
+                <div class="admin-form finance-free-box" id="financeFreeSimulator">
+                    <h4 style="font-family:var(--font-secondary);color:var(--gold);margin:0 0 .4rem;">🧮 <span data-admin-i18n="simFreeTitle">Simulation libre (sans produit)</span></h4>
+                    <p style="font-size:.82rem;color:var(--text-muted);margin:0 0 .6rem;" data-admin-i18n="simFreeHint">
+                        Le catalogue peut être vide : renseignez simplement un prix de vente et un coût d'achat pour estimer votre marge.
+                    </p>
+                    <div class="admin-form-row cols-3">
+                        <div><label data-admin-i18n="simSalePrice">Prix de vente (MAD)</label><input type="number" id="finFreeSalePrice" min="0" step="0.01" value="199"></div>
+                        <div><label data-admin-i18n="simBuyPrice">Coût d'achat (MAD)</label><input type="number" id="finFreeBuyPrice" min="0" step="0.01" value="80"></div>
+                        <div><label data-admin-i18n="simQty">Quantité</label><input type="number" id="finFreeQty" min="1" step="1" value="1"></div>
+                    </div>
+                    <button class="admin-btn-primary" id="finFreeCalcBtn">🧮 <span data-admin-i18n="simCalculate">Calculer</span></button>
+                    <div class="finance-free-results" id="finFreeResults" aria-live="polite"></div>
                 </div>
                 <div id="financesResults" style="display:none;">
                     <h4 style="color:var(--gold);margin:1.5rem 0 1rem;">📊 Totaux globaux</h4>
@@ -1283,7 +1686,11 @@
                 <button class="admin-btn-secondary" id="refreshCollectionsBtn" style="margin-top:1rem;">🔄 Actualiser</button>
             </div>
         </div>
-    </div>
+            </main>
+        </div><!-- /.admin-shell -->
+    </div><!-- /#adminPanel -->
+
+    <div class="admin-sidebar-backdrop" id="adminSidebarBackdrop" hidden></div>
 
     <div id="adminAlertBanner" class="admin-alert-banner" style="display: none;">
         <div class="admin-alert-content">
@@ -1318,6 +1725,7 @@
     <div class="toast" id="cartToast" role="status" aria-live="polite"></div>
 
     <script src="/js/navbar.js"></script>
+    <script type="module" src="/js/admin-ui.js?v=1"></script>
     <script type="module" src="/js/admin.js?v=0d304651"></script>
 
 <footer class="page-legal-footer" role="contentinfo">
