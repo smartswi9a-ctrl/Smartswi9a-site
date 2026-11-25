@@ -13,7 +13,7 @@
    (aucune erreur, le reste du site fonctionne normalement).
    ============================================================ */
 export const PWA_CONFIG = {
-    VAPID_KEY: '',
+    VAPID_KEY: 'BF-7V5UaHCYlshvUVsWmnvtBBW6Yk910EU3vu3M70HrHmIcgpRwFNsXpc1-WzReY8aNzFPO94HcAp7CHwBTtacg',
     SW_URL: '/firebase-messaging-sw.js'
 };
 
