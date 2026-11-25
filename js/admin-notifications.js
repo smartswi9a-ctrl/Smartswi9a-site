@@ -17,6 +17,8 @@ import { showToast } from './ui-core.js';
 import { escapeHTML } from './utils.js';
 
 const USAGE_LIMIT_FALLBACK = 200;
+/* Doit rester aligné sur functions/emails.js → PROMO_QUOTA_LIMIT. */
+const PROMO_QUOTA_LIMIT = 180;
 let unsubscribeUsage = null;
 let unsubscribeRotation = null;
 let unsubscribeCampaign = null;
@@ -39,12 +41,23 @@ function renderQuota(data) {
     const left = Math.max(0, limit - count);
     const pct = limit > 0 ? Math.min(100, Math.round((count / limit) * 100)) : 0;
     const color = pct >= 90 ? '#e74c3c' : pct >= 70 ? '#e67e22' : '#2ecc71';
+    /* Plafond promotionnel (reciblage) : 180 / 200 → au-delà, push gratuit. */
+    const promoCap = Math.min(limit, PROMO_QUOTA_LIMIT);
+    const promoLeft = Math.max(0, promoCap - count);
+    const promoPct = promoCap > 0 ? Math.min(100, Math.round((count / promoCap) * 100)) : 0;
     box.innerHTML = `
         <strong>Emails EmailJS envoyés ce mois-ci : ${count} / ${limit}</strong>
         <div style="margin:0.5rem 0;height:8px;border-radius:6px;background:#2a2a2a;overflow:hidden;">
             <div style="width:${pct}%;height:100%;background:${color};"></div>
         </div>
-        <span style="font-size:0.82rem;color:#9a9a9a;">Mois ${escapeHTML(month)} · ${left} email(s) restant(s) · Reset automatique le 1er.</span>`;
+        <div style="margin:0 0 0.45rem;height:5px;border-radius:4px;background:#2a2a2a;overflow:hidden;">
+            <div style="width:${promoPct}%;height:100%;background:${promoPct >= 100 ? '#e74c3c' : '#d4af37'};"></div>
+        </div>
+        <span style="font-size:0.82rem;color:#9a9a9a;">Mois ${escapeHTML(month)} · ${left} email(s) restant(s) sur le quota global · Reset automatique le 1er.</span>
+        <div style="margin-top:0.35rem;font-size:0.82rem;color:${promoLeft === 0 ? '#e74c3c' : '#c9c9c9'};">
+            ⚠️ <strong>180 max promo</strong> : ${promoCap} emails promotionnels par mois maximum
+            (${promoLeft} restant(s)). Au-delà, les baisses de prix passent <strong>uniquement en push gratuit</strong>.
+        </div>`;
 }
 
 function renderRotation(data) {
