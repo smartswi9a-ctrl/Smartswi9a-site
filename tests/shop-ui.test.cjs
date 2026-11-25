@@ -222,19 +222,24 @@ check("CSS : zones tactiles 44px", css.includes("min-height: 44px"));
 check("CSS : RTL", css.includes('[dir="rtl"]'));
 check("espacements compacts preserves", index.includes("spacing.18d35167.css") && fs.existsSync(path.join(ROOT, "css/spacing.18d35167.css")));
 /* --------------------------------------------- 3 bis. cache / i18n duo */
-check("cache-busting : shop-modern.css?v=4", index.includes("/css/shop-modern.css?v=4"));
+check("cache-busting : shop-modern.css?v=5", index.includes("/css/shop-modern.css?v=5"));
 check(
   "cache-busting : koulchi-page.js?v=3 + promo-duo.js?v=4",
   index.includes("/js/koulchi-page.js?v=3") && index.includes("/js/promo-duo.js?v=4")
 );
 check(
   "cache-busting : SW_VERSION incremente",
-  read("firebase-messaging-sw.js").includes("sw-2026-11-25-v4")
+  read("firebase-messaging-sw.js").includes("sw-2026-11-25-v5")
 );
 check(
   "duo : garde-fou cache (ancienne vente flash `hidden` neutralisee)",
   css.includes("#promoDuo #flashSection[hidden] { display: block; }") &&
     read("js/promo-duo.js").includes("if (flash && flash.hidden) flash.hidden = false;")
+);
+check(
+  "duo : pastille compte a rebours masquee sans vente active",
+  css.includes('#promoDuo #flashSection[data-flash-count="0"] .flash-duo-timer { display: none; }') &&
+    index.includes('id="flashSection" aria-labelledby="flashTitle" data-flash-count="0"')
 );
 
 const translationsSrc = read("translations.js");

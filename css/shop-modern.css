@@ -681,6 +681,11 @@
   #promoDuo .flash-duo-timer-label { display: none; }
 }
 
+/* Aucune vente active : la pastille « --:--:-- » n a pas de sens, on la
+   masque. La ligne d en-tete garde la meme hauteur (min-height: 18px),
+   donc les deux cartes restent strictement jumelles. */
+#promoDuo #flashSection[data-flash-count="0"] .flash-duo-timer { display: none; }
+
 /* ---- Rang 2 : sous-titre sur une seule ligne (hauteur fixe) ---- */
 
 #promoDuo .duo-sub {
