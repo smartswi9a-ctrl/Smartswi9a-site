@@ -512,6 +512,41 @@ Object.assign(PHRASES, {
   },
 });
 
+/* Quatrieme lot : modales de confirmation et toasts courants. */
+Object.assign(PHRASES, {
+  "Supprimer définitivement ce produit ?": {
+    en: "Permanently delete this product?",
+    ar: "حذف هذا المنتج نهائيًا؟",
+  },
+  "Supprimer définitivement cet article ?": {
+    en: "Permanently delete this article?",
+    ar: "حذف هذا المقال نهائيًا؟",
+  },
+  "Supprimer définitivement ce code promo ?": {
+    en: "Permanently delete this promo code?",
+    ar: "حذف كود الخصم هذا نهائيًا؟",
+  },
+  "Confirmer le dépôt à l’agence ? Le montant sera débité du portefeuille du vendeur.": {
+    en: "Confirm the agency drop-off? The amount will be debited from the vendor wallet.",
+    ar: "تأكيد الإيداع في الوكالة؟ سيتم خصم المبلغ من محفظة البائع.",
+  },
+  "Marquer comme envoyé": { en: "Mark as sent", ar: "تعليم كمرسل" },
+  "Oui, envoyé": { en: "Yes, sent", ar: "نعم، أُرسل" },
+  "Confirmer que le vendeur a bien retiré cet argent à l’agence ?": {
+    en: "Confirm the vendor collected this money at the agency?",
+    ar: "تأكيد أن البائع سحب هذا المبلغ من الوكالة؟",
+  },
+  "Marquer comme retiré": { en: "Mark as collected", ar: "تعليم كمستلم" },
+  "Oui, retiré": { en: "Yes, collected", ar: "نعم، تم السحب" },
+  "Erreur": { en: "Error", ar: "خطأ" },
+  "Client supprimé": { en: "Customer deleted", ar: "تم حذف العميل" },
+  "Rôle mis à jour": { en: "Role updated", ar: "تم تحديث الدور" },
+  "Produit introuvable": { en: "Product not found", ar: "المنتج غير موجود" },
+  "Article introuvable": { en: "Article not found", ar: "المقال غير موجود" },
+  "Code promo supprimé": { en: "Promo code deleted", ar: "تم حذف كود الخصم" },
+  "Vendeur": { en: "Vendor", ar: "بائع" },
+});
+
 /* ============================================================
    HELPERS
    ============================================================ */
