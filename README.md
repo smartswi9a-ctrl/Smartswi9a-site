@@ -150,6 +150,22 @@ Les points d'entrée versionnés (`admin.js?v=<hash>`, `translations.<hash>.js`)
 
 ---
 
+## Suivi publicitaire TikTok & Meta (depuis le 2026-11-26)
+
+| Élément | Où | Détail |
+|---|---|---|
+| Attribution first-party | `js/ads-attribution.js` | `utm_*`, `fbclid`, `ttclid`, `document.referrer` ; source normalisée (`tiktok`, `meta`, `google`, `whatsapp`, `direct`, `other`) ; **last-touch non-direct 7 jours** dans `localStorage.swi9a_attribution`. |
+| Événements | `window.SmartswikaAds.track()` | `ViewContent`, `AddToCart`, `InitiateCheckout`, `Purchase` ; `fbq` / `ttq` si les pixels sont configurés, + compteurs anonymes `ad_events_daily/{YYYY-MM-DD}_{source}` (aucune donnée personnelle, aucun click id). |
+| Attribution commande | `orders/{orderId}.attribution` | `{ source, medium, campaign, content, clickIdType, landedAt }`, ajouté par `js/cart.js` après la réponse de `createCustomerOrder`. Les règles n'autorisent que ce champ, sur la commande du client, `pending`, dans les 30 minutes. |
+| Administration | `/admin` → **📊 Suivi Pubs TikTok & Meta** | IDs pixels + budgets par période dans `config/ads` (admin) ; miroir public `config/ads_public` limité aux IDs pixels. KPI (commandes créées/livrées, CA livré, bénéfice net, ROAS réel), graphique Chart.js CA commandé vs livré, tableau source/campagne et générateur d'URL UTM. |
+
+Le ROAS réel utilise **uniquement le CA des commandes `delivered`** : au Maroc,
+le COD crée un écart important entre le CA commandé et le CA encaissé. Les
+dépenses sont saisies manuellement par canal (Meta / TikTok / Autres) pour la
+période sélectionnée — aucune API publicitaire payante n'est nécessaire.
+
+---
+
 ## Règles à respecter
 
 1. **Aucun secret dans le dépôt.** Clés via `wrangler secret put` et Firebase Secret Manager.

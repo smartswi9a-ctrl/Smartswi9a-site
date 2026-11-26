@@ -24,6 +24,132 @@ service cloud.firestore {
       );
     }
 
+    /* ============================================================
+       SUIVI PERFORMANCE PUBLICITAIRE (module 2026-11-26)
+       ------------------------------------------------------------
+       Trois objets strictement bornés :
+         1. orders/{orderId}.attribution : rattaché par le client
+            juste après la création serveur de SA commande.
+            Seul ce champ est modifiable, statut `pending`, 30 min.
+         2. ad_events_daily/{YYYY-MM-DD}_{source} : compteurs agrégés
+            anonymes (aucune donnée personnelle, aucun click id).
+         3. config/ads : IDs pixels + budgets (admin seulement) et
+            config/ads_public : miroir des IDs pixels, lisible par la
+            vitrine pour initialiser fbq/ttq (jamais les budgets).
+       ============================================================ */
+
+    function validAttribution(attr) {
+      return attr is map &&
+        attr.keys().hasOnly([
+          'source', 'medium', 'campaign', 'content', 'clickIdType', 'landedAt'
+        ]) &&
+        attr.get('source', '') in
+          ['tiktok', 'meta', 'google', 'whatsapp', 'direct', 'other'] &&
+        attr.get('medium', '') is string &&
+        attr.get('medium', '').size() <= 80 &&
+        attr.get('campaign', '') is string &&
+        attr.get('campaign', '').size() <= 120 &&
+        attr.get('content', '') is string &&
+        attr.get('content', '').size() <= 120 &&
+        (
+          attr.get('clickIdType', null) == null ||
+          attr.get('clickIdType', '') in ['fbclid', 'ttclid']
+        ) &&
+        attr.get('landedAt', null) is timestamp;
+    }
+
+    function validAdsSpend(d, field) {
+      return !d.keys().hasAny([field]) ||
+        (
+          d.get(field, -1) is number &&
+          d.get(field, -1) >= 0 &&
+          d.get(field, -1) <= 10000000
+        );
+    }
+
+    function validAdsConfig() {
+      let d = request.resource.data;
+      return d.keys().hasOnly([
+        'metaPixelId', 'tiktokPixelId',
+        'spendMeta7', 'spendTiktok7', 'spendOther7',
+        'spendMeta30', 'spendTiktok30', 'spendOther30',
+        'spendMetaMonth', 'spendTiktokMonth', 'spendOtherMonth',
+        'spendMetaAll', 'spendTiktokAll', 'spendOtherAll',
+        'updatedAt', 'updatedBy'
+      ]) &&
+        d.metaPixelId is string &&
+        d.metaPixelId.size() <= 32 &&
+        d.metaPixelId.matches('^[0-9]*$') &&
+        d.tiktokPixelId is string &&
+        d.tiktokPixelId.size() <= 40 &&
+        d.tiktokPixelId.matches('^[A-Za-z0-9]*$') &&
+        (
+          !d.keys().hasAny(['updatedBy']) ||
+          (d.updatedBy is string && d.updatedBy.size() <= 128)
+        ) &&
+        validAdsSpend(d, 'spendMeta7') &&
+        validAdsSpend(d, 'spendTiktok7') &&
+        validAdsSpend(d, 'spendOther7') &&
+        validAdsSpend(d, 'spendMeta30') &&
+        validAdsSpend(d, 'spendTiktok30') &&
+        validAdsSpend(d, 'spendOther30') &&
+        validAdsSpend(d, 'spendMetaMonth') &&
+        validAdsSpend(d, 'spendTiktokMonth') &&
+        validAdsSpend(d, 'spendOtherMonth') &&
+        validAdsSpend(d, 'spendMetaAll') &&
+        validAdsSpend(d, 'spendTiktokAll') &&
+        validAdsSpend(d, 'spendOtherAll') &&
+        d.updatedAt == request.time;
+    }
+
+    function validAdsPublic() {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['metaPixelId', 'tiktokPixelId', 'updatedAt']) &&
+        d.metaPixelId is string &&
+        d.metaPixelId.size() <= 32 &&
+        d.metaPixelId.matches('^[0-9]*$') &&
+        d.tiktokPixelId is string &&
+        d.tiktokPixelId.size() <= 40 &&
+        d.tiktokPixelId.matches('^[A-Za-z0-9]*$') &&
+        d.updatedAt == request.time;
+    }
+
+    function adEventWriteValid() {
+      let d = request.resource.data;
+      return d.keys().hasOnly([
+        'date', 'source', 'viewContent', 'addToCart',
+        'initiateCheckout', 'purchase', 'revenueCreatedMad', 'updatedAt'
+      ]) &&
+        d.date is string &&
+        d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') &&
+        d.source in ['tiktok', 'meta', 'google', 'whatsapp', 'direct', 'other'] &&
+        (
+          !d.keys().hasAny(['viewContent']) ||
+          (d.viewContent is int && d.viewContent >= 0 && d.viewContent <= 100000000)
+        ) &&
+        (
+          !d.keys().hasAny(['addToCart']) ||
+          (d.addToCart is int && d.addToCart >= 0 && d.addToCart <= 100000000)
+        ) &&
+        (
+          !d.keys().hasAny(['initiateCheckout']) ||
+          (d.initiateCheckout is int && d.initiateCheckout >= 0 && d.initiateCheckout <= 100000000)
+        ) &&
+        (
+          !d.keys().hasAny(['purchase']) ||
+          (d.purchase is int && d.purchase >= 0 && d.purchase <= 100000000)
+        ) &&
+        (
+          !d.keys().hasAny(['revenueCreatedMad']) ||
+          (
+            d.revenueCreatedMad is number &&
+            d.revenueCreatedMad >= 0 &&
+            d.revenueCreatedMad <= 100000000000
+          )
+        ) &&
+        d.updatedAt == request.time;
+    }
+
     /* Une demande de ramassage approuvee par l admin est obligatoire pour
        creer un produit vendeur. La demande doit appartenir au vendeur. */
     function pickupApproved(requestId) {
@@ -457,7 +583,20 @@ service cloud.firestore {
 
       allow create: if false;
 
+      /* Rattachement de l'attribution publicitaire (2026-11-26) :
+         le client crée la commande via Cloud Function (hors règles),
+         puis ajoute UNIQUEMENT `attribution` sur sa propre commande.
+         Fenêtre : 30 minutes, statut `pending`. Aucun autre champ ne
+         peut être modifié par ce chemin. */
       allow update: if isAdmin() || (
+        isSignedIn() &&
+        resource.data.get('userId', '') == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['attribution']) &&
+        validAttribution(request.resource.data.get('attribution', null)) &&
+        resource.data.get('status', 'pending') == 'pending' &&
+        resource.data.get('createdAt', null) is timestamp &&
+        request.time < resource.data.createdAt + duration.value(30, 'm')
+      ) || (
         isApprovedVendor(request.auth.uid) &&
         resource.data.get('containsPlatformItems', true) == false &&
         resource.data.get('vendorIds', []) is list &&
@@ -924,6 +1063,27 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    /* ============================================================
+       CONFIGURATION PUBLICITAIRE (admin)
+       ------------------------------------------------------------
+       config/ads        : IDs pixels + budgets par période (privé).
+       config/ads_public : miroir public des SEULS IDs pixels, lu par
+                           la vitrine pour initialiser fbq / ttq.
+       Les budgets ne sont jamais exposés publiquement.
+       ============================================================ */
+
+    match /config/ads {
+      allow read: if isAdmin();
+      allow create, update: if isAdmin() && validAdsConfig();
+      allow delete: if isAdmin();
+    }
+
+    match /config/ads_public {
+      allow read: if true;
+      allow create, update: if isAdmin() && validAdsPublic();
+      allow delete: if isAdmin();
+    }
+
     match /config/{docId} {
       allow read: if isAdmin();
       allow write: if false;
@@ -992,6 +1152,23 @@ service cloud.firestore {
       allow create, update: if presenceWriteValid() &&
         visitorId.matches('^[a-zA-Z0-9-]{8,64}$');
       /* Meme bouton : la presence repart de zero. */
+      allow delete: if isAdmin();
+    }
+
+    /* ============================================================
+       SUIVI PUBLICITAIRE — COMPTEURS AGRÉGÉS ANONYMES
+       ------------------------------------------------------------
+       ad_events_daily/{YYYY-MM-DD}_{source}
+       Écriture ouverte aux visiteurs (aucune authentification) mais
+       STRICTEMENT bornée : 8 champs, source énumérée, compteurs
+       entiers positifs, identifiant = date + '_' + source.
+       Lecture réservée à l'admin. Aucune donnée personnelle.
+       ============================================================ */
+
+    match /ad_events_daily/{eventId} {
+      allow read: if isAdmin();
+      allow create, update: if adEventWriteValid() &&
+        eventId == request.resource.data.date + '_' + request.resource.data.source;
       allow delete: if isAdmin();
     }
 

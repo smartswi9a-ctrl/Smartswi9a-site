@@ -113,6 +113,25 @@ async function main() {
           { productId: "platform", vendorId: "smartswi9a", quantity: 1 }
         ]
       });
+      /* SUIVI PUBLICITAIRE (2026-11-26) : commandes de test pour le
+         rattachement d'attribution (statut pending puis delivered). */
+      await setDoc(doc(db, "orders", "attributionOrder"), {
+        userId: "buyerA",
+        status: "pending",
+        total: 250,
+        deliveryFee: 30,
+        items: [{ productId: "publicProduct", quantity: 1 }],
+        createdAt: Timestamp.now()
+      });
+      await setDoc(doc(db, "orders", "attributionDelivered"), {
+        userId: "buyerA",
+        status: "delivered",
+        total: 250,
+        deliveryFee: 30,
+        items: [{ productId: "publicProduct", quantity: 1 }],
+        createdAt: Timestamp.now()
+      });
+
       await setDoc(doc(db, "vendor_orders", "vendorA", "orders", "multiOrder"), {
         vendorId: "vendorA",
         privacySafe: true,
@@ -517,6 +536,139 @@ async function main() {
     await assertSucceeds(deleteDoc(doc(adminDb, "analytics_daily", todayKey)));
     await assertFails(deleteDoc(doc(anonDb, "presence", "visitor-aaaa-1111")));
     await assertSucceeds(deleteDoc(doc(adminDb, "presence", "visitor-aaaa-1111")));
+
+    /* --------------------------------------------- SUIVI PUBLICITAIRE */
+    const buyerBDb = env.authenticatedContext("buyerB").firestore();
+    const validAttribution = {
+      source: "tiktok",
+      medium: "paid_social",
+      campaign: "noel-2026",
+      content: "video-a",
+      clickIdType: "ttclid",
+      landedAt: Timestamp.now()
+    };
+
+    /* Le propriétaire rattache l'attribution sur SA commande pending. */
+    await assertSucceeds(updateDoc(doc(buyerDb, "orders", "attributionOrder"), {
+      attribution: validAttribution
+    }));
+    /* Un autre client ne peut pas écrire sur cette commande. */
+    await assertFails(updateDoc(doc(buyerBDb, "orders", "attributionOrder"), {
+      attribution: validAttribution
+    }));
+    /* Un vendeur ne peut pas rattacher une attribution (chemin séparé). */
+    await assertFails(updateDoc(doc(vendorDb, "orders", "attributionOrder"), {
+      attribution: validAttribution
+    }));
+    /* Source inconnue, campagne trop longue, champ supplémentaire : refusés. */
+    await assertFails(updateDoc(doc(buyerDb, "orders", "attributionOrder"), {
+      attribution: { ...validAttribution, source: "spam" }
+    }));
+    await assertFails(updateDoc(doc(buyerDb, "orders", "attributionOrder"), {
+      attribution: { ...validAttribution, campaign: "x".repeat(121) }
+    }));
+    await assertFails(updateDoc(doc(buyerDb, "orders", "attributionOrder"), {
+      attribution: { ...validAttribution, extra: "x" }
+    }));
+    /* Aucun autre champ ne peut être modifié par ce chemin. */
+    await assertFails(updateDoc(doc(buyerDb, "orders", "attributionOrder"), {
+      status: "confirmed"
+    }));
+    /* Commande déjà livrée : l'attribution n'est plus modifiable. */
+    await assertFails(updateDoc(doc(buyerDb, "orders", "attributionDelivered"), {
+      attribution: validAttribution
+    }));
+
+    /* Compteurs agrégés anonymes : création + incrément. */
+    await assertSucceeds(setDoc(doc(anonDb, "ad_events_daily", "2026-11-26_meta"), {
+      date: "2026-11-26",
+      source: "meta",
+      viewContent: increment(1),
+      updatedAt: serverTimestamp()
+    }));
+    await assertSucceeds(setDoc(doc(anonDb, "ad_events_daily", "2026-11-26_meta"), {
+      date: "2026-11-26",
+      source: "meta",
+      addToCart: increment(1),
+      updatedAt: serverTimestamp()
+    }, { merge: true }));
+    await assertSucceeds(setDoc(doc(anonDb, "ad_events_daily", "2026-11-26_tiktok"), {
+      date: "2026-11-26",
+      source: "tiktok",
+      purchase: increment(1),
+      revenueCreatedMad: increment(250.5),
+      updatedAt: serverTimestamp()
+    }));
+    /* Identifiant incohérent / source inconnue / valeur négative : refusés. */
+    await assertFails(setDoc(doc(anonDb, "ad_events_daily", "2026-11-26_spam"), {
+      date: "2026-11-26",
+      source: "spam",
+      viewContent: increment(1),
+      updatedAt: serverTimestamp()
+    }));
+    await assertFails(setDoc(doc(anonDb, "ad_events_daily", "2026-11-26_google"), {
+      date: "2026-11-26",
+      source: "google",
+      viewContent: -1,
+      updatedAt: serverTimestamp()
+    }));
+    /* Champ supplémentaire (donnée personnelle) : refusé. */
+    await assertFails(setDoc(doc(anonDb, "ad_events_daily", "2026-11-26_google"), {
+      date: "2026-11-26",
+      source: "google",
+      viewContent: increment(1),
+      ip: "1.2.3.4",
+      updatedAt: serverTimestamp()
+    }, { merge: true }));
+    /* Lecture réservée à l'admin. */
+    await assertFails(getDoc(doc(anonDb, "ad_events_daily", "2026-11-26_meta")));
+    await assertSucceeds(getDoc(doc(adminDb, "ad_events_daily", "2026-11-26_meta")));
+    await assertFails(deleteDoc(doc(anonDb, "ad_events_daily", "2026-11-26_meta")));
+    await assertSucceeds(deleteDoc(doc(adminDb, "ad_events_daily", "2026-11-26_meta")));
+
+    /* Configuration pixels + budgets : admin uniquement. */
+    const adsConfigPayload = {
+      metaPixelId: "1234567890123456",
+      tiktokPixelId: "CABC123456",
+      spendMeta7: 500,
+      spendTiktok7: 750,
+      updatedAt: serverTimestamp()
+    };
+    await assertFails(setDoc(doc(buyerDb, "config", "ads"), adsConfigPayload));
+    await assertSucceeds(setDoc(doc(adminDb, "config", "ads"), adsConfigPayload));
+    await assertFails(getDoc(doc(anonDb, "config", "ads")));
+    await assertSucceeds(getDoc(doc(adminDb, "config", "ads")));
+    await assertFails(setDoc(doc(adminDb, "config", "ads"), {
+      ...adsConfigPayload,
+      metaPixelId: "PIXEL-ABC"
+    }));
+    await assertFails(setDoc(doc(adminDb, "config", "ads"), {
+      ...adsConfigPayload,
+      spendTiktok7: -5
+    }));
+    await assertFails(setDoc(doc(adminDb, "config", "ads"), {
+      ...adsConfigPayload,
+      secret: "x"
+    }));
+
+    /* Miroir public : lecture seule des IDs pixels. */
+    await assertSucceeds(setDoc(doc(adminDb, "config", "ads_public"), {
+      metaPixelId: "1234567890123456",
+      tiktokPixelId: "CABC123456",
+      updatedAt: serverTimestamp()
+    }));
+    await assertSucceeds(getDoc(doc(anonDb, "config", "ads_public")));
+    await assertFails(setDoc(doc(buyerDb, "config", "ads_public"), {
+      metaPixelId: "1234567890123456",
+      tiktokPixelId: "CABC123456",
+      updatedAt: serverTimestamp()
+    }));
+    await assertFails(setDoc(doc(adminDb, "config", "ads_public"), {
+      metaPixelId: "1234567890123456",
+      tiktokPixelId: "CABC123456",
+      spendMeta7: 500,
+      updatedAt: serverTimestamp()
+    }));
 
     /* --------------------------------------------- CODES PROMO */
     /* Lecture ciblee publique : le client verifie un code precis (getDoc). */

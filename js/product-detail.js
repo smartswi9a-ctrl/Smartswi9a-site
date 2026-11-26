@@ -67,6 +67,36 @@ function getSlugFromUrl() {
   return params.get("slug");
 }
 
+/* ============================================================
+   SUIVI PUBLICITAIRE (module 2026-11-26)
+   ------------------------------------------------------------
+   Émet un événement DOM : js/ads-attribution.js le traduit en
+   ViewContent (Meta + TikTok) et en compteur agrégé Firestore.
+   Aucune dépendance directe : si le module n'est pas chargé,
+   l'événement est simplement ignoré.
+   ============================================================ */
+function announceProductView(product) {
+  if (!product || typeof document === "undefined") return;
+  try {
+    document.dispatchEvent(
+      new CustomEvent("smartswika:product-viewed", {
+        detail: {
+          product: {
+            id: product.id,
+            nameFr: product.nameFr || "",
+            nameEn: product.nameEn || "",
+            nameAr: product.nameAr || "",
+            price: Number(product.price) || 0,
+            flashPrice: Number(product.flashPrice) || 0,
+          },
+        },
+      })
+    );
+  } catch (e) {
+    /* CustomEvent indisponible / navigation ancienne : non bloquant */
+  }
+}
+
 /* ============================================================ RENDU PRINCIPAL ============================================================ */
 
 /** * Point d'entrée : lit le slug, charge le produit et rend toutes * les sections de la page produit. * * Comportement : * - Slug absent ou produit introuvable -> renderNotFound. * - Produit vendeur suspendu/rejeté -> renderNotFound. * - Sinon : rendu complet + attache events. * * @returns {Promise<void>} */
@@ -138,6 +168,7 @@ export async function renderProductDetail() {
   renderRelatedProducts(product);
 
   attachProductEvents(product);
+  announceProductView(product);
 }
 
 /* ============================================================
@@ -166,6 +197,7 @@ export function renderProductFixture(product) {
   renderFeaturesSection(product);
   renderRelatedProducts(product);
   attachProductEvents(product);
+  announceProductView(product);
   return true;
 }
 

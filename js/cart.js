@@ -1,4 +1,4 @@
-/* ============================================================ js/cart.js Panier et commandes - Smart Swi9a Version 10.1.0 - Lot 45 : relances paniers abandonnés CHANGEMENTS v10.1.0 : - Émission de l'événement `order-created` juste après la création serveur d'une commande : js/abandoned-cart.js s'en sert pour marquer le panier `recovered` (recoveredOrderId) AVANT clearCart(). Aucun changement de flux ni de signature. - Bump 10.0.0 -> 10.1.0. CHANGEMENTS v10.0.0 : - R2-preparation (P0) : createOrder ajoute `lastOrderId: orderRef.id` dans chaque transaction.update(productRef). Requis par la nouvelle règle R2 (firestore.rules v5.2.x) qui exige la traçabilité de l'origine de la modification de stock. - R2-preparation (P0) : cancelOrder ajoute `lastOrderId: orderId` dans chaque transaction.update(productRef) pour la même raison. - B-cart-8 (P1) : createOrder garantit l'invariant `stock + salesCount` (delta_stock + delta_salesCount == 0). Ça permet à la future règle R2 de vérifier la cohérence même sans get(order) (Firestore interdit get() dans la même transaction). - B-cart-9 (P2) : chaque updateData contient `updatedAt: Timestamp.now()` pour respecter les whitelists de la nouvelle règle R2. - Aucun changement fonctionnel côté utilisateur. Rétrocompatible. - Bump version 9.0.0 -> 10.0.0. ⚠️ CE FICHIER DOIT ÊTRE DÉPLOYÉ AVANT firestore.rules v5.2.x. Sinon les créations de commande échoueront avec permission-denied. ALERTE 1 : plus aucun commentaire de ligne (//) en début de ligne utile. Tout est en bloc. ============================================================ */
+/* ============================================================ js/cart.js Panier et commandes - Smart Swi9a Version 10.2.0 - Lot 46 : attribution publicitaire TikTok/Meta CHANGEMENTS v10.2.0 : - createOrder() rattache l'objet borné `attribution` sur orders/{orderId} après la réponse serveur (firestore.rules n'autorise que ce champ, 30 min, statut pending). - checkout() attend le flush des compteurs publicitaires (max 1,2 s) avant la navigation WhatsApp. - Aucun changement de flux ni de signature. CHANGEMENTS v10.1.0 : - Émission de l'événement `order-created` juste après la création serveur d'une commande : js/abandoned-cart.js s'en sert pour marquer le panier `recovered` (recoveredOrderId) AVANT clearCart(). Aucun changement de flux ni de signature. - Bump 10.0.0 -> 10.1.0. CHANGEMENTS v10.0.0 : - R2-preparation (P0) : createOrder ajoute `lastOrderId: orderRef.id` dans chaque transaction.update(productRef). Requis par la nouvelle règle R2 (firestore.rules v5.2.x) qui exige la traçabilité de l'origine de la modification de stock. - R2-preparation (P0) : cancelOrder ajoute `lastOrderId: orderId` dans chaque transaction.update(productRef) pour la même raison. - B-cart-8 (P1) : createOrder garantit l'invariant `stock + salesCount` (delta_stock + delta_salesCount == 0). Ça permet à la future règle R2 de vérifier la cohérence même sans get(order) (Firestore interdit get() dans la même transaction). - B-cart-9 (P2) : chaque updateData contient `updatedAt: Timestamp.now()` pour respecter les whitelists de la nouvelle règle R2. - Aucun changement fonctionnel côté utilisateur. Rétrocompatible. - Bump version 9.0.0 -> 10.0.0. ⚠️ CE FICHIER DOIT ÊTRE DÉPLOYÉ AVANT firestore.rules v5.2.x. Sinon les créations de commande échoueront avec permission-denied. ALERTE 1 : plus aucun commentaire de ligne (//) en début de ligne utile. Tout est en bloc. ============================================================ */
 
 import {
   collection,
@@ -6,6 +6,7 @@ import {
   getDoc,
   getDocs,
   setDoc,
+  updateDoc,
   runTransaction,
   query,
   where,
@@ -984,6 +985,14 @@ export async function checkout( cartItems, deliveryInfo, appliedCoupon = null, w
   clearCart();
   showToast(t("orderSent"));
 
+  /* Laisse partir les compteurs publicitaires (Purchase + CA créé)
+     avant la navigation WhatsApp. Borné : jamais plus de 1,2 s. */
+  try {
+    await window.SmartswikaAds?.flush?.(1200);
+  } catch (e) {
+    /* suivi indisponible : la commande continue */
+  }
+
   if (waWindow && !waWindow.closed) {
     waWindow.location.href = url;
   } else {
@@ -991,6 +1000,44 @@ export async function checkout( cartItems, deliveryInfo, appliedCoupon = null, w
   }
 
   return { success: true, orderId, redirected: true };
+}
+
+/* ============================================================
+   SUIVI PUBLICITAIRE — ATTRIBUTION DE LA COMMANDE (2026-11-26)
+   ------------------------------------------------------------
+   La commande est créée par la Cloud Function (Admin SDK), donc
+   hors des règles client. Juste après la réponse serveur, le client
+   rattache UNIQUEMENT l'objet `attribution` (last-touch non-direct
+   7 jours). firestore.rules n'autorise que ce champ, sur une
+   commande du même utilisateur, au statut `pending`, dans les
+   30 minutes qui suivent la création.
+   ============================================================ */
+async function attachOrderAttribution(orderId) {
+  if (!orderId) return false;
+  try {
+    const { buildOrderAttribution } = await import("./ads-attribution.js?v=1");
+    const raw = buildOrderAttribution();
+    const landedAtMs = Number(raw.landedAt);
+    const attribution = {
+      source: String(raw.source || "direct").slice(0, 20),
+      medium: String(raw.medium || "").slice(0, 80),
+      campaign: String(raw.campaign || "").slice(0, 120),
+      content: String(raw.content || "").slice(0, 120),
+      clickIdType:
+        raw.clickIdType === "fbclid" || raw.clickIdType === "ttclid"
+          ? raw.clickIdType
+          : null,
+      landedAt: Timestamp.fromMillis(
+        Number.isFinite(landedAtMs) && landedAtMs > 0 ? landedAtMs : Date.now()
+      ),
+    };
+    await updateDoc(doc(db, "orders", String(orderId)), { attribution });
+    return true;
+  } catch (e) {
+    /* Non bloquant : la commande reste valide même sans attribution. */
+    console.warn("[cart] attribution publicitaire non attachée :", e && e.message);
+    return false;
+  }
 }
 
 /* ============================================================ CRÉATION DE COMMANDE (transaction) ============================================================ R2-preparation : - Chaque updateData contient `lastOrderId: orderRef.id` - Chaque updateData contient `updatedAt: Timestamp.now()` - L'invariant `stock + salesCount` est préservé : stock_new = stock_old - qty salesCount_new = salesCount_old + qty => stock_new + salesCount_new == stock_old + salesCount_old (garanti par la structure des updates ci-dessous) ============================================================ */
@@ -1052,6 +1099,9 @@ export async function createOrder(items, deliveryInfo, appliedCoupon = null) {
         error: result.message || t("orderCreateFailed"),
       };
     clearOrderRequestId();
+    /* Attribution publicitaire bornée (source, campagne, type de click id).
+       Écriture best-effort : un échec ne bloque jamais la commande. */
+    await attachOrderAttribution(result.orderId);
     return {
       success: true,
       orderId: result.orderId,
@@ -1264,6 +1314,6 @@ document.addEventListener("auth-updated", (event) => {
 
 /* ============================================================ LOG ============================================================ */
 console.log(
-  "✅ cart.js chargé - v10.1.0 (Lot 45 : événement order-created pour paniers abandonnés)"
+  "✅ cart.js chargé - v10.2.0 (Lot 46 : attribution publicitaire commandes)"
 );
 

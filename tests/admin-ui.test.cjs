@@ -88,14 +88,14 @@ check(
 
 const tabValues = [...html.matchAll(/data-tab="([^"]+)"/g)].map((m) => m[1]);
 const expectedTabs = [
-  "dashboard", "traffic", "products", "flash", "coupons",
+  "dashboard", "traffic", "products", "flash", "coupons", "ads",
   "orders", "preparation", "livo", "disputes", "abandoned",
   "vendors", "users", "reviews", "blog",
   "finances", "wallets", "notifications", "tools",
 ];
-check("admin.html : 18 onglets", tabValues.length === 18, tabValues.length + " onglets");
+check("admin.html : 19 onglets", tabValues.length === 19, tabValues.length + " onglets");
 check(
-  "admin.html : les 18 data-tab attendus sont presents",
+  "admin.html : les 19 data-tab attendus sont presents",
   expectedTabs.every((tab) => tabValues.includes(tab))
 );
 check(
@@ -105,9 +105,9 @@ check(
 
 const groupLabels = [...html.matchAll(/class="admin-nav-group-label"[^>]*data-admin-i18n="([^"]+)"/g)].map((m) => m[1]);
 check(
-  "admin.html : 5 groupes de navigation",
-  groupLabels.length === 5 &&
-    ["groupPilotage", "groupCatalog", "groupLogistics", "groupCommunity", "groupFinance"].every((key) => groupLabels.includes(key)),
+  "admin.html : 6 groupes de navigation",
+  groupLabels.length === 6 &&
+    ["groupPilotage", "groupCatalog", "groupMarketing", "groupLogistics", "groupCommunity", "groupFinance"].every((key) => groupLabels.includes(key)),
   groupLabels.join(",")
 );
 
