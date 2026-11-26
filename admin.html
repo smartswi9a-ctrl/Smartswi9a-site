@@ -497,6 +497,12 @@
             display: inline-flex; align-items: center; justify-content: center;
         }
         .nav-badge[hidden] { display: none; }
+        /* Libellé long : on gagne quelques pixels pour que
+           « Paniers abandonnés » reste lisible avec son badge. */
+        #adminTabs > button.nav-abandoned .nav-label {
+            font-size: 0.79rem;
+            letter-spacing: -0.01em;
+        }
         .admin-main { min-width: 0; padding-bottom: 3.5rem; }
         .admin-content { animation: adminFade 0.18s ease both; }
         @keyframes adminFade { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
@@ -728,6 +734,196 @@
             font-size: 0.78rem;
             line-height: 1.5;
         }
+        /* --- PANIERS ABANDONNÉS (2026-11-26) : KPI, filtres, tableau --- */
+        #tab-abandoned .abandoned-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 1rem;
+            flex-wrap: wrap;
+            margin-bottom: 1rem;
+        }
+        #tab-abandoned .abandoned-head h3 { font-family: var(--font-secondary); color: var(--gold); margin: 0 0 0.25rem; }
+        #tab-abandoned .abandoned-subtitle { margin: 0; font-size: 0.85rem; color: var(--text-muted); max-width: 720px; }
+        #abandonedKpis {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 0.9rem;
+            margin-bottom: 1.1rem;
+        }
+        #abandonedKpis .admin-stat-card {
+            min-height: 104px;
+            padding: 1rem 0.8rem 1rem 3.4rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            text-align: start;
+            position: relative;
+            overflow: hidden;
+        }
+        [dir="rtl"] #abandonedKpis .admin-stat-card { padding: 1rem 3.4rem 1rem 0.8rem; }
+        #abandonedKpis .stat-value { font-size: 1.5rem; }
+        .abandoned-filters { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
+        .abandoned-filter {
+            min-height: 44px;
+            padding: 0.45rem 0.95rem;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            background: var(--bg-card);
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: border-color 180ms ease, background 180ms ease, color 180ms ease;
+        }
+        .abandoned-filter:hover { border-color: #B4833E; color: #B4833E; }
+        .abandoned-filter.active,
+        .abandoned-filter[aria-selected="true"] {
+            border-color: #B4833E;
+            background: rgba(180, 131, 62, 0.16);
+            color: #B4833E;
+        }
+        .abandoned-table-wrap {
+            border: 1px solid var(--border-gold);
+            border-radius: 16px;
+            background: var(--bg-card);
+            box-shadow: var(--shadow-sm);
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        .abandoned-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+        .abandoned-table thead th {
+            text-align: start;
+            padding: 0.85rem 0.9rem;
+            font-size: 0.7rem;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color: #B4833E;
+            border-bottom: 1px solid var(--border-gold);
+            background: rgba(180, 131, 62, 0.07);
+            white-space: nowrap;
+        }
+        .abandoned-table tbody td {
+            padding: 0.8rem 0.9rem;
+            border-bottom: 1px solid var(--border);
+            vertical-align: top;
+        }
+        .abandoned-table tbody tr:last-child td { border-bottom: none; }
+        .abandoned-table tbody tr:hover { background: rgba(180, 131, 62, 0.05); }
+        .abandoned-client { display: flex; align-items: center; gap: 0.6rem; }
+        .abandoned-avatar {
+            width: 36px; height: 36px; flex: 0 0 36px;
+            display: inline-flex; align-items: center; justify-content: center;
+            border-radius: 50%;
+            background: rgba(180, 131, 62, 0.14);
+            border: 1px solid rgba(180, 131, 62, 0.4);
+        }
+        .abandoned-client-info { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
+        .abandoned-phone { font-size: 0.76rem; color: var(--text-muted); direction: ltr; unicode-bidi: plaintext; }
+        .abandoned-items { line-height: 1.5; }
+        .abandoned-qty { color: #B4833E; font-weight: 800; }
+        .abandoned-more { font-size: 0.75rem; color: var(--text-muted); }
+        .abandoned-count { font-size: 0.72rem; color: var(--text-muted); }
+        .abandoned-total { color: #B4833E; font-weight: 800; white-space: nowrap; }
+        .abandoned-status {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.2rem 0.6rem;
+            border-radius: 999px;
+            font-size: 0.72rem;
+            font-weight: 800;
+            white-space: nowrap;
+            border: 1px solid transparent;
+        }
+        .abandoned-status.is-active { color: #B4833E; background: rgba(180, 131, 62, 0.14); border-color: rgba(180, 131, 62, 0.45); }
+        .abandoned-status.is-reminded { color: #3B82F6; background: rgba(59, 130, 246, 0.12); border-color: rgba(59, 130, 246, 0.4); }
+        .abandoned-status.is-recovered { color: #10B981; background: rgba(16, 185, 129, 0.13); border-color: rgba(16, 185, 129, 0.45); }
+        .abandoned-status.is-abandoned { color: #EF4444; background: rgba(239, 68, 68, 0.12); border-color: rgba(239, 68, 68, 0.4); }
+        .abandoned-actions { display: flex; flex-direction: column; gap: 0.4rem; min-width: 150px; }
+        .abandoned-btn {
+            min-height: 44px;
+            padding: 0.45rem 0.8rem;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: var(--bg-surface);
+            color: var(--text);
+            font-size: 0.78rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: filter 150ms ease, opacity 150ms ease;
+        }
+        .abandoned-btn:hover:not(:disabled) { filter: brightness(1.08); }
+        .abandoned-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+        .abandoned-btn--wa { border-color: rgba(37, 211, 102, 0.55); background: rgba(37, 211, 102, 0.12); color: #1F8A4C; }
+        .abandoned-btn--del { border-color: rgba(239, 68, 68, 0.5); background: rgba(239, 68, 68, 0.1); color: #C73535; }
+        .abandoned-empty { padding: 2rem 1rem; text-align: center; color: var(--text-muted); font-size: 0.9rem; }
+        @media (max-width: 1023px) {
+            #abandonedKpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+        /* Tablette 768-1023 : tableau complet, défilement horizontal
+           plutôt que colonnes tronquées (7 colonnes + actions). */
+        @media (min-width: 768px) and (max-width: 1023px) {
+            .abandoned-table { min-width: 880px; }
+            .abandoned-table thead th { padding: 0.7rem 0.55rem; font-size: 0.66rem; }
+            .abandoned-table tbody td { padding: 0.7rem 0.55rem; font-size: 0.8rem; }
+            .abandoned-actions { min-width: 132px; }
+        }
+        @media (max-width: 767px) {
+            #abandonedKpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem; }
+            #abandonedKpis .admin-stat-card {
+                min-height: 92px;
+                padding: 0.7rem 0.6rem;
+                text-align: center;
+            }
+            [dir="rtl"] #abandonedKpis .admin-stat-card { padding: 0.7rem 0.6rem; }
+            /* Mobile : l'icône repasse dans le flux (au-dessus de la
+               valeur) pour ne jamais chevaucher les cartes empilées. */
+            #abandonedKpis .kpi-ico {
+                position: static;
+                transform: none;
+                margin: 0 auto 0.3rem;
+                width: 1.7rem;
+                height: 1.7rem;
+                font-size: 0.85rem;
+            }
+            .abandoned-table-wrap { border: none; background: transparent; box-shadow: none; overflow: visible; }
+            .abandoned-table, .abandoned-table tbody, .abandoned-table tr, .abandoned-table td { display: block; width: 100%; }
+            .abandoned-table thead { display: none; }
+            .abandoned-table tbody tr {
+                border: 1px solid var(--border-gold);
+                border-radius: 14px;
+                background: var(--bg-card);
+                padding: 0.75rem 0.85rem;
+                margin-bottom: 0.85rem;
+                box-shadow: var(--shadow-sm);
+            }
+            .abandoned-table tbody td {
+                border: none;
+                padding: 0.32rem 0;
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-start;
+                gap: 0.8rem;
+                text-align: end;
+            }
+            .abandoned-table tbody td::before {
+                content: attr(data-label);
+                flex: 0 0 auto;
+                font-size: 0.68rem;
+                font-weight: 800;
+                text-transform: uppercase;
+                letter-spacing: 0.04em;
+                color: var(--text-muted);
+                text-align: start;
+            }
+            .abandoned-table tbody td:first-child { display: block; text-align: start; padding-bottom: 0.55rem; }
+            .abandoned-table tbody td:first-child::before { display: none; }
+            .abandoned-actions { flex-direction: row; flex-wrap: wrap; min-width: 0; }
+            .abandoned-btn { flex: 1 1 140px; }
+        }
+        [dir="rtl"] .abandoned-table thead th,
+        [dir="rtl"] .abandoned-table tbody td { text-align: right; }
+        [dir="rtl"] .abandoned-table tbody td::before { text-align: right; }
     </style>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" integrity="sha384-e6nUZLBkQ86NJ6TVVKAeSaK8jWa3NhkYWZFomE39AvDbQWeie9PlQqM3pmYW5d1g" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
@@ -851,6 +1047,11 @@
                     <button data-tab="disputes" role="tab" aria-selected="false">
                         <svg class="nav-ico" aria-hidden="true"><use href="#i-scale"></use></svg>
                         <span class="nav-label" data-admin-i18n="navDisputes">Litiges / Retours</span>
+                    </button>
+                    <button data-tab="abandoned" class="nav-abandoned" role="tab" aria-selected="false">
+                        <svg class="nav-ico" aria-hidden="true"><use href="#i-orders"></use></svg>
+                        <span class="nav-label" data-admin-i18n="navAbandoned">🛒 Paniers abandonnés</span>
+                        <span class="nav-badge" id="navBadgeAbandoned" hidden></span>
                     </button>
 
                     <div class="admin-nav-group-label" data-admin-i18n="groupCommunity">Communauté</div>
@@ -1702,6 +1903,74 @@
             <div id="adminDisputesList"><div class="admin-loading">⏳ Chargement...</div></div>
         </div>
 
+        <div class="admin-content" id="tab-abandoned">
+            <div class="abandoned-head">
+                <div>
+                    <h3 data-admin-i18n="abandonedTitle">🛒 Paniers abandonnés</h3>
+                    <p class="abandoned-subtitle"
+                       data-admin-i18n="abandonedSubtitle">Relancez les paniers non finalisés par WhatsApp ou push gratuit. Paiement à la livraison 24-72h.</p>
+                </div>
+                <button class="admin-btn-secondary" id="abandonedRefreshBtn" type="button">
+                    🔄 <span data-admin-i18n="abandonedRefresh">Actualiser</span>
+                </button>
+            </div>
+
+            <div id="abandonedKpis">
+                <div class="admin-stat-card">
+                    <span class="kpi-ico" aria-hidden="true">🛒</span>
+                    <span class="stat-value" id="abandonedKpiAbandoned">0</span>
+                    <span class="stat-label" data-admin-i18n="abandonedKpiAbandoned">Paniers abandonnés (7j)</span>
+                </div>
+                <div class="admin-stat-card">
+                    <span class="kpi-ico" aria-hidden="true">💰</span>
+                    <span class="stat-value" id="abandonedKpiAmount">0 MAD</span>
+                    <span class="stat-label" data-admin-i18n="abandonedKpiAmount">Montant potentiel</span>
+                </div>
+                <div class="admin-stat-card">
+                    <span class="kpi-ico" aria-hidden="true">✅</span>
+                    <span class="stat-value" id="abandonedKpiRecovered">0</span>
+                    <span class="stat-label" data-admin-i18n="abandonedKpiRecovered">Paniers récupérés</span>
+                </div>
+                <div class="admin-stat-card">
+                    <span class="kpi-ico" aria-hidden="true">📈</span>
+                    <span class="stat-value" id="abandonedKpiRate">0 %</span>
+                    <span class="stat-label" data-admin-i18n="abandonedKpiRate">Taux de récupération</span>
+                </div>
+            </div>
+
+            <div class="abandoned-filters" role="tablist" aria-label="Filtres paniers abandonnés">
+                <button class="abandoned-filter active" type="button" role="tab" aria-selected="true"
+                        data-abandoned-filter="all" data-admin-i18n="abandonedFilterAll">Tous</button>
+                <button class="abandoned-filter" type="button" role="tab" aria-selected="false"
+                        data-abandoned-filter="phone" data-admin-i18n="abandonedFilterPhone">Avec téléphone (WhatsApp)</button>
+                <button class="abandoned-filter" type="button" role="tab" aria-selected="false"
+                        data-abandoned-filter="push" data-admin-i18n="abandonedFilterPush">Relancés Push</button>
+                <button class="abandoned-filter" type="button" role="tab" aria-selected="false"
+                        data-abandoned-filter="recovered" data-admin-i18n="abandonedFilterRecovered">Récupérés</button>
+            </div>
+
+            <div id="abandonedCartsList">
+                <div class="abandoned-table-wrap">
+                    <table class="abandoned-table">
+                        <thead>
+                            <tr>
+                                <th data-admin-i18n="abandonedColClient">Client / Téléphone</th>
+                                <th data-admin-i18n="abandonedColCity">Ville</th>
+                                <th data-admin-i18n="abandonedColItems">Articles</th>
+                                <th data-admin-i18n="abandonedColTotal">Total MAD</th>
+                                <th data-admin-i18n="abandonedColAge">Temps écoulé</th>
+                                <th data-admin-i18n="abandonedColStatus">Statut</th>
+                                <th data-admin-i18n="abandonedColActions">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="abandonedCartsBody"></tbody>
+                    </table>
+                </div>
+                <div class="abandoned-empty" id="abandonedEmpty" hidden
+                     data-admin-i18n="abandonedEmpty">Aucun panier dans ce filtre.</div>
+            </div>
+        </div>
+
         <div class="admin-content" id="tab-tools">
             <h3 style="font-family:var(--font-secondary);color:var(--gold);margin-bottom:1rem;">🛠️ Outils</h3>
 
@@ -1824,8 +2093,8 @@
     <div class="toast" id="cartToast" role="status" aria-live="polite"></div>
 
     <script src="/js/navbar.js"></script>
-    <script type="module" src="/js/admin-ui.js?v=1"></script>
-    <script type="module" src="/js/admin.js?v=0d304651"></script>
+    <script type="module" src="/js/admin-ui.js?v=2"></script>
+    <script type="module" src="/js/admin.js?v=ab2026c2"></script>
 
 <footer class="page-legal-footer" role="contentinfo">
     <nav class="footer-legal footer-legal--bar" aria-label="Informations légales">

@@ -1,10 +1,12 @@
 ﻿const { onRequest } = require('firebase-functions/v2/https');
 const { onDocumentWritten, onDocumentUpdated, onDocumentCreated } = require('firebase-functions/v2/firestore');
+const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { defineSecret } = require('firebase-functions/params');
 const { initializeApp } = require('firebase-admin/app');
 const { getAuth } = require('firebase-admin/auth');
 const { getFirestore, FieldValue, FieldPath } = require('firebase-admin/firestore');
 const { getStorage } = require('firebase-admin/storage');
+const { getMessaging } = require('firebase-admin/messaging');
 const bcrypt = require('bcryptjs');
 const crypto = require('node:crypto');
 
@@ -3939,6 +3941,194 @@ exports.releaseDueFunds = onRequest({ invoker: 'public', region: 'europe-west1',
   }
 });
 
+
+/* ============================================================
+   RELANCES PANIERS ABANDONNÉS — PUSH FCM GRATUIT (0 EmailJS)
+   ------------------------------------------------------------
+   Toutes les 15 minutes, heure Africa/Casablanca :
+     - ne s'exécute QUE pendant les heures de pic Maroc
+       (11h00-14h30 et 18h30-23h00) ; hors créneau, les paniers
+       restent en file d'attente pour la prochaine fenêtre ;
+     - sélectionne status == 'active', updatedAt <= now - 45 min
+       et updatedAt >= now - 48 h (les plus vieux sont ignorés) ;
+     - ignore les paniers sans fcmToken (relance WhatsApp admin) ;
+     - envoie un push localisé fr / en / ar (Urgency high,
+       requireInteraction) vers ?recover_cart={cartId} ;
+     - passe le document en 'reminded_push' + remindedAt.
+   Aucun email n'est envoyé ici : quota EmailJS préservé.
+   ============================================================ */
+
+const ABANDONED_CARTS = 'abandoned_carts';
+const ABANDON_REMINDER_DELAY_MS = 45 * 60 * 1000;
+const ABANDON_MAX_AGE_MS = 48 * 60 * 60 * 1000;
+const ABANDON_BATCH_LIMIT = 200;
+const ABANDON_PUSH_LINK = 'https://smartswika.ma/?recover_cart=';
+const ABANDON_ICON = 'https://smartswika.ma/assets/pwa-192.png';
+
+/* Heures de pic Maroc, en minutes depuis minuit. */
+const ABANDON_PEAK_WINDOWS = [
+  [11 * 60, 14 * 60 + 30], /* 11h00 -> 14h30 */
+  [18 * 60 + 30, 23 * 60]  /* 18h30 -> 23h00 */
+];
+
+const ABANDON_MESSAGES = {
+  fr: {
+    title: '🛒 Votre panier Smartswika vous attend !',
+    body: 'Finalisez votre commande maintenant (paiement à la livraison 24-72h).'
+  },
+  en: {
+    title: '🛒 Your Smartswika cart is waiting!',
+    body: 'Complete your order now (Cash on Delivery 24-72h).'
+  },
+  ar: {
+    title: '🛒 سلة مشترياتك في Smartswika بانتظارك!',
+    body: 'أكمل طلبك الآن مع الدفع عند الاستلام خلال 24-72 ساعة.'
+  }
+};
+
+/* Minutes depuis minuit à l'heure de Casablanca (Intl : gère le
+   ramadan / changements d'offset sans constante codée en dur). */
+function moroccoMinutesOfDay(date = new Date()) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Africa/Casablanca',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    }).formatToParts(date);
+    const pick = (type) => Number((parts.find((p) => p.type === type) || {}).value || 0);
+    return (pick('hour') % 24) * 60 + pick('minute');
+  } catch (error) {
+    const shifted = new Date(date.getTime() + 60 * 60 * 1000);
+    return shifted.getUTCHours() * 60 + shifted.getUTCMinutes();
+  }
+}
+
+function isMoroccoPeakWindow(date = new Date()) {
+  const minutes = moroccoMinutesOfDay(date);
+  return ABANDON_PEAK_WINDOWS.some(([start, end]) => minutes >= start && minutes < end);
+}
+
+function timestampToMillis(value) {
+  if (!value) return 0;
+  if (typeof value.toMillis === 'function') return value.toMillis();
+  if (value instanceof Date) return value.getTime();
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+exports.abandonedCartReminder = onSchedule(
+  {
+    schedule: 'every 15 minutes',
+    timeZone: 'Africa/Casablanca',
+    maxInstances: 1,
+    timeoutSeconds: 300
+  },
+  async () => {
+    const now = Date.now();
+
+    /* Hors pic : on ne touche à rien, le panier reste en attente. */
+    if (!isMoroccoPeakWindow(new Date(now))) {
+      console.log('[abandonedCartReminder] hors créneau de pic Maroc — report');
+      return;
+    }
+
+    const cutoff = new Date(now - ABANDON_REMINDER_DELAY_MS);
+    const oldest = new Date(now - ABANDON_MAX_AGE_MS);
+
+    let snapshot;
+    try {
+      snapshot = await db
+        .collection(ABANDONED_CARTS)
+        .where('status', '==', 'active')
+        .where('updatedAt', '<=', cutoff)
+        .where('updatedAt', '>=', oldest)
+        .orderBy('updatedAt', 'asc')
+        .limit(ABANDON_BATCH_LIMIT)
+        .get();
+    } catch (error) {
+      console.error('[abandonedCartReminder] requête impossible :', error.message);
+      return;
+    }
+
+    let sent = 0;
+    let skipped = 0;
+    let failed = 0;
+
+    for (const cartDoc of snapshot.docs) {
+      const data = cartDoc.data() || {};
+      const token = typeof data.fcmToken === 'string' ? data.fcmToken.trim() : '';
+      if (!token || String(data.status) !== 'active') {
+        skipped += 1;
+        continue;
+      }
+      if (now - timestampToMillis(data.updatedAt || data.createdAt) > ABANDON_MAX_AGE_MS) {
+        skipped += 1;
+        continue;
+      }
+
+      const lang = data.lang === 'en' || data.lang === 'ar' ? data.lang : 'fr';
+      const message = ABANDON_MESSAGES[lang];
+      const cartId = cartDoc.id;
+      const link = `${ABANDON_PUSH_LINK}${encodeURIComponent(cartId)}`;
+      const tag = `abandoned-cart-${cartId}`;
+
+      try {
+        await getMessaging().send({
+          token,
+          data: {
+            title: message.title,
+            body: message.body,
+            targetUrl: link,
+            type: 'abandoned_cart',
+            tag
+          },
+          notification: { title: message.title, body: message.body },
+          webpush: {
+            headers: { Urgency: 'high', TTL: '86400' },
+            notification: {
+              title: message.title,
+              body: message.body,
+              icon: ABANDON_ICON,
+              badge: ABANDON_ICON,
+              requireInteraction: true,
+              tag,
+              data: { url: link, type: 'abandoned_cart', cartId }
+            },
+            fcmOptions: { link }
+          }
+        });
+
+        await cartDoc.ref.update({
+          status: 'reminded_push',
+          remindedAt: FieldValue.serverTimestamp()
+        });
+        sent += 1;
+      } catch (error) {
+        failed += 1;
+        const code = error && error.code;
+        console.warn(`[abandonedCartReminder] ${cartId} :`, code || (error && error.message));
+        /* Token mort : on le retire pour ne pas boucler indéfiniment. */
+        if (
+          code === 'messaging/registration-token-not-registered' ||
+          code === 'messaging/invalid-registration-token' ||
+          code === 'messaging/invalid-argument'
+        ) {
+          try {
+            await cartDoc.ref.update({ fcmToken: null });
+          } catch (cleanupError) {
+            /* non bloquant */
+          }
+        }
+      }
+    }
+
+    console.log(
+      '[abandonedCartReminder]',
+      JSON.stringify({ candidates: snapshot.size, sent, skipped, failed, emailjs: 0 })
+    );
+  }
+);
 
 /* Notifications push + in-app + emails EmailJS : enregistre les déclencheurs.
    IMPORTANT : Object.assign est obligatoire — `require('./triggers')` seul
