@@ -4467,6 +4467,93 @@ async function createTiktokCampaign(options) {
   };
 }
 
+const CAROUSEL_MIN_PRODUCTS = 3;
+const CAROUSEL_MAX_PRODUCTS = 20;
+const META_CAROUSEL_MAX_CARDS = 10;
+
+function carouselCampaignSlug(value) {
+  return String(value == null ? '' : value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60) || 'smartswika-selection';
+}
+
+function buildCarouselProductLinks(products, source, slug) {
+  const safeSource = source === 'meta' ? 'meta' : 'tiktok';
+  return products.map((product) => {
+    const id = encodeURIComponent(String(product.id));
+    return (
+      ADS_BASE_URL +
+      '/produit.html?id=' + id +
+      '&utm_source=' + safeSource +
+      '&utm_medium=paid_social' +
+      '&utm_campaign=carousel_' + encodeURIComponent(slug) +
+      '&utm_content=' + id
+    );
+  });
+}
+
+async function createMetaCarouselCampaign(options) {
+  const account = String(options.accountId || '').replace(/^act_/, '');
+  if (!account || !options.pageId) {
+    throw new Error('Meta Ad Account ID or Page ID missing.');
+  }
+  const base = await createMetaCampaign({
+    accountId: account,
+    token: options.token,
+    campaignName: options.campaignName,
+    dailyBudgetMad: options.dailyBudgetMad,
+    startPaused: options.startPaused
+  });
+  const cards = options.products.slice(0, META_CAROUSEL_MAX_CARDS).map((product) => ({
+    link: product.link,
+    name: String(product.title || '').slice(0, 80),
+    description: String(product.priceMad || '').slice(0, 80),
+    picture: product.imageUrl,
+    call_to_action: { type: 'SHOP_NOW' }
+  }));
+  const creative = await metaGraphRequest(
+    'act_' + account + '/adcreatives',
+    'POST',
+    {
+      name: options.campaignName + ' - Carrousel',
+      object_story_spec: {
+        page_id: String(options.pageId),
+        link_data: {
+          message: options.message,
+          link: options.products[0].link,
+          name: options.campaignName,
+          description: options.products.length + ' produits Smartswika',
+          child_attachments: cards,
+          call_to_action: { type: 'SHOP_NOW' },
+          multi_share_optimized: true
+        }
+      }
+    },
+    options.token
+  );
+  const ad = await metaGraphRequest(
+    'act_' + account + '/ads',
+    'POST',
+    {
+      name: options.campaignName + ' - Carrousel Ad',
+      adset_id: base.externalAdSetId,
+      creative: { creative_id: creative.id },
+      status: options.startPaused ? 'PAUSED' : 'ACTIVE'
+    },
+    options.token
+  );
+  return {
+    ...base,
+    externalCreativeId: String(creative.id),
+    externalAdId: String(ad.id),
+    metaCardCount: cards.length
+  };
+}
+
 function normalizeAdCopy(value) {
   if (value && typeof value === 'object') {
     return {
@@ -4611,6 +4698,203 @@ exports.launchSuggestedAdCampaign = onCall(
         metaAdsManagerUrl(secrets.metaAdAccountId),
       adCopy,
       destinationUrl,
+      startPaused
+    };
+  }
+);
+
+exports.launchMultiProductCarouselCampaign = onCall(
+  { region: 'europe-west1', timeoutSeconds: 180, maxInstances: 5 },
+  async (request) => {
+    const adminUid = await requireAdminCallable(request);
+    const data = request.data || {};
+    const platform = String(data.platform || '').toLowerCase();
+    if (!['meta', 'tiktok', 'both'].includes(platform)) {
+      throw new HttpsError('invalid-argument', 'platform must be meta, tiktok or both.');
+    }
+    if (!Array.isArray(data.productIds)) {
+      throw new HttpsError('invalid-argument', 'productIds must be an array.');
+    }
+    const productIds = [
+      ...new Set(
+        data.productIds.map((value) => String(value || '').trim()).filter(Boolean)
+      )
+    ];
+    if (
+      productIds.length < CAROUSEL_MIN_PRODUCTS ||
+      productIds.length > CAROUSEL_MAX_PRODUCTS
+    ) {
+      throw new HttpsError(
+        'invalid-argument',
+        'productIds must contain between 3 and 20 products.'
+      );
+    }
+
+    const snapshots = await Promise.all(
+      productIds.map((productId) => db.doc('products/' + productId).get())
+    );
+    const products = snapshots.map((snapshot, index) => {
+      const productId = productIds[index];
+      if (!snapshot.exists) {
+        throw new HttpsError('not-found', 'Product not found: ' + productId);
+      }
+      const product = { id: snapshot.id, ...snapshot.data() };
+      if (!isOfficialSmartswikaProduct(product)) {
+        throw new HttpsError(
+          'permission-denied',
+          'Only official Smartswika products can be used in a carousel: ' + productId
+        );
+      }
+      if (product.status !== 'approved' || Number(product.stock) <= 0) {
+        throw new HttpsError(
+          'failed-precondition',
+          'Product must be approved and in stock: ' + productId
+        );
+      }
+      return product;
+    });
+
+    const campaignName =
+      String(data.campaignName || '').trim().slice(0, 120) ||
+      'Carrousel Smartswika - Top Selection';
+    const campaignSlug = carouselCampaignSlug(campaignName);
+    const dailyBudgetMad = positiveBudget(data.dailyBudgetMad);
+    const startPaused = data.startPaused !== false;
+    const language = ['fr', 'en', 'ar'].includes(String(data.language || ''))
+      ? String(data.language)
+      : 'fr';
+    const adCopy = normalizeAdCopy(data.adCopy);
+    const message =
+      adCopy[language] || adCopy.fr || adCopy.en || adCopy.ar || campaignName;
+    const secrets = await readAdsSecrets();
+    const requested = platform === 'both' ? ['meta', 'tiktok'] : [platform];
+    const campaigns = [];
+    const prepared = [];
+    const errors = [];
+    const payloadFor = (source) => {
+      const links = buildCarouselProductLinks(products, source, campaignSlug);
+      return products.map((product, index) => ({
+        id: product.id,
+        title: catalogProductTitle(product) || product.id,
+        priceMad: catalogPriceMad(product) || '0.00 MAD',
+        imageUrl: absoluteAssetUrl(product.img || (product.gallery || [])[0]),
+        link: links[index]
+      }));
+    };
+
+    for (const current of requested) {
+      const isMeta = current === 'meta';
+      const token = isMeta
+        ? String(secrets.metaAccessToken || '')
+        : String(secrets.tiktokAccessToken || '');
+      const accountId = isMeta
+        ? String(secrets.metaAdAccountId || '')
+        : String(secrets.tiktokAdvertiserId || '');
+      const pageId = isMeta ? String(secrets.metaPageId || '') : '';
+      const productsForPlatform = payloadFor(current);
+      const productUrls = productsForPlatform.map((product) => product.link);
+      const adsManagerUrl = isMeta
+        ? metaAdsManagerUrl(accountId)
+        : tiktokAdsManagerUrl(accountId);
+      const configured = Boolean(token && accountId && (!isMeta || pageId));
+
+      if (!configured) {
+        prepared.push({
+          platform: current,
+          reason: 'tokens_not_configured',
+          adsManagerUrl,
+          productUrls,
+          adCopy,
+          productCount: productUrls.length
+        });
+        continue;
+      }
+
+      try {
+        const created = isMeta
+          ? await createMetaCarouselCampaign({
+              accountId,
+              token,
+              pageId,
+              campaignName,
+              dailyBudgetMad,
+              startPaused,
+              products: productsForPlatform,
+              message
+            })
+          : await createTiktokCampaign({
+              advertiserId: accountId,
+              token,
+              campaignName: campaignName + ' - Carrousel',
+              dailyBudgetMad,
+              startPaused
+            });
+        const docRef = await db.collection(AD_CAMPAIGNS_COLLECTION).add({
+          type: 'carousel',
+          platform: current,
+          externalCampaignId: created.externalCampaignId,
+          externalAdSetId: created.externalAdSetId || '',
+          externalCreativeId: created.externalCreativeId || '',
+          externalAdId: created.externalAdId || '',
+          productId: productIds[0],
+          productIds,
+          productCount: productIds.length,
+          productTitle: productIds.length + ' produits Smartswika',
+          campaignName,
+          dailyBudgetMad,
+          status: created.status,
+          destinationUrl: productUrls[0],
+          productUrls,
+          utmCampaign: 'carousel_' + campaignSlug,
+          adCopy,
+          createdBy: adminUid,
+          createdAt: FieldValue.serverTimestamp()
+        });
+        campaigns.push({
+          campaignDocId: docRef.id,
+          platform: current,
+          externalCampaignId: created.externalCampaignId,
+          externalAdSetId: created.externalAdSetId || '',
+          externalCreativeId: created.externalCreativeId || '',
+          externalAdId: created.externalAdId || '',
+          metaCardCount: created.metaCardCount || 0,
+          status: created.status,
+          adsManagerUrl: created.adsManagerUrl
+        });
+      } catch (error) {
+        errors.push({
+          platform: current,
+          message: String((error && error.message) || 'API error').slice(0, 500)
+        });
+      }
+    }
+
+    if (!campaigns.length && errors.length) {
+      throw new HttpsError(
+        'failed-precondition',
+        errors.map((item) => item.platform + ': ' + item.message).join(' | ')
+      );
+    }
+
+    const responseProducts = payloadFor(platform === 'tiktok' ? 'tiktok' : 'meta');
+    return {
+      mode: campaigns.length
+        ? prepared.length || errors.length
+          ? 'partial'
+          : 'launched'
+        : 'prepared',
+      type: 'carousel',
+      productCount: productIds.length,
+      productUrls: responseProducts.map((product) => product.link),
+      campaigns,
+      prepared,
+      errors,
+      adsManagerUrl:
+        (campaigns[0] && campaigns[0].adsManagerUrl) ||
+        (prepared[0] && prepared[0].adsManagerUrl) ||
+        metaAdsManagerUrl(secrets.metaAdAccountId),
+      adCopy,
+      campaignName,
       startPaused
     };
   }

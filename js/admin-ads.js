@@ -75,6 +75,15 @@ const OFFICIAL_VENDOR_IDS = new Set([
 ]);
 const ADS_MANAGER_META = "https://adsmanager.facebook.com/adsmanager/manage/campaigns";
 const ADS_MANAGER_TIKTOK = "https://ads.tiktok.com/i18n/dashboard";
+const CAROUSEL_MIN_PRODUCTS = 3;
+const CAROUSEL_MAX_PRODUCTS = 20;
+const CAROUSEL_TOP_COUNT = 10;
+const CAROUSEL_DEFAULT_COPY = {
+  fr: "Découvrez nos meilleurs gadgets connectés au Maroc 🇲🇦 — Paiement à la livraison 24-72h + Garantie 15 jours !",
+  en: "Discover our best connected gadgets in Morocco 🇲🇦 — Cash on Delivery 24-72h + 15-day warranty!",
+  ar: "اكتشف أفضل الأجهزة المتصلة في المغرب 🇲🇦 — الدفع عند الاستلام خلال 24-72 ساعة + ضمان 15 يومًا!",
+};
+let carouselDraft = null;
 const adminTranslate = adminT;
 
 /* Aucune cle ads* brute ne doit etre rendue dans les cartes dynamiques. */
@@ -904,32 +913,420 @@ function platformIsConfigured(platform) {
   return metaReady && tiktokReady;
 }
 
+function carouselDefaults() {
+  return {
+    selected: new Set(),
+    campaignName: adsT("adsCarouselDefaultName"),
+    nameTouched: false,
+    budget: 80,
+    channel: "both",
+    startPaused: true,
+    copies: { ...CAROUSEL_DEFAULT_COPY },
+  };
+}
+
+function ensureCarouselDraft() {
+  if (!carouselDraft) carouselDraft = carouselDefaults();
+  if (!carouselDraft.selected) carouselDraft.selected = new Set();
+  if (!carouselDraft.copies) carouselDraft.copies = { ...CAROUSEL_DEFAULT_COPY };
+  return carouselDraft;
+}
+
+function captureCarouselDraft() {
+  const card = document.querySelector("[data-carousel-builder]");
+  if (!card || !card.querySelector("[data-carousel-check]")) return;
+  const draft = ensureCarouselDraft();
+  const selected = new Set(
+    [...card.querySelectorAll("[data-carousel-check]:checked")].map(
+      (input) => input.dataset.carouselCheck
+    )
+  );
+  draft.selected = selected;
+  const name = card.querySelector("[data-carousel-name]");
+  const budget = card.querySelector("[data-carousel-budget]");
+  const channel = card.querySelector("[data-carousel-channel]");
+  const paused = card.querySelector("[data-carousel-paused]");
+  if (name) draft.campaignName = name.value;
+  if (budget) draft.budget = Number(budget.value) || draft.budget;
+  if (channel) draft.channel = channel.value;
+  if (paused) draft.startPaused = Boolean(paused.checked);
+  card.querySelectorAll("[data-carousel-copy]").forEach((textarea) => {
+    const lang = textarea.dataset.carouselCopy;
+    if (lang) draft.copies[lang] = textarea.value;
+  });
+}
+
+function topCarouselProducts() {
+  const livoFee = averageLivoFee();
+  return officialProducts()
+    .map((product) => buildSuggestion(product, livoFee))
+    .sort((a, b) => b.score - a.score || b.margin - a.margin);
+}
+
+function carouselCampaignUrl(productId, source, campaignName) {
+  const safeId = String(productId).replace(/[^A-Za-z0-9_-]/g, "");
+  const slug = slugifyCampaign(campaignName) || "smartswika-selection";
+  const safeSource = source === "meta" ? "meta" : "tiktok";
+  return `https://www.smartswika.ma/produit.html?id=${encodeURIComponent(
+    safeId
+  )}&utm_source=${safeSource}&utm_medium=paid_social&utm_campaign=carousel_${encodeURIComponent(
+    slug
+  )}&utm_content=${encodeURIComponent(safeId)}`;
+}
+
+function carouselPreviewHtml(scoredProducts) {
+  const draft = ensureCarouselDraft();
+  const selected = scoredProducts.filter((item) =>
+    draft.selected.has(String(item.product.id))
+  );
+  if (!selected.length) {
+    return `<div class="ads-carousel-empty">${escapeHTML(
+      adsT("adsCarouselPreviewEmpty")
+    )}</div>`;
+  }
+  return selected
+    .map((item) => {
+      const product = item.product;
+      const source = draft.channel === "meta" ? "meta" : "tiktok";
+      const url = carouselCampaignUrl(product.id, source, draft.campaignName);
+      return `<a class="ads-carousel-card" href="${escapeHTML(
+        url
+      )}" target="_blank" rel="noopener" title="${escapeHTML(url)}">
+        <img src="${escapeHTML(
+          product.img || (product.gallery || [])[0] || "/assets/logo-64.png"
+        )}" alt="" width="120" height="120" loading="lazy">
+        <strong>${escapeHTML(productDisplayName(product) || "—")}</strong>
+        <span>${money(Number(product.price) || 0)}</span>
+      </a>`;
+    })
+    .join("");
+}
+
+function renderCarouselBuilder(scoredProducts) {
+  if (scoredProducts.length < CAROUSEL_MIN_PRODUCTS) {
+    return `<article class="ads-carousel-builder" data-carousel-builder>
+      <div class="ads-guide">
+        <span class="ads-guide-ico" aria-hidden="true">🎠</span>
+        <h4>${escapeHTML(adsT("adsCarouselGuideTitle"))}</h4>
+        <p>${escapeHTML(adsT("adsCarouselGuideDesc"))}</p>
+        <button type="button" class="admin-btn-secondary" data-ads-goto-products>
+          ${escapeHTML(adsT("adsSuggestionsGoProducts"))}
+        </button>
+      </div>
+    </article>`;
+  }
+  const draft = ensureCarouselDraft();
+  if (!draft.nameTouched) draft.campaignName = adsT("adsCarouselDefaultName");
+  const availableIds = new Set(scoredProducts.map((item) => String(item.product.id)));
+  draft.selected = new Set(
+    [...draft.selected].filter((id) => availableIds.has(String(id)))
+  );
+  const selectedCount = draft.selected.size;
+  const counter = adsT("adsCarouselCount").replace("{count}", String(selectedCount));
+  const chips = scoredProducts
+    .map((item) => {
+      const product = item.product;
+      const id = String(product.id);
+      const checked = draft.selected.has(id);
+      return `<label class="ads-carousel-chip${
+        checked ? " is-selected" : ""
+      }" data-carousel-chip="${escapeHTML(id)}">
+        <input type="checkbox" data-carousel-check="${escapeHTML(id)}" ${
+        checked ? "checked" : ""
+      }>
+        <img src="${escapeHTML(
+          product.img || (product.gallery || [])[0] || "/assets/logo-64.png"
+        )}" alt="" width="44" height="44" loading="lazy">
+        <span class="ads-carousel-chip-name">${escapeHTML(
+          productDisplayName(product) || "—"
+        )}</span>
+        <small>${item.score}/100 · ${money(Number(product.price) || 0)}</small>
+      </label>`;
+    })
+    .join("");
+  const copyField = (lang) => `<label>${escapeHTML(
+    adsT("adsCarouselCopyLabel")
+  )} ${lang.toUpperCase()}
+    <textarea data-carousel-copy="${lang}" rows="3" dir="${
+    lang === "ar" ? "rtl" : "ltr"
+  }">${escapeHTML(draft.copies[lang] || CAROUSEL_DEFAULT_COPY[lang])}</textarea>
+  </label>`;
+  return `<article class="ads-carousel-builder" data-carousel-builder>
+    <div class="ads-carousel-head">
+      <div>
+        <h4>🎠 ${escapeHTML(adsT("adsCarouselTitle"))}</h4>
+        <p>${escapeHTML(adsT("adsCarouselSubtitle"))}</p>
+      </div>
+      <span class="ads-carousel-counter" data-carousel-counter>${escapeHTML(counter)}</span>
+    </div>
+    <div class="ads-carousel-tools">
+      <button type="button" class="admin-btn-secondary" data-carousel-top10>
+        ✨ ${escapeHTML(adsT("adsCarouselAutoTop10"))}
+      </button>
+      <button type="button" class="admin-btn-secondary" data-carousel-clear>
+        ${escapeHTML(adsT("adsCarouselClear"))}
+      </button>
+      <span class="ads-carousel-min" data-carousel-min>${
+        selectedCount < CAROUSEL_MIN_PRODUCTS
+          ? escapeHTML(adsT("adsCarouselMinRequired"))
+          : ""
+      }</span>
+    </div>
+    <div class="ads-carousel-products" role="group" aria-label="${escapeHTML(
+      adsT("adsCarouselSelectProducts")
+    )}">
+      ${chips}
+    </div>
+    <div class="ads-carousel-fields">
+      <label>${escapeHTML(adsT("adsCarouselCampaignName"))}
+        <input type="text" data-carousel-name maxlength="120" value="${escapeHTML(
+          draft.campaignName || adsT("adsCarouselDefaultName")
+        )}">
+      </label>
+      <label>${escapeHTML(adsT("adsCarouselBudget"))}
+        <input type="number" min="20" max="5000" step="10" data-carousel-budget value="${Number(
+          draft.budget
+        ) || 80}">
+      </label>
+      <label>${escapeHTML(adsT("adsCarouselChannel"))}
+        <select data-carousel-channel>
+          <option value="meta" ${draft.channel === "meta" ? "selected" : ""}>${escapeHTML(
+            adsT("adsChannelMeta")
+          )}</option>
+          <option value="tiktok" ${
+            draft.channel === "tiktok" ? "selected" : ""
+          }>${escapeHTML(adsT("adsChannelTiktok"))}</option>
+          <option value="both" ${draft.channel === "both" ? "selected" : ""}>${escapeHTML(
+            adsT("adsChannelBoth")
+          )}</option>
+        </select>
+      </label>
+      <label class="ads-check">
+        <input type="checkbox" data-carousel-paused ${
+          draft.startPaused ? "checked" : ""
+        }>
+        ${escapeHTML(adsT("adsCarouselPaused"))}
+      </label>
+    </div>
+    <div class="ads-carousel-copies">
+      ${["fr", "en", "ar"].map(copyField).join("")}
+    </div>
+    <div class="ads-carousel-preview-wrap">
+      <h5>${escapeHTML(adsT("adsCarouselPreview"))}</h5>
+      <div class="ads-carousel-preview" data-carousel-preview>${carouselPreviewHtml(
+        scoredProducts
+      )}</div>
+      <p class="ads-hint">${escapeHTML(adsT("adsCarouselMetaHint"))}</p>
+    </div>
+    <div class="ads-suggestion-actions">
+      <button type="button" class="admin-btn-primary" data-carousel-launch ${
+        selectedCount < CAROUSEL_MIN_PRODUCTS ? "disabled" : ""
+      }>
+        🚀 ${escapeHTML(adsT("adsCarouselLaunch"))}
+      </button>
+      <span class="ads-status" data-carousel-status role="status" aria-live="polite"></span>
+    </div>
+  </article>`;
+}
+
+function updateCarouselUi(card) {
+  if (!card) return;
+  const draft = ensureCarouselDraft();
+  const checkboxes = [...card.querySelectorAll("[data-carousel-check]")];
+  const available = new Set(checkboxes.map((input) => input.dataset.carouselCheck));
+  draft.selected = new Set([...draft.selected].filter((id) => available.has(id)));
+  checkboxes.forEach((input) => {
+    const id = input.dataset.carouselCheck;
+    input.checked = draft.selected.has(id);
+    input.disabled =
+      !draft.selected.has(id) && draft.selected.size >= CAROUSEL_MAX_PRODUCTS;
+    input.closest("[data-carousel-chip]")?.classList.toggle(
+      "is-selected",
+      input.checked
+    );
+  });
+  const count = draft.selected.size;
+  const counter = card.querySelector("[data-carousel-counter]");
+  if (counter) {
+    counter.textContent = adsT("adsCarouselCount").replace("{count}", String(count));
+    counter.classList.toggle("is-error", count < CAROUSEL_MIN_PRODUCTS);
+  }
+  const min = card.querySelector("[data-carousel-min]");
+  if (min) {
+    min.textContent =
+      count < CAROUSEL_MIN_PRODUCTS ? adsT("adsCarouselMinRequired") : "";
+  }
+  const launch = card.querySelector("[data-carousel-launch]");
+  if (launch) launch.disabled = count < CAROUSEL_MIN_PRODUCTS;
+  const preview = card.querySelector("[data-carousel-preview]");
+  if (preview) preview.innerHTML = carouselPreviewHtml(topCarouselProducts());
+}
+
+function bindCarouselEvents(container) {
+  const card = container.querySelector("[data-carousel-builder]");
+  if (!card) return;
+  card.querySelector("[data-ads-goto-products]")?.addEventListener("click", () => {
+    document.querySelector('#adminTabs button[data-tab="products"]')?.click();
+  });
+  if (!card.querySelector("[data-carousel-check]")) return;
+  const draft = ensureCarouselDraft();
+  card.querySelectorAll("[data-carousel-check]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const id = input.dataset.carouselCheck;
+      if (input.checked) {
+        if (draft.selected.size >= CAROUSEL_MAX_PRODUCTS) {
+          input.checked = false;
+          return;
+        }
+        draft.selected.add(id);
+      } else {
+        draft.selected.delete(id);
+      }
+      updateCarouselUi(card);
+    });
+  });
+  card.querySelector("[data-carousel-top10]")?.addEventListener("click", () => {
+    draft.selected = new Set(
+      topCarouselProducts()
+        .slice(0, CAROUSEL_TOP_COUNT)
+        .map((item) => String(item.product.id))
+    );
+    updateCarouselUi(card);
+  });
+  card.querySelector("[data-carousel-clear]")?.addEventListener("click", () => {
+    draft.selected.clear();
+    updateCarouselUi(card);
+  });
+  card.querySelector("[data-carousel-name]")?.addEventListener("input", (event) => {
+    draft.campaignName = event.target.value;
+    draft.nameTouched = true;
+    updateCarouselUi(card);
+  });
+  card.querySelector("[data-carousel-budget]")?.addEventListener("input", (event) => {
+    draft.budget = Number(event.target.value) || draft.budget;
+  });
+  card.querySelector("[data-carousel-channel]")?.addEventListener("change", (event) => {
+    draft.channel = event.target.value;
+    updateCarouselUi(card);
+  });
+  card.querySelector("[data-carousel-paused]")?.addEventListener("change", (event) => {
+    draft.startPaused = Boolean(event.target.checked);
+  });
+  card.querySelectorAll("[data-carousel-copy]").forEach((textarea) => {
+    textarea.addEventListener("input", () => {
+      draft.copies[textarea.dataset.carouselCopy] = textarea.value;
+    });
+  });
+  card.querySelector("[data-carousel-launch]")?.addEventListener("click", () => {
+    launchCarouselCampaign(card);
+  });
+  updateCarouselUi(card);
+}
+
+function setCarouselStatus(card, message, isError) {
+  const status = card.querySelector("[data-carousel-status]");
+  if (!status) return;
+  status.textContent = message || "";
+  status.classList.toggle("is-error", Boolean(isError));
+}
+
+async function launchCarouselCampaign(card) {
+  if (launching) return;
+  const draft = ensureCarouselDraft();
+  const available = new Set(
+    topCarouselProducts().map((item) => String(item.product.id))
+  );
+  const productIds = [...draft.selected].filter((id) => available.has(String(id)));
+  if (productIds.length < CAROUSEL_MIN_PRODUCTS) {
+    setCarouselStatus(card, adsT("adsCarouselMinError"), true);
+    return;
+  }
+  if (productIds.length > CAROUSEL_MAX_PRODUCTS) {
+    setCarouselStatus(card, adsT("adsCarouselMaxError"), true);
+    return;
+  }
+  const campaignName =
+    String(draft.campaignName || "").trim() || adsT("adsCarouselDefaultName");
+  const budget = Number(draft.budget) || 80;
+  const channel = draft.channel || "both";
+  const startPaused = draft.startPaused !== false;
+  const adCopy = {
+    fr: draft.copies.fr || CAROUSEL_DEFAULT_COPY.fr,
+    en: draft.copies.en || CAROUSEL_DEFAULT_COPY.en,
+    ar: draft.copies.ar || CAROUSEL_DEFAULT_COPY.ar,
+  };
+  const language = getAdminLang();
+  const button = card.querySelector("[data-carousel-launch]");
+  const needsMetaPage = channel !== "tiktok" && !adsSecrets.metaPageId;
+  const willFallback = !platformIsConfigured(channel) || needsMetaPage;
+  const popup = willFallback ? window.open("about:blank", "smartswika_ads_manager") : null;
+  launching = true;
+  if (button) button.disabled = true;
+  setCarouselStatus(card, adsT("adsCarouselLaunching"), false);
+  try {
+    const result = await callAdsFunction("launchMultiProductCarouselCampaign", {
+      platform: channel,
+      productIds,
+      campaignName,
+      dailyBudgetMad: budget,
+      adCopy,
+      startPaused,
+      language,
+    });
+    if (result.mode === "prepared") {
+      const copyPayload = `${adCopy[language] || adCopy.fr}\n${(
+        result.productUrls || []
+      ).join("\n")}`;
+      await copyText(copyPayload);
+      if (popup && result.adsManagerUrl) popup.location.href = result.adsManagerUrl;
+      else if (result.adsManagerUrl) window.open(result.adsManagerUrl, "_blank", "noopener");
+      setCarouselStatus(card, adsT("adsCarouselPrepared"), false);
+    } else {
+      if (popup) popup.close();
+      setCarouselStatus(
+        card,
+        result.mode === "partial" ? adsT("adsLaunchedPartial") : adsT("adsCarouselLaunched"),
+        false
+      );
+      await loadCampaigns();
+      renderCampaigns();
+    }
+  } catch (error) {
+    if (popup) popup.close();
+    console.error("[admin-ads] carrousel impossible :", error);
+    setCarouselStatus(
+      card,
+      `${adsT("adsCarouselError")} ${String((error && error.message) || "").slice(0, 180)}`,
+      true
+    );
+  } finally {
+    launching = false;
+    if (button) button.disabled = draft.selected.size < CAROUSEL_MIN_PRODUCTS;
+  }
+}
+
+
+
+
 function renderSuggestions() {
   const container = document.getElementById("adsSuggestions");
   if (!container) return;
+  captureCarouselDraft();
   const livoFee = averageLivoFee();
-  const suggestions = officialProducts()
+  const scoredProducts = officialProducts()
     .map((product) => buildSuggestion(product, livoFee))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 5);
+    .sort((a, b) => b.score - a.score || b.margin - a.margin);
+  const suggestions = scoredProducts.slice(0, 5);
+  const carouselHtml = renderCarouselBuilder(scoredProducts);
 
   if (!suggestions.length) {
-    container.innerHTML = `<div class="ads-guide">
-      <span class="ads-guide-ico" aria-hidden="true">🧭</span>
-      <h4>${escapeHTML(adsT("adsSuggestionsEmptyTitle"))}</h4>
-      <p>${escapeHTML(adsT("adsSuggestionsEmptyDesc"))}</p>
-      <button type="button" class="admin-btn-secondary" data-ads-goto-products>
-        ${escapeHTML(adsT("adsSuggestionsGoProducts"))}
-      </button>
-    </div>`;
-    container.querySelector("[data-ads-goto-products]")?.addEventListener("click", () => {
-      document.querySelector('#adminTabs button[data-tab="products"]')?.click();
-    });
+    container.innerHTML = carouselHtml;
+    bindCarouselEvents(container);
     return;
   }
 
   const lang = getAdminLang();
-  container.innerHTML = suggestions
+  container.innerHTML = carouselHtml + suggestions
     .map((suggestion) => {
       const product = suggestion.product;
       const name = productDisplayName(product) || "—";
@@ -1010,6 +1407,7 @@ function renderSuggestions() {
       if (card) launchSuggestedCampaign(card);
     });
   });
+  bindCarouselEvents(container);
 }
 
 function setSuggestionStatus(card, message, isError) {
@@ -1085,16 +1483,28 @@ async function launchSuggestedCampaign(card) {
 }
 
 function campaignOrders(campaign) {
-  const utmCampaign = `auto_${String(campaign.productId || "")}`;
-  const attributed = cachedAllOrders.filter(
-    (order) => String((order.attribution && order.attribution.campaign) || "") === utmCampaign
-  );
+  const productIds =
+    Array.isArray(campaign.productIds) && campaign.productIds.length
+      ? campaign.productIds.map(String)
+      : campaign.productId
+      ? [String(campaign.productId)]
+      : [];
+  const utmCampaign =
+    String(campaign.utmCampaign || "").trim() ||
+    (productIds.length === 1 ? `auto_${productIds[0]}` : "");
+  const attributed = utmCampaign
+    ? cachedAllOrders.filter(
+        (order) =>
+          String((order.attribution && order.attribution.campaign) || "") ===
+          utmCampaign
+      )
+    : [];
   if (attributed.length) return attributed;
   const since = campaign.__date ? campaign.__date.getTime() : 0;
   return cachedAllOrders.filter((order) => {
     const items = Array.isArray(order.items) ? order.items : [];
     const matchesProduct = items.some(
-      (item) => item && String(item.productId) === String(campaign.productId)
+      (item) => item && productIds.includes(String(item.productId))
     );
     if (!matchesProduct) return false;
     if (!since) return true;
@@ -1145,11 +1555,21 @@ function renderCampaigns() {
         campaign.platform === "tiktok"
           ? adsT("adsChannelTiktok")
           : adsT("adsChannelMeta");
+      const isCarousel = campaign.type === "carousel";
+      const carouselCount = Number(campaign.productCount) ||
+        (Array.isArray(campaign.productIds) ? campaign.productIds.length : 0);
       const linkedProduct = cachedProducts.find(
         (product) => String(product.id) === String(campaign.productId)
       );
-      const displayTitle =
-        productDisplayName(linkedProduct) || campaign.productTitle || campaign.productId || "—";
+      const displayTitle = isCarousel
+        ? campaign.campaignName ||
+          `${adsT("adsCarouselTypeBadge")} · ${carouselCount} ${adsT(
+            "adsCarouselProductsShort"
+          )}`
+        : productDisplayName(linkedProduct) ||
+          campaign.productTitle ||
+          campaign.productId ||
+          "—";
       return `<article class="ads-campaign-card" data-campaign-id="${escapeHTML(
         campaign.id
       )}">
@@ -1158,6 +1578,11 @@ function renderCampaigns() {
             <strong>${escapeHTML(displayTitle)}</strong>
             <div class="ads-campaign-meta">
               <span class="ads-channel-pill">${escapeHTML(platformLabel)}</span>
+              ${isCarousel ? `<span class="ads-carousel-pill">🎠 ${escapeHTML(
+                adsT("adsCarouselTypeBadge")
+              )} · ${fmtNumber(carouselCount)} ${escapeHTML(
+                adsT("adsCarouselProductsShort")
+              )}</span>` : ""}
               <span class="ads-campaign-status ${
                 active ? "is-active" : "is-paused"
               }">${escapeHTML(campaignStatusLabel(campaign.status))}</span>

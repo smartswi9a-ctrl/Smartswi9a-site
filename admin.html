@@ -1179,6 +1179,111 @@
             text-align: left;
         }
         .ads-suggestion-actions { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+        .ads-carousel-builder {
+            grid-column: 1 / -1;
+            border: 1px solid var(--border-gold);
+            border-radius: 18px;
+            background: linear-gradient(180deg, rgba(180, 131, 62, 0.08), var(--bg-surface) 35%);
+            padding: 1rem;
+            box-shadow: var(--shadow-sm);
+            display: flex;
+            flex-direction: column;
+            gap: 0.8rem;
+        }
+        .ads-carousel-head { display: flex; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; align-items: flex-start; }
+        .ads-carousel-head h4 { margin: 0 0 0.25rem; color: #B4833E; font-family: var(--font-secondary); }
+        .ads-carousel-head p { margin: 0; color: var(--text-muted); font-size: 0.82rem; }
+        .ads-carousel-counter {
+            padding: 0.35rem 0.7rem;
+            border-radius: 999px;
+            border: 1px solid rgba(180, 131, 62, 0.45);
+            background: rgba(180, 131, 62, 0.12);
+            color: #B4833E;
+            font-size: 0.76rem;
+            font-weight: 800;
+            white-space: nowrap;
+        }
+        .ads-carousel-counter.is-error { border-color: rgba(239, 68, 68, 0.45); background: rgba(239, 68, 68, 0.1); color: #C73535; }
+        .ads-carousel-tools { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+        .ads-carousel-min { color: #C73535; font-size: 0.75rem; font-weight: 700; }
+        .ads-carousel-products {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 0.5rem;
+            max-height: 250px;
+            overflow-y: auto;
+            padding: 0.2rem;
+        }
+        .ads-carousel-chip {
+            display: flex;
+            align-items: center;
+            gap: 0.45rem;
+            padding: 0.45rem 0.55rem;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: var(--bg-card);
+            cursor: pointer;
+            font-size: 0.76rem;
+        }
+        .ads-carousel-chip.is-selected { border-color: #B4833E; background: rgba(180, 131, 62, 0.1); }
+        .ads-carousel-chip input { accent-color: #B4833E; }
+        .ads-carousel-chip img { width: 44px; height: 44px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); flex: none; }
+        .ads-carousel-chip-name { flex: 1; color: var(--text); font-weight: 700; line-height: 1.25; }
+        .ads-carousel-chip small { color: var(--text-muted); white-space: nowrap; font-size: 0.68rem; }
+        .ads-carousel-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.55rem; }
+        .ads-carousel-fields label,
+        .ads-carousel-copies label { display: flex; flex-direction: column; gap: 0.25rem; color: var(--text-muted); font-size: 0.72rem; }
+        .ads-carousel-fields input:not([type="checkbox"]),
+        .ads-carousel-fields select,
+        .ads-carousel-copies textarea {
+            width: 100%;
+            min-height: 40px;
+            padding: 0.45rem 0.6rem;
+            border: 1px solid var(--border);
+            border-radius: 9px;
+            background: var(--bg-card);
+            color: var(--text);
+            font-family: inherit;
+            font-size: 0.82rem;
+        }
+        .ads-carousel-fields .ads-check { flex-direction: row; align-items: center; grid-column: 1 / -1; color: var(--text); }
+        .ads-carousel-copies { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.55rem; }
+        .ads-carousel-copies textarea { resize: vertical; line-height: 1.5; }
+        .ads-carousel-preview-wrap h5 { margin: 0 0 0.4rem; color: var(--text); font-family: var(--font-secondary); }
+        .ads-carousel-preview {
+            display: flex;
+            gap: 0.6rem;
+            overflow-x: auto;
+            padding: 0.3rem 0.1rem 0.6rem;
+            scroll-snap-type: x proximity;
+        }
+        .ads-carousel-card {
+            flex: 0 0 150px;
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+            border: 1px solid var(--border-gold);
+            border-radius: 12px;
+            background: var(--bg-card);
+            padding: 0.45rem;
+            text-decoration: none;
+            scroll-snap-align: start;
+        }
+        .ads-carousel-card img { width: 100%; height: 110px; object-fit: cover; border-radius: 8px; }
+        .ads-carousel-card strong { color: var(--text); font-size: 0.76rem; line-height: 1.25; }
+        .ads-carousel-card span { color: #B4833E; font-size: 0.78rem; font-weight: 800; }
+        .ads-carousel-empty { color: var(--text-muted); font-size: 0.8rem; padding: 0.8rem; border: 1px dashed var(--border-gold); border-radius: 10px; width: 100%; text-align: center; }
+        .ads-carousel-pill {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.15rem 0.55rem;
+            border-radius: 999px;
+            background: rgba(180, 131, 62, 0.14);
+            border: 1px solid rgba(180, 131, 62, 0.4);
+            color: #B4833E;
+            font-size: 0.7rem;
+            font-weight: 800;
+        }
         .ads-campaigns { display: grid; gap: 0.75rem; }
         .ads-campaign-card {
             border: 1px solid var(--border-gold);
@@ -1215,11 +1320,20 @@
             #adsKpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .ads-table { min-width: 1180px; }
             .ads-suggestions { grid-template-columns: 1fr; }
+            .ads-carousel-products { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .ads-carousel-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .ads-carousel-copies { grid-template-columns: 1fr; }
         }
         @media (max-width: 767px) {
             .ads-campaign-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .ads-suggestion-controls { grid-template-columns: 1fr; }
             .ads-feed-card { flex-direction: column; align-items: stretch; }
+            .ads-carousel-builder { padding: 0.75rem; }
+            .ads-carousel-products { grid-template-columns: 1fr; max-height: 300px; }
+            .ads-carousel-fields { grid-template-columns: 1fr; }
+            .ads-carousel-copies { grid-template-columns: 1fr; }
+            .ads-carousel-card { flex-basis: 140px; }
+            .ads-carousel-head { flex-direction: column; }
         }
         /* Desktop 1366 : les 11 colonnes tiennent dans la largeur utile
            (sidebar 240 px) grâce au retour à la ligne des en-têtes. */
@@ -2740,8 +2854,8 @@
     <div class="toast" id="cartToast" role="status" aria-live="polite"></div>
 
     <script src="/js/navbar.js"></script>
-    <script type="module" src="/js/admin-ui.js?v=5"></script>
-    <script type="module" src="/js/admin.js?v=ads2026c3"></script>
+    <script type="module" src="/js/admin-ui.js?v=6"></script>
+    <script type="module" src="/js/admin.js?v=ads2026c4"></script>
 
 <footer class="page-legal-footer" role="contentinfo">
     <nav class="footer-legal footer-legal--bar" aria-label="Informations légales">

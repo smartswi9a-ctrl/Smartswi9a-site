@@ -185,7 +185,7 @@ check("admin : 4 cartes KPI", ["adsKpiOrders", "adsKpiRevenue", "adsKpiNet", "ad
 check("admin : canvas Chart.js", adminHtml.includes('id="adsChannelChart"'));
 check("admin : tableau + cartes", adminHtml.includes('id="adsTableBody"') && adminHtml.includes('id="adsCards"'));
 check("admin : générateur UTM", adminHtml.includes('id="adsUtmToggle"') && adminHtml.includes('id="adsUtmCopy"'));
-check("admin : chargement dynamique du module", adminJs.includes("admin-ads.js?v=3") && adminJs.includes("initAdsTab"));
+check("admin : chargement dynamique du module", adminJs.includes("admin-ads.js?v=4") && adminJs.includes("initAdsTab"));
 check("admin-ui : libellés pub en 3 langues", adminUi.includes("adsColRoas:") && adminUi.includes("adsKpiRoas:"));
 check("admin module : ROI net = CA livré - COGS - Livo", adminSrc.includes("revenue - cogs - shipping"));
 check("admin module : ROAS réel", adminSrc.includes("roas: spendTotal > 0 ? revenue / spendTotal : null"));
@@ -195,14 +195,14 @@ check("admin module : cartes mobile", adminSrc.includes("ads-card"));
 
 /* --------------------------------------------- 5. cache / tests */
 
-check("service worker : version sw-2026-11-26-v11", sw.includes("'sw-2026-11-26-v11'"));
+check("service worker : version sw-2026-11-26-v12", sw.includes("'sw-2026-11-26-v12'"));
 check(
   "package.json : suite ads-attribution branchée",
   String(pkg.scripts && pkg.scripts.test).includes("tests/ads-attribution.test.cjs")
 );
 check(
-  "admin : cache-busting admin-ui v5 + admin ads2026c3",
-  adminHtml.includes("/js/admin-ui.js?v=5") && adminHtml.includes("/js/admin.js?v=ads2026c3")
+  "admin : cache-busting admin-ui v6 + admin ads2026c4",
+  adminHtml.includes("/js/admin-ui.js?v=6") && adminHtml.includes("/js/admin.js?v=ads2026c4")
 );
 
 /* --------------------------------------------- 6. logique pure */
