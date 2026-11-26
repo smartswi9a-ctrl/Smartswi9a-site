@@ -1,7 +1,7 @@
 /* ============================================================
    js/admin.js
    PANNEAU ADMINISTRATION - SMARTSWIKA
-   Version 12.3.0 - Onglet « Paniers abandonnés » (2026-11-26)
+   Version 12.4.0 - Onglet « Suivi Pubs TikTok & Meta » (2026-11-26)
    ============================================================ */
 
 import { auth, db, storage } from "./firebase.js";
@@ -771,6 +771,18 @@ function initAdmin() {
             else if (tab === 'vendors') await loadVendors();
             else if (tab === 'wallets') await loadPayouts();
             else if (tab === 'disputes') await loadDisputes();
+            /* Onglet « Suivi Pubs TikTok & Meta » : module dédié
+               (pixels, budgets, ROAS réel, UTM). Import dynamique :
+               le module n'est chargé qu'à l'ouverture de l'onglet. */
+            else if (tab === 'ads') {
+                try {
+                    const m = await import('./admin-ads.js?v=1');
+                    await m.initAdsTab();
+                } catch (e) {
+                    console.error('[admin] initAdsTab impossible :', e);
+                    showToast('Impossible de charger le suivi publicitaire.', 5000);
+                }
+            }
             /* Onglet « Paniers abandonnés » : module dédié (badge, KPI,
                filtres, WhatsApp). Import statique en tête de fichier :
                l'écoute Firestore sert aussi le badge de la sidebar. */
