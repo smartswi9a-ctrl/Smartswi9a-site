@@ -1167,13 +1167,16 @@ export function applyStaticTranslations(root = document) {
     const key = el.getAttribute("data-admin-i18n");
     if (!key) return;
     const value = adminT(key);
-    if (!value) return;
+    /* Jamais de cle brute (ex. adsSuggestionsTitle) dans le DOM :
+       si une traduction manque, on conserve le libelle existant. */
+    if (!value || value === key) return;
     if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") el.placeholder = value;
     else el.textContent = value;
   });
   root.querySelectorAll("[data-admin-i18n-placeholder]").forEach((el) => {
-    const value = adminT(el.getAttribute("data-admin-i18n-placeholder"));
-    if (value) el.setAttribute("placeholder", value);
+    const key = el.getAttribute("data-admin-i18n-placeholder");
+    const value = adminT(key);
+    if (value && value !== key) el.setAttribute("placeholder", value);
   });
 }
 
