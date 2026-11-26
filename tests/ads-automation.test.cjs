@@ -90,6 +90,13 @@ check(
 
 /* --------------------------------------------- 2. verification domaine */
 
+const indexHtml = read("index.html");
+check(
+  "index.html : balise Meta Domain Verification statique",
+  indexHtml.includes(
+    '<meta name="facebook-domain-verification" content="e3kprjwlq9bwehqywp9hr3csmk6gjr" />'
+  )
+);
 check(
   "ads : injection meta facebook-domain-verification",
   adsAttribution.includes("facebook-domain-verification") &&
@@ -195,14 +202,62 @@ check("admin : flux URL", adminHtml.includes("https://www.smartswika.ma/feed/pro
 check("admin : appels callables", adminAds.includes("launchSuggestedAdCampaign") && adminAds.includes("toggleAdCampaignStatus") && adminAds.includes("testAdPlatformConnection"));
 check("admin : alerte COD", adminAds.includes("adsCodAlert") && adminAds.includes("total > 10 && rate < 45"));
 check("admin : secrets masques", adminHtml.includes('type="password" id="adsMetaAccessToken"') && adminHtml.includes('type="password" id="adsTiktokAccessToken"'));
+function adminDictKeys(lang) {
+  const marker = "\n  " + lang + ": {";
+  const start = adminUi.indexOf(marker);
+  if (start < 0) return [];
+  let depth = 0;
+  let end = -1;
+  for (let i = adminUi.indexOf("{", start); i < adminUi.length; i++) {
+    if (adminUi[i] === "{") depth++;
+    else if (adminUi[i] === "}") {
+      depth--;
+      if (depth === 0) {
+        end = i;
+        break;
+      }
+    }
+  }
+  if (end < 0) return [];
+  return [...adminUi.slice(start, end).matchAll(/^\s{4}([A-Za-z0-9_]+):/gm)].map((m) => m[1]);
+}
+
+const adminFr = adminDictKeys("fr");
+const adminEn = adminDictKeys("en");
+const adminAr = adminDictKeys("ar");
+const usedAdsKeys = [
+  ...new Set(
+    [
+      ...adminHtml.matchAll(/data-admin-i18n(?:-placeholder)?="(ads[A-Za-z0-9]+)"/g),
+      ...adminAds.matchAll(/(?:adminT|adsT)\(['"](ads[A-Za-z0-9]+)['"]\)/g),
+    ].map((match) => match[1])
+  ),
+].sort();
+check(
+  "admin : parite stricte FR / EN / AR",
+  adminFr.length === adminEn.length && adminFr.length === adminAr.length,
+  `fr=${adminFr.length} en=${adminEn.length} ar=${adminAr.length}`
+);
+check(
+  "admin : toutes les cles ads* utilisees existent en FR / EN / AR",
+  usedAdsKeys.every(
+    (key) =>
+      adminFr.includes(key) && adminEn.includes(key) && adminAr.includes(key)
+  ),
+  usedAdsKeys.length + " cles"
+);
+check(
+  "admin : aucune cle ads* brute visible dans le HTML",
+  !/>\s*ads[A-Z][A-Za-z0-9]+\s*</.test(adminHtml)
+);
 check(
   "admin : i18n suggestions/campagnes en 3 langues",
   ["adsSuggestionsTitle:", "adsCampaignsTitle:", "adsLaunchNow:", "adsCodAlert:"].every(
     (key) => (adminUi.match(new RegExp(key, "g")) || []).length === 3
   )
 );
-check("admin : cache-busting v4 / ads2026c2", adminHtml.includes("/js/admin-ui.js?v=4") && adminHtml.includes("/js/admin.js?v=ads2026c2"));
-check("admin : module ads v2", read("js/admin.js").includes("admin-ads.js?v=2"));
+check("admin : cache-busting v5 / ads2026c3", adminHtml.includes("/js/admin-ui.js?v=5") && adminHtml.includes("/js/admin.js?v=ads2026c3"));
+check("admin : module ads v3", read("js/admin.js").includes("admin-ads.js?v=3"));
 
 /* --------------------------------------------- 7. regles Firestore */
 
@@ -223,7 +278,7 @@ check(
     (domain) => cspLine.includes(domain)
   )
 );
-check("cache : SW v9", sw.includes("'sw-2026-11-26-v9'"));
+check("cache : SW v10", sw.includes("'sw-2026-11-26-v10'"));
 check(
   "cache : ads-attribution v3 sur les 7 pages",
   ["index.html", "koulchi.html", "produit.html", "panier.html", "boutique.html", "blog.html", "villesmaroc.html"].every(

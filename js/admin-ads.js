@@ -75,6 +75,13 @@ const OFFICIAL_VENDOR_IDS = new Set([
 ]);
 const ADS_MANAGER_META = "https://adsmanager.facebook.com/adsmanager/manage/campaigns";
 const ADS_MANAGER_TIKTOK = "https://ads.tiktok.com/i18n/dashboard";
+const adminTranslate = adminT;
+
+/* Aucune cle ads* brute ne doit etre rendue dans les cartes dynamiques. */
+function adsT(key) {
+  const value = adminTranslate(key);
+  return value === key ? "" : value;
+}
 
 /* ============================================================
    HELPERS
@@ -175,19 +182,19 @@ function channelOfSource(source) {
 }
 
 function channelLabel(channel) {
-  if (channel === "tiktok") return adminT("adsChannelTiktok");
-  if (channel === "meta") return adminT("adsChannelMeta");
-  if (channel === "direct") return adminT("adsChannelDirect");
-  return adminT("adsChannelOther");
+  if (channel === "tiktok") return adsT("adsChannelTiktok");
+  if (channel === "meta") return adsT("adsChannelMeta");
+  if (channel === "direct") return adsT("adsChannelDirect");
+  return adsT("adsChannelOther");
 }
 
 function sourceLabel(source) {
-  if (source === "tiktok") return adminT("adsChannelTiktok");
-  if (source === "meta") return adminT("adsChannelMeta");
-  if (source === "direct") return adminT("adsChannelDirect");
+  if (source === "tiktok") return adsT("adsChannelTiktok");
+  if (source === "meta") return adsT("adsChannelMeta");
+  if (source === "direct") return adsT("adsChannelDirect");
   if (source === "google") return "Google";
   if (source === "whatsapp") return "WhatsApp";
-  return adminT("adsChannelOther");
+  return adsT("adsChannelOther");
 }
 
 function periodRange(period) {
@@ -334,7 +341,7 @@ async function loadAll() {
     console.error("[admin-ads] chargement impossible :", error);
     const status = document.getElementById("adsConfigStatus");
     if (status) {
-      status.textContent = adminT("adsSaveError");
+      status.textContent = adsT("adsSaveError");
       status.classList.add("is-error");
     }
   } finally {
@@ -465,7 +472,7 @@ function computeStats() {
       type: "channel",
       channel,
       label: channelLabel(channel),
-      campaign: adminT("adsAllCampaigns"),
+      campaign: adsT("adsAllCampaigns"),
       views: ev.viewContent,
       addToCart: ev.addToCart,
       created: ch.created,
@@ -552,7 +559,7 @@ function renderKpi(stats) {
   );
   setText(
     "adsKpiDelivery",
-    `${adminT("adsKpiDelivery")} : \u2066${fmtNumber(stats.deliveryRate, 1)} %\u2069`
+    `${adsT("adsKpiDelivery")} : \u2066${fmtNumber(stats.deliveryRate, 1)} %\u2069`
   );
   setText("adsKpiRevenue", fmtMad(stats.revenue));
   setText("adsKpiNet", fmtMad(stats.net));
@@ -591,7 +598,7 @@ function renderChart(stats) {
       labels,
       datasets: [
         {
-          label: adminT("adsChartCreated"),
+          label: adsT("adsChartCreated"),
           data: orderedData,
           backgroundColor: "rgba(180, 131, 62, 0.85)",
           borderColor: "#B4833E",
@@ -600,7 +607,7 @@ function renderChart(stats) {
           maxBarThickness: 42,
         },
         {
-          label: adminT("adsChartDelivered"),
+          label: adsT("adsChartDelivered"),
           data: deliveredData,
           backgroundColor: "rgba(46, 125, 91, 0.85)",
           borderColor: "#2E7D5B",
@@ -661,9 +668,9 @@ function renderTable(stats) {
 
   if (!stats.rows.length) {
     tbody.innerHTML = `<tr><td colspan="11" class="ads-empty">${escapeHTML(
-      adminT("adsNoData")
+      adsT("adsNoData")
     )}</td></tr>`;
-    cards.innerHTML = `<div class="ads-empty">${escapeHTML(adminT("adsNoData"))}</div>`;
+    cards.innerHTML = `<div class="ads-empty">${escapeHTML(adsT("adsNoData"))}</div>`;
     return;
   }
 
@@ -690,18 +697,18 @@ function renderTable(stats) {
     .map((row) => {
       const isChannel = row.type === "channel";
       const items = [
-        [adminT("adsColViews"), isChannel ? fmtNumber(row.views) : "—"],
-        [adminT("adsColAddCart"), isChannel ? fmtNumber(row.addToCart) : "—"],
-        [adminT("adsColOrders"), fmtNumber(row.created)],
-        [adminT("adsColDelivered"), fmtNumber(row.delivered)],
+        [adsT("adsColViews"), isChannel ? fmtNumber(row.views) : "—"],
+        [adsT("adsColAddCart"), isChannel ? fmtNumber(row.addToCart) : "—"],
+        [adsT("adsColOrders"), fmtNumber(row.created)],
+        [adsT("adsColDelivered"), fmtNumber(row.delivered)],
         [
-          adminT("adsColDeliveryRate"),
+          adsT("adsColDeliveryRate"),
           row.created > 0 ? `\u2066${fmtNumber(row.deliveryRate, 1)} %\u2069` : "—",
         ],
-        [adminT("adsColRevenue"), money(row.revenue)],
-        [adminT("adsColNet"), money(row.net)],
-        [adminT("adsColSpend"), money(row.spend)],
-        [adminT("adsColRoas"), row.roas == null ? "—" : `\u2066${fmtNumber(row.roas, 2)}x\u2069`],
+        [adsT("adsColRevenue"), money(row.revenue)],
+        [adsT("adsColNet"), money(row.net)],
+        [adsT("adsColSpend"), money(row.spend)],
+        [adsT("adsColRoas"), row.roas == null ? "—" : `\u2066${fmtNumber(row.roas, 2)}x\u2069`],
       ];
       return `<article class="ads-card">
         <div class="ads-card-head">
@@ -857,9 +864,9 @@ function buildSuggestion(product, livoFee) {
 }
 
 function suggestionChannelLabel(channel) {
-  if (channel === "meta") return adminT("adsChannelMeta");
-  if (channel === "tiktok") return adminT("adsChannelTiktok");
-  return adminT("adsChannelBoth");
+  if (channel === "meta") return adsT("adsChannelMeta");
+  if (channel === "tiktok") return adsT("adsChannelTiktok");
+  return adsT("adsChannelBoth");
 }
 
 function productDisplayName(product) {
@@ -909,10 +916,10 @@ function renderSuggestions() {
   if (!suggestions.length) {
     container.innerHTML = `<div class="ads-guide">
       <span class="ads-guide-ico" aria-hidden="true">🧭</span>
-      <h4>${escapeHTML(adminT("adsSuggestionsEmptyTitle"))}</h4>
-      <p>${escapeHTML(adminT("adsSuggestionsEmptyDesc"))}</p>
+      <h4>${escapeHTML(adsT("adsSuggestionsEmptyTitle"))}</h4>
+      <p>${escapeHTML(adsT("adsSuggestionsEmptyDesc"))}</p>
       <button type="button" class="admin-btn-secondary" data-ads-goto-products>
-        ${escapeHTML(adminT("adsSuggestionsGoProducts"))}
+        ${escapeHTML(adsT("adsSuggestionsGoProducts"))}
       </button>
     </div>`;
     container.querySelector("[data-ads-goto-products]")?.addEventListener("click", () => {
@@ -934,7 +941,7 @@ function renderSuggestions() {
           <div class="ads-suggestion-score">
             <strong>${suggestion.score}<small>/100</small></strong>
             <span class="ads-badge">${suggestion.badge.emoji} ${escapeHTML(
-              adminT(suggestion.badge.key)
+              adsT(suggestion.badge.key)
             )}</span>
           </div>
           <span class="ads-channel-pill">${escapeHTML(
@@ -946,13 +953,13 @@ function renderSuggestions() {
           <div>
             <h4>${escapeHTML(name)}</h4>
             <div class="ads-suggestion-metrics">
-              <span>${escapeHTML(adminT("adsMetricMargin"))} <strong>${money(
+              <span>${escapeHTML(adsT("adsMetricMargin"))} <strong>${money(
                 suggestion.margin
               )}</strong></span>
-              <span>${escapeHTML(adminT("adsMetricViews"))} <strong>${fmtNumber(
+              <span>${escapeHTML(adsT("adsMetricViews"))} <strong>${fmtNumber(
                 suggestion.views
               )}</strong></span>
-              <span>${escapeHTML(adminT("adsMetricCod"))} <strong>${fmtNumber(
+              <span>${escapeHTML(adsT("adsMetricCod"))} <strong>${fmtNumber(
                 suggestion.orders.deliveryRate * 100,
                 1
               )} %</strong></span>
@@ -960,28 +967,28 @@ function renderSuggestions() {
           </div>
         </div>
         <div class="ads-suggestion-controls">
-          <label>${escapeHTML(adminT("adsSuggestionChannel"))}
+          <label>${escapeHTML(adsT("adsSuggestionChannel"))}
             <select data-suggestion-channel>
               <option value="meta" ${suggestion.channel === "meta" ? "selected" : ""}>${escapeHTML(
-                adminT("adsChannelMeta")
+                adsT("adsChannelMeta")
               )}</option>
               <option value="tiktok" ${
                 suggestion.channel === "tiktok" ? "selected" : ""
-              }>${escapeHTML(adminT("adsChannelTiktok"))}</option>
+              }>${escapeHTML(adsT("adsChannelTiktok"))}</option>
               <option value="both" ${suggestion.channel === "both" ? "selected" : ""}>${escapeHTML(
-                adminT("adsChannelBoth")
+                adsT("adsChannelBoth")
               )}</option>
             </select>
           </label>
-          <label>${escapeHTML(adminT("adsSuggestionBudget"))}
+          <label>${escapeHTML(adsT("adsSuggestionBudget"))}
             <input type="number" min="20" max="5000" step="10" data-suggestion-budget value="${suggestion.budget}">
           </label>
           <label class="ads-check">
             <input type="checkbox" data-suggestion-paused checked>
-            ${escapeHTML(adminT("adsSuggestionPaused"))}
+            ${escapeHTML(adsT("adsSuggestionPaused"))}
           </label>
         </div>
-        <label class="ads-copy-label">${escapeHTML(adminT("adsSuggestionCopy"))}
+        <label class="ads-copy-label">${escapeHTML(adsT("adsSuggestionCopy"))}
           <textarea data-suggestion-copy rows="4">${escapeHTML(
             suggestion.copy[lang] || suggestion.copy.fr
           )}</textarea>
@@ -989,7 +996,7 @@ function renderSuggestions() {
         <code class="ads-destination">${escapeHTML(suggestion.destinationUrl)}</code>
         <div class="ads-suggestion-actions">
           <button type="button" class="admin-btn-primary" data-launch-suggestion>
-            🚀 ${escapeHTML(adminT("adsLaunchNow"))}
+            🚀 ${escapeHTML(adsT("adsLaunchNow"))}
           </button>
           <span class="ads-status" data-suggestion-status role="status" aria-live="polite"></span>
         </div>
@@ -1033,7 +1040,7 @@ async function launchSuggestedCampaign(card) {
   const popup = willFallback ? window.open("about:blank", "smartswika_ads_manager") : null;
   launching = true;
   if (button) button.disabled = true;
-  setSuggestionStatus(card, adminT("adsLaunching"), false);
+  setSuggestionStatus(card, adsT("adsLaunching"), false);
   try {
     const result = await callAdsFunction("launchSuggestedAdCampaign", {
       platform: channel,
@@ -1052,12 +1059,12 @@ async function launchSuggestedCampaign(card) {
       } else if (result.adsManagerUrl) {
         window.open(result.adsManagerUrl, "_blank", "noopener");
       }
-      setSuggestionStatus(card, adminT("adsPreparedMode"), false);
+      setSuggestionStatus(card, adsT("adsPreparedMode"), false);
     } else {
       if (popup) popup.close();
       setSuggestionStatus(
         card,
-        result.mode === "partial" ? adminT("adsLaunchedPartial") : adminT("adsLaunched"),
+        result.mode === "partial" ? adsT("adsLaunchedPartial") : adsT("adsLaunched"),
         false
       );
       await loadCampaigns();
@@ -1068,7 +1075,7 @@ async function launchSuggestedCampaign(card) {
     console.error("[admin-ads] lancement impossible :", error);
     setSuggestionStatus(
       card,
-      `${adminT("adsLaunchError")} ${String((error && error.message) || "").slice(0, 160)}`,
+      `${adsT("adsLaunchError")} ${String((error && error.message) || "").slice(0, 160)}`,
       true
     );
   } finally {
@@ -1113,8 +1120,8 @@ function campaignStats(campaign) {
 
 function campaignStatusLabel(status) {
   return String(status || "").toUpperCase() === "ACTIVE"
-    ? adminT("adsStatusActive")
-    : adminT("adsStatusPaused");
+    ? adsT("adsStatusActive")
+    : adsT("adsStatusPaused");
 }
 
 function renderCampaigns() {
@@ -1123,8 +1130,8 @@ function renderCampaigns() {
   if (!cachedCampaigns.length) {
     container.innerHTML = `<div class="ads-guide">
       <span class="ads-guide-ico" aria-hidden="true">📡</span>
-      <h4>${escapeHTML(adminT("adsCampaignsEmptyTitle"))}</h4>
-      <p>${escapeHTML(adminT("adsCampaignsEmptyDesc"))}</p>
+      <h4>${escapeHTML(adsT("adsCampaignsEmptyTitle"))}</h4>
+      <p>${escapeHTML(adsT("adsCampaignsEmptyDesc"))}</p>
     </div>`;
     return;
   }
@@ -1136,8 +1143,8 @@ function renderCampaigns() {
       const nextAction = active ? "PAUSED" : "ACTIVE";
       const platformLabel =
         campaign.platform === "tiktok"
-          ? adminT("adsChannelTiktok")
-          : adminT("adsChannelMeta");
+          ? adsT("adsChannelTiktok")
+          : adsT("adsChannelMeta");
       const linkedProduct = cachedProducts.find(
         (product) => String(product.id) === String(campaign.productId)
       );
@@ -1154,7 +1161,7 @@ function renderCampaigns() {
               <span class="ads-campaign-status ${
                 active ? "is-active" : "is-paused"
               }">${escapeHTML(campaignStatusLabel(campaign.status))}</span>
-              <span>${escapeHTML(adminT("adsCampaignBudget"))} : ${money(
+              <span>${escapeHTML(adsT("adsCampaignBudget"))} : ${money(
                 campaign.dailyBudgetMad
               )}/j</span>
             </div>
@@ -1162,26 +1169,26 @@ function renderCampaigns() {
           <button type="button" class="admin-btn-secondary" data-toggle-campaign="${escapeHTML(
             campaign.id
           )}" data-toggle-action="${nextAction}">
-            ${active ? "⏸️ " + escapeHTML(adminT("adsPause")) : "▶️ " + escapeHTML(adminT("adsActivate"))}
+            ${active ? "⏸️ " + escapeHTML(adsT("adsPause")) : "▶️ " + escapeHTML(adsT("adsActivate"))}
           </button>
         </div>
         <div class="ads-campaign-stats">
-          <div><span>${escapeHTML(adminT("adsCampaignOrders"))}</span><strong>${fmtNumber(
+          <div><span>${escapeHTML(adsT("adsCampaignOrders"))}</span><strong>${fmtNumber(
             stats.total
           )}</strong></div>
-          <div><span>${escapeHTML(adminT("adsCampaignDelivered"))}</span><strong>${fmtNumber(
+          <div><span>${escapeHTML(adsT("adsCampaignDelivered"))}</span><strong>${fmtNumber(
             stats.delivered
           )}</strong></div>
-          <div><span>${escapeHTML(adminT("adsCampaignCod"))}</span><strong>${fmtNumber(
+          <div><span>${escapeHTML(adsT("adsCampaignCod"))}</span><strong>${fmtNumber(
             stats.rate,
             1
           )} %</strong></div>
-          <div><span>${escapeHTML(adminT("adsCampaignExternal"))}</span><strong>${escapeHTML(
+          <div><span>${escapeHTML(adsT("adsCampaignExternal"))}</span><strong>${escapeHTML(
             String(campaign.externalCampaignId || "—")
           )}</strong></div>
         </div>
         ${stats.alert ? `<div class="ads-cod-alert">⚠️ ${escapeHTML(
-          adminT("adsCodAlert")
+          adsT("adsCodAlert")
         )}</div>` : ""}
       </article>`;
     })
@@ -1211,7 +1218,7 @@ async function toggleCampaignStatus(campaignDocId, action, button) {
   } catch (error) {
     console.error("[admin-ads] changement de statut impossible :", error);
     if (button) button.disabled = false;
-    window.alert(String((error && error.message) || adminT("adsSaveError")));
+    window.alert(String((error && error.message) || adsT("adsSaveError")));
   }
 }
 
@@ -1220,7 +1227,7 @@ async function copyCatalogFeedUrl() {
   const ok = await copyText(url);
   const status = document.getElementById("adsFeedStatus");
   if (status) {
-    status.textContent = ok ? adminT("adsFeedCopied") : adminT("adsUtmCopyError");
+    status.textContent = ok ? adsT("adsFeedCopied") : adsT("adsUtmCopyError");
     status.classList.toggle("is-error", !ok);
     setTimeout(() => {
       status.textContent = "";
@@ -1235,13 +1242,13 @@ async function testAdConnection(platform, button) {
     platform === "meta" ? "adsMetaTestStatus" : "adsTiktokTestStatus"
   );
   if (status) {
-    status.textContent = adminT("adsTesting");
+    status.textContent = adsT("adsTesting");
     status.classList.remove("is-error");
   }
   try {
     const result = await callAdsFunction("testAdPlatformConnection", { platform });
     if (!result.configured) {
-      if (status) status.textContent = adminT("adsNotConfigured");
+      if (status) status.textContent = adsT("adsNotConfigured");
       return;
     }
     if (status) {
@@ -1251,7 +1258,7 @@ async function testAdConnection(platform, button) {
     }
   } catch (error) {
     if (status) {
-      status.textContent = `${adminT("adsConnectionError")} ${String(
+      status.textContent = `${adsT("adsConnectionError")} ${String(
         (error && error.message) || ""
       ).slice(0, 140)}`;
       status.classList.add("is-error");
@@ -1272,10 +1279,10 @@ async function testAdConnection(platform, button) {
    ============================================================ */
 
 function periodLabel(period) {
-  if (period === "30") return adminT("adsPeriod30");
-  if (period === "month") return adminT("adsPeriodMonth");
-  if (period === "all") return adminT("adsPeriodAll");
-  return adminT("adsPeriod7");
+  if (period === "30") return adsT("adsPeriod30");
+  if (period === "month") return adsT("adsPeriodMonth");
+  if (period === "all") return adsT("adsPeriodAll");
+  return adsT("adsPeriod7");
 }
 
 function setValue(id, value) {
@@ -1316,7 +1323,7 @@ function renderSpendInputs() {
   }
   const hint = document.getElementById("adsSpendPeriodHint");
   if (hint) {
-    hint.textContent = `${adminT("adsSpendPeriod")} : ${periodLabel(currentPeriod)} — ${adminT(
+    hint.textContent = `${adsT("adsSpendPeriod")} : ${periodLabel(currentPeriod)} — ${adsT(
       "adsConfigPeriodHint"
     )}`;
   }
@@ -1346,11 +1353,11 @@ async function saveAdsConfig() {
     .slice(0, 40);
 
   if (metaPixelId && metaPixelId.length < 6) {
-    setConfigStatus(adminT("adsSaveError"), true);
+    setConfigStatus(adsT("adsSaveError"), true);
     return;
   }
   if (tiktokPixelId && tiktokPixelId.length < 6) {
-    setConfigStatus(adminT("adsSaveError"), true);
+    setConfigStatus(adsT("adsSaveError"), true);
     return;
   }
 
@@ -1401,7 +1408,7 @@ async function saveAdsConfig() {
       metaAccessToken: metaToken || adsSecrets.metaAccessToken || "",
       tiktokAccessToken: tiktokToken || adsSecrets.tiktokAccessToken || "",
     };
-    setConfigStatus(adminT("adsSaved"), false);
+    setConfigStatus(adsT("adsSaved"), false);
     if (lastStats) {
       lastStats = computeStats();
       renderKpi(lastStats);
@@ -1411,7 +1418,7 @@ async function saveAdsConfig() {
     renderSuggestions();
   } catch (error) {
     console.error("[admin-ads] enregistrement impossible :", error);
-    setConfigStatus(adminT("adsSaveError"), true);
+    setConfigStatus(adsT("adsSaveError"), true);
   } finally {
     if (button) button.disabled = false;
   }
@@ -1493,7 +1500,7 @@ async function copyUtmLink() {
   const ok = await copyText(url);
   const status = document.getElementById("adsUtmStatus");
   if (status) {
-    status.textContent = ok ? adminT("adsUtmCopied") : adminT("adsUtmCopyError");
+    status.textContent = ok ? adsT("adsUtmCopied") : adsT("adsUtmCopyError");
     status.classList.toggle("is-error", !ok);
     setTimeout(() => {
       status.textContent = "";
@@ -1544,9 +1551,9 @@ function bindEvents() {
     if (!initialized) return;
     const hint = document.getElementById("adsSpendPeriodHint");
     if (hint) {
-      hint.textContent = `${adminT("adsSpendPeriod")} : ${periodLabel(
+      hint.textContent = `${adsT("adsSpendPeriod")} : ${periodLabel(
         currentPeriod
-      )} — ${adminT("adsConfigPeriodHint")}`;
+      )} — ${adsT("adsConfigPeriodHint")}`;
     }
     if (lastStats) {
       renderKpi(lastStats);

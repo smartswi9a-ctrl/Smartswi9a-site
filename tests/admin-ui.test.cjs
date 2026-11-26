@@ -76,13 +76,40 @@ const missingAr = frKeys.filter((key) => !arKeys.includes(key));
 check("admin-ui : toutes les cles FR existent en EN", missingEn.length === 0, missingEn.join(","));
 check("admin-ui : toutes les cles FR existent en AR", missingAr.length === 0, missingAr.join(","));
 
-const usedKeys = [...html.matchAll(/data-admin-i18n="([A-Za-z0-9_]+)"/g)].map((m) => m[1]);
-const unknownKeys = [...new Set(usedKeys)].filter((key) => !frSet.has(key));
+const usedKeys = [
+  ...new Set(
+    [...html.matchAll(/data-admin-i18n(?:-placeholder)?="([A-Za-z0-9_]+)"/g)].map(
+      (m) => m[1]
+    )
+  ),
+];
+const enSet = new Set(enKeys);
+const arSet = new Set(arKeys);
+const unknownFr = usedKeys.filter((key) => !frSet.has(key));
+const unknownEn = usedKeys.filter((key) => !enSet.has(key));
+const unknownAr = usedKeys.filter((key) => !arSet.has(key));
 check(
   "admin.html : toutes les cles data-admin-i18n existent en FR",
-  unknownKeys.length === 0,
-  unknownKeys.join(",") || usedKeys.length + " cles"
+  unknownFr.length === 0,
+  unknownFr.join(",") || usedKeys.length + " cles"
 );
+check(
+  "admin.html : toutes les cles data-admin-i18n existent en EN",
+  unknownEn.length === 0,
+  unknownEn.join(",") || usedKeys.length + " cles"
+);
+check(
+  "admin.html : toutes les cles data-admin-i18n existent en AR",
+  unknownAr.length === 0,
+  unknownAr.join(",") || usedKeys.length + " cles"
+);
+check(
+  "admin.html : aucune cle ads* brute visible",
+  !/>\s*ads[A-Z][A-Za-z0-9]+\s*</.test(html)
+);
+check("index.html : Meta Domain Verification statique", read("index.html").includes(
+  '<meta name="facebook-domain-verification" content="e3kprjwlq9bwehqywp9hr3csmk6gjr" />'
+));
 
 /* --------------------------------------------- 2. navigation */
 
