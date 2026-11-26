@@ -265,6 +265,22 @@ async function writeCart() {
   }
 }
 
+/* Un deleteDoc sur un document inexistant est refusé par les règles
+   invitées (delete évalué sur une ressource absente). Ce n'est pas une
+   anomalie : on l'ignore silencieusement pour ne pas polluer la console. */
+function isMissingCartDocError(error) {
+  const code = String((error && error.code) || "").toLowerCase();
+  const message = String((error && error.message) || "").toLowerCase();
+  return (
+    code === "permission-denied" ||
+    code === "not-found" ||
+    message.includes("not-found") ||
+    message.includes("no document") ||
+    message.includes("missing or insufficient permissions") ||
+    message.includes("insufficient permissions")
+  );
+}
+
 async function deleteCart(sessionId) {
   const id = sessionId || currentSessionId();
 
@@ -275,14 +291,25 @@ async function deleteCart(sessionId) {
   }
 
   const state = knownSessions.get(id);
-  if (state && state.status === "recovered") return;
+  if (!state) {
+    /* Aucun panier créé / synchronisé durant CETTE session : il n'y a
+       rien à supprimer. Un panier vide au chargement ne doit jamais
+       déclencher deleteDoc (warning permission-denied historique). */
+    return;
+  }
+  if (state.status === "recovered") return;
 
   try {
     await deleteDoc(doc(db, COLLECTION, id));
     knownSessions.delete(id);
     lastSyncedSignature = "";
   } catch (e) {
-    console.warn("[abandoned-cart] suppression impossible :", e && e.message);
+    /* Le document a pu être supprimé par un autre onglet / la CF. */
+    knownSessions.delete(id);
+    lastSyncedSignature = "";
+    if (!isMissingCartDocError(e)) {
+      console.warn("[abandoned-cart] suppression impossible :", e && e.message);
+    }
   }
 }
 
@@ -515,4 +542,4 @@ if (typeof window !== "undefined") {
   };
 }
 
-console.log("✅ abandoned-cart.js chargé - v1.0.0 (capture paniers + relances)");
+console.log("✅ abandoned-cart.js chargé - v1.0.1 (capture paniers + relances)");
