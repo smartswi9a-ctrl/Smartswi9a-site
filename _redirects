@@ -15,7 +15,9 @@
 /villes.html /villesmaroc 301
 
 # Flux catalogue produits officiel Smartswika (Cloud Function publique).
-/feed/products.xml https://europe-west1-smartswi9a-31063.cloudfunctions.net/productCatalogFeed 200
+# Cloudflare Pages ne supporte pas le proxy 200 vers un domaine externe :
+# une redirection 302 est suivie par Meta, TikTok et Google Merchant.
+/feed/products.xml https://europe-west1-smartswi9a-31063.cloudfunctions.net/productCatalogFeed 302
 
 # ============================================================
 # SÉCURITÉ — FICHIERS INTERNES JAMAIS PUBLICS

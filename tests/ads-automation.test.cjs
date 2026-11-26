@@ -82,8 +82,10 @@ check(
     JSON.stringify(firebaseJson.hosting.rewrites).includes("productCatalogFeed")
 );
 check(
-  "feed : rewrite Cloudflare _redirects",
-  redirects.includes("/feed/products.xml") && redirects.includes("productCatalogFeed")
+  "feed : redirection Cloudflare _redirects 302",
+  redirects.includes("/feed/products.xml") &&
+    redirects.includes("productCatalogFeed") &&
+    redirects.includes("productCatalogFeed 302")
 );
 
 /* --------------------------------------------- 2. verification domaine */
