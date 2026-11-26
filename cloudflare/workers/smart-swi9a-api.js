@@ -14,7 +14,8 @@ const ALLOWED_FUNCTIONS = new Set([
   "cancelCustomerOrder",
   "adminManageWallet",
   "adminPayoutAction",
-  "releaseDueFunds"
+  "releaseDueFunds",
+  "productCatalogFeed"
 ]);
 
 const UPSTREAM = "https://europe-west1-smartswi9a-31063.cloudfunctions.net/";

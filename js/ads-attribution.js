@@ -505,12 +505,36 @@ function loadTiktokPixel(pixelId) {
   return true;
 }
 
+/**
+ * Ajoute / met à jour la balise Meta de vérification de domaine.
+ * La valeur vient de config/ads_public.metaDomainVerification.
+ */
+function applyMetaDomainVerification(value) {
+  const content = clean(value, 200);
+  if (!content) return false;
+  try {
+    let tag = document.querySelector('meta[name="facebook-domain-verification"]');
+    if (!tag) {
+      tag = document.createElement("meta");
+      tag.setAttribute("name", "facebook-domain-verification");
+      (document.head || document.documentElement).appendChild(tag);
+    }
+    if (tag.getAttribute("content") !== content) {
+      tag.setAttribute("content", content);
+    }
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 async function initPixels() {
   try {
     const { fs, db } = await getFirebase();
     const snap = await fs.getDoc(fs.doc(db, PUBLIC_ADS_CONFIG[0], PUBLIC_ADS_CONFIG[1]));
     if (!snap.exists()) return;
     const data = snap.data() || {};
+    applyMetaDomainVerification(data.metaDomainVerification);
     if (data.metaPixelId) loadMetaPixel(data.metaPixelId);
     if (data.tiktokPixelId) loadTiktokPixel(data.tiktokPixelId);
   } catch (e) {
@@ -870,7 +894,7 @@ function init() {
 
 if (IS_BROWSER) {
   window.SmartswikaAds = {
-    version: "1.0.1",
+    version: "1.0.2",
     track,
     flush,
     getAttribution: () => getAttribution(),
@@ -889,7 +913,7 @@ if (IS_BROWSER) {
 }
 
 console.log(
-  "✅ ads-attribution.js chargé - v1.0.1 (attribution 7j + pixels TikTok/Meta)"
+  "✅ ads-attribution.js chargé - v1.0.2 (attribution 7j + pixels TikTok/Meta)"
 );
 
 

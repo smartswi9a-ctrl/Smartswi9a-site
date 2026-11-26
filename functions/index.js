@@ -1,4 +1,4 @@
-﻿const { onRequest } = require('firebase-functions/v2/https');
+﻿const { onRequest, onCall, HttpsError } = require('firebase-functions/v2/https');
 const { onDocumentWritten, onDocumentUpdated, onDocumentCreated } = require('firebase-functions/v2/firestore');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { defineSecret } = require('firebase-functions/params');
@@ -4129,6 +4129,636 @@ exports.abandonedCartReminder = onSchedule(
     );
   }
 );
+
+/* ============================================================
+   ADS AUTOMATION - CATALOG FEED + META / TIKTOK CAMPAIGNS
+   ============================================================ */
+
+const ADS_BASE_URL = 'https://www.smartswika.ma';
+const CATALOG_FEED_PATH = '/feed/products.xml';
+const ADS_SECRETS_COLLECTION = 'config';
+const ADS_SECRETS_DOC = 'ads_secrets';
+const AD_CAMPAIGNS_COLLECTION = 'ad_campaigns';
+const META_GRAPH_VERSION = 'v21.0';
+const TIKTOK_API_BASE = 'https://business-api.tiktok.com/open_api/v1.3';
+/* TikTok Ads location id for Morocco. */
+const TIKTOK_LOCATION_MA = '2252422';
+const OFFICIAL_PRODUCT_VENDOR_IDS = new Set([
+  'smartswi9a',
+  'smartswika',
+  'platform',
+  'smartswi9a-31063'
+]);
+const ADS_ALLOWED_HOSTS = new Set([
+  'smartswika.ma',
+  'www.smartswika.ma',
+  'smartswi9a.top',
+  'www.smartswi9a.top',
+  'smartswi9a-31063.web.app',
+  'smartswi9a-31063.firebaseapp.com'
+]);
+
+function isOfficialSmartswikaProduct(product) {
+  if (!product) return false;
+  const vendorId = String(product.vendorId || '').trim();
+  if (!vendorId) return true;
+  if (OFFICIAL_PRODUCT_VENDOR_IDS.has(vendorId)) return true;
+  return product.isSmartswikaOfficial === true && vendorId === 'smartswi9a';
+}
+
+function escapeXml(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function stripHtml(value) {
+  return String(value == null ? '' : value)
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function absoluteAssetUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return ADS_BASE_URL + '/assets/logo-64.png';
+  if (/^https?:\/\//i.test(raw)) return raw;
+  return ADS_BASE_URL + (raw.startsWith('/') ? raw : '/' + raw);
+}
+
+function catalogProductTitle(product) {
+  return stripHtml(product.nameFr || product.nameEn || product.nameAr || '').slice(0, 150);
+}
+
+function catalogProductDescription(product) {
+  const text = stripHtml(
+    product.descFr || product.descEn || product.descAr || product.description || ''
+  );
+  return (text || catalogProductTitle(product)).slice(0, 5000);
+}
+
+function catalogPriceMad(product) {
+  const price = Number(product.price);
+  if (!Number.isFinite(price) || price <= 0) return '';
+  return price.toFixed(2) + ' MAD';
+}
+
+async function requireAdminCallable(request) {
+  if (!request || !request.auth) {
+    throw new HttpsError('unauthenticated', 'Authentication required.');
+  }
+  const token = request.auth.token || {};
+  if (token.admin === true) return request.auth.uid;
+  const snap = await db.doc('users/' + request.auth.uid).get();
+  if (!snap.exists || snap.data().role !== 'admin') {
+    throw new HttpsError('permission-denied', 'Administrator account required.');
+  }
+  return request.auth.uid;
+}
+
+async function readAdsSecrets() {
+  const snap = await db.doc(ADS_SECRETS_COLLECTION + '/' + ADS_SECRETS_DOC).get();
+  return snap.exists ? snap.data() || {} : {};
+}
+
+function sanitizeUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) throw new HttpsError('invalid-argument', 'destinationUrl is required.');
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch (error) {
+    throw new HttpsError('invalid-argument', 'destinationUrl is invalid.');
+  }
+  if (parsed.protocol !== 'https:' || !ADS_ALLOWED_HOSTS.has(parsed.hostname)) {
+    throw new HttpsError('invalid-argument', 'destinationUrl host is not allowed.');
+  }
+  return parsed.toString();
+}
+
+function positiveBudget(value) {
+  const budget = Number(value);
+  if (!Number.isFinite(budget) || budget < 20 || budget > 5000) {
+    throw new HttpsError('invalid-argument', 'dailyBudgetMad must be between 20 and 5000.');
+  }
+  return Math.round(budget * 100) / 100;
+}
+
+function buildProductCatalogXml(products) {
+  const items = products
+    .map((product) => {
+      const id = String(product.id || '');
+      const title = catalogProductTitle(product);
+      const price = catalogPriceMad(product);
+      if (!id || !title || !price) return '';
+      const link = ADS_BASE_URL + '/produit.html?id=' + encodeURIComponent(id);
+      const description = catalogProductDescription(product);
+      const image = absoluteAssetUrl(product.img || (product.gallery || [])[0]);
+      return [
+        '    <item>',
+        '      <g:id>' + escapeXml(id) + '</g:id>',
+        '      <g:title>' + escapeXml(title) + '</g:title>',
+        '      <g:description>' + escapeXml(description) + '</g:description>',
+        '      <g:link>' + escapeXml(link) + '</g:link>',
+        '      <g:image_link>' + escapeXml(image) + '</g:image_link>',
+        '      <g:availability>in stock</g:availability>',
+        '      <g:price>' + escapeXml(price) + '</g:price>',
+        '      <g:brand>Smartswika</g:brand>',
+        '      <g:condition>new</g:condition>',
+        '      <g:identifier_exists>no</g:identifier_exists>',
+        '    </item>'
+      ].join('\n');
+    })
+    .filter(Boolean);
+
+  return [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<rss version="2.0" xmlns:g="http://base.google.com/ns/1.0">',
+    '  <channel>',
+    '    <title>Smartswika - Catalogue produits</title>',
+    '    <link>' + ADS_BASE_URL + '</link>',
+    '    <description>Catalogue officiel Smartswika pour Google Merchant, Meta et TikTok Catalog.</description>',
+    ...items,
+    '  </channel>',
+    '</rss>'
+  ].join('\n');
+}
+
+exports.productCatalogFeed = onRequest(
+  { invoker: 'public', region: 'europe-west1', cors: true, timeoutSeconds: 30 },
+  async (req, res) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      res.status(405).set('Allow', 'GET, HEAD').send('Method Not Allowed');
+      return;
+    }
+    try {
+      const snapshot = await db
+        .collection('products')
+        .where('status', '==', 'approved')
+        .limit(500)
+        .get();
+      const products = snapshot.docs
+        .map((doc) => ({ id: doc.id, ...doc.data() }))
+        .filter((product) => {
+          const stock = Number(product.stock);
+          const price = Number(product.price);
+          return (
+            Number.isFinite(stock) &&
+            stock > 0 &&
+            Number.isFinite(price) &&
+            price > 0 &&
+            isOfficialSmartswikaProduct(product)
+          );
+        });
+      const xml = buildProductCatalogXml(products);
+      res.set('Content-Type', 'application/xml; charset=utf-8');
+      res.set('Cache-Control', 'public, max-age=900');
+      res.set('X-Content-Type-Options', 'nosniff');
+      if (req.method === 'HEAD') {
+        res.status(200).end();
+        return;
+      }
+      res.status(200).send(xml);
+    } catch (error) {
+      console.error('[productCatalogFeed]', error && (error.code || error.message));
+      res.status(500).set('Cache-Control', 'no-store');
+      res.type('application/xml').send(
+        '<?xml version="1.0" encoding="UTF-8"?><error>catalog_unavailable</error>'
+      );
+    }
+  }
+);
+
+async function metaGraphRequest(path, method, payload, token) {
+  const response = await fetch('https://graph.facebook.com/' + META_GRAPH_VERSION + '/' + path, {
+    method: method || 'GET',
+    headers: { 'Content-Type': 'application/json' },
+    body: payload ? JSON.stringify({ ...payload, access_token: token }) : undefined
+  });
+  const json = await response.json().catch(() => ({}));
+  if (!response.ok || json.error) {
+    const message =
+      (json.error && (json.error.error_user_msg || json.error.message)) ||
+      'Meta API HTTP ' + response.status;
+    throw new Error(message);
+  }
+  return json;
+}
+
+async function tiktokRequest(path, method, payload, token) {
+  const response = await fetch(TIKTOK_API_BASE + path, {
+    method: method || 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      'Access-Token': token
+    },
+    body: payload ? JSON.stringify(payload) : undefined
+  });
+  const json = await response.json().catch(() => ({}));
+  if (!response.ok || (typeof json.code === 'number' && json.code !== 0)) {
+    throw new Error(json.message || 'TikTok API HTTP ' + response.status);
+  }
+  return json.data || json;
+}
+
+function metaAdsManagerUrl(accountId) {
+  const act = String(accountId || '').replace(/^act_/, '');
+  return 'https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=' + encodeURIComponent(act);
+}
+
+function tiktokAdsManagerUrl(advertiserId) {
+  return (
+    'https://ads.tiktok.com/i18n/dashboard?aadvid=' +
+    encodeURIComponent(String(advertiserId || ''))
+  );
+}
+
+async function createMetaCampaign(options) {
+  const account = String(options.accountId || '').replace(/^act_/, '');
+  if (!account) throw new Error('Meta Ad Account ID missing.');
+  const status = options.startPaused ? 'PAUSED' : 'ACTIVE';
+  const campaign = await metaGraphRequest(
+    'act_' + account + '/campaigns',
+    'POST',
+    {
+      name: options.campaignName,
+      objective: 'OUTCOME_TRAFFIC',
+      status,
+      special_ad_categories: []
+    },
+    options.token
+  );
+  const adset = await metaGraphRequest(
+    'act_' + account + '/adsets',
+    'POST',
+    {
+      name: options.campaignName + ' - MA 21-55',
+      campaign_id: campaign.id,
+      daily_budget: Math.round(options.dailyBudgetMad * 100),
+      billing_event: 'IMPRESSIONS',
+      optimization_goal: 'LINK_CLICKS',
+      destination_type: 'WEBSITE',
+      targeting: {
+        geo_locations: { countries: ['MA'] },
+        age_min: 21,
+        age_max: 55
+      },
+      status
+    },
+    options.token
+  );
+  return {
+    externalCampaignId: String(campaign.id),
+    externalAdSetId: String(adset.id),
+    status,
+    adsManagerUrl: metaAdsManagerUrl(account)
+  };
+}
+
+async function createTiktokCampaign(options) {
+  const advertiserId = String(options.advertiserId || '');
+  if (!advertiserId) throw new Error('TikTok Advertiser ID missing.');
+  const operationStatus = options.startPaused ? 'DISABLE' : 'ENABLE';
+  const budget = Math.max(20, Math.round(options.dailyBudgetMad * 100) / 100);
+  const campaign = await tiktokRequest(
+    '/campaign/create/',
+    'POST',
+    {
+      advertiser_id: advertiserId,
+      campaign_name: options.campaignName,
+      objective_type: 'TRAFFIC',
+      budget_mode: 'BUDGET_MODE_DAY',
+      budget,
+      operation_status: operationStatus
+    },
+    options.token
+  );
+  const campaignId = campaign.campaign_id || campaign.campaignId;
+  if (!campaignId) throw new Error('TikTok campaign id missing in response.');
+  const adgroup = await tiktokRequest(
+    '/adgroup/create/',
+    'POST',
+    {
+      advertiser_id: advertiserId,
+      campaign_id: campaignId,
+      adgroup_name: options.campaignName + ' - MA 21-55',
+      budget_mode: 'BUDGET_MODE_DAY',
+      budget,
+      schedule_type: 'SCHEDULE_FROM_NOW',
+      location_ids: [TIKTOK_LOCATION_MA],
+      age_groups: ['AGE_21_34', 'AGE_35_44', 'AGE_45_54', 'AGE_55_100'],
+      gender: 'GENDER_UNLIMITED',
+      pacing: 'PACING_MODE_SMOOTH',
+      billing_event: 'CPC',
+      bid_type: 'BID_TYPE_NO_BID',
+      optimization_goal: 'CLICK',
+      operation_status: operationStatus
+    },
+    options.token
+  );
+  return {
+    externalCampaignId: String(campaignId),
+    externalAdSetId: String(adgroup.adgroup_id || adgroup.adgroupId || ''),
+    status: operationStatus === 'ENABLE' ? 'ACTIVE' : 'PAUSED',
+    adsManagerUrl: tiktokAdsManagerUrl(advertiserId)
+  };
+}
+
+function normalizeAdCopy(value) {
+  if (value && typeof value === 'object') {
+    return {
+      fr: stripHtml(value.fr || value.FR || '').slice(0, 2000),
+      en: stripHtml(value.en || value.EN || '').slice(0, 2000),
+      ar: stripHtml(value.ar || value.AR || '').slice(0, 2000)
+    };
+  }
+  const text = stripHtml(value || '').slice(0, 2000);
+  return { fr: text, en: text, ar: text };
+}
+
+exports.launchSuggestedAdCampaign = onCall(
+  { region: 'europe-west1', timeoutSeconds: 120, maxInstances: 5 },
+  async (request) => {
+    const adminUid = await requireAdminCallable(request);
+    const data = request.data || {};
+    const platform = String(data.platform || '').toLowerCase();
+    if (!['meta', 'tiktok', 'both'].includes(platform)) {
+      throw new HttpsError('invalid-argument', 'platform must be meta, tiktok or both.');
+    }
+    const productId = String(data.productId || '').trim();
+    if (!productId) throw new HttpsError('invalid-argument', 'productId is required.');
+    const productSnap = await db.doc('products/' + productId).get();
+    if (!productSnap.exists) throw new HttpsError('not-found', 'Product not found.');
+    const product = { id: productSnap.id, ...productSnap.data() };
+    if (!isOfficialSmartswikaProduct(product)) {
+      throw new HttpsError(
+        'permission-denied',
+        'Only official Smartswika products can be launched from this tool.'
+      );
+    }
+    if (product.status !== 'approved' || Number(product.stock) <= 0) {
+      throw new HttpsError(
+        'failed-precondition',
+        'Product must be approved and in stock.'
+      );
+    }
+
+    const title = catalogProductTitle(product) || productId;
+    const campaignName =
+      String(data.campaignName || '').trim().slice(0, 120) ||
+      ('Smartswika ' + title + ' ' + platform).slice(0, 120);
+    const dailyBudgetMad = positiveBudget(data.dailyBudgetMad);
+    const destinationUrl = sanitizeUrl(data.destinationUrl);
+    const startPaused = data.startPaused !== false;
+    const adCopy = normalizeAdCopy(data.adCopy);
+    const secrets = await readAdsSecrets();
+    const requested = platform === 'both' ? ['meta', 'tiktok'] : [platform];
+    const campaigns = [];
+    const prepared = [];
+    const errors = [];
+
+    for (const current of requested) {
+      const isMeta = current === 'meta';
+      const token = isMeta
+        ? String(secrets.metaAccessToken || '')
+        : String(secrets.tiktokAccessToken || '');
+      const accountId = isMeta
+        ? String(secrets.metaAdAccountId || '')
+        : String(secrets.tiktokAdvertiserId || '');
+      const adsManagerUrl = isMeta
+        ? metaAdsManagerUrl(accountId)
+        : tiktokAdsManagerUrl(accountId);
+
+      if (!token || !accountId) {
+        prepared.push({
+          platform: current,
+          reason: 'tokens_not_configured',
+          adsManagerUrl,
+          destinationUrl,
+          adCopy
+        });
+        continue;
+      }
+
+      try {
+        const created = isMeta
+          ? await createMetaCampaign({
+              accountId,
+              token,
+              campaignName,
+              dailyBudgetMad,
+              startPaused
+            })
+          : await createTiktokCampaign({
+              advertiserId: accountId,
+              token,
+              campaignName,
+              dailyBudgetMad,
+              startPaused
+            });
+        const docRef = await db.collection(AD_CAMPAIGNS_COLLECTION).add({
+          platform: current,
+          externalCampaignId: created.externalCampaignId,
+          externalAdSetId: created.externalAdSetId || '',
+          productId,
+          productTitle: title,
+          campaignName,
+          dailyBudgetMad,
+          status: created.status,
+          destinationUrl,
+          adCopy,
+          createdBy: adminUid,
+          createdAt: FieldValue.serverTimestamp()
+        });
+        campaigns.push({
+          campaignDocId: docRef.id,
+          platform: current,
+          externalCampaignId: created.externalCampaignId,
+          externalAdSetId: created.externalAdSetId || '',
+          status: created.status,
+          adsManagerUrl: created.adsManagerUrl
+        });
+      } catch (error) {
+        errors.push({
+          platform: current,
+          message: String((error && error.message) || 'API error').slice(0, 500)
+        });
+      }
+    }
+
+    if (!campaigns.length && errors.length) {
+      throw new HttpsError(
+        'failed-precondition',
+        errors.map((item) => item.platform + ': ' + item.message).join(' | ')
+      );
+    }
+
+    return {
+      mode: campaigns.length
+        ? prepared.length || errors.length
+          ? 'partial'
+          : 'launched'
+        : 'prepared',
+      campaigns,
+      prepared,
+      errors,
+      adsManagerUrl:
+        (campaigns[0] && campaigns[0].adsManagerUrl) ||
+        (prepared[0] && prepared[0].adsManagerUrl) ||
+        metaAdsManagerUrl(secrets.metaAdAccountId),
+      adCopy,
+      destinationUrl,
+      startPaused
+    };
+  }
+);
+
+exports.toggleAdCampaignStatus = onCall(
+  { region: 'europe-west1', timeoutSeconds: 60, maxInstances: 5 },
+  async (request) => {
+    await requireAdminCallable(request);
+    const data = request.data || {};
+    const campaignDocId = String(data.campaignDocId || '').trim();
+    const action = String(data.action || '').toUpperCase();
+    if (!campaignDocId) throw new HttpsError('invalid-argument', 'campaignDocId is required.');
+    if (!['ACTIVE', 'PAUSED'].includes(action)) {
+      throw new HttpsError('invalid-argument', 'action must be ACTIVE or PAUSED.');
+    }
+    const ref = db.collection(AD_CAMPAIGNS_COLLECTION).doc(campaignDocId);
+    const snap = await ref.get();
+    if (!snap.exists) throw new HttpsError('not-found', 'Campaign not found.');
+    const campaign = snap.data() || {};
+    const secrets = await readAdsSecrets();
+    let synced = false;
+
+    if (campaign.externalCampaignId) {
+      if (campaign.platform === 'meta') {
+        const token = String(secrets.metaAccessToken || '');
+        const accountId = String(secrets.metaAdAccountId || '');
+        if (!token || !accountId) {
+          throw new HttpsError('failed-precondition', 'Meta credentials are missing.');
+        }
+        await metaGraphRequest(
+          String(campaign.externalCampaignId),
+          'POST',
+          { status: action === 'ACTIVE' ? 'ACTIVE' : 'PAUSED' },
+          token
+        );
+        synced = true;
+      } else if (campaign.platform === 'tiktok') {
+        const token = String(secrets.tiktokAccessToken || '');
+        const advertiserId = String(secrets.tiktokAdvertiserId || '');
+        if (!token || !advertiserId) {
+          throw new HttpsError('failed-precondition', 'TikTok credentials are missing.');
+        }
+        await tiktokRequest(
+          '/campaign/status/update/',
+          'POST',
+          {
+            advertiser_id: advertiserId,
+            campaign_ids: [String(campaign.externalCampaignId)],
+            operation_status: action === 'ACTIVE' ? 'ENABLE' : 'DISABLE'
+          },
+          token
+        );
+        synced = true;
+      }
+    }
+
+    await ref.update({
+      status: action,
+      updatedAt: FieldValue.serverTimestamp()
+    });
+    return { campaignDocId, status: action, synced };
+  }
+);
+
+exports.testAdPlatformConnection = onCall(
+  { region: 'europe-west1', timeoutSeconds: 30, maxInstances: 5 },
+  async (request) => {
+    await requireAdminCallable(request);
+    const platform = String((request.data || {}).platform || '').toLowerCase();
+    if (!['meta', 'tiktok'].includes(platform)) {
+      throw new HttpsError('invalid-argument', 'platform must be meta or tiktok.');
+    }
+    const secrets = await readAdsSecrets();
+    if (platform === 'meta') {
+      const accountId = String(secrets.metaAdAccountId || '').replace(/^act_/, '');
+      const token = String(secrets.metaAccessToken || '');
+      if (!accountId || !token) {
+        return { platform, configured: false, connected: false };
+      }
+      const url =
+        'https://graph.facebook.com/' +
+        META_GRAPH_VERSION +
+        '/act_' +
+        encodeURIComponent(accountId) +
+        '?fields=name,account_status,currency&access_token=' +
+        encodeURIComponent(token);
+      const response = await fetch(url);
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok || json.error) {
+        throw new HttpsError(
+          'failed-precondition',
+          (json.error && json.error.message) || 'Meta connection failed.'
+        );
+      }
+      const statusMap = {
+        1: 'ACTIVE',
+        2: 'DISABLED',
+        3: 'UNSETTLED',
+        7: 'PENDING_RISK_REVIEW',
+        8: 'PENDING_SETTLEMENT',
+        9: 'IN_GRACE_PERIOD',
+        100: 'PENDING_CLOSURE',
+        101: 'CLOSED',
+        201: 'ANY_ACTIVE',
+        202: 'ANY_CLOSED'
+      };
+      return {
+        platform,
+        configured: true,
+        connected: true,
+        accountName: String(json.name || ''),
+        status: statusMap[Number(json.account_status)] || String(json.account_status || ''),
+        currency: String(json.currency || '')
+      };
+    }
+
+    const advertiserId = String(secrets.tiktokAdvertiserId || '');
+    const token = String(secrets.tiktokAccessToken || '');
+    if (!advertiserId || !token) {
+      return { platform, configured: false, connected: false };
+    }
+    const info = await tiktokRequest(
+      '/advertiser/info/?advertiser_ids=' +
+        encodeURIComponent(JSON.stringify([advertiserId])),
+      'GET',
+      null,
+      token
+    );
+    const list = Array.isArray(info) ? info : info.list || [];
+    const account = list[0] || {};
+    return {
+      platform,
+      configured: true,
+      connected: true,
+      accountName: String(account.name || account.advertiser_name || ''),
+      status: String(account.status || account.advertiser_status || ''),
+      currency: String(account.currency || '')
+    };
+  }
+);
+
+/* __ADS_END__ */
+
+
+
+
+
 
 /* Notifications push + in-app + emails EmailJS : enregistre les déclencheurs.
    IMPORTANT : Object.assign est obligatoire — `require('./triggers')` seul

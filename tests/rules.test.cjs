@@ -115,6 +115,16 @@ async function main() {
       });
       /* SUIVI PUBLICITAIRE (2026-11-26) : commandes de test pour le
          rattachement d'attribution (statut pending puis delivered). */
+      await setDoc(doc(db, "ad_campaigns", "campaignA"), {
+        platform: "meta",
+        externalCampaignId: "120000000000000001",
+        productId: "publicProduct",
+        productTitle: "Public",
+        dailyBudgetMad: 50,
+        status: "ACTIVE",
+        destinationUrl: "https://www.smartswika.ma/produit.html?id=publicProduct",
+        createdAt: Timestamp.now()
+      });
       await setDoc(doc(db, "orders", "attributionOrder"), {
         userId: "buyerA",
         status: "pending",
@@ -651,10 +661,11 @@ async function main() {
       secret: "x"
     }));
 
-    /* Miroir public : lecture seule des IDs pixels. */
+    /* Miroir public : IDs pixels + verification de domaine. */
     await assertSucceeds(setDoc(doc(adminDb, "config", "ads_public"), {
       metaPixelId: "1234567890123456",
       tiktokPixelId: "CABC123456",
+      metaDomainVerification: "abc123def456",
       updatedAt: serverTimestamp()
     }));
     await assertSucceeds(getDoc(doc(anonDb, "config", "ads_public")));
@@ -668,6 +679,40 @@ async function main() {
       tiktokPixelId: "CABC123456",
       spendMeta7: 500,
       updatedAt: serverTimestamp()
+    }));
+    await assertFails(setDoc(doc(adminDb, "config", "ads_public"), {
+      metaPixelId: "1234567890123456",
+      tiktokPixelId: "CABC123456",
+      metaDomainVerification: "bad value!",
+      updatedAt: serverTimestamp()
+    }));
+
+    /* Secrets API : admin uniquement, jamais publics. */
+    const adsSecretsPayload = {
+      metaAdAccountId: "act_1234567890",
+      metaPageId: "1234567890",
+      metaAccessToken: "EAAB-test-token",
+      tiktokAdvertiserId: "7712489357529088007",
+      tiktokAccessToken: "tiktok-test-token",
+      updatedAt: serverTimestamp()
+    };
+    await assertFails(setDoc(doc(buyerDb, "config", "ads_secrets"), adsSecretsPayload));
+    await assertSucceeds(setDoc(doc(adminDb, "config", "ads_secrets"), adsSecretsPayload));
+    await assertFails(getDoc(doc(anonDb, "config", "ads_secrets")));
+    await assertFails(getDoc(doc(buyerDb, "config", "ads_secrets")));
+    await assertSucceeds(getDoc(doc(adminDb, "config", "ads_secrets")));
+    await assertFails(setDoc(doc(adminDb, "config", "ads_secrets"), {
+      ...adsSecretsPayload,
+      extra: "x"
+    }));
+
+    /* Campagnes creees par Cloud Functions : lecture admin seule. */
+    await assertSucceeds(getDoc(doc(adminDb, "ad_campaigns", "campaignA")));
+    await assertFails(getDoc(doc(buyerDb, "ad_campaigns", "campaignA")));
+    await assertFails(setDoc(doc(adminDb, "ad_campaigns", "campaignB"), {
+      platform: "meta",
+      status: "PAUSED",
+      createdAt: Timestamp.now()
     }));
 
     /* --------------------------------------------- CODES PROMO */

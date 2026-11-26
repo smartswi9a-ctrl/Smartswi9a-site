@@ -14,6 +14,9 @@
 /villes /villesmaroc 301
 /villes.html /villesmaroc 301
 
+# Flux catalogue produits officiel Smartswika (Cloud Function publique).
+/feed/products.xml https://europe-west1-smartswi9a-31063.cloudfunctions.net/productCatalogFeed 200
+
 # ============================================================
 # SÉCURITÉ — FICHIERS INTERNES JAMAIS PUBLICS
 # ------------------------------------------------------------

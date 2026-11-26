@@ -35,6 +35,8 @@ import {
   serverTimestamp,
   setDoc,
 } from "firebase/firestore";
+import { getApp } from "firebase/app";
+import { getFunctions, httpsCallable } from "firebase/functions";
 import { db } from "./firebase.js";
 import { adminT, getAdminLang } from "./admin-ui.js";
 import { escapeHTML } from "./utils.js";
@@ -50,14 +52,29 @@ const SPEND_SUFFIX = { 7: "7", 30: "30", month: "Month", all: "All" };
 
 let currentPeriod = "7";
 let adsConfig = {};
+let adsSecrets = {};
 let cachedOrders = [];
+let cachedAllOrders = [];
 let cachedEvents = [];
 let cachedProducts = [];
+let cachedViews = [];
+let cachedCampaigns = [];
 let chartInstance = null;
+let functionsInstance = null;
 let initialized = false;
 let loading = false;
+let launching = false;
 let lastStats = null;
 let saveStatusTimer = null;
+
+const OFFICIAL_VENDOR_IDS = new Set([
+  "smartswi9a",
+  "smartswika",
+  "platform",
+  "smartswi9a-31063",
+]);
+const ADS_MANAGER_META = "https://adsmanager.facebook.com/adsmanager/manage/campaigns";
+const ADS_MANAGER_TIKTOK = "https://ads.tiktok.com/i18n/dashboard";
 
 /* ============================================================
    HELPERS
@@ -133,6 +150,11 @@ function normalizeStatus(value) {
 function isDelivered(order) {
   const status = normalizeStatus(order && order.status);
   return status === "delivered" || status === "livree" || status === "livre";
+}
+
+function isNegativeCodStatus(order) {
+  const status = normalizeStatus(order && order.status);
+  return status === "returned" || status === "cancelled" || status === "canceled";
 }
 
 function orderSource(order) {
@@ -233,9 +255,13 @@ async function loadOrders(range) {
   const snap = await getDocs(
     query(collection(db, "orders"), orderBy("createdAt", "desc"), limit(2000))
   );
-  cachedOrders = snap.docs
-    .map((d) => ({ id: d.id, ...d.data(), __date: toDate(d.data().createdAt) }))
-    .filter((order) => inRange(order.__date, range));
+  const orders = snap.docs.map((d) => ({
+    id: d.id,
+    ...d.data(),
+    __date: toDate(d.data().createdAt),
+  }));
+  cachedAllOrders = orders;
+  cachedOrders = orders.filter((order) => inRange(order.__date, range));
 }
 
 async function loadEvents(range) {
@@ -257,18 +283,53 @@ async function loadConfig() {
   adsConfig = snap.exists() ? snap.data() || {} : {};
 }
 
+async function loadSecrets() {
+  try {
+    const snap = await getDoc(doc(db, "config", "ads_secrets"));
+    adsSecrets = snap.exists() ? snap.data() || {} : {};
+  } catch (error) {
+    console.warn("[admin-ads] secrets illisibles :", error && error.code);
+    adsSecrets = {};
+  }
+}
+
+async function loadProductViews() {
+  const snap = await getDocs(
+    query(collection(db, "product_views"), orderBy("viewCount", "desc"), limit(2000))
+  );
+  cachedViews = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+async function loadCampaigns() {
+  const snap = await getDocs(
+    query(collection(db, "ad_campaigns"), orderBy("createdAt", "desc"), limit(500))
+  );
+  cachedCampaigns = snap.docs.map((d) => ({
+    id: d.id,
+    ...d.data(),
+    __date: toDate(d.data().createdAt),
+  }));
+}
+
 async function loadAll() {
   if (loading) return;
   loading = true;
   const range = periodRange(currentPeriod);
   try {
-    await Promise.all([loadConfig(), loadProducts()]);
-    await Promise.all([loadOrders(range), loadEvents(range)]);
+    await Promise.all([loadConfig(), loadProducts(), loadSecrets()]);
+    await Promise.all([
+      loadOrders(range),
+      loadEvents(range),
+      loadProductViews(),
+      loadCampaigns(),
+    ]);
     lastStats = computeStats();
     renderKpi(lastStats);
     renderChart(lastStats);
     renderTable(lastStats);
     renderSpendInputs();
+    renderSuggestions();
+    renderCampaigns();
   } catch (error) {
     console.error("[admin-ads] chargement impossible :", error);
     const status = document.getElementById("adsConfigStatus");
@@ -664,6 +725,549 @@ function renderTable(stats) {
 }
 
 /* ============================================================
+   MOTEUR IA — SCORING COD & CAMPAGNES SUGGÉRÉES
+   ============================================================ */
+
+function isOfficialProduct(product) {
+  if (!product) return false;
+  const vendorId = String(product.vendorId || "").trim();
+  if (!vendorId) return true;
+  if (OFFICIAL_VENDOR_IDS.has(vendorId)) return true;
+  return product.isSmartswikaOfficial === true && vendorId === "smartswi9a";
+}
+
+function officialProducts() {
+  return cachedProducts.filter(
+    (product) =>
+      product.status === "approved" &&
+      Number(product.stock) > 0 &&
+      isOfficialProduct(product)
+  );
+}
+
+function averageLivoFee() {
+  const delivered = cachedAllOrders.filter(isDelivered);
+  const fees = delivered
+    .map((order) => Number(order.deliveryFee))
+    .filter((fee) => Number.isFinite(fee) && fee > 0);
+  if (!fees.length) return 30;
+  return Math.round(fees.reduce((sum, fee) => sum + fee, 0) / fees.length);
+}
+
+function productOrderStats(productId) {
+  let total = 0;
+  let delivered = 0;
+  let closed = 0;
+  for (const order of cachedAllOrders) {
+    const items = Array.isArray(order.items) ? order.items : [];
+    const hasProduct = items.some(
+      (item) => item && String(item.productId) === String(productId)
+    );
+    if (!hasProduct) continue;
+    total += 1;
+    if (isDelivered(order)) {
+      delivered += 1;
+      closed += 1;
+    } else if (isNegativeCodStatus(order)) {
+      closed += 1;
+    }
+  }
+  return {
+    total,
+    delivered,
+    closed,
+    deliveryRate: closed > 0 ? delivered / closed : 0.6,
+  };
+}
+
+function productViewCount(productId) {
+  return cachedViews
+    .filter((view) => String(view.productId) === String(productId))
+    .reduce((sum, view) => sum + (Number(view.viewCount) || 0), 0);
+}
+
+function suggestedDailyBudget(margin) {
+  if (!(margin > 0)) return 50;
+  const raw = Math.round((margin * 0.6) / 10) * 10;
+  return Math.max(30, Math.min(300, raw || 50));
+}
+
+function suggestedChannel(score, margin, views) {
+  if (score >= 75 && margin >= 80) return "both";
+  if (views >= 100 || margin < 60) return "tiktok";
+  return "meta";
+}
+
+function suggestedBadge(score, margin) {
+  if (score >= 80) return { key: "adsBadgeWinning", emoji: "🔥" };
+  if (margin >= 100) return { key: "adsBadgeHighMargin", emoji: "💎" };
+  return { key: "adsBadgeStrong", emoji: "📈" };
+}
+
+function buildAdCopy(product, price) {
+  const nameFr = product.nameFr || product.nameEn || product.nameAr || "Produit";
+  const nameEn = product.nameEn || nameFr;
+  const nameAr = product.nameAr || nameFr;
+  const priceText = fmtNumber(price);
+  return {
+    fr: `🔥 ${nameFr} à ${priceText} MAD seulement !\n✅ Paiement à la livraison 24-72h partout au Maroc\n👉 Commandez maintenant`,
+    en: `🔥 ${nameEn} for only ${priceText} MAD!\n✅ Cash on Delivery 24-72h across Morocco\n👉 Order now`,
+    ar: `🔥 ${nameAr} بسعر ${priceText} درهم فقط!\n✅ الدفع عند الاستلام خلال 24-72 ساعة في كل المغرب\n👉 اطلب الآن`,
+  };
+}
+
+function buildDestinationUrl(productId, source) {
+  const safeId = String(productId).replace(/[^A-Za-z0-9_-]/g, "");
+  const safeSource = source === "meta" ? "meta" : "tiktok";
+  return `https://www.smartswika.ma/produit.html?id=${encodeURIComponent(
+    safeId
+  )}&utm_source=${safeSource}&utm_medium=paid_social&utm_campaign=auto_${safeId}`;
+}
+
+function buildSuggestion(product, livoFee) {
+  const price = Number(product.price) || 0;
+  const purchase = Number(product.purchasePrice) || 0;
+  const margin = Math.max(0, price - purchase - livoFee);
+  const orders = productOrderStats(product.id);
+  const views = productViewCount(product.id);
+  const marginScore = Math.min(40, Math.max(0, (margin / 150) * 40));
+  const interestScore = Math.min(
+    30,
+    (views / 100) * 20 + Math.min(10, orders.total * 2)
+  );
+  const codScore = Math.min(30, Math.max(0, orders.deliveryRate * 30));
+  const score = Math.round(marginScore + interestScore + codScore);
+  const channel = suggestedChannel(score, margin, views);
+  const badge = suggestedBadge(score, margin);
+  const copy = buildAdCopy(product, price);
+  const source = channel === "meta" ? "meta" : "tiktok";
+  return {
+    product,
+    price,
+    margin,
+    views,
+    orders,
+    score,
+    channel,
+    badge,
+    budget: suggestedDailyBudget(margin),
+    copy,
+    destinationUrl: buildDestinationUrl(product.id, source),
+  };
+}
+
+function suggestionChannelLabel(channel) {
+  if (channel === "meta") return adminT("adsChannelMeta");
+  if (channel === "tiktok") return adminT("adsChannelTiktok");
+  return adminT("adsChannelBoth");
+}
+
+function productDisplayName(product) {
+  if (!product) return "";
+  const lang = getAdminLang();
+  if (lang === "ar") {
+    return product.nameAr || product.nameFr || product.nameEn || "";
+  }
+  if (lang === "en") {
+    return product.nameEn || product.nameFr || product.nameAr || "";
+  }
+  return product.nameFr || product.nameEn || product.nameAr || "";
+}
+
+function adsFunctions() {
+  if (!functionsInstance) {
+    functionsInstance = getFunctions(getApp(), "europe-west1");
+  }
+  return functionsInstance;
+}
+
+async function callAdsFunction(name, data) {
+  const callable = httpsCallable(adsFunctions(), name);
+  const result = await callable(data || {});
+  return result.data;
+}
+
+function platformIsConfigured(platform) {
+  const metaReady = Boolean(adsSecrets.metaAccessToken && adsSecrets.metaAdAccountId);
+  const tiktokReady = Boolean(
+    adsSecrets.tiktokAccessToken && adsSecrets.tiktokAdvertiserId
+  );
+  if (platform === "meta") return metaReady;
+  if (platform === "tiktok") return tiktokReady;
+  return metaReady && tiktokReady;
+}
+
+function renderSuggestions() {
+  const container = document.getElementById("adsSuggestions");
+  if (!container) return;
+  const livoFee = averageLivoFee();
+  const suggestions = officialProducts()
+    .map((product) => buildSuggestion(product, livoFee))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5);
+
+  if (!suggestions.length) {
+    container.innerHTML = `<div class="ads-guide">
+      <span class="ads-guide-ico" aria-hidden="true">🧭</span>
+      <h4>${escapeHTML(adminT("adsSuggestionsEmptyTitle"))}</h4>
+      <p>${escapeHTML(adminT("adsSuggestionsEmptyDesc"))}</p>
+      <button type="button" class="admin-btn-secondary" data-ads-goto-products>
+        ${escapeHTML(adminT("adsSuggestionsGoProducts"))}
+      </button>
+    </div>`;
+    container.querySelector("[data-ads-goto-products]")?.addEventListener("click", () => {
+      document.querySelector('#adminTabs button[data-tab="products"]')?.click();
+    });
+    return;
+  }
+
+  const lang = getAdminLang();
+  container.innerHTML = suggestions
+    .map((suggestion) => {
+      const product = suggestion.product;
+      const name = productDisplayName(product) || "—";
+      const image = product.img || (product.gallery || [])[0] || "/assets/logo-64.png";
+      return `<article class="ads-suggestion" data-suggestion-product="${escapeHTML(
+        String(product.id)
+      )}">
+        <div class="ads-suggestion-head">
+          <div class="ads-suggestion-score">
+            <strong>${suggestion.score}<small>/100</small></strong>
+            <span class="ads-badge">${suggestion.badge.emoji} ${escapeHTML(
+              adminT(suggestion.badge.key)
+            )}</span>
+          </div>
+          <span class="ads-channel-pill">${escapeHTML(
+            suggestionChannelLabel(suggestion.channel)
+          )}</span>
+        </div>
+        <div class="ads-suggestion-product">
+          <img src="${escapeHTML(image)}" alt="" width="56" height="56" loading="lazy">
+          <div>
+            <h4>${escapeHTML(name)}</h4>
+            <div class="ads-suggestion-metrics">
+              <span>${escapeHTML(adminT("adsMetricMargin"))} <strong>${money(
+                suggestion.margin
+              )}</strong></span>
+              <span>${escapeHTML(adminT("adsMetricViews"))} <strong>${fmtNumber(
+                suggestion.views
+              )}</strong></span>
+              <span>${escapeHTML(adminT("adsMetricCod"))} <strong>${fmtNumber(
+                suggestion.orders.deliveryRate * 100,
+                1
+              )} %</strong></span>
+            </div>
+          </div>
+        </div>
+        <div class="ads-suggestion-controls">
+          <label>${escapeHTML(adminT("adsSuggestionChannel"))}
+            <select data-suggestion-channel>
+              <option value="meta" ${suggestion.channel === "meta" ? "selected" : ""}>${escapeHTML(
+                adminT("adsChannelMeta")
+              )}</option>
+              <option value="tiktok" ${
+                suggestion.channel === "tiktok" ? "selected" : ""
+              }>${escapeHTML(adminT("adsChannelTiktok"))}</option>
+              <option value="both" ${suggestion.channel === "both" ? "selected" : ""}>${escapeHTML(
+                adminT("adsChannelBoth")
+              )}</option>
+            </select>
+          </label>
+          <label>${escapeHTML(adminT("adsSuggestionBudget"))}
+            <input type="number" min="20" max="5000" step="10" data-suggestion-budget value="${suggestion.budget}">
+          </label>
+          <label class="ads-check">
+            <input type="checkbox" data-suggestion-paused checked>
+            ${escapeHTML(adminT("adsSuggestionPaused"))}
+          </label>
+        </div>
+        <label class="ads-copy-label">${escapeHTML(adminT("adsSuggestionCopy"))}
+          <textarea data-suggestion-copy rows="4">${escapeHTML(
+            suggestion.copy[lang] || suggestion.copy.fr
+          )}</textarea>
+        </label>
+        <code class="ads-destination">${escapeHTML(suggestion.destinationUrl)}</code>
+        <div class="ads-suggestion-actions">
+          <button type="button" class="admin-btn-primary" data-launch-suggestion>
+            🚀 ${escapeHTML(adminT("adsLaunchNow"))}
+          </button>
+          <span class="ads-status" data-suggestion-status role="status" aria-live="polite"></span>
+        </div>
+      </article>`;
+    })
+    .join("");
+
+  container.querySelectorAll("[data-launch-suggestion]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const card = button.closest("[data-suggestion-product]");
+      if (card) launchSuggestedCampaign(card);
+    });
+  });
+}
+
+function setSuggestionStatus(card, message, isError) {
+  const status = card.querySelector("[data-suggestion-status]");
+  if (!status) return;
+  status.textContent = message || "";
+  status.classList.toggle("is-error", Boolean(isError));
+}
+
+async function launchSuggestedCampaign(card) {
+  if (launching) return;
+  const productId = card.dataset.suggestionProduct;
+  const product = cachedProducts.find((item) => String(item.id) === String(productId));
+  if (!product) return;
+  const channel = card.querySelector("[data-suggestion-channel]")?.value || "meta";
+  const budget = Number(card.querySelector("[data-suggestion-budget]")?.value) || 50;
+  const startPaused = Boolean(card.querySelector("[data-suggestion-paused]")?.checked);
+  const editedCopy = card.querySelector("[data-suggestion-copy]")?.value || "";
+  const base = buildSuggestion(product, averageLivoFee());
+  const lang = getAdminLang();
+  base.copy[lang] = editedCopy;
+  const destinationUrl = buildDestinationUrl(
+    product.id,
+    channel === "meta" ? "meta" : "tiktok"
+  );
+  const button = card.querySelector("[data-launch-suggestion]");
+  const willFallback = !platformIsConfigured(channel);
+  const popup = willFallback ? window.open("about:blank", "smartswika_ads_manager") : null;
+  launching = true;
+  if (button) button.disabled = true;
+  setSuggestionStatus(card, adminT("adsLaunching"), false);
+  try {
+    const result = await callAdsFunction("launchSuggestedAdCampaign", {
+      platform: channel,
+      productId: product.id,
+      campaignName: `Smartswika ${product.nameFr || product.id} ${channel}`.slice(0, 120),
+      dailyBudgetMad: budget,
+      adCopy: base.copy,
+      destinationUrl,
+      startPaused,
+    });
+    if (result.mode === "prepared") {
+      const copyPayload = `${editedCopy}\n${destinationUrl}`;
+      await copyText(copyPayload);
+      if (popup && result.adsManagerUrl) {
+        popup.location.href = result.adsManagerUrl;
+      } else if (result.adsManagerUrl) {
+        window.open(result.adsManagerUrl, "_blank", "noopener");
+      }
+      setSuggestionStatus(card, adminT("adsPreparedMode"), false);
+    } else {
+      if (popup) popup.close();
+      setSuggestionStatus(
+        card,
+        result.mode === "partial" ? adminT("adsLaunchedPartial") : adminT("adsLaunched"),
+        false
+      );
+      await loadCampaigns();
+      renderCampaigns();
+    }
+  } catch (error) {
+    if (popup) popup.close();
+    console.error("[admin-ads] lancement impossible :", error);
+    setSuggestionStatus(
+      card,
+      `${adminT("adsLaunchError")} ${String((error && error.message) || "").slice(0, 160)}`,
+      true
+    );
+  } finally {
+    launching = false;
+    if (button) button.disabled = false;
+  }
+}
+
+function campaignOrders(campaign) {
+  const utmCampaign = `auto_${String(campaign.productId || "")}`;
+  const attributed = cachedAllOrders.filter(
+    (order) => String((order.attribution && order.attribution.campaign) || "") === utmCampaign
+  );
+  if (attributed.length) return attributed;
+  const since = campaign.__date ? campaign.__date.getTime() : 0;
+  return cachedAllOrders.filter((order) => {
+    const items = Array.isArray(order.items) ? order.items : [];
+    const matchesProduct = items.some(
+      (item) => item && String(item.productId) === String(campaign.productId)
+    );
+    if (!matchesProduct) return false;
+    if (!since) return true;
+    return order.__date && order.__date.getTime() >= since;
+  });
+}
+
+function campaignStats(campaign) {
+  const orders = campaignOrders(campaign);
+  const delivered = orders.filter(isDelivered).length;
+  const negative = orders.filter(isNegativeCodStatus).length;
+  const total = orders.length;
+  const closed = delivered + negative;
+  const rate = closed > 0 ? (delivered / closed) * 100 : 0;
+  const active = String(campaign.status || "").toUpperCase() === "ACTIVE";
+  return {
+    total,
+    delivered,
+    rate,
+    alert: active && total > 10 && rate < 45,
+  };
+}
+
+function campaignStatusLabel(status) {
+  return String(status || "").toUpperCase() === "ACTIVE"
+    ? adminT("adsStatusActive")
+    : adminT("adsStatusPaused");
+}
+
+function renderCampaigns() {
+  const container = document.getElementById("adsCampaigns");
+  if (!container) return;
+  if (!cachedCampaigns.length) {
+    container.innerHTML = `<div class="ads-guide">
+      <span class="ads-guide-ico" aria-hidden="true">📡</span>
+      <h4>${escapeHTML(adminT("adsCampaignsEmptyTitle"))}</h4>
+      <p>${escapeHTML(adminT("adsCampaignsEmptyDesc"))}</p>
+    </div>`;
+    return;
+  }
+
+  container.innerHTML = cachedCampaigns
+    .map((campaign) => {
+      const stats = campaignStats(campaign);
+      const active = String(campaign.status || "").toUpperCase() === "ACTIVE";
+      const nextAction = active ? "PAUSED" : "ACTIVE";
+      const platformLabel =
+        campaign.platform === "tiktok"
+          ? adminT("adsChannelTiktok")
+          : adminT("adsChannelMeta");
+      const linkedProduct = cachedProducts.find(
+        (product) => String(product.id) === String(campaign.productId)
+      );
+      const displayTitle =
+        productDisplayName(linkedProduct) || campaign.productTitle || campaign.productId || "—";
+      return `<article class="ads-campaign-card" data-campaign-id="${escapeHTML(
+        campaign.id
+      )}">
+        <div class="ads-campaign-head">
+          <div>
+            <strong>${escapeHTML(displayTitle)}</strong>
+            <div class="ads-campaign-meta">
+              <span class="ads-channel-pill">${escapeHTML(platformLabel)}</span>
+              <span class="ads-campaign-status ${
+                active ? "is-active" : "is-paused"
+              }">${escapeHTML(campaignStatusLabel(campaign.status))}</span>
+              <span>${escapeHTML(adminT("adsCampaignBudget"))} : ${money(
+                campaign.dailyBudgetMad
+              )}/j</span>
+            </div>
+          </div>
+          <button type="button" class="admin-btn-secondary" data-toggle-campaign="${escapeHTML(
+            campaign.id
+          )}" data-toggle-action="${nextAction}">
+            ${active ? "⏸️ " + escapeHTML(adminT("adsPause")) : "▶️ " + escapeHTML(adminT("adsActivate"))}
+          </button>
+        </div>
+        <div class="ads-campaign-stats">
+          <div><span>${escapeHTML(adminT("adsCampaignOrders"))}</span><strong>${fmtNumber(
+            stats.total
+          )}</strong></div>
+          <div><span>${escapeHTML(adminT("adsCampaignDelivered"))}</span><strong>${fmtNumber(
+            stats.delivered
+          )}</strong></div>
+          <div><span>${escapeHTML(adminT("adsCampaignCod"))}</span><strong>${fmtNumber(
+            stats.rate,
+            1
+          )} %</strong></div>
+          <div><span>${escapeHTML(adminT("adsCampaignExternal"))}</span><strong>${escapeHTML(
+            String(campaign.externalCampaignId || "—")
+          )}</strong></div>
+        </div>
+        ${stats.alert ? `<div class="ads-cod-alert">⚠️ ${escapeHTML(
+          adminT("adsCodAlert")
+        )}</div>` : ""}
+      </article>`;
+    })
+    .join("");
+
+  container.querySelectorAll("[data-toggle-campaign]").forEach((button) => {
+    button.addEventListener("click", () => {
+      toggleCampaignStatus(
+        button.dataset.toggleCampaign,
+        button.dataset.toggleAction,
+        button
+      );
+    });
+  });
+}
+
+async function toggleCampaignStatus(campaignDocId, action, button) {
+  if (!campaignDocId || !action) return;
+  if (button) button.disabled = true;
+  try {
+    await callAdsFunction("toggleAdCampaignStatus", {
+      campaignDocId,
+      action,
+    });
+    await loadCampaigns();
+    renderCampaigns();
+  } catch (error) {
+    console.error("[admin-ads] changement de statut impossible :", error);
+    if (button) button.disabled = false;
+    window.alert(String((error && error.message) || adminT("adsSaveError")));
+  }
+}
+
+async function copyCatalogFeedUrl() {
+  const url = "https://www.smartswika.ma/feed/products.xml";
+  const ok = await copyText(url);
+  const status = document.getElementById("adsFeedStatus");
+  if (status) {
+    status.textContent = ok ? adminT("adsFeedCopied") : adminT("adsUtmCopyError");
+    status.classList.toggle("is-error", !ok);
+    setTimeout(() => {
+      status.textContent = "";
+      status.classList.remove("is-error");
+    }, 3500);
+  }
+}
+
+async function testAdConnection(platform, button) {
+  if (button) button.disabled = true;
+  const status = document.getElementById(
+    platform === "meta" ? "adsMetaTestStatus" : "adsTiktokTestStatus"
+  );
+  if (status) {
+    status.textContent = adminT("adsTesting");
+    status.classList.remove("is-error");
+  }
+  try {
+    const result = await callAdsFunction("testAdPlatformConnection", { platform });
+    if (!result.configured) {
+      if (status) status.textContent = adminT("adsNotConfigured");
+      return;
+    }
+    if (status) {
+      status.textContent = `${result.accountName || result.platform} · ${
+        result.status || ""
+      } ${result.currency || ""}`.trim();
+    }
+  } catch (error) {
+    if (status) {
+      status.textContent = `${adminT("adsConnectionError")} ${String(
+        (error && error.message) || ""
+      ).slice(0, 140)}`;
+      status.classList.add("is-error");
+    }
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+/* __ADS_CONFIG_FIELDS__ */
+
+
+
+
+
+/* ============================================================
    CONFIGURATION PIXELS & BUDGETS
    ============================================================ */
 
@@ -689,9 +1293,27 @@ function renderSpendInputs() {
   const suffix = SPEND_SUFFIX[currentPeriod] || "7";
   setValue("adsMetaPixelId", adsConfig.metaPixelId || "");
   setValue("adsTiktokPixelId", adsConfig.tiktokPixelId || "");
+  setValue("adsMetaDomainVerification", adsConfig.metaDomainVerification || "");
   setValue("adsSpendMeta", adsConfig[`spendMeta${suffix}`] ?? "");
   setValue("adsSpendTiktok", adsConfig[`spendTiktok${suffix}`] ?? "");
   setValue("adsSpendOther", adsConfig[`spendOther${suffix}`] ?? "");
+  setValue("adsMetaAdAccountId", adsSecrets.metaAdAccountId || "");
+  setValue("adsMetaPageId", adsSecrets.metaPageId || "");
+  setValue("adsTiktokAdvertiserId", adsSecrets.tiktokAdvertiserId || "");
+  setValue("adsMetaAccessToken", "");
+  setValue("adsTiktokAccessToken", "");
+  const metaToken = document.getElementById("adsMetaAccessToken");
+  const tiktokToken = document.getElementById("adsTiktokAccessToken");
+  if (metaToken) {
+    metaToken.placeholder = adsSecrets.metaAccessToken
+      ? "•••••••••••• (conservé)"
+      : "EAAB...";
+  }
+  if (tiktokToken) {
+    tiktokToken.placeholder = adsSecrets.tiktokAccessToken
+      ? "•••••••••••• (conservé)"
+      : "TikTok access token";
+  }
   const hint = document.getElementById("adsSpendPeriodHint");
   if (hint) {
     hint.textContent = `${adminT("adsSpendPeriod")} : ${periodLabel(currentPeriod)} — ${adminT(
@@ -733,26 +1355,52 @@ async function saveAdsConfig() {
   }
 
   const suffix = SPEND_SUFFIX[currentPeriod] || "7";
+  const metaDomainVerification = String(
+    document.getElementById("adsMetaDomainVerification")?.value || ""
+  )
+    .replace(/[^A-Za-z0-9_-]/g, "")
+    .slice(0, 200);
   const payload = {
     metaPixelId,
     tiktokPixelId,
+    metaDomainVerification,
     [`spendMeta${suffix}`]: readAmount("adsSpendMeta"),
     [`spendTiktok${suffix}`]: readAmount("adsSpendTiktok"),
     [`spendOther${suffix}`]: readAmount("adsSpendOther"),
     updatedAt: serverTimestamp(),
   };
+  const secretValue = (id) =>
+    String(document.getElementById(id)?.value || "").trim();
+  const metaToken = secretValue("adsMetaAccessToken").slice(0, 4096);
+  const tiktokToken = secretValue("adsTiktokAccessToken").slice(0, 4096);
+  const secretsPayload = {
+    metaAdAccountId: secretValue("adsMetaAdAccountId").slice(0, 64),
+    metaPageId: secretValue("adsMetaPageId").slice(0, 64),
+    tiktokAdvertiserId: secretValue("adsTiktokAdvertiserId").slice(0, 64),
+    updatedAt: serverTimestamp(),
+  };
+  if (metaToken) secretsPayload.metaAccessToken = metaToken;
+  if (tiktokToken) secretsPayload.tiktokAccessToken = tiktokToken;
 
   if (button) button.disabled = true;
   try {
-    /* Document privé : IDs + budgets (admin uniquement). */
+    /* Document privé : IDs + budgets + domaine (admin uniquement). */
     await setDoc(doc(db, "config", "ads"), payload, { merge: true });
-    /* Miroir public : SEULS les IDs pixels (jamais les budgets). */
+    /* Miroir public : IDs pixels + verification de domaine. */
     await setDoc(
       doc(db, "config", "ads_public"),
-      { metaPixelId, tiktokPixelId, updatedAt: serverTimestamp() },
+      { metaPixelId, tiktokPixelId, metaDomainVerification, updatedAt: serverTimestamp() },
       { merge: true }
     );
+    /* Secrets API : jamais dans le document public. */
+    await setDoc(doc(db, "config", "ads_secrets"), secretsPayload, { merge: true });
     adsConfig = { ...adsConfig, ...payload };
+    adsSecrets = {
+      ...adsSecrets,
+      ...secretsPayload,
+      metaAccessToken: metaToken || adsSecrets.metaAccessToken || "",
+      tiktokAccessToken: tiktokToken || adsSecrets.tiktokAccessToken || "",
+    };
     setConfigStatus(adminT("adsSaved"), false);
     if (lastStats) {
       lastStats = computeStats();
@@ -760,6 +1408,7 @@ async function saveAdsConfig() {
       renderChart(lastStats);
       renderTable(lastStats);
     }
+    renderSuggestions();
   } catch (error) {
     console.error("[admin-ads] enregistrement impossible :", error);
     setConfigStatus(adminT("adsSaveError"), true);
@@ -883,6 +1532,11 @@ function bindEvents() {
   document.getElementById("adsUtmCopy")?.addEventListener("click", copyUtmLink);
   document.getElementById("adsUtmChannel")?.addEventListener("change", updateUtmPreview);
   document.getElementById("adsUtmCampaign")?.addEventListener("input", updateUtmPreview);
+  document.getElementById("adsFeedCopy")?.addEventListener("click", copyCatalogFeedUrl);
+  const metaTest = document.getElementById("adsTestMeta");
+  const tiktokTest = document.getElementById("adsTestTiktok");
+  metaTest?.addEventListener("click", () => testAdConnection("meta", metaTest));
+  tiktokTest?.addEventListener("click", () => testAdConnection("tiktok", tiktokTest));
 
   /* La langue admin est appliquée par admin-ui.js : on redessine les
      libellés dynamiques sans relire Firestore. */
@@ -899,6 +1553,8 @@ function bindEvents() {
       renderChart(lastStats);
       renderTable(lastStats);
     }
+    renderSuggestions();
+    renderCampaigns();
     updateUtmPreview();
   });
 }
@@ -925,4 +1581,4 @@ if (typeof window !== "undefined") {
   };
 }
 
-console.log("✅ admin-ads.js chargé - v1.0.0 (Suivi Pubs TikTok & Meta)");
+console.log("✅ admin-ads.js chargé - v1.1.0 (Suivi Pubs + Automatisation campagnes)");

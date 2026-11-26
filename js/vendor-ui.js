@@ -96,6 +96,9 @@ const VENDOR_I18N = {
     qtyLabel: "Quantité",
     netRevenueLabel: "Revenus nets",
     stockLabel: "Stock",
+    copyAdLink: "📣 Copier lien pub",
+    adLinkCopied: "Lien publicitaire copié",
+    adLinkCopyFailed: "Copie impossible. Réessayez.",
   },
   en: {
     skipToContent: "Skip to main content",
@@ -177,6 +180,9 @@ const VENDOR_I18N = {
     qtyLabel: "Quantity",
     netRevenueLabel: "Net revenue",
     stockLabel: "Stock",
+    copyAdLink: "📣 Copy ad link",
+    adLinkCopied: "Advertising link copied",
+    adLinkCopyFailed: "Copy failed. Please retry.",
   },
   ar: {
     skipToContent: "انتقل إلى المحتوى",
@@ -258,6 +264,9 @@ const VENDOR_I18N = {
     qtyLabel: "الكمية",
     netRevenueLabel: "صافي الأرباح",
     stockLabel: "المخزون",
+    copyAdLink: "📣 نسخ رابط الإعلان",
+    adLinkCopied: "تم نسخ رابط الإعلان",
+    adLinkCopyFailed: "تعذر النسخ. أعد المحاولة.",
   },
 };
 
@@ -350,6 +359,32 @@ export function vendorFormatMAD(value) {
     return new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(num) + " MAD";
   } catch (e) {
     return num + " MAD";
+  }
+}
+
+export async function copyVendorText(value) {
+  const text = String(value || "");
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (e) {
+      /* repli ci-dessous */
+    }
+  }
+  try {
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.setAttribute("readonly", "readonly");
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.appendChild(area);
+    area.select();
+    const ok = document.execCommand("copy");
+    area.remove();
+    return ok;
+  } catch (e) {
+    return false;
   }
 }
 
@@ -806,6 +841,7 @@ function initVendorUi() {
   window.__vendorT = vendorT;
   window.__vendorGetLang = getVendorLang;
   window.__vendorFormatMAD = vendorFormatMAD;
+  window.__vendorCopyText = copyVendorText;
   window.__vendorI18n = {
     t: vendorT,
     apply: applyVendorLang,

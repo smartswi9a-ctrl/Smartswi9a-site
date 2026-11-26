@@ -1015,7 +1015,7 @@ export async function checkout( cartItems, deliveryInfo, appliedCoupon = null, w
 async function attachOrderAttribution(orderId) {
   if (!orderId) return false;
   try {
-    const { buildOrderAttribution } = await import("./ads-attribution.js?v=2");
+    const { buildOrderAttribution } = await import("./ads-attribution.js?v=3");
     const raw = buildOrderAttribution();
     const landedAtMs = Number(raw.landedAt);
     const attribution = {

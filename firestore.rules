@@ -75,7 +75,7 @@ service cloud.firestore {
         'spendMeta30', 'spendTiktok30', 'spendOther30',
         'spendMetaMonth', 'spendTiktokMonth', 'spendOtherMonth',
         'spendMetaAll', 'spendTiktokAll', 'spendOtherAll',
-        'updatedAt', 'updatedBy'
+        'metaDomainVerification', 'updatedAt', 'updatedBy'
       ]) &&
         d.metaPixelId is string &&
         d.metaPixelId.size() <= 32 &&
@@ -83,6 +83,14 @@ service cloud.firestore {
         d.tiktokPixelId is string &&
         d.tiktokPixelId.size() <= 40 &&
         d.tiktokPixelId.matches('^[A-Za-z0-9]*$') &&
+        (
+          !d.keys().hasAny(['metaDomainVerification']) ||
+          (
+            d.metaDomainVerification is string &&
+            d.metaDomainVerification.size() <= 200 &&
+            d.metaDomainVerification.matches('^[A-Za-z0-9_-]*$')
+          )
+        ) &&
         (
           !d.keys().hasAny(['updatedBy']) ||
           (d.updatedBy is string && d.updatedBy.size() <= 128)
@@ -104,13 +112,52 @@ service cloud.firestore {
 
     function validAdsPublic() {
       let d = request.resource.data;
-      return d.keys().hasOnly(['metaPixelId', 'tiktokPixelId', 'updatedAt']) &&
+      return d.keys().hasOnly([
+        'metaPixelId', 'tiktokPixelId', 'metaDomainVerification', 'updatedAt'
+      ]) &&
         d.metaPixelId is string &&
         d.metaPixelId.size() <= 32 &&
         d.metaPixelId.matches('^[0-9]*$') &&
         d.tiktokPixelId is string &&
         d.tiktokPixelId.size() <= 40 &&
         d.tiktokPixelId.matches('^[A-Za-z0-9]*$') &&
+        (
+          !d.keys().hasAny(['metaDomainVerification']) ||
+          (
+            d.metaDomainVerification is string &&
+            d.metaDomainVerification.size() <= 200 &&
+            d.metaDomainVerification.matches('^[A-Za-z0-9_-]*$')
+          )
+        ) &&
+        d.updatedAt == request.time;
+    }
+
+    function validAdsSecrets() {
+      let d = request.resource.data;
+      return d.keys().hasOnly([
+        'metaAdAccountId', 'metaPageId', 'metaAccessToken',
+        'tiktokAdvertiserId', 'tiktokAccessToken', 'updatedAt'
+      ]) &&
+        (
+          !d.keys().hasAny(['metaAdAccountId']) ||
+          (d.metaAdAccountId is string && d.metaAdAccountId.size() <= 64)
+        ) &&
+        (
+          !d.keys().hasAny(['metaPageId']) ||
+          (d.metaPageId is string && d.metaPageId.size() <= 64)
+        ) &&
+        (
+          !d.keys().hasAny(['metaAccessToken']) ||
+          (d.metaAccessToken is string && d.metaAccessToken.size() <= 4096)
+        ) &&
+        (
+          !d.keys().hasAny(['tiktokAdvertiserId']) ||
+          (d.tiktokAdvertiserId is string && d.tiktokAdvertiserId.size() <= 64)
+        ) &&
+        (
+          !d.keys().hasAny(['tiktokAccessToken']) ||
+          (d.tiktokAccessToken is string && d.tiktokAccessToken.size() <= 4096)
+        ) &&
         d.updatedAt == request.time;
     }
 
@@ -1084,6 +1131,12 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /config/ads_secrets {
+      allow read: if isAdmin();
+      allow create, update: if isAdmin() && validAdsSecrets();
+      allow delete: if isAdmin();
+    }
+
     match /config/{docId} {
       allow read: if isAdmin();
       allow write: if false;
@@ -1170,6 +1223,11 @@ service cloud.firestore {
       allow create, update: if adEventWriteValid() &&
         eventId == request.resource.data.date + '_' + request.resource.data.source;
       allow delete: if isAdmin();
+    }
+
+    match /ad_campaigns/{campaignId} {
+      allow read: if isAdmin();
+      allow create, update, delete: if false;
     }
 
     /* REFUS PAR DÉFAUT */
