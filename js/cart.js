@@ -1,4 +1,4 @@
-/* ============================================================ js/cart.js Panier et commandes - Smart Swi9a Version 10.0.0 - Lot 44 : préparation R2 (lastOrderId + invariant) CHANGEMENTS v10.0.0 : - R2-preparation (P0) : createOrder ajoute `lastOrderId: orderRef.id` dans chaque transaction.update(productRef). Requis par la nouvelle règle R2 (firestore.rules v5.2.x) qui exige la traçabilité de l'origine de la modification de stock. - R2-preparation (P0) : cancelOrder ajoute `lastOrderId: orderId` dans chaque transaction.update(productRef) pour la même raison. - B-cart-8 (P1) : createOrder garantit l'invariant `stock + salesCount` (delta_stock + delta_salesCount == 0). Ça permet à la future règle R2 de vérifier la cohérence même sans get(order) (Firestore interdit get() dans la même transaction). - B-cart-9 (P2) : chaque updateData contient `updatedAt: Timestamp.now()` pour respecter les whitelists de la nouvelle règle R2. - Aucun changement fonctionnel côté utilisateur. Rétrocompatible. - Bump version 9.0.0 -> 10.0.0. ⚠️ CE FICHIER DOIT ÊTRE DÉPLOYÉ AVANT firestore.rules v5.2.x. Sinon les créations de commande échoueront avec permission-denied. ALERTE 1 : plus aucun commentaire de ligne (//) en début de ligne utile. Tout est en bloc. ============================================================ */
+/* ============================================================ js/cart.js Panier et commandes - Smart Swi9a Version 10.1.0 - Lot 45 : relances paniers abandonnés CHANGEMENTS v10.1.0 : - Émission de l'événement `order-created` juste après la création serveur d'une commande : js/abandoned-cart.js s'en sert pour marquer le panier `recovered` (recoveredOrderId) AVANT clearCart(). Aucun changement de flux ni de signature. - Bump 10.0.0 -> 10.1.0. CHANGEMENTS v10.0.0 : - R2-preparation (P0) : createOrder ajoute `lastOrderId: orderRef.id` dans chaque transaction.update(productRef). Requis par la nouvelle règle R2 (firestore.rules v5.2.x) qui exige la traçabilité de l'origine de la modification de stock. - R2-preparation (P0) : cancelOrder ajoute `lastOrderId: orderId` dans chaque transaction.update(productRef) pour la même raison. - B-cart-8 (P1) : createOrder garantit l'invariant `stock + salesCount` (delta_stock + delta_salesCount == 0). Ça permet à la future règle R2 de vérifier la cohérence même sans get(order) (Firestore interdit get() dans la même transaction). - B-cart-9 (P2) : chaque updateData contient `updatedAt: Timestamp.now()` pour respecter les whitelists de la nouvelle règle R2. - Aucun changement fonctionnel côté utilisateur. Rétrocompatible. - Bump version 9.0.0 -> 10.0.0. ⚠️ CE FICHIER DOIT ÊTRE DÉPLOYÉ AVANT firestore.rules v5.2.x. Sinon les créations de commande échoueront avec permission-denied. ALERTE 1 : plus aucun commentaire de ligne (//) en début de ligne utile. Tout est en bloc. ============================================================ */
 
 import {
   collection,
@@ -904,6 +904,15 @@ export async function checkout( cartItems, deliveryInfo, appliedCoupon = null, w
 
   const { orderId, totals, validatedItems } = result;
 
+  /* RELANCES PANIERS ABANDONNÉS (2026-11-26) : on prévient
+     js/abandoned-cart.js AVANT clearCart() pour que le document
+     abandoned_carts passe en "recovered" au lieu d'être supprimé. */
+  document.dispatchEvent(
+    new CustomEvent("order-created", {
+      detail: { orderId, totals, items: validatedItems },
+    })
+  );
+
   /* A1 : un achat confirme est le signal le plus fort du classement local. */
   try {
     const { trackRankingEvent } = await import("./ranking.js");
@@ -1255,6 +1264,6 @@ document.addEventListener("auth-updated", (event) => {
 
 /* ============================================================ LOG ============================================================ */
 console.log(
-  "✅ cart.js chargé - v10.0.0 (Lot 44 : préparation R2 lastOrderId + invariant)"
+  "✅ cart.js chargé - v10.1.0 (Lot 45 : événement order-created pour paniers abandonnés)"
 );
 

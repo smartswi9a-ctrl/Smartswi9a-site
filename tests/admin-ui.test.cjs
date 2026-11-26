@@ -89,13 +89,13 @@ check(
 const tabValues = [...html.matchAll(/data-tab="([^"]+)"/g)].map((m) => m[1]);
 const expectedTabs = [
   "dashboard", "traffic", "products", "flash", "coupons",
-  "orders", "preparation", "livo", "disputes",
+  "orders", "preparation", "livo", "disputes", "abandoned",
   "vendors", "users", "reviews", "blog",
   "finances", "wallets", "notifications", "tools",
 ];
-check("admin.html : 17 onglets", tabValues.length === 17, tabValues.length + " onglets");
+check("admin.html : 18 onglets", tabValues.length === 18, tabValues.length + " onglets");
 check(
-  "admin.html : les 17 data-tab attendus sont presents",
+  "admin.html : les 18 data-tab attendus sont presents",
   expectedTabs.every((tab) => tabValues.includes(tab))
 );
 check(

@@ -148,6 +148,155 @@ service cloud.firestore {
     }
 
     /* ============================================================
+       RELANCES PANIERS ABANDONNÉS (module 2026-11-26)
+       ------------------------------------------------------------
+       abandoned_carts/{cartDocId} : cartDocId = uid du client
+       connecté, ou guest_id aléatoire (localStorage) pour une
+       session invitée.
+
+       - Propriétaire connecté : uid == request.auth.uid.
+       - Session invitée : uid == null ET aucune authentification.
+         Le docId (UUID aléatoire non énumérable) sert de secret ;
+         la lecture reste interdite aux invités.
+       - Admin : lecture et gestion complètes (relance WhatsApp,
+         suppression) — le statut "reminded_whatsapp" est posé par
+         l'onglet admin.
+       - Validation STRICTE : liste blanche de champs, montants
+         positifs bornés, téléphone marocain 06/07, statut et
+         langue énumérés, 1 à 100 articles.
+       ============================================================ */
+
+    match /abandoned_carts/{cartDocId} {
+
+      function validStatus() {
+        return request.resource.data.get('status', '') in
+          ['active', 'abandoned', 'reminded_push', 'reminded_whatsapp', 'recovered'];
+      }
+
+      function validLang() {
+        return request.resource.data.get('lang', '') in ['fr', 'en', 'ar'];
+      }
+
+      function validPhone() {
+        return request.resource.data.get('phone', '') is string &&
+          (
+            request.resource.data.get('phone', '') == '' ||
+            request.resource.data.phone.matches('^0[67][0-9]{8}$')
+          );
+      }
+
+      function validAmount(field) {
+        return request.resource.data.get(field, -1) is number &&
+          request.resource.data.get(field, -1) >= 0 &&
+          request.resource.data.get(field, -1) <= 10000000;
+      }
+
+      function validItems() {
+        return request.resource.data.get('items', []) is list &&
+          request.resource.data.items.size() >= 1 &&
+          request.resource.data.items.size() <= 100 &&
+          request.resource.data.items[0].keys().hasOnly([
+            'id', 'title', 'price', 'qty', 'image', 'isFlashSale'
+          ]);
+      }
+
+      function validCart() {
+        return request.resource.data.cartId == cartDocId &&
+          request.resource.data.keys().hasOnly([
+            'cartId', 'uid', 'customerName', 'phone', 'city', 'lang',
+            'items', 'subtotalMad', 'discountMad', 'totalMad', 'fcmToken',
+            'status', 'createdAt', 'updatedAt', 'remindedAt',
+            'recoveredOrderId', 'recoveredAt'
+          ]) &&
+          request.resource.data.keys().hasAll([
+            'cartId', 'uid', 'customerName', 'phone', 'city', 'lang',
+            'items', 'subtotalMad', 'discountMad', 'totalMad', 'fcmToken',
+            'status', 'createdAt', 'updatedAt'
+          ]) &&
+          (
+            request.resource.data.get('uid', null) == null ||
+            (
+              request.resource.data.uid is string &&
+              request.resource.data.uid.size() <= 128
+            )
+          ) &&
+          request.resource.data.get('customerName', '') is string &&
+          request.resource.data.get('customerName', '').size() <= 120 &&
+          request.resource.data.get('city', '') is string &&
+          request.resource.data.get('city', '').size() <= 160 &&
+          validPhone() &&
+          validLang() &&
+          validItems() &&
+          validAmount('subtotalMad') &&
+          validAmount('discountMad') &&
+          validAmount('totalMad') &&
+          (
+            request.resource.data.get('fcmToken', null) == null ||
+            (
+              request.resource.data.fcmToken is string &&
+              request.resource.data.fcmToken.size() <= 4096
+            )
+          ) &&
+          validStatus() &&
+          request.resource.data.createdAt is timestamp &&
+          request.resource.data.updatedAt is timestamp &&
+          (
+            request.resource.data.get('remindedAt', null) == null ||
+            request.resource.data.remindedAt is timestamp
+          ) &&
+          (
+            request.resource.data.get('recoveredAt', null) == null ||
+            request.resource.data.recoveredAt is timestamp
+          ) &&
+          (
+            request.resource.data.get('recoveredOrderId', null) == null ||
+            (
+              request.resource.data.recoveredOrderId is string &&
+              request.resource.data.recoveredOrderId.size() <= 120
+            )
+          );
+      }
+
+      function isGuestSession() {
+        return request.auth == null &&
+          resource.data.get('uid', null) == null;
+      }
+
+      function isSignedOwner() {
+        return isSignedIn() &&
+          resource.data.get('uid', '') == request.auth.uid;
+      }
+
+      allow read: if isAdmin() || (
+        isSignedIn() &&
+        resource.data.get('uid', '') == request.auth.uid
+      );
+
+      allow create: if isAdmin() || (
+        validCart() &&
+        (
+          (
+            request.auth == null &&
+            request.resource.data.get('uid', null) == null
+          ) ||
+          (
+            isSignedIn() &&
+            request.resource.data.get('uid', '') == request.auth.uid &&
+            cartDocId == request.auth.uid
+          )
+        )
+      );
+
+      allow update: if isAdmin() || (
+        validCart() &&
+        resource.data.get('uid', null) == request.resource.data.get('uid', null) &&
+        (isGuestSession() || isSignedOwner())
+      );
+
+      allow delete: if isAdmin() || isGuestSession() || isSignedOwner();
+    }
+
+    /* ============================================================
        FICHES VENDEURS PUBLIQUES
        ============================================================ */
 

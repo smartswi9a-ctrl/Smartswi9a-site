@@ -1,7 +1,7 @@
 /* ============================================================
    js/admin.js
    PANNEAU ADMINISTRATION - SMARTSWIKA
-   Version 12.2.1 - Nettoyage des imports (audit)
+   Version 12.3.0 - Onglet « Paniers abandonnés » (2026-11-26)
    ============================================================ */
 
 import { auth, db, storage } from "./firebase.js";
@@ -41,6 +41,12 @@ import { aggregateTraffic, computeOnline, dayKey, buildTrafficSeries } from "./a
 import { buildTrafficSvg } from "./traffic-chart.js";
 import { pickupSku, normalizeReceivedQuantity } from "./domain/pickup-sku.js";
 import { initPush } from "./push.js?v=6";
+import {
+    startAbandonedCartWatch,
+    stopAbandonedCartWatch,
+    initAbandonedTab,
+    updateAbandonedBadge
+} from "./admin-abandoned.js?v=2";
 
 /* admin.html ne charge pas app.js : personne ne resoudrait appReadyPromise
    (avertissement "timeout (10s)" en console). On utilise le contrat window
@@ -259,6 +265,20 @@ function activateAdminPanel() {
     loadTrafficStats();
     try { renderRevenueChart(currentChartPeriod); } catch (e) { /* non bloquant */ }
     loadDashboardCharts();
+    /* Badge sidebar « Paniers abandonnés » : temps réel, une seule
+       écoute Firestore partagée avec l'onglet (module dédié). */
+    startAbandonedCartWatch();
+    refreshAbandonedBadgeSoon();
+}
+
+/* Le badge dépend de updatedAt : il doit vieillir même sans écriture.
+   On le recalcule une fois par minute tant que l'admin est connecté. */
+let abandonedBadgeTimer = null;
+function refreshAbandonedBadgeSoon() {
+    if (abandonedBadgeTimer) return;
+    abandonedBadgeTimer = setInterval(() => {
+        try { updateAbandonedBadge(); } catch (e) { /* ignore */ }
+    }, 60000);
 }
 
 /* ============================================================
@@ -669,6 +689,8 @@ function initAdmin() {
             const b = document.getElementById('adminAlertBanner');
             if (b) b.style.display = 'none';
             if (alertInterval) clearInterval(alertInterval);
+            stopAbandonedCartWatch();
+            if (abandonedBadgeTimer) { clearInterval(abandonedBadgeTimer); abandonedBadgeTimer = null; }
         }
     });
 
@@ -693,6 +715,8 @@ function initAdmin() {
     document.getElementById('adminLogoutBtn')?.addEventListener('click', async () => {
         resetAdminOrdersCache();
         if (alertInterval) clearInterval(alertInterval);
+        stopAbandonedCartWatch();
+        if (abandonedBadgeTimer) { clearInterval(abandonedBadgeTimer); abandonedBadgeTimer = null; }
         await signOut(auth);
         localStorage.removeItem('swi9a_app_mode');
         localStorage.removeItem('swi9a_test_batch');
@@ -747,6 +771,10 @@ function initAdmin() {
             else if (tab === 'vendors') await loadVendors();
             else if (tab === 'wallets') await loadPayouts();
             else if (tab === 'disputes') await loadDisputes();
+            /* Onglet « Paniers abandonnés » : module dédié (badge, KPI,
+               filtres, WhatsApp). Import statique en tête de fichier :
+               l'écoute Firestore sert aussi le badge de la sidebar. */
+            else if (tab === 'abandoned') await initAbandonedTab();
         });
     });
 

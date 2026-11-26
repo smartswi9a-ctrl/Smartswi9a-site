@@ -271,6 +271,105 @@ async function main() {
       items: [{ productId: "publicProduct", quantity: 1 }],
       updatedAt: Timestamp.now()
     }));
+
+    /* --------------------------------------------- PANIERS ABANDONNÉS */
+
+    function abandonedPayload(cartId, uid, overrides = {}) {
+      return {
+        cartId,
+        uid,
+        customerName: "Client Test",
+        phone: "0612345678",
+        city: "Casablanca",
+        lang: "fr",
+        items: [
+          { id: "publicProduct", title: "Public", price: 100, qty: 1, image: "", isFlashSale: false }
+        ],
+        subtotalMad: 100,
+        discountMad: 0,
+        totalMad: 100,
+        fcmToken: null,
+        status: "active",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        remindedAt: null,
+        recoveredOrderId: null,
+        recoveredAt: null,
+        ...overrides,
+      };
+    }
+
+    const guestDb = env.unauthenticatedContext().firestore();
+
+    /* Propriétaire connecté : docId == uid. */
+    await assertSucceeds(setDoc(
+      doc(buyerDb, "abandoned_carts", "buyerA"),
+      abandonedPayload("buyerA", "buyerA")
+    ));
+    /* Un client ne peut pas écrire le panier d'un autre uid. */
+    await assertFails(setDoc(
+      doc(buyerDb, "abandoned_carts", "buyerB"),
+      abandonedPayload("buyerB", "buyerB")
+    ));
+    /* Un client connecté ne peut pas usurper une session invitée. */
+    await assertFails(setDoc(
+      doc(buyerDb, "abandoned_carts", "guest-impostor"),
+      abandonedPayload("guest-impostor", null)
+    ));
+    await assertSucceeds(getDoc(doc(buyerDb, "abandoned_carts", "buyerA")));
+
+    /* Session invitée valide : cartId == docId, uid null, 06/07. */
+    await assertSucceeds(setDoc(
+      doc(guestDb, "abandoned_carts", "guest-1111"),
+      abandonedPayload("guest-1111", null)
+    ));
+    /* Lecture interdite aux invités (aucune énumération possible). */
+    await assertFails(getDoc(doc(guestDb, "abandoned_carts", "guest-1111")));
+
+    /* Téléphone non marocain / statut inconnu / champ interdit : refusés. */
+    await assertFails(setDoc(
+      doc(guestDb, "abandoned_carts", "guest-2222"),
+      abandonedPayload("guest-2222", null, { phone: "12345" })
+    ));
+    await assertFails(setDoc(
+      doc(guestDb, "abandoned_carts", "guest-3333"),
+      abandonedPayload("guest-3333", null, { status: "paid" })
+    ));
+    await assertFails(setDoc(
+      doc(guestDb, "abandoned_carts", "guest-4444"),
+      abandonedPayload("guest-4444", null, { adminNote: "injecté" })
+    ));
+    /* cartId différent du docId : refusé. */
+    await assertFails(setDoc(
+      doc(guestDb, "abandoned_carts", "guest-5555"),
+      abandonedPayload("another-id", null)
+    ));
+
+    /* Cycle de relance : invité puis admin (WhatsApp / suppression). */
+    await assertSucceeds(updateDoc(doc(guestDb, "abandoned_carts", "guest-1111"), {
+      status: "reminded_whatsapp",
+      remindedAt: serverTimestamp()
+    }));
+    await assertFails(updateDoc(doc(buyerDb, "abandoned_carts", "guest-1111"), {
+      status: "recovered"
+    }));
+    await assertSucceeds(getDoc(doc(adminDb, "abandoned_carts", "guest-1111")));
+    await assertSucceeds(updateDoc(doc(adminDb, "abandoned_carts", "guest-1111"), {
+      status: "recovered",
+      recoveredOrderId: "order-1",
+      recoveredAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    }));
+    await assertFails(getDocs(query(collection(guestDb, "abandoned_carts"))));
+    await assertSucceeds(getDocs(query(collection(adminDb, "abandoned_carts"))));
+    await assertSucceeds(deleteDoc(doc(adminDb, "abandoned_carts", "guest-1111")));
+
+    /* Un invité peut supprimer SON panier (session perdue / vidée). */
+    await assertSucceeds(setDoc(
+      doc(guestDb, "abandoned_carts", "guest-6666"),
+      abandonedPayload("guest-6666", null)
+    ));
+    await assertSucceeds(deleteDoc(doc(guestDb, "abandoned_carts", "guest-6666")));
     // La collection de snapshots a été supprimée : aucun rôle client ou admin
     // ne doit conserver un accès à cette ancienne zone de sauvegarde.
     await assertFails(getDoc(doc(adminDb, "_test_snapshots", "batchA", "users", "buyerA")));
