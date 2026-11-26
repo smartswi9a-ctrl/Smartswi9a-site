@@ -114,16 +114,22 @@ check("rules : config/ads_public lecture publique", rules.includes("match /confi
 
 /* --------------------------------------------- 3 bis. CSP pixels */
 
-const PIXEL_CSP_DOMAINS = [
+const TIKTOK_CSP_DOMAINS = [
   "https://analytics.tiktok.com",
   "https://*.tiktok.com",
   "https://*.tiktokw.us",
   "https://*.byteoversea.com",
-  "https://connect.facebook.net",
-  "https://www.facebook.com",
-  "https://*.facebook.com",
 ];
-const CSP_DIRECTIVES = ["script-src", "connect-src", "img-src", "frame-src"];
+const META_CSP_DOMAINS = ["https://www.facebook.com", "https://*.facebook.com"];
+/* connect.facebook.net ne charge que le script : inutile en connect/img/frame.
+   Cloudflare ignore silencieusement une ligne `_headers` > 2048 caractères. */
+const CSP_REQUIRED = {
+  "script-src": [...TIKTOK_CSP_DOMAINS, "https://connect.facebook.net", ...META_CSP_DOMAINS],
+  "connect-src": [...TIKTOK_CSP_DOMAINS, ...META_CSP_DOMAINS],
+  "img-src": [...TIKTOK_CSP_DOMAINS, ...META_CSP_DOMAINS],
+  "frame-src": [...TIKTOK_CSP_DOMAINS, ...META_CSP_DOMAINS],
+};
+const CSP_DIRECTIVES = Object.keys(CSP_REQUIRED);
 
 for (const [label, csp] of [
   ["firebase.json", firebaseCsp],
@@ -131,14 +137,23 @@ for (const [label, csp] of [
 ]) {
   for (const directive of CSP_DIRECTIVES) {
     const value = cspDirective(csp, directive);
-    const missing = PIXEL_CSP_DOMAINS.filter((domain) => !value.includes(domain));
+    const missing = CSP_REQUIRED[directive].filter((domain) => !value.includes(domain));
     check(
       `CSP ${label} : ${directive} autorise TikTok + Meta`,
       missing.length === 0,
-      missing.join(",") || `${PIXEL_CSP_DOMAINS.length} domaines`
+      missing.join(",") || `${CSP_REQUIRED[directive].length} domaines`
     );
   }
 }
+
+const cloudflareCspLine = read("_headers")
+  .split(/\r?\n/)
+  .find((line) => line.includes("Content-Security-Policy:")) || "";
+check(
+  "_headers : ligne CSP <= 2048 caractères (limite Cloudflare)",
+  cloudflareCspLine.length > 0 && cloudflareCspLine.length <= 2048,
+  `${cloudflareCspLine.length} caractères`
+);
 
 check(
   "CSP : les directives script/connect/img/frame sont présentes",
