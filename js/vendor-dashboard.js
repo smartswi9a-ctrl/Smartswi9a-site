@@ -104,6 +104,24 @@ function formatMAD(value) {
 function vt(key, fallback) {
     return window.__vendorT ? window.__vendorT(key, fallback) : (fallback || key);
 }
+
+function buildVendorPromoUrl(product) {
+    const vendorId = String((product && product.vendorId) || currentUserUid || "");
+    return `https://www.smartswika.ma/produit.html?id=${encodeURIComponent(String(product.id))}` +
+        `&utm_source=vendor_${encodeURIComponent(vendorId)}&utm_medium=social&utm_campaign=vendor_promo`;
+}
+
+async function copyVendorPromoUrl(url) {
+    if (typeof window.__vendorCopyText === "function") {
+        return window.__vendorCopyText(url);
+    }
+    try {
+        await navigator.clipboard.writeText(url);
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
 function vfmt(value) {
     return window.__vendorFormatMAD ? window.__vendorFormatMAD(value) : formatMAD(value);
 }
@@ -2111,6 +2129,7 @@ async function renderProducts(container) {
                 ${image ? `<img src="${image}" alt="${name}" loading="lazy" class="v-product-img">` : `<div class="v-product-img" style="display:flex;align-items:center;justify-content:center;font-size:1.5rem;">📦</div>`}
                 <div class="v-product-info"><div class="v-product-name">${name}</div><div class="v-product-meta">${price} · ${escapeHTML(vt('stockLabel', 'Stock'))} : ${stock}</div><div style="margin-top:0.3rem;">${deliveryBadge}${statusBadge}</div>${rejectionHtml}</div>
                 <div class="v-product-actions">
+                    ${status === PRODUCT_STATUS.APPROVED ? `<button type="button" class="v-btn v-btn-secondary" data-promo-product="${escapeHTML(p.id)}" style="padding:0.4rem 0.8rem;font-size:0.8rem;" title="${escapeHTML(vt('copyAdLink', '📣 Copier lien pub'))}">${escapeHTML(vt('copyAdLink', '📣 Copier lien pub'))}</button>` : ''}
                     <button type="button" class="v-btn v-btn-secondary" data-edit-product="${escapeHTML(p.id)}" style="padding:0.4rem 0.8rem;font-size:0.8rem;" title="${escapeHTML(vt('edit', 'Éditer'))}">${escapeHTML(vt('edit', 'Éditer'))}</button>
                     <button type="button" class="v-btn v-btn-secondary" data-delete-product="${escapeHTML(p.id)}" style="padding:0.4rem 0.8rem;font-size:0.8rem;" title="${escapeHTML(vt('delete', 'Supprimer'))}">${escapeHTML(vt('delete', 'Supprimer'))}</button>
                 </div>
@@ -2125,6 +2144,16 @@ async function renderProducts(container) {
     });
     container.querySelectorAll('[data-delete-product]').forEach(btn => {
         btn.addEventListener('click', () => deleteVendorProduct(btn.dataset.deleteProduct));
+    });
+    container.querySelectorAll('[data-promo-product]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const product = cachedProducts.find(pp => String(pp.id) === String(btn.dataset.promoProduct));
+            if (!product) return;
+            const copied = await copyVendorPromoUrl(buildVendorPromoUrl(product));
+            showToast(copied
+                ? vt('adLinkCopied', 'Lien publicitaire copié')
+                : vt('adLinkCopyFailed', 'Copie impossible. Réessayez.'));
+        });
     });
 }
 

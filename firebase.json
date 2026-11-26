@@ -277,6 +277,13 @@
         }
       },
       {
+        "source": "/feed/products.xml",
+        "function": {
+          "functionId": "productCatalogFeed",
+          "region": "europe-west1"
+        }
+      },
+      {
         "source": "/vendor/dashboard",
         "destination": "/vendor/dashboard.html"
       }

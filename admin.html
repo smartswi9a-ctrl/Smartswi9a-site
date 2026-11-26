@@ -20,6 +20,7 @@
             "firebase/app": "https://www.gstatic.com/firebasejs/11.0.0/firebase-app.js",
             "firebase/auth": "https://www.gstatic.com/firebasejs/11.0.0/firebase-auth.js",
             "firebase/firestore": "https://www.gstatic.com/firebasejs/11.0.0/firebase-firestore.js",
+            "firebase/functions": "https://www.gstatic.com/firebasejs/11.0.0/firebase-functions.js",
             "firebase/storage": "https://www.gstatic.com/firebasejs/11.0.0/firebase-storage.js",
             "firebase/messaging": "https://www.gstatic.com/firebasejs/11.0.0/firebase-messaging.js"
         }
@@ -1046,9 +1047,179 @@
         .ads-card-grid span { color: var(--text-muted); display: block; font-size: 0.7rem; }
         .ads-card-grid strong { color: var(--text); }
         .ads-empty { padding: 1.5rem 0.5rem; text-align: center; color: var(--text-muted); font-size: 0.85rem; }
+        .ads-config-details summary {
+            cursor: pointer;
+            font-family: var(--font-secondary);
+            color: var(--gold);
+            font-size: 1rem;
+            font-weight: 700;
+            list-style: none;
+            display: flex;
+            align-items: center;
+            gap: 0.45rem;
+        }
+        .ads-config-details summary::-webkit-details-marker { display: none; }
+        .ads-config-details summary::after {
+            content: "▾";
+            margin-inline-start: auto;
+            transition: transform 180ms ease;
+        }
+        .ads-config-details[open] summary::after { transform: rotate(180deg); }
+        .ads-config-body { margin-top: 0.8rem; }
+        .ads-config-body h5 {
+            font-family: var(--font-secondary);
+            color: var(--text);
+            margin: 1rem 0 0.25rem;
+            font-size: 0.92rem;
+        }
+        .ads-connection-actions {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            flex-wrap: wrap;
+            margin-top: 0.9rem;
+        }
+        .ads-feed-card {
+            margin-top: 1rem;
+            padding: 0.85rem;
+            border: 1px dashed var(--border-gold);
+            border-radius: 12px;
+            background: var(--bg-surface);
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        .ads-feed-card h5 { margin: 0 0 0.35rem; }
+        .ads-feed-card code {
+            display: block;
+            color: #B4833E;
+            font-size: 0.76rem;
+            overflow-wrap: anywhere;
+            direction: ltr;
+            text-align: left;
+        }
+        .ads-suggestions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.9rem; }
+        .ads-suggestion {
+            border: 1px solid var(--border-gold);
+            border-radius: 16px;
+            background: var(--bg-surface);
+            padding: 0.9rem;
+            box-shadow: var(--shadow-sm);
+            display: flex;
+            flex-direction: column;
+            gap: 0.65rem;
+        }
+        .ads-suggestion-head { display: flex; justify-content: space-between; gap: 0.5rem; align-items: flex-start; }
+        .ads-suggestion-score { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+        .ads-suggestion-score strong { font-size: 1.5rem; color: #B4833E; line-height: 1; }
+        .ads-suggestion-score small { font-size: 0.7rem; color: var(--text-muted); }
+        .ads-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.2rem 0.55rem;
+            border-radius: 999px;
+            background: rgba(180, 131, 62, 0.14);
+            border: 1px solid rgba(180, 131, 62, 0.4);
+            color: #B4833E;
+            font-size: 0.72rem;
+            font-weight: 800;
+        }
+        .ads-channel-pill {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.2rem 0.6rem;
+            border-radius: 999px;
+            background: rgba(59, 130, 246, 0.12);
+            border: 1px solid rgba(59, 130, 246, 0.35);
+            color: #2F6FDB;
+            font-size: 0.72rem;
+            font-weight: 800;
+            white-space: nowrap;
+        }
+        .ads-suggestion-product { display: flex; align-items: center; gap: 0.65rem; }
+        .ads-suggestion-product img { width: 56px; height: 56px; object-fit: cover; border-radius: 10px; border: 1px solid var(--border); }
+        .ads-suggestion-product h4 { margin: 0 0 0.3rem; font-size: 0.95rem; color: var(--text); }
+        .ads-suggestion-metrics { display: flex; flex-wrap: wrap; gap: 0.35rem 0.8rem; font-size: 0.72rem; color: var(--text-muted); }
+        .ads-suggestion-metrics strong { color: var(--text); }
+        .ads-suggestion-controls { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 0.55rem; }
+        .ads-suggestion-controls label { font-size: 0.72rem; color: var(--text-muted); display: flex; flex-direction: column; gap: 0.25rem; }
+        .ads-suggestion-controls select,
+        .ads-suggestion-controls input[type="number"],
+        .ads-copy-label textarea {
+            width: 100%;
+            min-height: 40px;
+            padding: 0.45rem 0.6rem;
+            border: 1px solid var(--border);
+            border-radius: 9px;
+            background: var(--bg-card);
+            color: var(--text);
+            font-family: inherit;
+            font-size: 0.82rem;
+        }
+        .ads-suggestion-controls .ads-check {
+            flex-direction: row;
+            align-items: center;
+            gap: 0.4rem;
+            grid-column: 1 / -1;
+            color: var(--text);
+        }
+        .ads-copy-label { font-size: 0.72rem; color: var(--text-muted); display: flex; flex-direction: column; gap: 0.25rem; }
+        .ads-copy-label textarea { resize: vertical; line-height: 1.5; }
+        .ads-destination {
+            display: block;
+            padding: 0.45rem 0.6rem;
+            background: rgba(180, 131, 62, 0.09);
+            border-radius: 9px;
+            color: #B4833E;
+            font-size: 0.7rem;
+            overflow-wrap: anywhere;
+            direction: ltr;
+            text-align: left;
+        }
+        .ads-suggestion-actions { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+        .ads-campaigns { display: grid; gap: 0.75rem; }
+        .ads-campaign-card {
+            border: 1px solid var(--border-gold);
+            border-radius: 14px;
+            background: var(--bg-surface);
+            padding: 0.85rem;
+            box-shadow: var(--shadow-sm);
+        }
+        .ads-campaign-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.6rem; flex-wrap: wrap; }
+        .ads-campaign-head strong { color: var(--text); }
+        .ads-campaign-meta { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.35rem; font-size: 0.74rem; color: var(--text-muted); }
+        .ads-campaign-status { padding: 0.15rem 0.55rem; border-radius: 999px; font-size: 0.7rem; font-weight: 800; }
+        .ads-campaign-status.is-active { color: #10B981; background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.4); }
+        .ads-campaign-status.is-paused { color: #F59E0B; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.4); }
+        .ads-campaign-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.5rem; margin-top: 0.7rem; }
+        .ads-campaign-stats div { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 0.5rem 0.6rem; }
+        .ads-campaign-stats span { display: block; font-size: 0.68rem; color: var(--text-muted); }
+        .ads-campaign-stats strong { color: var(--text); font-size: 0.85rem; }
+        .ads-cod-alert {
+            margin-top: 0.6rem;
+            padding: 0.55rem 0.7rem;
+            border-radius: 10px;
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            background: rgba(239, 68, 68, 0.09);
+            color: #C73535;
+            font-size: 0.78rem;
+            font-weight: 700;
+        }
+        .ads-guide { text-align: center; padding: 1.6rem 1rem; color: var(--text-muted); }
+        .ads-guide-ico { font-size: 2rem; display: block; margin-bottom: 0.4rem; }
+        .ads-guide h4 { margin: 0 0 0.35rem; color: var(--gold); font-family: var(--font-secondary); }
+        .ads-guide p { margin: 0 auto 0.8rem; max-width: 540px; font-size: 0.85rem; }
         @media (max-width: 1023px) {
             #adsKpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .ads-table { min-width: 1180px; }
+            .ads-suggestions { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 767px) {
+            .ads-campaign-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .ads-suggestion-controls { grid-template-columns: 1fr; }
+            .ads-feed-card { flex-direction: column; align-items: stretch; }
         }
         /* Desktop 1366 : les 11 colonnes tiennent dans la largeur utile
            (sidebar 240 px) grâce au retour à la ligne des en-têtes. */
@@ -2229,44 +2400,6 @@
                 </div>
             </div>
 
-            <section class="ads-config" aria-labelledby="adsConfigTitle">
-                <h4 id="adsConfigTitle" data-admin-i18n="adsConfigTitle">⚙️ Configuration Pixels &amp; Budgets</h4>
-                <div class="admin-form-row">
-                    <div>
-                        <label for="adsMetaPixelId" data-admin-i18n="adsMetaPixel">Meta Pixel ID (Facebook / Instagram)</label>
-                        <input type="text" id="adsMetaPixelId" inputmode="numeric" autocomplete="off"
-                               maxlength="32" placeholder="1234567890123456">
-                    </div>
-                    <div>
-                        <label for="adsTiktokPixelId" data-admin-i18n="adsTiktokPixel">TikTok Pixel ID</label>
-                        <input type="text" id="adsTiktokPixelId" autocomplete="off"
-                               maxlength="40" placeholder="CXXXXXXXXXXXXXXXX">
-                    </div>
-                </div>
-                <div class="admin-form-row cols-3">
-                    <div>
-                        <label for="adsSpendMeta" data-admin-i18n="adsSpendMeta">Meta (MAD)</label>
-                        <input type="number" id="adsSpendMeta" min="0" step="0.01" placeholder="0">
-                    </div>
-                    <div>
-                        <label for="adsSpendTiktok" data-admin-i18n="adsSpendTiktok">TikTok (MAD)</label>
-                        <input type="number" id="adsSpendTiktok" min="0" step="0.01" placeholder="0">
-                    </div>
-                    <div>
-                        <label for="adsSpendOther" data-admin-i18n="adsSpendOther">Autres (MAD)</label>
-                        <input type="number" id="adsSpendOther" min="0" step="0.01" placeholder="0">
-                    </div>
-                </div>
-                <div class="ads-config-actions">
-                    <button class="admin-btn-primary" id="adsSaveConfig" type="button">
-                        💾 <span data-admin-i18n="adsSave">Enregistrer</span>
-                    </button>
-                    <span class="ads-hint" id="adsSpendPeriodHint"></span>
-                    <span class="ads-status" id="adsConfigStatus" role="status" aria-live="polite"></span>
-                </div>
-                <p class="ads-hint" data-admin-i18n="adsPixelHint">Les IDs pixels sont publiés dans config/ads_public (jamais les budgets). Laissez vide pour désactiver un pixel.</p>
-            </section>
-
             <div id="adsKpis">
                 <div class="admin-stat-card">
                     <span class="kpi-ico" aria-hidden="true">📦</span>
@@ -2355,6 +2488,134 @@
                 <div class="ads-cards" id="adsCards"></div>
                 <p class="ads-hint" data-admin-i18n="adsTableHint">Vues et ajouts panier sont comptés par canal (compteurs agrégés anonymes). Les dépenses d'un canal sont réparties au prorata du CA livré entre ses campagnes.</p>
             </section>
+
+            <section class="ads-table-card" aria-labelledby="adsSuggestionsTitle">
+                <div class="ads-table-head">
+                    <div>
+                        <h3 id="adsSuggestionsTitle" data-admin-i18n="adsSuggestionsTitle">💡 Campagnes Suggérées par l'IA — Sélection Smartswika</h3>
+                        <p class="ads-hint" data-admin-i18n="adsSuggestionsSubtitle">Produits officiels Smartswika uniquement (hors vendeurs tiers), scoring marge nette + intérêt visiteur + taux COD réel.</p>
+                    </div>
+                </div>
+                <div id="adsSuggestions" class="ads-suggestions">
+                    <div class="ads-empty">Chargement...</div>
+                </div>
+            </section>
+
+            <section class="ads-table-card" aria-labelledby="adsCampaignsTitle">
+                <div class="ads-table-head">
+                    <div>
+                        <h3 id="adsCampaignsTitle" data-admin-i18n="adsCampaignsTitle">📡 Mes Campagnes Actives &amp; Pilotage</h3>
+                        <p class="ads-hint" data-admin-i18n="adsCampaignsSubtitle">Campagnes créées depuis Smartswika, synchronisées Meta / TikTok, avec alerte rentabilité COD.</p>
+                    </div>
+                </div>
+                <div id="adsCampaigns" class="ads-campaigns">
+                    <div class="ads-empty">Chargement...</div>
+                </div>
+            </section>
+
+            <details class="ads-config ads-config-details" id="adsConfigDetails">
+                <summary id="adsConfigTitle">
+                    <span data-admin-i18n="adsConfigTitle">⚙️ Connexion API, Pixels &amp; Flux Catalogue</span>
+                </summary>
+                <div class="ads-config-body">
+                    <h5 data-admin-i18n="adsPixelsSection">Pixels &amp; vérification de domaine</h5>
+                    <div class="admin-form-row">
+                        <div>
+                            <label for="adsMetaPixelId" data-admin-i18n="adsMetaPixel">Meta Pixel ID (Facebook / Instagram)</label>
+                            <input type="text" id="adsMetaPixelId" inputmode="numeric" autocomplete="off"
+                                   maxlength="32" placeholder="1507933688065517">
+                        </div>
+                        <div>
+                            <label for="adsTiktokPixelId" data-admin-i18n="adsTiktokPixel">TikTok Pixel ID</label>
+                            <input type="text" id="adsTiktokPixelId" autocomplete="off"
+                                   maxlength="40" placeholder="DC44DJ3C77U9PR64VE10">
+                        </div>
+                    </div>
+                    <div class="admin-form-row">
+                        <div>
+                            <label for="adsMetaDomainVerification" data-admin-i18n="adsMetaDomainVerification">Meta Domain Verification</label>
+                            <input type="text" id="adsMetaDomainVerification" autocomplete="off"
+                                   maxlength="200" placeholder="facebook-domain-verification">
+                        </div>
+                        <div>
+                            <label for="adsSpendMeta" data-admin-i18n="adsSpendMeta">Meta (MAD)</label>
+                            <input type="number" id="adsSpendMeta" min="0" step="0.01" placeholder="0">
+                        </div>
+                    </div>
+                    <div class="admin-form-row cols-3">
+                        <div>
+                            <label for="adsSpendTiktok" data-admin-i18n="adsSpendTiktok">TikTok (MAD)</label>
+                            <input type="number" id="adsSpendTiktok" min="0" step="0.01" placeholder="0">
+                        </div>
+                        <div>
+                            <label for="adsSpendOther" data-admin-i18n="adsSpendOther">Autres (MAD)</label>
+                            <input type="number" id="adsSpendOther" min="0" step="0.01" placeholder="0">
+                        </div>
+                        <div>
+                            <label for="adsTiktokAdvertiserId" data-admin-i18n="adsTiktokAdvertiserId">TikTok Advertiser ID</label>
+                            <input type="text" id="adsTiktokAdvertiserId" autocomplete="off"
+                                   maxlength="64" placeholder="7712489357529088007">
+                        </div>
+                    </div>
+
+                    <h5 data-admin-i18n="adsApiSection">Connexion APIs Meta / TikTok</h5>
+                    <div class="admin-form-row">
+                        <div>
+                            <label for="adsMetaAdAccountId" data-admin-i18n="adsMetaAdAccountId">Meta Ad Account ID</label>
+                            <input type="text" id="adsMetaAdAccountId" autocomplete="off"
+                                   maxlength="64" placeholder="act_1234567890">
+                        </div>
+                        <div>
+                            <label for="adsMetaPageId" data-admin-i18n="adsMetaPageId">Meta Page ID</label>
+                            <input type="text" id="adsMetaPageId" autocomplete="off"
+                                   maxlength="64" placeholder="1234567890">
+                        </div>
+                    </div>
+                    <div class="admin-form-row">
+                        <div>
+                            <label for="adsMetaAccessToken" data-admin-i18n="adsMetaAccessToken">Meta Access Token (masqué)</label>
+                            <input type="password" id="adsMetaAccessToken" autocomplete="new-password"
+                                   maxlength="4096" placeholder="EAAB...">
+                        </div>
+                        <div>
+                            <label for="adsTiktokAccessToken" data-admin-i18n="adsTiktokAccessToken">TikTok Access Token (masqué)</label>
+                            <input type="password" id="adsTiktokAccessToken" autocomplete="new-password"
+                                   maxlength="4096" placeholder="TikTok access token">
+                        </div>
+                    </div>
+                    <div class="ads-connection-actions">
+                        <button type="button" class="admin-btn-secondary" id="adsTestMeta">
+                            🔌 <span data-admin-i18n="adsTestMeta">Tester connexion Meta</span>
+                        </button>
+                        <span class="ads-status" id="adsMetaTestStatus" role="status" aria-live="polite"></span>
+                        <button type="button" class="admin-btn-secondary" id="adsTestTiktok">
+                            🔌 <span data-admin-i18n="adsTestTiktok">Tester connexion TikTok</span>
+                        </button>
+                        <span class="ads-status" id="adsTiktokTestStatus" role="status" aria-live="polite"></span>
+                    </div>
+
+                    <div class="ads-feed-card">
+                        <div>
+                            <h5 data-admin-i18n="adsFeedTitle">📡 Flux Catalogue Produits XML</h5>
+                            <code>https://www.smartswika.ma/feed/products.xml</code>
+                        </div>
+                        <button type="button" class="admin-btn-secondary" id="adsFeedCopy">
+                            📋 <span data-admin-i18n="adsFeedCopy">Copier l'URL du flux</span>
+                        </button>
+                        <span class="ads-status" id="adsFeedStatus" role="status" aria-live="polite"></span>
+                    </div>
+
+                    <div class="ads-config-actions">
+                        <button class="admin-btn-primary" id="adsSaveConfig" type="button">
+                            💾 <span data-admin-i18n="adsSave">Enregistrer</span>
+                        </button>
+                        <span class="ads-hint" id="adsSpendPeriodHint"></span>
+                        <span class="ads-status" id="adsConfigStatus" role="status" aria-live="polite"></span>
+                    </div>
+                    <p class="ads-hint" data-admin-i18n="adsSecretsHint">Les tokens API sont stockés dans config/ads_secrets (admin uniquement, jamais publics). Laisser vide conserve le token existant.</p>
+                    <p class="ads-hint" data-admin-i18n="adsPixelHint">Les IDs pixels et la vérification de domaine sont publiés dans config/ads_public (jamais les budgets ni les tokens).</p>
+                </div>
+            </details>
         </div>
 
         <div class="admin-content" id="tab-tools">
@@ -2479,8 +2740,8 @@
     <div class="toast" id="cartToast" role="status" aria-live="polite"></div>
 
     <script src="/js/navbar.js"></script>
-    <script type="module" src="/js/admin-ui.js?v=3"></script>
-    <script type="module" src="/js/admin.js?v=ads2026c1"></script>
+    <script type="module" src="/js/admin-ui.js?v=4"></script>
+    <script type="module" src="/js/admin.js?v=ads2026c2"></script>
 
 <footer class="page-legal-footer" role="contentinfo">
     <nav class="footer-legal footer-legal--bar" aria-label="Informations légales">

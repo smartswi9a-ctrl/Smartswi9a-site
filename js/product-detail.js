@@ -62,9 +62,12 @@ let showAllReviews = false;
 const REVIEWS_LIMIT = 3;
 
 /* ============================================================ LECTURE DU SLUG ============================================================ */
-function getSlugFromUrl() {
+/* Accepte /produit?slug=... (historique) et /produit?id=...
+   Le flux catalogue, les liens UTM admin et le dashboard vendeur
+   utilisent l identifiant Firestore stable. */
+function getProductIdentifierFromUrl() {
   const params = new URLSearchParams(window.location.search);
-  return params.get("slug");
+  return params.get("slug") || params.get("id");
 }
 
 /* ============================================================
@@ -105,8 +108,8 @@ export async function renderProductDetail() {
   if (!mainEl) return;
   if (_fixtureLocked) return;
 
-  const slug = getSlugFromUrl();
-  if (!slug) {
+  const identifier = getProductIdentifierFromUrl();
+  if (!identifier) {
     renderNotFound(mainEl);
     return;
   }
@@ -125,7 +128,9 @@ export async function renderProductDetail() {
     }
   }
 
-  const product = products.find((p) => p.slug === slug);
+  const product = products.find(
+    (p) => p.slug === identifier || String(p.id) === String(identifier)
+  );
   if (!product) {
     renderNotFound(mainEl);
     return;
