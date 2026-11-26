@@ -870,7 +870,7 @@ function init() {
 
 if (IS_BROWSER) {
   window.SmartswikaAds = {
-    version: "1.0.0",
+    version: "1.0.1",
     track,
     flush,
     getAttribution: () => getAttribution(),
@@ -889,7 +889,7 @@ if (IS_BROWSER) {
 }
 
 console.log(
-  "✅ ads-attribution.js chargé - v1.0.0 (attribution 7j + pixels TikTok/Meta)"
+  "✅ ads-attribution.js chargé - v1.0.1 (attribution 7j + pixels TikTok/Meta)"
 );
 
 

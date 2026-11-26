@@ -278,8 +278,10 @@ export async function loadProductsFromFirestore() {
       return products;
     }
 
-    console.warn(
-      "[products] Aucun produit approuvé chargé. Vérifier la migration status='approved' et les règles Firestore."
+    /* Catalogue vide = état valide (avant publication), pas une anomalie :
+       console.info évite un warning trompeur en production. */
+    console.info(
+      "[products] Aucun produit approuvé chargé : catalogue vide, repli JSON."
     );
     return await loadProductsFromJSON();
   } catch (e) {

@@ -59,9 +59,17 @@ check(
 check("capture : événement order-created -> recovered", capture.includes('"order-created"') && capture.includes("markRecovered"));
 check("capture : statuts reminded_push / recovered", capture.includes('"recovered"') && capture.includes("status"));
 check("capture : lien ?recover_cart restauré", capture.includes("recover_cart"));
+check(
+  "capture : deleteCart sans panier synchronisé ne supprime rien",
+  capture.includes("if (!state)") && capture.includes("rien à supprimer")
+);
+check(
+  "capture : permission-denied / not-found silencieux",
+  capture.includes("isMissingCartDocError") && capture.includes("if (!isMissingCartDocError(e))")
+);
 
 const pages = ["index.html", "koulchi.html", "produit.html", "panier.html", "boutique.html", "blog.html", "villesmaroc.html"];
-const missingPages = pages.filter((page) => !read(page).includes("/js/abandoned-cart.js?v=1"));
+const missingPages = pages.filter((page) => !read(page).includes("/js/abandoned-cart.js?v=2"));
 check("capture : script présent sur les pages panier/vitrine", missingPages.length === 0, missingPages.join(",") || pages.length + " pages");
 
 /* --------------------------------------------- 2. Cloud Function */
@@ -190,7 +198,7 @@ check(
 
 /* --------------------------------------------- 5. Cache / tests */
 
-check("service worker : version sw-2026-11-26-v7", sw.includes("'sw-2026-11-26-v7'"));
+check("service worker : version sw-2026-11-26-v8", sw.includes("'sw-2026-11-26-v8'"));
 check(
   "package.json : suite abandoned-cart branchée sur npm test",
   String(pkg.scripts && pkg.scripts.test).includes("tests/abandoned-cart.test.cjs")

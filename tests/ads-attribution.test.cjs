@@ -45,6 +45,23 @@ const adminHtml = read("admin.html");
 const adminJs = read("js/admin.js");
 const sw = read("firebase-messaging-sw.js");
 const pkg = JSON.parse(read("package.json"));
+const firebaseJson = JSON.parse(read("firebase.json"));
+const firebaseCsp = (() => {
+  const block = (firebaseJson.hosting.headers || []).find((entry) =>
+    (entry.headers || []).some((header) => header.key === "Content-Security-Policy")
+  );
+  const header = block && block.headers.find((item) => item.key === "Content-Security-Policy");
+  return header ? header.value : "";
+})();
+const cloudflareCsp = (read("_headers").match(/Content-Security-Policy:\s*([^\r\n]+)/) || [])[1] || "";
+
+function cspDirective(csp, name) {
+  const found = String(csp || "")
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part === name || part.startsWith(name + " "));
+  return found || "";
+}
 
 /* --------------------------------------------- 1. surface module */
 
@@ -72,7 +89,7 @@ check(
 check("module : aucune donnée personnelle (pas de téléphone/email)", !/ip\s*:|user_email/i.test(moduleSrc));
 
 const pages = ["index.html", "koulchi.html", "produit.html", "panier.html", "boutique.html", "blog.html", "villesmaroc.html"];
-const missingPages = pages.filter((page) => !read(page).includes("/js/ads-attribution.js?v=1"));
+const missingPages = pages.filter((page) => !read(page).includes("/js/ads-attribution.js?v=2"));
 check("vitrine : module présent sur les 7 pages", missingPages.length === 0, missingPages.join(",") || "7 pages");
 check(
   "produit : événement smartswika:product-viewed",
@@ -95,6 +112,55 @@ check("rules : source énumérée", rules.includes("d.source in ['tiktok', 'meta
 check("rules : config/ads admin", rules.includes("match /config/ads {") && rules.includes("validAdsConfig()"));
 check("rules : config/ads_public lecture publique", rules.includes("match /config/ads_public {") && rules.includes("allow read: if true;"));
 
+/* --------------------------------------------- 3 bis. CSP pixels */
+
+const PIXEL_CSP_DOMAINS = [
+  "https://analytics.tiktok.com",
+  "https://*.tiktok.com",
+  "https://*.tiktokw.us",
+  "https://*.byteoversea.com",
+  "https://connect.facebook.net",
+  "https://www.facebook.com",
+  "https://*.facebook.com",
+];
+const CSP_DIRECTIVES = ["script-src", "connect-src", "img-src", "frame-src"];
+
+for (const [label, csp] of [
+  ["firebase.json", firebaseCsp],
+  ["_headers (Cloudflare)", cloudflareCsp],
+]) {
+  for (const directive of CSP_DIRECTIVES) {
+    const value = cspDirective(csp, directive);
+    const missing = PIXEL_CSP_DOMAINS.filter((domain) => !value.includes(domain));
+    check(
+      `CSP ${label} : ${directive} autorise TikTok + Meta`,
+      missing.length === 0,
+      missing.join(",") || `${PIXEL_CSP_DOMAINS.length} domaines`
+    );
+  }
+}
+
+check(
+  "CSP : les directives script/connect/img/frame sont présentes",
+  CSP_DIRECTIVES.every((directive) =>
+    cspDirective(firebaseCsp, directive) && cspDirective(cloudflareCsp, directive)
+  )
+);
+
+check(
+  "pixels : fbq init + PageView après lecture config/ads_public",
+  moduleSrc.indexOf('fbq("init"') > -1 &&
+    moduleSrc.indexOf('fbq("track", "PageView")') > moduleSrc.indexOf('fbq("init"') &&
+    moduleSrc.includes("PUBLIC_ADS_CONFIG") &&
+    moduleSrc.includes("data.metaPixelId")
+);
+check(
+  "pixels : ttq.load + ttq.page après lecture config/ads_public",
+  moduleSrc.indexOf("window.ttq.load(String(pixelId))") > -1 &&
+    moduleSrc.indexOf("window.ttq.page()") > moduleSrc.indexOf("window.ttq.load(String(pixelId))") &&
+    moduleSrc.includes("data.tiktokPixelId")
+);
+
 /* --------------------------------------------- 4. onglet admin */
 
 check("admin : onglet data-tab=ads", adminHtml.includes('data-tab="ads"'));
@@ -114,7 +180,7 @@ check("admin module : cartes mobile", adminSrc.includes("ads-card"));
 
 /* --------------------------------------------- 5. cache / tests */
 
-check("service worker : version sw-2026-11-26-v7", sw.includes("'sw-2026-11-26-v7'"));
+check("service worker : version sw-2026-11-26-v8", sw.includes("'sw-2026-11-26-v8'"));
 check(
   "package.json : suite ads-attribution branchée",
   String(pkg.scripts && pkg.scripts.test).includes("tests/ads-attribution.test.cjs")
