@@ -37,7 +37,12 @@ import {
 } from "firebase/firestore";
 import { getApp } from "firebase/app";
 import { getFunctions, httpsCallable } from "firebase/functions";
-import { db } from "./firebase.js";
+import {
+  ref as storageRef,
+  uploadBytesResumable,
+  getDownloadURL,
+} from "firebase/storage";
+import { db, storage } from "./firebase.js";
 import { adminT, getAdminLang } from "./admin-ui.js";
 import { escapeHTML } from "./utils.js";
 
@@ -84,6 +89,10 @@ const CAROUSEL_DEFAULT_COPY = {
   ar: "اكتشف أفضل الأجهزة المتصلة في المغرب 🇲🇦 — الدفع عند الاستلام خلال 24-72 ساعة + ضمان 15 يومًا!",
 };
 let carouselDraft = null;
+let editorState = null;
+let editorPreviewTab = "facebook";
+let editorReplaceIndex = -1;
+let editorReplaceCardIndex = -1;
 const adminTranslate = adminT;
 
 /* Aucune cle ads* brute ne doit etre rendue dans les cartes dynamiques. */
@@ -913,12 +922,1216 @@ function platformIsConfigured(platform) {
   return metaReady && tiktokReady;
 }
 
+function budgetEditorValues(source) {
+  const data = source || {};
+  const rate = Number(data.usdMadRate || data.rate) > 0 ? Number(data.usdMadRate || data.rate) : 10;
+  const durationDays = Number(data.durationDays) || 0;
+  const totalBudgetMad = Number(data.totalBudgetMad) || 0;
+  const totalBudgetUsd =
+    Number(data.totalBudgetUsd) > 0
+      ? Number(data.totalBudgetUsd)
+      : totalBudgetMad > 0
+      ? totalBudgetMad / rate
+      : 20;
+  const mode = data.budgetMode || (durationDays > 0 ? "total" : "daily");
+  return {
+    mode,
+    daily: Number(data.dailyBudgetMad) || Number(data.budget) || 50,
+    total: totalBudgetUsd,
+    currency: data.currency
+      ? String(data.currency).toUpperCase() === "MAD"
+        ? "MAD"
+        : "USD"
+      : mode === "total"
+      ? "USD"
+      : "MAD",
+    days: durationDays || 5,
+    rate,
+  };
+}
+
+function budgetEditorHtml(values) {
+  const v = budgetEditorValues(values);
+  return `<div class="ads-budget-editor" data-budget-editor>
+    <label>${escapeHTML(adsT("adsBudgetMode"))}
+      <select data-budget-mode>
+        <option value="daily" ${v.mode === "daily" ? "selected" : ""}>${escapeHTML(
+          adsT("adsBudgetDaily")
+        )}</option>
+        <option value="total" ${v.mode === "total" ? "selected" : ""}>${escapeHTML(
+          adsT("adsBudgetTotalMode")
+        )}</option>
+      </select>
+    </label>
+    <label data-budget-daily-field>${escapeHTML(adsT("adsBudgetDailyAmount"))}
+      <input type="number" min="20" max="5000" step="1" data-budget-daily value="${v.daily}">
+    </label>
+    <label data-budget-total-field>${escapeHTML(adsT("adsBudgetTotalAmount"))}
+      <input type="number" min="1" max="100000" step="0.01" data-budget-total value="${v.total}">
+    </label>
+    <label data-budget-total-field>${escapeHTML(adsT("adsBudgetCurrency"))}
+      <select data-budget-currency>
+        <option value="USD" ${v.currency === "USD" ? "selected" : ""}>USD ($)</option>
+        <option value="MAD" ${v.currency === "MAD" ? "selected" : ""}>MAD</option>
+      </select>
+    </label>
+    <label data-budget-total-field>${escapeHTML(adsT("adsBudgetDuration"))}
+      <input type="number" min="1" max="365" step="1" data-budget-days value="${v.days}">
+    </label>
+    <label data-budget-total-field>${escapeHTML(adsT("adsBudgetRate"))}
+      <input type="number" min="1" max="100" step="0.1" data-budget-rate value="${v.rate}">
+    </label>
+    <p class="ads-budget-summary" data-budget-summary></p>
+  </div>`;
+}
+
+function readBudgetEditor(root) {
+  if (!root) return budgetEditorValues({});
+  return {
+    mode: root.querySelector("[data-budget-mode]")?.value || "daily",
+    daily: Number(root.querySelector("[data-budget-daily]")?.value) || 20,
+    total: Number(root.querySelector("[data-budget-total]")?.value) || 20,
+    currency: root.querySelector("[data-budget-currency]")?.value || "USD",
+    days: Math.max(1, Math.round(Number(root.querySelector("[data-budget-days]")?.value) || 1)),
+    rate: Number(root.querySelector("[data-budget-rate]")?.value) || 10,
+  };
+}
+
+function computeBudget(values) {
+  const rate = Number(values.rate) > 0 ? Number(values.rate) : 10;
+  const days = Math.max(1, Math.round(Number(values.days) || 1));
+  const totalNative = Number(values.total) || 0;
+  const totalMad =
+    values.currency === "USD" ? totalNative * rate : totalNative;
+  let dailyMad;
+  let dailyNative;
+  if (values.mode === "total") {
+    dailyMad = totalMad / days;
+    dailyNative =
+      values.currency === "USD" ? totalNative / days : totalMad / days;
+    return {
+      mode: "total",
+      days,
+      rate,
+      totalNative,
+      totalMad,
+      dailyMad,
+      dailyNative,
+      currency: values.currency,
+    };
+  }
+  dailyMad = Number(values.daily) || 0;
+  dailyNative = values.currency === "USD" ? dailyMad / rate : dailyMad;
+  return {
+    mode: "daily",
+    days: 1,
+    rate,
+    totalNative: dailyNative,
+    totalMad: dailyMad,
+    dailyNative,
+    dailyMad,
+    currency: values.currency,
+  };
+}
+
+function budgetSummaryText(values) {
+  const b = computeBudget(values);
+  const symbol = b.currency === "USD" ? "$" : "MAD";
+  if (b.mode === "daily") {
+    return adsT("adsBudgetDailySummary")
+      .replaceAll("{daily}", fmtNumber(b.dailyNative, 2))
+      .replaceAll("{symbol}", symbol)
+      .replaceAll("{dailyMad}", fmtNumber(b.dailyMad, 2));
+  }
+  return `${adsT("adsBudgetSummary")
+    .replaceAll("{total}", fmtNumber(b.totalNative, 2))
+    .replaceAll("{symbol}", symbol)
+    .replaceAll("{totalMad}", fmtNumber(b.totalMad, 2))
+    .replaceAll("{days}", String(b.days))
+    .replaceAll("{daily}", fmtNumber(b.dailyNative, 2))
+    .replaceAll("{dailyMad}", fmtNumber(b.dailyMad, 2))} ${adsT(
+    "adsBudgetStop"
+  ).replaceAll("{days}", String(b.days))}`;
+}
+
+function updateBudgetEditor(root) {
+  if (!root) return;
+  const values = readBudgetEditor(root);
+  const isTotal = values.mode === "total";
+  root.classList.toggle("is-total", isTotal);
+  root.querySelectorAll("[data-budget-daily-field]").forEach((el) => {
+    el.hidden = isTotal;
+  });
+  root.querySelectorAll("[data-budget-total-field]").forEach((el) => {
+    el.hidden = !isTotal;
+  });
+  const summary = root.querySelector("[data-budget-summary]");
+  if (summary) summary.textContent = budgetSummaryText(values);
+}
+
+function bindBudgetEditor(root, onChange) {
+  if (!root) return;
+  root.querySelectorAll("input, select").forEach((input) => {
+    input.addEventListener("input", () => {
+      updateBudgetEditor(root);
+      if (onChange) onChange(readBudgetEditor(root));
+    });
+    input.addEventListener("change", () => {
+      updateBudgetEditor(root);
+      if (onChange) onChange(readBudgetEditor(root));
+    });
+  });
+  updateBudgetEditor(root);
+}
+
+function budgetPayload(values) {
+  const b = computeBudget(values);
+  return {
+    dailyBudgetMad: Math.round(b.dailyMad * 100) / 100,
+    durationDays: b.mode === "total" ? b.days : 0,
+    totalBudgetMad: Math.round(b.totalMad * 100) / 100,
+    totalBudgetUsd: Math.round((b.totalMad / b.rate) * 100) / 100,
+    currency: b.currency,
+    usdMadRate: b.rate,
+  };
+}
+
+function editorCtaOptions() {
+  return [
+    { key: "order", label: adsT("adsEditorCtaOrder") },
+    { key: "offer", label: adsT("adsEditorCtaOffer") },
+    { key: "shop", label: adsT("adsEditorCtaShop") },
+    { key: "arabic", label: adsT("adsEditorCtaArabic") },
+  ];
+}
+
+function editorMediaFromProduct(product) {
+  const url = product.img || (product.gallery || [])[0] || "/assets/logo-64.png";
+  return { type: "image", url, posterUrl: "" };
+}
+
+function editorInitialState(options) {
+  const campaign = options.campaign || null;
+  const kind = options.kind || (campaign && campaign.type === "carousel" ? "carousel" : "suggestion");
+  if (campaign) {
+    const media =
+      Array.isArray(campaign.customMedia) && campaign.customMedia.length
+        ? campaign.customMedia
+        : (Array.isArray(campaign.customImages) ? campaign.customImages : [])
+            .filter(Boolean)
+            .map((url) => ({ type: "image", url, posterUrl: "" }));
+    const fallbackProduct = cachedProducts.find(
+      (product) => String(product.id) === String(campaign.productId)
+    );
+    const fallbackMedia = fallbackProduct ? [editorMediaFromProduct(fallbackProduct)] : [];
+    return {
+      kind: campaign.type === "carousel" ? "carousel" : "suggestion",
+      campaignId: campaign.id,
+      status: campaign.status || "DRAFT",
+      platform: campaign.platform === "tiktok" ? "tiktok" : campaign.platform === "both" ? "both" : "meta",
+      campaignName: campaign.campaignName || adsT("adsEditorDefaultCampaignName"),
+      adCopy: { ...CAROUSEL_DEFAULT_COPY, ...(campaign.adCopy || {}) },
+      headline: campaign.headline || campaign.productTitle || "",
+      description: campaign.description || "",
+      ctaLabel: campaign.ctaLabel || adsT("adsEditorCtaOrder"),
+      media: media.length ? media : fallbackMedia,
+      carouselCards: Array.isArray(campaign.carouselCards) ? campaign.carouselCards.slice() : [],
+      budget: budgetEditorValues(campaign),
+      startPaused: String(campaign.status || "").toUpperCase() !== "ACTIVE",
+      productId: campaign.productId || "",
+      productIds: Array.isArray(campaign.productIds) ? campaign.productIds.slice() : [],
+      destinationUrl: campaign.destinationUrl || "",
+      original: null,
+    };
+  }
+
+  if (kind === "carousel") {
+    const products = carouselSelectedProducts();
+    const chosen = products.length >= CAROUSEL_MIN_PRODUCTS
+      ? products
+      : topCarouselProducts().slice(0, CAROUSEL_TOP_COUNT);
+    const draft = ensureCarouselDraft();
+    const budgetRoot = options.card?.querySelector("[data-budget-editor]");
+    return {
+      kind,
+      campaignId: null,
+      status: "NEW",
+      platform: draft.channel || "both",
+      campaignName: draft.campaignName || adsT("adsCarouselDefaultName"),
+      adCopy: { ...CAROUSEL_DEFAULT_COPY, ...(draft.copies || {}) },
+      headline: adsT("adsEditorCarouselHeadline"),
+      description: adsT("adsEditorDefaultDescription"),
+      ctaLabel: adsT("adsEditorCtaOrder"),
+      media: chosen.map((item) => editorMediaFromProduct(item.product)),
+      carouselCards: chosen.map((item) => ({
+        productId: String(item.product.id),
+        title: productDisplayName(item.product),
+        priceMad: money(Number(item.product.price) || 0),
+        text: "",
+        imageUrl: item.product.img || (item.product.gallery || [])[0] || "",
+        mediaType: "image",
+        mediaUrl: item.product.img || (item.product.gallery || [])[0] || "",
+        posterUrl: "",
+      })),
+      budget: budgetRoot ? readBudgetEditor(budgetRoot) : budgetEditorValues(draft),
+      startPaused: draft.startPaused !== false,
+      productId: chosen[0] ? String(chosen[0].product.id) : "",
+      productIds: chosen.map((item) => String(item.product.id)),
+      destinationUrl: "",
+      original: null,
+    };
+  }
+
+  const product = cachedProducts.find(
+    (item) => String(item.id) === String(options.productId)
+  );
+  if (!product) return null;
+  const suggestion = buildSuggestion(product, averageLivoFee());
+  const budgetRoot = options.card?.querySelector("[data-budget-editor]");
+  return {
+    kind: "suggestion",
+    campaignId: null,
+    status: "NEW",
+    platform: options.card?.querySelector("[data-suggestion-channel]")?.value || suggestion.channel,
+    campaignName: `Smartswika ${productDisplayName(product)}`,
+    adCopy: { ...suggestion.copy },
+    headline: productDisplayName(product),
+    description: adsT("adsEditorDefaultDescription"),
+    ctaLabel: adsT("adsEditorCtaOrder"),
+    media: [editorMediaFromProduct(product)],
+    carouselCards: [],
+    budget: budgetRoot ? readBudgetEditor(budgetRoot) : budgetEditorValues({
+      dailyBudgetMad: suggestion.budget,
+    }),
+    startPaused: options.card
+      ? Boolean(options.card.querySelector("[data-suggestion-paused]")?.checked)
+      : true,
+    productId: String(product.id),
+    productIds: [String(product.id)],
+    destinationUrl: suggestion.destinationUrl,
+    original: null,
+  };
+}
+
+function editorModalHtml() {
+  const state = editorState;
+  const ctaOptions = editorCtaOptions();
+  const existing = state.campaignId && String(state.status).toUpperCase() !== "DRAFT";
+  return `<div class="ads-editor-modal" id="adsEditorModal" role="dialog" aria-modal="true" aria-labelledby="adsEditorTitle">
+    <div class="ads-editor-dialog">
+      <header class="ads-editor-header">
+        <div>
+          <h3 id="adsEditorTitle">👁️ ${escapeHTML(adsT("adsEditorTitle"))}</h3>
+          <p>${escapeHTML(adsT("adsEditorSubtitle"))}</p>
+        </div>
+        <button type="button" class="ads-editor-close" data-editor-close aria-label="${escapeHTML(
+          adsT("adsEditorClose")
+        )}">✕</button>
+      </header>
+      <div class="ads-editor-grid">
+        <div class="ads-editor-form">
+          <h4>${escapeHTML(adsT("adsEditorTexts"))}</h4>
+          <label>${escapeHTML(adsT("adsEditorCampaignName"))}
+            <input type="text" data-editor-name maxlength="120" value="${escapeHTML(
+              state.campaignName
+            )}">
+          </label>
+          <label>${escapeHTML(adsT("adsEditorChannel"))}
+            <select data-editor-platform>
+              <option value="meta" ${state.platform === "meta" ? "selected" : ""}>${escapeHTML(
+                adsT("adsChannelMeta")
+              )}</option>
+              <option value="tiktok" ${
+                state.platform === "tiktok" ? "selected" : ""
+              }>${escapeHTML(adsT("adsChannelTiktok"))}</option>
+              <option value="both" ${state.platform === "both" ? "selected" : ""}>${escapeHTML(
+                adsT("adsChannelBoth")
+              )}</option>
+            </select>
+          </label>
+          ${["fr", "en", "ar"]
+            .map(
+              (lang) => `<label>${escapeHTML(adsT("adsEditorMainCopy"))} ${lang.toUpperCase()}
+                <textarea data-editor-copy="${lang}" rows="3" dir="${
+                lang === "ar" ? "rtl" : "ltr"
+              }">${escapeHTML(state.adCopy[lang] || CAROUSEL_DEFAULT_COPY[lang])}</textarea>
+              </label>`
+            )
+            .join("")}
+          <div class="ads-editor-quick">
+            <button type="button" class="admin-btn-secondary" data-insert-text="cash">🇲🇦 ${escapeHTML(
+              adsT("adsEditorQuickCash")
+            )}</button>
+            <button type="button" class="admin-btn-secondary" data-insert-text="delivery">🚚 ${escapeHTML(
+              adsT("adsEditorQuickDelivery")
+            )}</button>
+            <button type="button" class="admin-btn-secondary" data-insert-text="warranty">🛡️ ${escapeHTML(
+              adsT("adsEditorQuickWarranty")
+            )}</button>
+          </div>
+          <label>${escapeHTML(adsT("adsEditorHeadline"))}
+            <input type="text" data-editor-headline maxlength="120" value="${escapeHTML(
+              state.headline
+            )}">
+          </label>
+          <label>${escapeHTML(adsT("adsEditorDescription"))}
+            <textarea data-editor-description rows="2" maxlength="300">${escapeHTML(
+              state.description
+            )}</textarea>
+          </label>
+          <label>${escapeHTML(adsT("adsEditorCta"))}
+            <select data-editor-cta>
+              ${ctaOptions
+                .map(
+                  (option) =>
+                    `<option value="${escapeHTML(option.label)}" ${
+                      state.ctaLabel === option.label ? "selected" : ""
+                    }>${escapeHTML(option.label)}</option>`
+                )
+                .join("")}
+            </select>
+          </label>
+          <div class="ads-editor-text-actions">
+            <button type="button" class="admin-btn-secondary" data-editor-clear>🗑️ ${escapeHTML(
+              adsT("adsEditorClearText")
+            )}</button>
+            <button type="button" class="admin-btn-secondary" data-editor-reset>✨ ${escapeHTML(
+              adsT("adsEditorResetAi")
+            )}</button>
+          </div>
+          <h4>${escapeHTML(adsT("adsEditorMedia"))}</h4>
+          <div class="ads-editor-media" data-editor-media></div>
+          <div class="ads-editor-media-tools">
+            <button type="button" class="admin-btn-secondary" data-media-add="image">➕ ${escapeHTML(
+              adsT("adsEditorAddPhoto")
+            )}</button>
+            <button type="button" class="admin-btn-secondary" data-media-add="video">🎬 ${escapeHTML(
+              adsT("adsEditorAddVideo")
+            )}</button>
+          </div>
+          <div class="ads-editor-url-row">
+            <input type="url" data-media-url placeholder="${escapeHTML(
+              adsT("adsEditorImageUrl")
+            )}">
+            <button type="button" class="admin-btn-secondary" data-media-url-add>${escapeHTML(
+              adsT("adsEditorAddUrl")
+            )}</button>
+          </div>
+          <div class="ads-editor-product-gallery" data-editor-product-gallery></div>
+          <input type="file" accept="image/jpeg,image/png,image/webp" data-media-file="image" hidden>
+          <input type="file" accept="video/mp4,video/webm,video/quicktime" data-media-file="video" hidden>
+          <progress data-media-progress max="100" value="0" hidden></progress>
+          <div data-editor-card-list></div>
+          <h4>${escapeHTML(adsT("adsEditorBudget"))}</h4>
+          ${budgetEditorHtml(state.budget)}
+          <label class="ads-check">
+            <input type="checkbox" data-editor-paused ${
+              state.startPaused ? "checked" : ""
+            }>
+            ${escapeHTML(adsT("adsEditorPaused"))}
+          </label>
+        </div>
+        <div class="ads-editor-preview">
+          <div class="ads-preview-tabs">
+            <button type="button" class="is-active" data-preview-tab="facebook">Facebook</button>
+            <button type="button" data-preview-tab="instagram">Instagram</button>
+            <button type="button" data-preview-tab="tiktok">TikTok</button>
+          </div>
+          <div class="ads-phone" data-editor-preview></div>
+        </div>
+      </div>
+      <footer class="ads-editor-footer">
+        <span class="ads-status" data-editor-status role="status" aria-live="polite"></span>
+        <button type="button" class="admin-btn-secondary" data-editor-save>💾 ${escapeHTML(
+          adsT("adsEditorSaveDraft")
+        )}</button>
+        <button type="button" class="admin-btn-primary" data-editor-launch>${
+          existing
+            ? "💾 " + escapeHTML(adsT("adsEditorSaveChanges"))
+            : "🚀 " + escapeHTML(adsT("adsEditorConfirmLaunch"))
+        }</button>
+      </footer>
+    </div>
+  </div>`;
+}
+
+function openCreativeEditor(options) {
+  const state = editorInitialState(options || {});
+  if (!state) return;
+  state.original = JSON.parse(JSON.stringify({ ...state, original: null }));
+  editorState = state;
+  editorPreviewTab = "facebook";
+  editorReplaceIndex = -1;
+  document.getElementById("adsEditorModal")?.remove();
+  document.body.insertAdjacentHTML("beforeend", editorModalHtml());
+  bindEditorEvents();
+  renderEditorMedia();
+  renderEditorCards();
+  renderEditorPreview();
+  updateBudgetEditor(document.querySelector("#adsEditorModal [data-budget-editor]"));
+}
+
+function absoluteMediaUrl(url) {
+  const value = String(url || "").trim();
+  if (!value) return "";
+  if (/^https:\/\//i.test(value)) return value;
+  return `https://www.smartswika.ma${value.startsWith("/") ? "" : "/"}${value}`;
+}
+
+function mediaForServer(list) {
+  return (Array.isArray(list) ? list : []).map((item) => ({
+    ...item,
+    url: absoluteMediaUrl(item.url),
+    posterUrl: absoluteMediaUrl(item.posterUrl),
+  }));
+}
+
+function editorMediaPreview(media) {
+  if (!media) return `<div class="ads-editor-media-empty">${escapeHTML(adsT("adsEditorNoMedia"))}</div>`;
+  if (media.type === "video") {
+    return `<video src="${escapeHTML(media.url)}" controls muted loop playsinline poster="${escapeHTML(
+      media.posterUrl || ""
+    )}"></video>`;
+  }
+  return `<img src="${escapeHTML(media.url)}" alt="" loading="lazy">`;
+}
+
+function renderEditorMedia() {
+  const container = document.querySelector("#adsEditorModal [data-editor-media]");
+  if (!container || !editorState) return;
+  container.innerHTML = editorState.media.length
+    ? editorState.media
+        .map(
+          (media, index) => `<div class="ads-editor-media-item${
+            index === 0 ? " is-primary" : ""
+          }">
+            ${editorMediaPreview(media)}
+            <span class="ads-media-kind">${
+              media.type === "video" ? "🎬 " + escapeHTML(adsT("adsEditorVideo")) : "🖼️ " + escapeHTML(adsT("adsEditorImage"))
+            }</span>
+            ${index === 0 ? `<span class="ads-media-primary">⭐ ${escapeHTML(adsT("adsEditorPrimary"))}</span>` : ""}
+            <div class="ads-editor-media-actions">
+              <button type="button" data-media-action="primary" data-media-index="${index}">⭐</button>
+              <button type="button" data-media-action="replace" data-media-index="${index}">🔄 ${escapeHTML(
+                adsT("adsEditorReplace")
+              )}</button>
+              <button type="button" data-media-action="delete" data-media-index="${index}">🗑️</button>
+            </div>
+          </div>`
+        )
+        .join("")
+    : `<div class="ads-editor-media-empty">${escapeHTML(adsT("adsEditorNoMedia"))}</div>`;
+
+  const gallery = document.querySelector("#adsEditorModal [data-editor-product-gallery]");
+  if (gallery) {
+    const urls = new Set();
+    (editorState.productIds || []).forEach((id) => {
+      const product = cachedProducts.find((item) => String(item.id) === String(id));
+      if (!product) return;
+      [product.img, ...(Array.isArray(product.gallery) ? product.gallery : [])]
+        .filter(Boolean)
+        .forEach((url) => urls.add(url));
+    });
+    gallery.innerHTML = urls.size
+      ? [...urls]
+          .map(
+            (url) =>
+              `<button type="button" data-gallery-url="${escapeHTML(url)}"><img src="${escapeHTML(
+                url
+              )}" alt=""></button>`
+          )
+          .join("")
+      : "";
+  }
+}
+
+function renderEditorCards() {
+  const container = document.querySelector("#adsEditorModal [data-editor-card-list]");
+  if (!container || !editorState) return;
+  if (editorState.kind !== "carousel") {
+    container.innerHTML = "";
+    return;
+  }
+  const cards = editorState.carouselCards || [];
+  container.innerHTML = `<h4>${escapeHTML(adsT("adsEditorCarouselCards"))}</h4>
+    <div class="ads-editor-cards">${
+      cards.length
+        ? cards
+            .map(
+              (card, index) => `<div class="ads-editor-card" data-editor-card="${index}">
+                ${editorMediaPreview({
+                  type: card.mediaType === "video" ? "video" : "image",
+                  url: card.mediaUrl || card.imageUrl,
+                  posterUrl: card.posterUrl,
+                })}
+                <label>${escapeHTML(adsT("adsEditorCardTitle"))}
+                  <input type="text" data-card-field="title" data-card-index="${index}" value="${escapeHTML(
+                    card.title || ""
+                  )}">
+                </label>
+                <label>${escapeHTML(adsT("adsEditorCardPrice"))}
+                  <input type="text" data-card-field="priceMad" data-card-index="${index}" value="${escapeHTML(
+                    card.priceMad || ""
+                  )}">
+                </label>
+                <label>${escapeHTML(adsT("adsEditorCardText"))}
+                  <textarea rows="2" data-card-field="text" data-card-index="${index}">${escapeHTML(
+                    card.text || ""
+                  )}</textarea>
+                </label>
+                <label>${escapeHTML(adsT("adsEditorImageUrl"))}
+                  <input type="url" data-card-field="mediaUrl" data-card-index="${index}" value="${escapeHTML(
+                    card.mediaUrl || card.imageUrl || ""
+                  )}">
+                </label>
+                <div class="ads-editor-card-actions">
+                  <button type="button" data-card-replace="${index}">🔄 ${escapeHTML(
+                    adsT("adsEditorReplace")
+                  )}</button>
+                  <button type="button" data-card-primary="${index}">⭐ ${escapeHTML(
+                    adsT("adsEditorSetPrimary")
+                  )}</button>
+                  <button type="button" data-card-remove="${index}">🗑️ ${escapeHTML(
+                    adsT("adsEditorRemoveCard")
+                  )}</button>
+                </div>
+              </div>`
+            )
+            .join("")
+        : `<div class="ads-editor-media-empty">${escapeHTML(adsT("adsEditorNoCards"))}</div>`
+    }</div>`;
+}
+
+function editorPreviewCards() {
+  return (editorState.carouselCards || []).length
+    ? `<div class="ads-preview-carousel">${editorState.carouselCards
+        .map(
+          (card) => `<div class="ads-preview-card">
+            ${
+              card.mediaType === "video"
+                ? `<video src="${escapeHTML(card.mediaUrl || "")}" muted playsinline poster="${escapeHTML(
+                    card.posterUrl || ""
+                  )}"></video>`
+                : `<img src="${escapeHTML(card.mediaUrl || card.imageUrl || "")}" alt="" loading="lazy">`
+            }
+            <strong>${escapeHTML(card.title || "")}</strong>
+            <span>${escapeHTML(card.priceMad || "")}</span>
+            ${card.text ? `<small>${escapeHTML(card.text)}</small>` : ""}
+          </div>`
+        )
+        .join("")}</div>`
+    : editorMediaPreview((editorState.media || [])[0]);
+}
+
+function renderEditorPreview() {
+  if (!editorState) return;
+  const container = document.querySelector("#adsEditorModal [data-editor-preview]");
+  if (!container) return;
+  const lang = getAdminLang();
+  const copy = editorState.adCopy[lang] || editorState.adCopy.fr || "";
+  const media = (editorState.media || [])[0];
+  const hasVideo = media && media.type === "video";
+  const mediaHtml = hasVideo
+    ? `<video class="ads-preview-video" src="${escapeHTML(
+        media.url
+      )}" controls muted loop playsinline poster="${escapeHTML(media.posterUrl || "")}"></video>`
+    : "";
+  const cardsHtml = editorState.kind === "carousel" ? editorPreviewCards() : "";
+  const imageHtml =
+    !hasVideo && editorState.kind !== "carousel"
+      ? editorMediaPreview(media)
+      : "";
+  const ticker = editorState.kind === "carousel" ? "" : imageHtml;
+  const cta = editorState.ctaLabel || adsT("adsEditorCtaOrder");
+  const headline = editorState.headline || "";
+  const description = editorState.description || "";
+  const avatar = "/assets/favicon-32.png";
+  if (editorPreviewTab === "instagram") {
+    container.innerHTML = `<div class="ads-phone-instagram">
+      <div class="ads-preview-top"><span class="ads-preview-avatar"><img src="${avatar}" alt=""></span><div><strong>@smartswi9a</strong><small>${escapeHTML(
+        adsT("adsEditorSponsored")
+      )}</small></div><span class="ads-preview-more">•••</span></div>
+      <div class="ads-preview-media">${cardsHtml || mediaHtml || ticker}</div>
+      <div class="ads-preview-body"><p>${escapeHTML(copy)}</p><strong>@smartswi9a</strong><p>${escapeHTML(
+        headline
+      )}</p><span class="ads-preview-domain">smartswika.ma</span><button type="button">${escapeHTML(
+        cta
+      )}</button></div>
+    </div>`;
+    return;
+  }
+  if (editorPreviewTab === "tiktok") {
+    container.innerHTML = `<div class="ads-phone-tiktok">
+      <div class="ads-preview-media">${mediaHtml || cardsHtml || ticker}</div>
+      <div class="ads-preview-tiktok-overlay"><strong>@smartswika</strong><span>${escapeHTML(
+        adsT("adsEditorSponsored")
+      )}</span><p>${escapeHTML(copy)}</p><small>${escapeHTML(headline)}</small><button type="button">${escapeHTML(
+        cta
+      )}</button></div>
+    </div>`;
+    return;
+  }
+  container.innerHTML = `<div class="ads-phone-facebook">
+    <div class="ads-preview-top"><span class="ads-preview-avatar"><img src="${avatar}" alt=""></span><div><strong>Smartswi9a</strong><small>${escapeHTML(
+      adsT("adsEditorSponsored")
+    )} · 🌍</small></div><span class="ads-preview-more">•••</span></div>
+    <div class="ads-preview-body"><p>${escapeHTML(copy)}</p></div>
+    <div class="ads-preview-media">${mediaHtml || cardsHtml || ticker}</div>
+    <div class="ads-preview-link"><div><strong>${escapeHTML(headline)}</strong><span>${escapeHTML(
+      description
+    )}</span><small>smartswika.ma</small></div><button type="button">${escapeHTML(
+      cta
+    )}</button></div>
+  </div>`;
+}
+
+function editorSafeName(name) {
+  return String(name || "media")
+    .toLowerCase()
+    .replace(/\.[a-z0-9]+$/i, "")
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .slice(0, 40) || "media";
+}
+
+function compressEditorImage(file) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    image.onload = () => {
+      const max = 1400;
+      const scale = Math.min(1, max / Math.max(image.width, image.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(image.width * scale));
+      canvas.height = Math.max(1, Math.round(image.height * scale));
+      canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(objectUrl);
+      canvas.toBlob(
+        (blob) => (blob ? resolve(blob) : reject(new Error("webp_failed"))),
+        "image/webp",
+        0.82
+      );
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("image_decode_failed"));
+    };
+    image.src = objectUrl;
+  });
+}
+
+function captureEditorVideoPoster(file) {
+  return new Promise((resolve) => {
+    const video = document.createElement("video");
+    const objectUrl = URL.createObjectURL(file);
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = "metadata";
+    video.src = objectUrl;
+    const cleanup = () => URL.revokeObjectURL(objectUrl);
+    video.onloadeddata = () => {
+      try {
+        video.currentTime = Math.min(0.2, Number(video.duration) || 0.2);
+      } catch (e) {
+        cleanup();
+        resolve(null);
+      }
+    };
+    video.onseeked = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = video.videoWidth || 720;
+        canvas.height = video.videoHeight || 1280;
+        canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => {
+          cleanup();
+          resolve(blob);
+        }, "image/webp", 0.8);
+      } catch (e) {
+        cleanup();
+        resolve(null);
+      }
+    };
+    video.onerror = () => {
+      cleanup();
+      resolve(null);
+    };
+  });
+}
+
+function uploadEditorBlob(blob, path, contentType, progressEl) {
+  return new Promise((resolve, reject) => {
+    const task = uploadBytesResumable(storageRef(storage, path), blob, {
+      contentType,
+    });
+    if (progressEl) progressEl.hidden = false;
+    task.on(
+      "state_changed",
+      (snapshot) => {
+        if (progressEl) {
+          progressEl.value = snapshot.totalBytes
+            ? Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)
+            : 0;
+        }
+      },
+      reject,
+      async () => {
+        try {
+          resolve(await getDownloadURL(task.snapshot.ref));
+        } catch (error) {
+          reject(error);
+        }
+      }
+    );
+  });
+}
+
+async function uploadEditorFile(file, type, replaceIndex) {
+  if (!file || !editorState) return;
+  const status = document.querySelector("#adsEditorModal [data-editor-status]");
+  const progress = document.querySelector("#adsEditorModal [data-media-progress]");
+  const setStatus = (message, error) => {
+    if (!status) return;
+    status.textContent = message;
+    status.classList.toggle("is-error", Boolean(error));
+  };
+  try {
+    if (type === "image" && file.size > 10 * 1024 * 1024) {
+      setStatus(adsT("adsEditorImageTooLarge"), true);
+      return;
+    }
+    if (type === "video" && file.size > 100 * 1024 * 1024) {
+      setStatus(adsT("adsEditorVideoTooLarge"), true);
+      return;
+    }
+    setStatus(adsT("adsEditorUploading"), false);
+    let url = "";
+    let posterUrl = "";
+    if (type === "video") {
+      const poster = await captureEditorVideoPoster(file);
+      const extension = (file.name.split(".").pop() || "mp4").toLowerCase();
+      const path = `ads_creatives/videos/${Date.now()}_${editorSafeName(file.name)}.${extension}`;
+      url = await uploadEditorBlob(file, path, file.type || "video/mp4", progress);
+      if (poster) {
+        posterUrl = await uploadEditorBlob(
+          poster,
+          `ads_creatives/videos/${Date.now()}_${editorSafeName(file.name)}_poster.webp`,
+          "image/webp",
+          null
+        );
+      }
+    } else {
+      const webp = await compressEditorImage(file);
+      url = await uploadEditorBlob(
+        webp,
+        `ads_creatives/${Date.now()}_${editorSafeName(file.name)}.webp`,
+        "image/webp",
+        progress
+      );
+    }
+    const media = { type, url, posterUrl };
+    if (replaceIndex >= 0 && editorState.media[replaceIndex]) {
+      if (
+        editorReplaceCardIndex >= 0 &&
+        editorState.carouselCards[editorReplaceCardIndex]
+      ) {
+        const card = editorState.carouselCards[editorReplaceCardIndex];
+        card.mediaType = type;
+        card.mediaUrl = url;
+        card.posterUrl = posterUrl;
+        card.imageUrl = type === "image" ? url : card.imageUrl;
+      } else {
+        editorState.media[replaceIndex] = media;
+      }
+    } else if (editorReplaceCardIndex >= 0 && editorState.carouselCards[editorReplaceCardIndex]) {
+      const card = editorState.carouselCards[editorReplaceCardIndex];
+      card.mediaType = type;
+      card.mediaUrl = url;
+      card.posterUrl = posterUrl;
+      card.imageUrl = type === "image" ? url : card.imageUrl;
+    } else {
+      editorState.media.push(media);
+    }
+    editorReplaceIndex = -1;
+    editorReplaceCardIndex = -1;
+    if (progress) progress.hidden = true;
+    setStatus(adsT("adsEditorUploadDone"), false);
+    renderEditorMedia();
+    renderEditorCards();
+    renderEditorPreview();
+  } catch (error) {
+    if (progress) progress.hidden = true;
+    setStatus(`${adsT("adsEditorUploadError")} ${String((error && error.message) || "").slice(0, 120)}`, true);
+  }
+}
+
+function editorBudgetValues() {
+  const root = document.querySelector("#adsEditorModal [data-budget-editor]");
+  const values = readBudgetEditor(root);
+  editorState.budget = values;
+  return values;
+}
+
+function editorPayload() {
+  const budget = budgetPayload(editorBudgetValues());
+  const media = editorState.media || [];
+  return {
+    type: editorState.kind === "carousel" ? "carousel" : "suggestion",
+    platform: editorState.platform,
+    productId: editorState.productId,
+    productIds:
+      editorState.kind === "carousel"
+        ? (editorState.carouselCards || []).map((card) => card.productId)
+        : editorState.productIds,
+    productTitle:
+      editorState.kind === "carousel"
+        ? `${(editorState.carouselCards || []).length} produits Smartswika`
+        : editorState.headline,
+    destinationUrl: editorState.destinationUrl || "",
+    campaignName: editorState.campaignName,
+    adCopy: editorState.adCopy,
+    headline: editorState.headline,
+    description: editorState.description,
+    ctaLabel: editorState.ctaLabel,
+    customMedia: mediaForServer(media),
+    customImages: mediaForServer(media)
+      .filter((item) => item.type === "image")
+      .map((item) => item.url),
+    carouselCards: (editorState.carouselCards || []).map((card) => ({
+      ...card,
+      imageUrl: absoluteMediaUrl(card.imageUrl),
+      mediaUrl: absoluteMediaUrl(card.mediaUrl || card.imageUrl),
+      posterUrl: absoluteMediaUrl(card.posterUrl),
+    })),
+    startPaused: editorState.startPaused,
+    ...budget,
+  };
+}
+
+function setEditorStatus(message, isError) {
+  const status = document.querySelector("#adsEditorModal [data-editor-status]");
+  if (!status) return;
+  status.textContent = message || "";
+  status.classList.toggle("is-error", Boolean(isError));
+}
+
+async function saveEditorDraft() {
+  if (!editorState) return;
+  const button = document.querySelector("#adsEditorModal [data-editor-save]");
+  if (button) button.disabled = true;
+  setEditorStatus(adsT("adsEditorSaving"), false);
+  try {
+    const result = await callAdsFunction("updateAdCampaignSettings", {
+      campaignDocId: editorState.campaignId || null,
+      ...editorPayload(),
+    });
+    if (result.campaignDocId) editorState.campaignId = result.campaignDocId;
+    if (result.status) editorState.status = result.status;
+    setEditorStatus(adsT("adsEditorDraftSaved"), false);
+    await loadCampaigns();
+    renderCampaigns();
+  } catch (error) {
+    setEditorStatus(`${adsT("adsEditorSaveError")} ${String((error && error.message) || "").slice(0, 160)}`, true);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function saveEditorChanges() {
+  if (!editorState || !editorState.campaignId) return;
+  const button = document.querySelector("#adsEditorModal [data-editor-launch]");
+  if (button) button.disabled = true;
+  setEditorStatus(adsT("adsEditorSaving"), false);
+  try {
+    await callAdsFunction("updateAdCampaignSettings", {
+      campaignDocId: editorState.campaignId,
+      ...editorPayload(),
+    });
+    setEditorStatus(adsT("adsEditorSaved"), false);
+    await loadCampaigns();
+    renderCampaigns();
+    setTimeout(closeCreativeEditor, 500);
+  } catch (error) {
+    setEditorStatus(`${adsT("adsEditorSaveError")} ${String((error && error.message) || "").slice(0, 160)}`, true);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+function closeCreativeEditor() {
+  document.getElementById("adsEditorModal")?.remove();
+  editorState = null;
+  editorReplaceIndex = -1;
+  editorReplaceCardIndex = -1;
+}
+
+async function launchEditorCampaign() {
+  if (!editorState) return;
+  const button = document.querySelector("#adsEditorModal [data-editor-launch]");
+  if (button) button.disabled = true;
+  const payload = editorPayload();
+  setEditorStatus(adsT("adsEditorLaunching"), false);
+  try {
+    if (editorState.kind === "carousel") {
+      if ((editorState.carouselCards || []).length < CAROUSEL_MIN_PRODUCTS) {
+        throw new Error(adsT("adsCarouselMinError"));
+      }
+      const productIds = editorState.carouselCards.map((card) => card.productId);
+      const result = await callAdsFunction("launchMultiProductCarouselCampaign", {
+        platform: editorState.platform,
+        productIds,
+        campaignName: editorState.campaignName,
+        adCopy: editorState.adCopy,
+        headline: editorState.headline,
+        description: editorState.description,
+        ctaLabel: editorState.ctaLabel,
+        customMedia: payload.customMedia,
+        carouselCards: payload.carouselCards,
+        startPaused: editorState.startPaused,
+        language: getAdminLang(),
+        ...budgetPayload(editorBudgetValues()),
+      });
+      setEditorStatus(
+        result.mode === "prepared" ? adsT("adsCarouselPrepared") : adsT("adsEditorLaunched"),
+        false
+      );
+    } else {
+      const result = await callAdsFunction("launchSuggestedAdCampaign", {
+        platform: editorState.platform,
+        productId: editorState.productId,
+        campaignName: editorState.campaignName,
+        adCopy: editorState.adCopy,
+        headline: editorState.headline,
+        description: editorState.description,
+        ctaLabel: editorState.ctaLabel,
+        customMedia: payload.customMedia,
+        destinationUrl: editorState.destinationUrl,
+        startPaused: editorState.startPaused,
+        language: getAdminLang(),
+        ...budgetPayload(editorBudgetValues()),
+      });
+      setEditorStatus(
+        result.mode === "prepared" ? adsT("adsPreparedMode") : adsT("adsEditorLaunched"),
+        false
+      );
+    }
+    await loadCampaigns();
+    renderCampaigns();
+    setTimeout(closeCreativeEditor, 900);
+  } catch (error) {
+    setEditorStatus(`${adsT("adsEditorLaunchError")} ${String((error && error.message) || "").slice(0, 180)}`, true);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+function bindEditorEvents() {
+  const modal = document.getElementById("adsEditorModal");
+  if (!modal || !editorState) return;
+  const setCopy = (lang, value) => {
+    editorState.adCopy[lang] = value;
+    renderEditorPreview();
+  };
+  modal.addEventListener("click", async (event) => {
+    if (event.target === modal) return closeCreativeEditor();
+    if (event.target.closest("[data-editor-close]")) return closeCreativeEditor();
+    const tab = event.target.closest("[data-preview-tab]");
+    if (tab) {
+      editorPreviewTab = tab.dataset.previewTab;
+      modal.querySelectorAll("[data-preview-tab]").forEach((button) => {
+        button.classList.toggle("is-active", button === tab);
+      });
+      renderEditorPreview();
+      return;
+    }
+    if (event.target.closest("[data-editor-save]")) return saveEditorDraft();
+    if (event.target.closest("[data-editor-launch]")) {
+      if (editorState.campaignId && String(editorState.status).toUpperCase() !== "DRAFT") {
+        return saveEditorChanges();
+      }
+      return launchEditorCampaign();
+    }
+    const insert = event.target.closest("[data-insert-text]");
+    if (insert) {
+      const key = insert.dataset.insertText;
+      const label =
+        key === "cash"
+          ? adsT("adsEditorQuickCash")
+          : key === "delivery"
+          ? adsT("adsEditorQuickDelivery")
+          : adsT("adsEditorQuickWarranty");
+      const lang = getAdminLang();
+      const current = editorState.adCopy[lang] || "";
+      editorState.adCopy[lang] = current ? `${current}\n${label}` : label;
+      const textarea = modal.querySelector(`[data-editor-copy="${lang}"]`);
+      if (textarea) textarea.value = editorState.adCopy[lang];
+      renderEditorPreview();
+      return;
+    }
+    if (event.target.closest("[data-editor-clear]")) {
+      editorState.description = "";
+      const description = modal.querySelector("[data-editor-description]");
+      if (description) description.value = "";
+      renderEditorPreview();
+      return;
+    }
+    if (event.target.closest("[data-editor-reset]")) {
+      const original = editorState.original || {};
+      editorState.adCopy = { ...CAROUSEL_DEFAULT_COPY, ...(original.adCopy || {}) };
+      editorState.headline = original.headline || adsT("adsEditorDefaultHeadline");
+      editorState.description = original.description || adsT("adsEditorDefaultDescription");
+      modal.querySelectorAll("[data-editor-copy]").forEach((textarea) => {
+        textarea.value = editorState.adCopy[textarea.dataset.editorCopy];
+      });
+      const headline = modal.querySelector("[data-editor-headline]");
+      const description = modal.querySelector("[data-editor-description]");
+      if (headline) headline.value = editorState.headline;
+      if (description) description.value = editorState.description;
+      renderEditorPreview();
+      return;
+    }
+    const add = event.target.closest("[data-media-add]");
+    if (add) {
+      editorReplaceIndex = -1;
+      editorReplaceCardIndex = -1;
+      modal.querySelector(`[data-media-file="${add.dataset.mediaAdd}"]`)?.click();
+      return;
+    }
+    if (event.target.closest("[data-media-url-add]")) {
+      const input = modal.querySelector("[data-media-url]");
+      const url = String(input?.value || "").trim();
+      if (!/^https:\/\//i.test(url)) {
+        setEditorStatus(adsT("adsEditorUrlError"), true);
+        return;
+      }
+      const isVideo = /\.(mp4|webm|mov)(\?|$)/i.test(url);
+      editorState.media.push({ type: isVideo ? "video" : "image", url, posterUrl: "" });
+      if (input) input.value = "";
+      renderEditorMedia();
+      renderEditorPreview();
+      return;
+    }
+    const gallery = event.target.closest("[data-gallery-url]");
+    if (gallery) {
+      editorState.media.push({
+        type: "image",
+        url: gallery.dataset.galleryUrl,
+        posterUrl: "",
+      });
+      renderEditorMedia();
+      renderEditorPreview();
+      return;
+    }
+
+    const mediaAction = event.target.closest("[data-media-action]");
+    if (mediaAction) {
+      const index = Number(mediaAction.dataset.mediaIndex);
+      const action = mediaAction.dataset.mediaAction;
+      if (action === "primary" && editorState.media[index]) {
+        const [item] = editorState.media.splice(index, 1);
+        editorState.media.unshift(item);
+      } else if (action === "delete") {
+        editorState.media.splice(index, 1);
+      } else if (action === "replace" && editorState.media[index]) {
+        editorReplaceIndex = index;
+        editorReplaceCardIndex = -1;
+        modal
+          .querySelector(
+            `[data-media-file="${editorState.media[index].type === "video" ? "video" : "image"}"]`
+          )
+          ?.click();
+        return;
+      }
+      renderEditorMedia();
+      renderEditorPreview();
+      return;
+    }
+    const cardReplace = event.target.closest("[data-card-replace]");
+    if (cardReplace) {
+      editorReplaceCardIndex = Number(cardReplace.dataset.cardReplace);
+      editorReplaceIndex = -1;
+      const card = editorState.carouselCards[editorReplaceCardIndex];
+      modal
+        .querySelector(`[data-media-file="${card?.mediaType === "video" ? "video" : "image"}"]`)
+        ?.click();
+      return;
+    }
+    const cardPrimary = event.target.closest("[data-card-primary]");
+    if (cardPrimary) {
+      const index = Number(cardPrimary.dataset.cardPrimary);
+      const [card] = editorState.carouselCards.splice(index, 1);
+      editorState.carouselCards.unshift(card);
+      renderEditorCards();
+      renderEditorPreview();
+      return;
+    }
+    const cardRemove = event.target.closest("[data-card-remove]");
+    if (cardRemove) {
+      const index = Number(cardRemove.dataset.cardRemove);
+      const [removed] = editorState.carouselCards.splice(index, 1);
+      if (removed) {
+        editorState.productIds = (editorState.productIds || []).filter(
+          (id) => String(id) !== String(removed.productId)
+        );
+      }
+      renderEditorCards();
+      renderEditorPreview();
+    }
+  });
+
+  const bindInput = (selector, handler) => {
+    modal.querySelectorAll(selector).forEach((input) => {
+      input.addEventListener("input", () => handler(input, input.value));
+      input.addEventListener("change", () => handler(input, input.value));
+    });
+  };
+  bindInput("[data-editor-name]", (_, value) => (editorState.campaignName = value));
+  bindInput("[data-editor-platform]", (_, value) => (editorState.platform = value));
+  bindInput("[data-editor-copy]", (input, value) => setCopy(input.dataset.editorCopy, value));
+  bindInput("[data-editor-headline]", (_, value) => (editorState.headline = value));
+  bindInput("[data-editor-description]", (_, value) => (editorState.description = value));
+  bindInput("[data-editor-cta]", (_, value) => (editorState.ctaLabel = value));
+  bindInput("[data-editor-paused]", (input) => {
+    editorState.startPaused = Boolean(input.checked);
+  });
+  bindInput("[data-card-field]", (input, value) => {
+    const card = editorState.carouselCards[Number(input.dataset.cardIndex)];
+    if (!card) return;
+    card[input.dataset.cardField] = value;
+    if (input.dataset.cardField === "mediaUrl") {
+      card.imageUrl = value;
+      card.mediaType = /\.(mp4|webm|mov)(\?|$)/i.test(value) ? "video" : "image";
+    }
+    renderEditorPreview();
+  });
+  bindBudgetEditor(modal.querySelector("[data-budget-editor]"), (values) => {
+    editorState.budget = values;
+  });
+  modal.querySelectorAll("[data-media-file]").forEach((input) => {
+    input.addEventListener("change", async () => {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      await uploadEditorFile(
+        file,
+        input.dataset.mediaFile === "video" ? "video" : "image",
+        editorReplaceIndex
+      );
+      input.value = "";
+    });
+  });
+}
+
+
 function carouselDefaults() {
   return {
     selected: new Set(),
     campaignName: adsT("adsCarouselDefaultName"),
     nameTouched: false,
-    budget: 80,
+    budgetMode: "daily",
+    dailyBudgetMad: 80,
+    totalBudgetUsd: 20,
+    currency: "MAD",
+    durationDays: 5,
+    usdMadRate: 10,
     channel: "both",
     startPaused: true,
     copies: { ...CAROUSEL_DEFAULT_COPY },
@@ -943,11 +2156,19 @@ function captureCarouselDraft() {
   );
   draft.selected = selected;
   const name = card.querySelector("[data-carousel-name]");
-  const budget = card.querySelector("[data-carousel-budget]");
+  const budget = card.querySelector("[data-budget-editor]");
   const channel = card.querySelector("[data-carousel-channel]");
   const paused = card.querySelector("[data-carousel-paused]");
   if (name) draft.campaignName = name.value;
-  if (budget) draft.budget = Number(budget.value) || draft.budget;
+  if (budget) {
+    const values = readBudgetEditor(budget);
+    draft.budgetMode = values.mode;
+    draft.dailyBudgetMad = values.daily;
+    draft.totalBudgetUsd = values.total;
+    draft.currency = values.currency;
+    draft.durationDays = values.days;
+    draft.usdMadRate = values.rate;
+  }
   if (channel) draft.channel = channel.value;
   if (paused) draft.startPaused = Boolean(paused.checked);
   card.querySelectorAll("[data-carousel-copy]").forEach((textarea) => {
@@ -1083,11 +2304,14 @@ function renderCarouselBuilder(scoredProducts) {
           draft.campaignName || adsT("adsCarouselDefaultName")
         )}">
       </label>
-      <label>${escapeHTML(adsT("adsCarouselBudget"))}
-        <input type="number" min="20" max="5000" step="10" data-carousel-budget value="${Number(
-          draft.budget
-        ) || 80}">
-      </label>
+      <div class="ads-carousel-budget">${budgetEditorHtml({
+        budgetMode: draft.budgetMode,
+        dailyBudgetMad: draft.dailyBudgetMad,
+        totalBudgetUsd: draft.totalBudgetUsd,
+        currency: draft.currency,
+        durationDays: draft.durationDays,
+        usdMadRate: draft.usdMadRate,
+      })}</div>
       <label>${escapeHTML(adsT("adsCarouselChannel"))}
         <select data-carousel-channel>
           <option value="meta" ${draft.channel === "meta" ? "selected" : ""}>${escapeHTML(
@@ -1119,7 +2343,10 @@ function renderCarouselBuilder(scoredProducts) {
       <p class="ads-hint">${escapeHTML(adsT("adsCarouselMetaHint"))}</p>
     </div>
     <div class="ads-suggestion-actions">
-      <button type="button" class="admin-btn-primary" data-carousel-launch ${
+      <button type="button" class="admin-btn-primary" data-open-carousel-editor>
+        👁️ ${escapeHTML(adsT("adsEditorButton"))}
+      </button>
+      <button type="button" class="admin-btn-secondary" data-carousel-launch ${
         selectedCount < CAROUSEL_MIN_PRODUCTS ? "disabled" : ""
       }>
         🚀 ${escapeHTML(adsT("adsCarouselLaunch"))}
@@ -1202,8 +2429,13 @@ function bindCarouselEvents(container) {
     draft.nameTouched = true;
     updateCarouselUi(card);
   });
-  card.querySelector("[data-carousel-budget]")?.addEventListener("input", (event) => {
-    draft.budget = Number(event.target.value) || draft.budget;
+  bindBudgetEditor(card.querySelector("[data-budget-editor]"), (values) => {
+    draft.budgetMode = values.mode;
+    draft.dailyBudgetMad = values.daily;
+    draft.totalBudgetUsd = values.total;
+    draft.currency = values.currency;
+    draft.durationDays = values.days;
+    draft.usdMadRate = values.rate;
   });
   card.querySelector("[data-carousel-channel]")?.addEventListener("change", (event) => {
     draft.channel = event.target.value;
@@ -1219,6 +2451,9 @@ function bindCarouselEvents(container) {
   });
   card.querySelector("[data-carousel-launch]")?.addEventListener("click", () => {
     launchCarouselCampaign(card);
+  });
+  card.querySelector("[data-open-carousel-editor]")?.addEventListener("click", () => {
+    openCreativeEditor({ kind: "carousel", card });
   });
   updateCarouselUi(card);
 }
@@ -1247,7 +2482,10 @@ async function launchCarouselCampaign(card) {
   }
   const campaignName =
     String(draft.campaignName || "").trim() || adsT("adsCarouselDefaultName");
-  const budget = Number(draft.budget) || 80;
+  const budgetData = budgetPayload(
+    readBudgetEditor(card.querySelector("[data-budget-editor]"))
+  );
+  const budget = budgetData.dailyBudgetMad;
   const channel = draft.channel || "both";
   const startPaused = draft.startPaused !== false;
   const adCopy = {
@@ -1272,6 +2510,7 @@ async function launchCarouselCampaign(card) {
       adCopy,
       startPaused,
       language,
+      ...budgetData,
     });
     if (result.mode === "prepared") {
       const copyPayload = `${adCopy[language] || adCopy.fr}\n${(
@@ -1377,9 +2616,9 @@ function renderSuggestions() {
               )}</option>
             </select>
           </label>
-          <label>${escapeHTML(adsT("adsSuggestionBudget"))}
-            <input type="number" min="20" max="5000" step="10" data-suggestion-budget value="${suggestion.budget}">
-          </label>
+          <div class="ads-suggestion-budget">${budgetEditorHtml({
+            dailyBudgetMad: suggestion.budget,
+          })}</div>
           <label class="ads-check">
             <input type="checkbox" data-suggestion-paused checked>
             ${escapeHTML(adsT("adsSuggestionPaused"))}
@@ -1392,7 +2631,10 @@ function renderSuggestions() {
         </label>
         <code class="ads-destination">${escapeHTML(suggestion.destinationUrl)}</code>
         <div class="ads-suggestion-actions">
-          <button type="button" class="admin-btn-primary" data-launch-suggestion>
+          <button type="button" class="admin-btn-primary" data-open-editor="suggestion">
+            👁️ ${escapeHTML(adsT("adsEditorButton"))}
+          </button>
+          <button type="button" class="admin-btn-secondary" data-launch-suggestion>
             🚀 ${escapeHTML(adsT("adsLaunchNow"))}
           </button>
           <span class="ads-status" data-suggestion-status role="status" aria-live="polite"></span>
@@ -1406,6 +2648,21 @@ function renderSuggestions() {
       const card = button.closest("[data-suggestion-product]");
       if (card) launchSuggestedCampaign(card);
     });
+  });
+  container.querySelectorAll("[data-open-editor]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const card = button.closest("[data-suggestion-product]");
+      if (!card) return;
+      openCreativeEditor({
+        kind: button.dataset.openEditor,
+        productId: card.dataset.suggestionProduct,
+        card,
+      });
+    });
+  });
+  container.querySelectorAll("[data-budget-editor]").forEach((editor) => {
+    if (editor.closest("[data-carousel-builder]")) return;
+    bindBudgetEditor(editor);
   });
   bindCarouselEvents(container);
 }
@@ -1423,7 +2680,10 @@ async function launchSuggestedCampaign(card) {
   const product = cachedProducts.find((item) => String(item.id) === String(productId));
   if (!product) return;
   const channel = card.querySelector("[data-suggestion-channel]")?.value || "meta";
-  const budget = Number(card.querySelector("[data-suggestion-budget]")?.value) || 50;
+  const budgetData = budgetPayload(
+    readBudgetEditor(card.querySelector("[data-budget-editor]"))
+  );
+  const budget = budgetData.dailyBudgetMad;
   const startPaused = Boolean(card.querySelector("[data-suggestion-paused]")?.checked);
   const editedCopy = card.querySelector("[data-suggestion-copy]")?.value || "";
   const base = buildSuggestion(product, averageLivoFee());
@@ -1448,6 +2708,7 @@ async function launchSuggestedCampaign(card) {
       adCopy: base.copy,
       destinationUrl,
       startPaused,
+      ...budgetData,
     });
     if (result.mode === "prepared") {
       const copyPayload = `${editedCopy}\n${destinationUrl}`;
@@ -1529,9 +2790,9 @@ function campaignStats(campaign) {
 }
 
 function campaignStatusLabel(status) {
-  return String(status || "").toUpperCase() === "ACTIVE"
-    ? adsT("adsStatusActive")
-    : adsT("adsStatusPaused");
+  const value = String(status || "").toUpperCase();
+  if (value === "DRAFT") return adsT("adsStatusDraft");
+  return value === "ACTIVE" ? adsT("adsStatusActive") : adsT("adsStatusPaused");
 }
 
 function renderCampaigns() {
@@ -1556,11 +2817,30 @@ function renderCampaigns() {
           ? adsT("adsChannelTiktok")
           : adsT("adsChannelMeta");
       const isCarousel = campaign.type === "carousel";
+      const isDraft = String(campaign.status || "").toUpperCase() === "DRAFT";
       const carouselCount = Number(campaign.productCount) ||
         (Array.isArray(campaign.productIds) ? campaign.productIds.length : 0);
       const linkedProduct = cachedProducts.find(
         (product) => String(product.id) === String(campaign.productId)
       );
+      const media = Array.isArray(campaign.customMedia) && campaign.customMedia.length
+        ? campaign.customMedia[0]
+        : (Array.isArray(campaign.customImages) && campaign.customImages[0])
+        ? { type: "image", url: campaign.customImages[0], posterUrl: "" }
+        : linkedProduct
+        ? editorMediaFromProduct(linkedProduct)
+        : null;
+      const hasVideo = Array.isArray(campaign.customMedia) &&
+        campaign.customMedia.some((item) => item.type === "video");
+      const endsAt = campaign.endsAt ? toDate(campaign.endsAt) : null;
+      const daysLeft = endsAt && endsAt.getTime
+        ? Math.max(0, Math.ceil((endsAt.getTime() - Date.now()) / 86400000))
+        : null;
+      const totalBudget = Number(campaign.totalBudgetUsd) > 0
+        ? `${fmtNumber(campaign.totalBudgetUsd, 2)} $ / ${fmtNumber(campaign.durationDays || 1)}j`
+        : Number(campaign.totalBudgetMad) > 0
+        ? `${money(campaign.totalBudgetMad)} / ${fmtNumber(campaign.durationDays || 1)}j`
+        : "";
       const displayTitle = isCarousel
         ? campaign.campaignName ||
           `${adsT("adsCarouselTypeBadge")} · ${carouselCount} ${adsT(
@@ -1574,28 +2854,47 @@ function renderCampaigns() {
         campaign.id
       )}">
         <div class="ads-campaign-head">
-          <div>
-            <strong>${escapeHTML(displayTitle)}</strong>
-            <div class="ads-campaign-meta">
-              <span class="ads-channel-pill">${escapeHTML(platformLabel)}</span>
-              ${isCarousel ? `<span class="ads-carousel-pill">🎠 ${escapeHTML(
-                adsT("adsCarouselTypeBadge")
-              )} · ${fmtNumber(carouselCount)} ${escapeHTML(
-                adsT("adsCarouselProductsShort")
-              )}</span>` : ""}
-              <span class="ads-campaign-status ${
-                active ? "is-active" : "is-paused"
-              }">${escapeHTML(campaignStatusLabel(campaign.status))}</span>
-              <span>${escapeHTML(adsT("adsCampaignBudget"))} : ${money(
-                campaign.dailyBudgetMad
-              )}/j</span>
+          <div class="ads-campaign-summary">
+            <span class="ads-campaign-thumb">${
+              media
+                ? editorMediaPreview(media)
+                : `<span class="ads-campaign-thumb-empty">🎯</span>`
+            }${hasVideo ? `<span class="ads-video-badge">🎬 ${escapeHTML(adsT("adsCampaignVideoBadge"))}</span>` : ""}</span>
+            <div>
+              <strong>${escapeHTML(displayTitle)}</strong>
+              <div class="ads-campaign-meta">
+                <span class="ads-channel-pill">${escapeHTML(platformLabel)}</span>
+                <span class="ads-carousel-pill">${isCarousel ? "🎠" : "🔥"} ${escapeHTML(
+                  isCarousel ? adsT("adsCarouselTypeBadge") : adsT("adsCampaignTypeProduct")
+                )}${isCarousel ? ` · ${fmtNumber(carouselCount)} ${escapeHTML(adsT("adsCarouselProductsShort"))}` : ""}</span>
+                <span class="ads-campaign-status ${
+                  active ? "is-active" : isDraft ? "is-draft" : "is-paused"
+                }">${escapeHTML(campaignStatusLabel(campaign.status))}</span>
+                <span>${escapeHTML(adsT("adsCampaignBudget"))} : ${money(
+                  campaign.dailyBudgetMad
+                )}/j${totalBudget ? ` · ${escapeHTML(totalBudget)}` : ""}${
+                  daysLeft !== null ? ` · ${escapeHTML(adsT("adsCampaignDaysLeft"))} ${daysLeft}j` : ""
+                }</span>
+              </div>
             </div>
           </div>
-          <button type="button" class="admin-btn-secondary" data-toggle-campaign="${escapeHTML(
-            campaign.id
-          )}" data-toggle-action="${nextAction}">
-            ${active ? "⏸️ " + escapeHTML(adsT("adsPause")) : "▶️ " + escapeHTML(adsT("adsActivate"))}
-          </button>
+          <div class="ads-campaign-actions">
+            <button type="button" class="admin-btn-secondary" data-preview-campaign="${escapeHTML(
+              campaign.id
+            )}">👁️ ${escapeHTML(adsT("adsCampaignPreview"))}</button>
+            <button type="button" class="admin-btn-secondary" data-edit-campaign="${escapeHTML(
+              campaign.id
+            )}">✏️ ${escapeHTML(adsT("adsCampaignEdit"))}</button>
+            ${
+              isDraft
+                ? ""
+                : `<button type="button" class="admin-btn-secondary" data-toggle-campaign="${escapeHTML(
+                    campaign.id
+                  )}" data-toggle-action="${nextAction}">
+                    ${active ? "⏸️ " + escapeHTML(adsT("adsPause")) : "▶️ " + escapeHTML(adsT("adsActivate"))}
+                  </button>`
+            }
+          </div>
         </div>
         <div class="ads-campaign-stats">
           <div><span>${escapeHTML(adsT("adsCampaignOrders"))}</span><strong>${fmtNumber(
@@ -1626,6 +2925,14 @@ function renderCampaigns() {
         button.dataset.toggleAction,
         button
       );
+    });
+  });
+  container.querySelectorAll("[data-preview-campaign], [data-edit-campaign]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const id = button.dataset.previewCampaign || button.dataset.editCampaign;
+      const campaign = cachedCampaigns.find((item) => String(item.id) === String(id));
+      if (!campaign) return;
+      openCreativeEditor({ kind: campaign.type === "carousel" ? "carousel" : "suggestion", campaign });
     });
   });
 }
@@ -2010,6 +3317,9 @@ if (typeof window !== "undefined") {
     reload: () => loadAll(),
     buildUtmUrl,
     period: () => currentPeriod,
+    computeBudget,
+    budgetPayload,
+    openCreativeEditor,
   };
 }
 

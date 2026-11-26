@@ -21,7 +21,7 @@ const {
   serverTimestamp,
   Timestamp
 } = require("firebase/firestore");
-const { ref, uploadBytes } = require("firebase/storage");
+const { ref, uploadBytes, getBytes } = require("firebase/storage");
 
 async function main() {
   const env = await initializeTestEnvironment({
@@ -455,6 +455,17 @@ async function main() {
 
     // Type non-image refuse meme si le chemin est valide.
     await assertFails(uploadBytes(ref(vendorStorage, "vendors/vendorA/products/gallery/1700000000002_notimage.txt"), new Uint8Array([1, 2, 3]), { contentType: "text/plain" }));
+
+    // Visuels publicitaires : ecriture admin, lecture publique, images et videos.
+    const adminStorage = env.authenticatedContext("adminA").storage();
+    const anonStorage = env.unauthenticatedContext().storage();
+    const buyerStorage = env.authenticatedContext("buyerA").storage();
+    await assertSucceeds(uploadBytes(ref(adminStorage, "ads_creatives/1700000000000_photo.webp"), new Uint8Array([1, 2, 3]), { contentType: "image/webp" }));
+    await assertSucceeds(getBytes(ref(anonStorage, "ads_creatives/1700000000000_photo.webp")));
+    await assertFails(uploadBytes(ref(buyerStorage, "ads_creatives/1700000000001_evil.webp"), new Uint8Array([1, 2, 3]), { contentType: "image/webp" }));
+    await assertSucceeds(uploadBytes(ref(adminStorage, "ads_creatives/videos/1700000000000_clip.mp4"), new Uint8Array([1, 2, 3]), { contentType: "video/mp4" }));
+    await assertSucceeds(getBytes(ref(anonStorage, "ads_creatives/videos/1700000000000_clip.mp4")));
+    await assertFails(uploadBytes(ref(adminStorage, "ads_creatives/videos/1700000000001_bad.exe"), new Uint8Array([1, 2, 3]), { contentType: "application/octet-stream" }));
 
     /* --------------------------------------------- MESURE D AUDIENCE */
     const anonDb = env.unauthenticatedContext().firestore();
