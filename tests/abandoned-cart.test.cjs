@@ -198,7 +198,7 @@ check(
 
 /* --------------------------------------------- 5. Cache / tests */
 
-check("service worker : version sw-2026-11-26-v10", sw.includes("'sw-2026-11-26-v10'"));
+check("service worker : version sw-2026-11-26-v11", sw.includes("'sw-2026-11-26-v11'"));
 check(
   "package.json : suite abandoned-cart branchée sur npm test",
   String(pkg.scripts && pkg.scripts.test).includes("tests/abandoned-cart.test.cjs")

@@ -108,7 +108,7 @@ check(
   !/>\s*ads[A-Z][A-Za-z0-9]+\s*</.test(html)
 );
 check("index.html : Meta Domain Verification statique", read("index.html").includes(
-  '<meta name="facebook-domain-verification" content="e3kprjwlq9bwehqywp9hr3csmk6gjr" />'
+  '<meta name="facebook-domain-verification" content="i3b08s06nqz1o92nawa1kfrum7qiaq" />'
 ));
 
 /* --------------------------------------------- 2. navigation */

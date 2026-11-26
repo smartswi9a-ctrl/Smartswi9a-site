@@ -195,7 +195,7 @@ check("admin module : cartes mobile", adminSrc.includes("ads-card"));
 
 /* --------------------------------------------- 5. cache / tests */
 
-check("service worker : version sw-2026-11-26-v10", sw.includes("'sw-2026-11-26-v10'"));
+check("service worker : version sw-2026-11-26-v11", sw.includes("'sw-2026-11-26-v11'"));
 check(
   "package.json : suite ads-attribution branchée",
   String(pkg.scripts && pkg.scripts.test).includes("tests/ads-attribution.test.cjs")
