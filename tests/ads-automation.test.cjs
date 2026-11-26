@@ -94,7 +94,7 @@ const indexHtml = read("index.html");
 check(
   "index.html : balise Meta Domain Verification statique",
   indexHtml.includes(
-    '<meta name="facebook-domain-verification" content="e3kprjwlq9bwehqywp9hr3csmk6gjr" />'
+    '<meta name="facebook-domain-verification" content="i3b08s06nqz1o92nawa1kfrum7qiaq" />'
   )
 );
 check(
@@ -278,7 +278,7 @@ check(
     (domain) => cspLine.includes(domain)
   )
 );
-check("cache : SW v10", sw.includes("'sw-2026-11-26-v10'"));
+check("cache : SW v11", sw.includes("'sw-2026-11-26-v11'"));
 check(
   "cache : ads-attribution v3 sur les 7 pages",
   ["index.html", "koulchi.html", "produit.html", "panier.html", "boutique.html", "blog.html", "villesmaroc.html"].every(
