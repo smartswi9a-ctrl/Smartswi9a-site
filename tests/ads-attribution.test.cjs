@@ -120,12 +120,15 @@ const TIKTOK_CSP_DOMAINS = [
   "https://*.tiktokw.us",
   "https://*.byteoversea.com",
 ];
-const META_CSP_DOMAINS = ["https://www.facebook.com", "https://*.facebook.com"];
+const META_CSP_DOMAINS = ["https://*.facebook.com"];
+const META_CONNECT_DOMAINS = ["https://www.facebook.com", "https://*.facebook.com"];
 /* connect.facebook.net ne charge que le script : inutile en connect/img/frame.
-   Cloudflare ignore silencieusement une ligne `_headers` > 2048 caractères. */
+   Cloudflare ignore silencieusement une ligne `_headers` > 2048 caractères.
+   *.facebook.com couvre www.facebook.com : le doublon est retire des directives
+   non-connect pour conserver une marge sous la limite Cloudflare. */
 const CSP_REQUIRED = {
   "script-src": [...TIKTOK_CSP_DOMAINS, "https://connect.facebook.net", ...META_CSP_DOMAINS],
-  "connect-src": [...TIKTOK_CSP_DOMAINS, ...META_CSP_DOMAINS],
+  "connect-src": [...TIKTOK_CSP_DOMAINS, ...META_CONNECT_DOMAINS],
   "img-src": [...TIKTOK_CSP_DOMAINS, ...META_CSP_DOMAINS],
   "frame-src": [...TIKTOK_CSP_DOMAINS, ...META_CSP_DOMAINS],
 };
