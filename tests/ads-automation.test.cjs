@@ -124,7 +124,12 @@ check(
   "scoring : UTM auto_{productId}",
   adminAds.includes("utm_campaign=auto_") && adminAds.includes("utm_medium=paid_social")
 );
-check("scoring : etat guide catalogue vide", adminAds.includes("adsSuggestionsEmptyTitle"));
+check(
+  "scoring : etat guide carrousel si moins de 3 produits",
+  adminAds.includes("adsCarouselGuideTitle") &&
+    adminAds.includes("adsCarouselGuideDesc") &&
+    adminAds.includes("scoredProducts.length < CAROUSEL_MIN_PRODUCTS")
+);
 
 /* --------------------------------------------- 4. vendeur */
 
@@ -168,6 +173,49 @@ check("api : mode preparation sans tokens", functionsJs.includes("tokens_not_con
 check("api : ad_campaigns ecrit par Function", functionsJs.includes("AD_CAMPAIGNS_COLLECTION") && functionsJs.includes("createdBy: adminUid"));
 check("api : secrets jamais publics", functionsJs.includes("ADS_SECRETS_DOC") && rules.includes("match /config/ads_secrets"));
 check("api : URL destination bornee", functionsJs.includes("ADS_ALLOWED_HOSTS") && functionsJs.includes("sanitizeUrl"));
+check(
+  "carrousel : callable launchMultiProductCarouselCampaign",
+  functionsJs.includes("exports.launchMultiProductCarouselCampaign")
+);
+check(
+  "carrousel : validation tableau 3 a 20 produits",
+  functionsJs.includes("Array.isArray(data.productIds)") &&
+    functionsJs.includes("CAROUSEL_MIN_PRODUCTS = 3") &&
+    functionsJs.includes("CAROUSEL_MAX_PRODUCTS = 20") &&
+    functionsJs.includes("productIds.length < CAROUSEL_MIN_PRODUCTS") &&
+    functionsJs.includes("productIds.length > CAROUSEL_MAX_PRODUCTS")
+);
+check(
+  "carrousel : refus produit vendeur tiers / non approuve",
+  functionsJs.includes("Only official Smartswika products can be used in a carousel") &&
+    functionsJs.includes("Product must be approved and in stock")
+);
+check(
+  "carrousel : creation Meta campaign + adset + creative + ad",
+  functionsJs.includes("createMetaCarouselCampaign") &&
+    functionsJs.includes("child_attachments") &&
+    functionsJs.includes("object_story_spec") &&
+    functionsJs.includes("/adcreatives") &&
+    functionsJs.includes("act_' + account + '/ads")
+);
+check(
+  "carrousel : maximum 10 cartes Meta",
+  functionsJs.includes("META_CAROUSEL_MAX_CARDS = 10") &&
+    functionsJs.includes("slice(0, META_CAROUSEL_MAX_CARDS)")
+);
+check(
+  "carrousel : TikTok Maroc + mode prepare URLs",
+  functionsJs.includes("TIKTOK_LOCATION_MA") &&
+    functionsJs.includes("productUrls") &&
+    functionsJs.includes("utm_campaign=carousel_")
+);
+check(
+  "carrousel : Firestore type carousel + 20 produits",
+  functionsJs.includes("type: 'carousel'") &&
+    functionsJs.includes("productIds,") &&
+    functionsJs.includes("productCount: productIds.length") &&
+    functionsJs.includes("utmCampaign: 'carousel_' + campaignSlug")
+);
 
 /* --------------------------------------------- 6. admin UI */
 
@@ -199,6 +247,34 @@ check(
     adminHtml.includes("adsConfigDetails")
 );
 check("admin : flux URL", adminHtml.includes("https://www.smartswika.ma/feed/products.xml"));
+check(
+  "carrousel admin : builder 3 a 20 + top 10",
+  adminAds.includes("renderCarouselBuilder") &&
+    adminAds.includes("CAROUSEL_MIN_PRODUCTS = 3") &&
+    adminAds.includes("CAROUSEL_MAX_PRODUCTS = 20") &&
+    adminAds.includes("CAROUSEL_TOP_COUNT = 10") &&
+    adminAds.includes("data-carousel-top10")
+);
+check(
+  "carrousel admin : compteur, apercu horizontal, copies FR/EN/AR",
+  adminAds.includes("data-carousel-counter") &&
+    adminAds.includes("data-carousel-preview") &&
+    adminAds.includes('["fr", "en", "ar"].map(copyField)') &&
+    adminAds.includes("carouselCampaignUrl") &&
+    adminAds.includes("utm_campaign=carousel_") &&
+    adminAds.includes("utm_content=")
+);
+check(
+  "carrousel admin : lancement callable",
+  adminAds.includes('launchMultiProductCarouselCampaign') &&
+    adminAds.includes("launchCarouselCampaign")
+);
+check(
+  "carrousel admin : cartes dans Mes Campagnes",
+  adminAds.includes('campaign.type === "carousel"') &&
+    adminAds.includes("adsCarouselTypeBadge") &&
+    adminAds.includes("adsCarouselProductsShort")
+);
 check("admin : appels callables", adminAds.includes("launchSuggestedAdCampaign") && adminAds.includes("toggleAdCampaignStatus") && adminAds.includes("testAdPlatformConnection"));
 check("admin : alerte COD", adminAds.includes("adsCodAlert") && adminAds.includes("total > 10 && rate < 45"));
 check("admin : secrets masques", adminHtml.includes('type="password" id="adsMetaAccessToken"') && adminHtml.includes('type="password" id="adsTiktokAccessToken"'));
@@ -250,14 +326,26 @@ check(
   "admin : aucune cle ads* brute visible dans le HTML",
   !/>\s*ads[A-Z][A-Za-z0-9]+\s*</.test(adminHtml)
 );
+const carouselI18nKeys = usedAdsKeys.filter((key) =>
+  key.startsWith("adsCarousel")
+);
+check(
+  "carrousel : parite i18n FR / EN / AR",
+  carouselI18nKeys.length >= 20 &&
+    carouselI18nKeys.every(
+      (key) =>
+        adminFr.includes(key) && adminEn.includes(key) && adminAr.includes(key)
+    ),
+  carouselI18nKeys.length + " cles"
+);
 check(
   "admin : i18n suggestions/campagnes en 3 langues",
   ["adsSuggestionsTitle:", "adsCampaignsTitle:", "adsLaunchNow:", "adsCodAlert:"].every(
     (key) => (adminUi.match(new RegExp(key, "g")) || []).length === 3
   )
 );
-check("admin : cache-busting v5 / ads2026c3", adminHtml.includes("/js/admin-ui.js?v=5") && adminHtml.includes("/js/admin.js?v=ads2026c3"));
-check("admin : module ads v3", read("js/admin.js").includes("admin-ads.js?v=3"));
+check("admin : cache-busting v6 / ads2026c4", adminHtml.includes("/js/admin-ui.js?v=6") && adminHtml.includes("/js/admin.js?v=ads2026c4"));
+check("admin : module ads v4", read("js/admin.js").includes("admin-ads.js?v=4"));
 
 /* --------------------------------------------- 7. regles Firestore */
 
@@ -278,7 +366,7 @@ check(
     (domain) => cspLine.includes(domain)
   )
 );
-check("cache : SW v11", sw.includes("'sw-2026-11-26-v11'"));
+check("cache : SW v12", sw.includes("'sw-2026-11-26-v12'"));
 check(
   "cache : ads-attribution v3 sur les 7 pages",
   ["index.html", "koulchi.html", "produit.html", "panier.html", "boutique.html", "blog.html", "villesmaroc.html"].every(
