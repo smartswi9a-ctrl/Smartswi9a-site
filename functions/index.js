@@ -4,7 +4,7 @@ const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { defineSecret } = require('firebase-functions/params');
 const { initializeApp } = require('firebase-admin/app');
 const { getAuth } = require('firebase-admin/auth');
-const { getFirestore, FieldValue, FieldPath } = require('firebase-admin/firestore');
+const { getFirestore, FieldValue, FieldPath, Timestamp } = require('firebase-admin/firestore');
 const { getStorage } = require('firebase-admin/storage');
 const { getMessaging } = require('firebase-admin/messaging');
 const bcrypt = require('bcryptjs');
@@ -4511,7 +4511,9 @@ async function createMetaCarouselCampaign(options) {
   const cards = options.products.slice(0, META_CAROUSEL_MAX_CARDS).map((product) => ({
     link: product.link,
     name: String(product.title || '').slice(0, 80),
-    description: String(product.priceMad || '').slice(0, 80),
+    description: String(product.priceMad || '')
+      .concat(product.text ? ' · ' + String(product.text) : '')
+      .slice(0, 80),
     picture: product.imageUrl,
     call_to_action: { type: 'SHOP_NOW' }
   }));
@@ -4566,6 +4568,271 @@ function normalizeAdCopy(value) {
   return { fr: text, en: text, ar: text };
 }
 
+const USD_MAD_DEFAULT_RATE = 10;
+
+function roundMoney(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return Math.round(number * 100) / 100;
+}
+
+function normalizeMediaList(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .slice(0, 20)
+    .map((item) => {
+      const type = item && item.type === 'video' ? 'video' : 'image';
+      const url = String((item && item.url) || '').trim();
+      const posterUrl = String((item && item.posterUrl) || '').trim();
+      if (!/^https:\/\//i.test(url)) return null;
+      return {
+        type,
+        url,
+        posterUrl: /^https:\/\//i.test(posterUrl) ? posterUrl : ''
+      };
+    })
+    .filter(Boolean);
+}
+
+function normalizeCarouselCards(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .slice(0, 20)
+    .map((card) => {
+      if (!card || !card.productId) return null;
+      const mediaUrl = String(card.mediaUrl || card.imageUrl || '').trim();
+      const posterUrl = String(card.posterUrl || card.imageUrl || '').trim();
+      const mediaType = card.mediaType === 'video' ? 'video' : 'image';
+      return {
+        productId: String(card.productId).slice(0, 128),
+        title: stripHtml(card.title || '').slice(0, 120),
+        priceMad: stripHtml(card.priceMad || card.price || '').slice(0, 40),
+        text: stripHtml(card.text || '').slice(0, 300),
+        imageUrl: /^https:\/\//i.test(String(card.imageUrl || '')) ? String(card.imageUrl) : '',
+        mediaType,
+        mediaUrl: /^https:\/\//i.test(mediaUrl) ? mediaUrl : '',
+        posterUrl: /^https:\/\//i.test(posterUrl) ? posterUrl : ''
+      };
+    })
+    .filter(Boolean);
+}
+
+function resolveCampaignBudget(data) {
+  const durationDays = Math.max(
+    0,
+    Math.min(365, Math.round(Number(data.durationDays) || 0))
+  );
+  const usdMadRate =
+    Number(data.usdMadRate) > 0 ? Number(data.usdMadRate) : USD_MAD_DEFAULT_RATE;
+  const totalBudgetUsd = Math.max(0, roundMoney(data.totalBudgetUsd));
+  const totalMadInput =
+    Number(data.totalBudgetMad) > 0
+      ? roundMoney(data.totalBudgetMad)
+      : roundMoney(totalBudgetUsd * usdMadRate);
+  let dailyBudgetMad = Number(data.dailyBudgetMad) || 0;
+  if (durationDays > 0 && totalMadInput > 0) {
+    dailyBudgetMad = totalMadInput / durationDays;
+  }
+  dailyBudgetMad = positiveBudget(dailyBudgetMad || 20);
+  const totalBudgetMad =
+    totalMadInput > 0 ? totalMadInput : roundMoney(dailyBudgetMad * Math.max(1, durationDays));
+  const totalUsd =
+    totalBudgetUsd > 0 ? totalBudgetUsd : roundMoney(totalBudgetMad / usdMadRate);
+  return {
+    dailyBudgetMad,
+    durationDays,
+    totalBudgetMad: roundMoney(totalBudgetMad),
+    totalBudgetUsd: roundMoney(totalUsd),
+    currency: String(data.currency || (totalBudgetUsd > 0 ? 'USD' : 'MAD')).toUpperCase() === 'USD' ? 'USD' : 'MAD',
+    usdMadRate,
+    endsAt:
+      durationDays > 0
+        ? Timestamp.fromMillis(Date.now() + durationDays * 24 * 60 * 60 * 1000)
+        : null
+  };
+}
+
+function creativeFields(data) {
+  return {
+    headline: stripHtml(data.headline || '').slice(0, 120),
+    description: stripHtml(data.description || '').slice(0, 300),
+    ctaLabel: stripHtml(data.ctaLabel || '').slice(0, 40),
+    customMedia: normalizeMediaList(data.customMedia || data.customImages),
+    carouselCards: normalizeCarouselCards(data.carouselCards)
+  };
+}
+
+function campaignBudgetPatch(budget) {
+  const patch = {
+    dailyBudgetMad: budget.dailyBudgetMad,
+    durationDays: budget.durationDays,
+    totalBudgetMad: budget.totalBudgetMad,
+    totalBudgetUsd: budget.totalBudgetUsd,
+    currency: budget.currency,
+    usdMadRate: budget.usdMadRate,
+    endsAt: budget.endsAt || null
+  };
+  return patch;
+}
+
+async function createMetaSingleCreativeAd(options) {
+  if (!options.pageId) return null;
+  const media = Array.isArray(options.customMedia) ? options.customMedia : [];
+  const video = media.find((item) => item.type === 'video');
+  const image = media.find((item) => item.type === 'image');
+  if (!video && !image && !options.headline) return null;
+  const account = String(options.accountId || '').replace(/^act_/, '');
+  let storySpec;
+  if (video) {
+    const uploaded = await metaGraphRequest(
+      'act_' + account + '/advideos',
+      'POST',
+      {
+        file_url: video.url,
+        title: options.headline || options.campaignName
+      },
+      options.token
+    );
+    storySpec = {
+      page_id: String(options.pageId),
+      video_data: {
+        video_id: String(uploaded.id),
+        message: options.message,
+        title: options.headline || '',
+        link_description: options.description || '',
+        image_url: video.posterUrl || (image && image.url) || '',
+        call_to_action: {
+          type: 'SHOP_NOW',
+          value: { link: options.destinationUrl }
+        }
+      }
+    };
+  } else {
+    storySpec = {
+      page_id: String(options.pageId),
+      link_data: {
+        message: options.message,
+        link: options.destinationUrl,
+        name: options.headline || options.campaignName,
+        description: options.description || '',
+        picture: image ? image.url : '',
+        call_to_action: { type: 'SHOP_NOW' }
+      }
+    };
+  }
+  const creative = await metaGraphRequest(
+    'act_' + account + '/adcreatives',
+    'POST',
+    {
+      name: options.campaignName + ' - Creative',
+      object_story_spec: storySpec
+    },
+    options.token
+  );
+  const ad = await metaGraphRequest(
+    'act_' + account + '/ads',
+    'POST',
+    {
+      name: options.campaignName + ' - Ad',
+      adset_id: options.externalAdSetId,
+      creative: { creative_id: creative.id },
+      status: options.startPaused ? 'PAUSED' : 'ACTIVE'
+    },
+    options.token
+  );
+  return {
+    externalCreativeId: String(creative.id),
+    externalAdId: String(ad.id)
+  };
+}
+
+async function uploadTiktokVideo(advertiserId, token, media) {
+  const video = (Array.isArray(media) ? media : []).find(
+    (item) => item.type === 'video'
+  );
+  if (!video) return null;
+  return tiktokRequest(
+    '/file/video/ad/upload/',
+    'POST',
+    {
+      advertiser_id: String(advertiserId),
+      upload_type: 'UPLOAD_BY_URL',
+      video_url: video.url
+    },
+    token
+  );
+}
+
+async function syncCampaignBudgetToPlatform(campaign, budget, secrets) {
+  const warnings = [];
+  try {
+    if (
+      campaign.platform === 'meta' &&
+      campaign.externalAdSetId &&
+      secrets.metaAccessToken &&
+      secrets.metaAdAccountId
+    ) {
+      await metaGraphRequest(
+        String(campaign.externalAdSetId),
+        'POST',
+        { daily_budget: Math.round(budget.dailyBudgetMad * 100) },
+        String(secrets.metaAccessToken)
+      );
+    } else if (
+      campaign.platform === 'tiktok' &&
+      campaign.externalAdSetId &&
+      secrets.tiktokAccessToken &&
+      secrets.tiktokAdvertiserId
+    ) {
+      await tiktokRequest(
+        '/adgroup/update/',
+        'POST',
+        {
+          advertiser_id: String(secrets.tiktokAdvertiserId),
+          adgroup_id: String(campaign.externalAdSetId),
+          budget_mode: 'BUDGET_MODE_DAY',
+          budget: budget.dailyBudgetMad
+        },
+        String(secrets.tiktokAccessToken)
+      );
+    }
+  } catch (error) {
+    warnings.push(String((error && error.message) || 'Budget sync failed.').slice(0, 300));
+  }
+  return warnings;
+}
+
+async function pauseExternalCampaign(campaign, secrets) {
+  if (!campaign || !campaign.externalCampaignId) return false;
+  if (campaign.platform === 'meta' && secrets.metaAccessToken) {
+    await metaGraphRequest(
+      String(campaign.externalCampaignId),
+      'POST',
+      { status: 'PAUSED' },
+      String(secrets.metaAccessToken)
+    );
+    return true;
+  }
+  if (
+    campaign.platform === 'tiktok' &&
+    secrets.tiktokAccessToken &&
+    secrets.tiktokAdvertiserId
+  ) {
+    await tiktokRequest(
+      '/campaign/status/update/',
+      'POST',
+      {
+        advertiser_id: String(secrets.tiktokAdvertiserId),
+        campaign_ids: [String(campaign.externalCampaignId)],
+        operation_status: 'DISABLE'
+      },
+      String(secrets.tiktokAccessToken)
+    );
+    return true;
+  }
+  return false;
+}
+
 exports.launchSuggestedAdCampaign = onCall(
   { region: 'europe-west1', timeoutSeconds: 120, maxInstances: 5 },
   async (request) => {
@@ -4597,10 +4864,14 @@ exports.launchSuggestedAdCampaign = onCall(
     const campaignName =
       String(data.campaignName || '').trim().slice(0, 120) ||
       ('Smartswika ' + title + ' ' + platform).slice(0, 120);
-    const dailyBudgetMad = positiveBudget(data.dailyBudgetMad);
+    const budget = resolveCampaignBudget(data);
+    const dailyBudgetMad = budget.dailyBudgetMad;
     const destinationUrl = sanitizeUrl(data.destinationUrl);
     const startPaused = data.startPaused !== false;
     const adCopy = normalizeAdCopy(data.adCopy);
+    const creative = creativeFields(data);
+    const message =
+      adCopy[String(data.language || 'fr')] || adCopy.fr || adCopy.en || adCopy.ar || campaignName;
     const secrets = await readAdsSecrets();
     const requested = platform === 'both' ? ['meta', 'tiktok'] : [platform];
     const campaigns = [];
@@ -4625,7 +4896,9 @@ exports.launchSuggestedAdCampaign = onCall(
           reason: 'tokens_not_configured',
           adsManagerUrl,
           destinationUrl,
-          adCopy
+          adCopy,
+          ...creative,
+          ...campaignBudgetPatch(budget)
         });
         continue;
       }
@@ -4646,17 +4919,52 @@ exports.launchSuggestedAdCampaign = onCall(
               dailyBudgetMad,
               startPaused
             });
+        let extraCreative = {};
+        if (isMeta && secrets.metaPageId) {
+          const metaCreative = await createMetaSingleCreativeAd({
+            accountId,
+            token,
+            pageId: String(secrets.metaPageId),
+            campaignName,
+            externalAdSetId: created.externalAdSetId,
+            message,
+            headline: creative.headline,
+            description: creative.description,
+            customMedia: creative.customMedia,
+            destinationUrl,
+            startPaused
+          });
+          if (metaCreative) extraCreative = metaCreative;
+        } else if (!isMeta) {
+          const uploadedVideo = await uploadTiktokVideo(
+            accountId,
+            token,
+            creative.customMedia
+          ).catch(() => null);
+          if (uploadedVideo) {
+            extraCreative.externalVideoId = String(
+              uploadedVideo.video_id || uploadedVideo.videoId || ''
+            );
+          }
+        }
         const docRef = await db.collection(AD_CAMPAIGNS_COLLECTION).add({
           platform: current,
           externalCampaignId: created.externalCampaignId,
           externalAdSetId: created.externalAdSetId || '',
+          externalCreativeId: extraCreative.externalCreativeId || '',
+          externalAdId: extraCreative.externalAdId || '',
+          externalVideoId: extraCreative.externalVideoId || '',
           productId,
           productTitle: title,
           campaignName,
-          dailyBudgetMad,
           status: created.status,
           destinationUrl,
           adCopy,
+          ...creative,
+          customImages: creative.customMedia
+            .filter((item) => item.type === 'image')
+            .map((item) => item.url),
+          ...campaignBudgetPatch(budget),
           createdBy: adminUid,
           createdAt: FieldValue.serverTimestamp()
         });
@@ -4697,6 +5005,8 @@ exports.launchSuggestedAdCampaign = onCall(
         (prepared[0] && prepared[0].adsManagerUrl) ||
         metaAdsManagerUrl(secrets.metaAdAccountId),
       adCopy,
+      ...creative,
+      ...campaignBudgetPatch(budget),
       destinationUrl,
       startPaused
     };
@@ -4758,12 +5068,14 @@ exports.launchMultiProductCarouselCampaign = onCall(
       String(data.campaignName || '').trim().slice(0, 120) ||
       'Carrousel Smartswika - Top Selection';
     const campaignSlug = carouselCampaignSlug(campaignName);
-    const dailyBudgetMad = positiveBudget(data.dailyBudgetMad);
+    const budget = resolveCampaignBudget(data);
+    const dailyBudgetMad = budget.dailyBudgetMad;
     const startPaused = data.startPaused !== false;
     const language = ['fr', 'en', 'ar'].includes(String(data.language || ''))
       ? String(data.language)
       : 'fr';
     const adCopy = normalizeAdCopy(data.adCopy);
+    const creative = creativeFields(data);
     const message =
       adCopy[language] || adCopy.fr || adCopy.en || adCopy.ar || campaignName;
     const secrets = await readAdsSecrets();
@@ -4773,13 +5085,28 @@ exports.launchMultiProductCarouselCampaign = onCall(
     const errors = [];
     const payloadFor = (source) => {
       const links = buildCarouselProductLinks(products, source, campaignSlug);
-      return products.map((product, index) => ({
-        id: product.id,
-        title: catalogProductTitle(product) || product.id,
-        priceMad: catalogPriceMad(product) || '0.00 MAD',
-        imageUrl: absoluteAssetUrl(product.img || (product.gallery || [])[0]),
-        link: links[index]
-      }));
+      const overrides = new Map(
+        creative.carouselCards.map((card) => [String(card.productId), card])
+      );
+      return products.map((product, index) => {
+        const card = overrides.get(String(product.id)) || {};
+        const cardMedia = card.mediaUrl || card.imageUrl || '';
+        const fallbackImage = absoluteAssetUrl(product.img || (product.gallery || [])[0]);
+        return {
+          id: product.id,
+          title: card.title || catalogProductTitle(product) || product.id,
+          priceMad: card.priceMad || catalogPriceMad(product) || '0.00 MAD',
+          text: card.text || '',
+          imageUrl:
+            card.mediaType === 'video'
+              ? card.posterUrl || fallbackImage
+              : cardMedia || fallbackImage,
+          mediaType: card.mediaType || 'image',
+          mediaUrl: cardMedia,
+          posterUrl: card.posterUrl || '',
+          link: links[index]
+        };
+      });
     };
 
     for (const current of requested) {
@@ -4805,6 +5132,8 @@ exports.launchMultiProductCarouselCampaign = onCall(
           adsManagerUrl,
           productUrls,
           adCopy,
+          ...creative,
+          ...campaignBudgetPatch(budget),
           productCount: productUrls.length
         });
         continue;
@@ -4841,12 +5170,16 @@ exports.launchMultiProductCarouselCampaign = onCall(
           productCount: productIds.length,
           productTitle: productIds.length + ' produits Smartswika',
           campaignName,
-          dailyBudgetMad,
           status: created.status,
           destinationUrl: productUrls[0],
           productUrls,
           utmCampaign: 'carousel_' + campaignSlug,
           adCopy,
+          ...creative,
+          customImages: creative.customMedia
+            .filter((item) => item.type === 'image')
+            .map((item) => item.url),
+          ...campaignBudgetPatch(budget),
           createdBy: adminUid,
           createdAt: FieldValue.serverTimestamp()
         });
@@ -4897,6 +5230,155 @@ exports.launchMultiProductCarouselCampaign = onCall(
       campaignName,
       startPaused
     };
+  }
+);
+
+exports.updateAdCampaignSettings = onCall(
+  { region: 'europe-west1', timeoutSeconds: 120, maxInstances: 5 },
+  async (request) => {
+    const adminUid = await requireAdminCallable(request);
+    const data = request.data || {};
+    const campaignDocId = String(data.campaignDocId || '').trim();
+    const creative = creativeFields(data);
+    const hasBudgetChange = [
+      'dailyBudgetMad',
+      'durationDays',
+      'totalBudgetUsd',
+      'totalBudgetMad',
+      'usdMadRate',
+      'currency'
+    ].some((key) => data[key] !== undefined && data[key] !== null && data[key] !== '');
+    const budget = hasBudgetChange ? resolveCampaignBudget(data) : null;
+    const adCopy = data.adCopy ? normalizeAdCopy(data.adCopy) : null;
+
+    if (!campaignDocId) {
+      const draftBudget = budget || resolveCampaignBudget({ dailyBudgetMad: 20 });
+      const draftRef = await db.collection(AD_CAMPAIGNS_COLLECTION).add({
+        type: data.type === 'carousel' ? 'carousel' : 'suggestion',
+        platform: ['meta', 'tiktok', 'both'].includes(String(data.platform))
+          ? String(data.platform)
+          : 'meta',
+        status: 'DRAFT',
+        productId: String(data.productId || ''),
+        productIds: Array.isArray(data.productIds)
+          ? data.productIds.map(String).slice(0, 20)
+          : [],
+        productCount: Array.isArray(data.productIds) ? data.productIds.length : 0,
+        productTitle: String(data.productTitle || '').slice(0, 160),
+        campaignName:
+          String(data.campaignName || '').trim().slice(0, 120) ||
+          'Brouillon Smartswika',
+        destinationUrl: String(data.destinationUrl || '').slice(0, 2048),
+        adCopy: adCopy || normalizeAdCopy(''),
+        ...creative,
+        customImages: creative.customMedia
+          .filter((item) => item.type === 'image')
+          .map((item) => item.url),
+        ...campaignBudgetPatch(draftBudget),
+        createdBy: adminUid,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp()
+      });
+      return {
+        campaignDocId: draftRef.id,
+        status: 'DRAFT',
+        mode: 'draft',
+        syncWarnings: []
+      };
+    }
+
+    const ref = db.collection(AD_CAMPAIGNS_COLLECTION).doc(campaignDocId);
+    const snap = await ref.get();
+    if (!snap.exists) throw new HttpsError('not-found', 'Campaign not found.');
+    const existing = snap.data() || {};
+    const patch = {
+      updatedAt: FieldValue.serverTimestamp()
+    };
+    if (data.campaignName !== undefined) {
+      patch.campaignName = String(data.campaignName || '').trim().slice(0, 120);
+    }
+    if (data.platform !== undefined && ['meta', 'tiktok', 'both'].includes(String(data.platform))) {
+      patch.platform = String(data.platform);
+    }
+    if (Array.isArray(data.productIds)) {
+      patch.productIds = data.productIds.map(String).slice(0, 20);
+      patch.productCount = patch.productIds.length;
+      if (patch.productIds[0]) patch.productId = patch.productIds[0];
+    }
+    if (adCopy) patch.adCopy = adCopy;
+    Object.assign(patch, creative);
+    patch.customImages = creative.customMedia
+      .filter((item) => item.type === 'image')
+      .map((item) => item.url);
+    patch.customMedia = creative.customMedia;
+    patch.carouselCards = creative.carouselCards;
+    let syncWarnings = [];
+    if (budget) {
+      Object.assign(patch, campaignBudgetPatch(budget));
+      const secrets = await readAdsSecrets();
+      syncWarnings = await syncCampaignBudgetToPlatform(
+        { ...existing, ...patch },
+        budget,
+        secrets
+      );
+    }
+    await ref.update(patch);
+    return {
+      campaignDocId,
+      status: existing.status || 'DRAFT',
+      mode: 'updated',
+      dailyBudgetMad: patch.dailyBudgetMad ?? existing.dailyBudgetMad ?? 0,
+      durationDays: patch.durationDays ?? existing.durationDays ?? 0,
+      totalBudgetMad: patch.totalBudgetMad ?? existing.totalBudgetMad ?? 0,
+      totalBudgetUsd: patch.totalBudgetUsd ?? existing.totalBudgetUsd ?? 0,
+      endsAt: patch.endsAt || existing.endsAt || null,
+      syncWarnings
+    };
+  }
+);
+
+exports.autoPauseExpiredAdCampaigns = onSchedule(
+  {
+    schedule: 'every 60 minutes',
+    timeZone: 'Africa/Casablanca',
+    region: 'europe-west1',
+    timeoutSeconds: 300
+  },
+  async () => {
+    const now = Date.now();
+    const snapshot = await db
+      .collection(AD_CAMPAIGNS_COLLECTION)
+      .where('status', '==', 'ACTIVE')
+      .limit(500)
+      .get();
+    const secrets = await readAdsSecrets();
+    let paused = 0;
+    for (const docSnap of snapshot.docs) {
+      const campaign = { id: docSnap.id, ...docSnap.data() };
+      const endsAt = campaign.endsAt;
+      const endsAtMs = endsAt && typeof endsAt.toMillis === 'function'
+        ? endsAt.toMillis()
+        : endsAt instanceof Date
+        ? endsAt.getTime()
+        : Number(endsAt) || 0;
+      if (!endsAtMs || endsAtMs > now) continue;
+      try {
+        await pauseExternalCampaign(campaign, secrets);
+      } catch (error) {
+        console.warn(
+          '[autoPauseExpiredAdCampaigns]',
+          docSnap.id,
+          error && (error.code || error.message)
+        );
+      }
+      await docSnap.ref.update({
+        status: 'PAUSED',
+        autoPausedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp()
+      });
+      paused += 1;
+    }
+    console.log('[autoPauseExpiredAdCampaigns]', JSON.stringify({ scanned: snapshot.size, paused }));
   }
 );
 

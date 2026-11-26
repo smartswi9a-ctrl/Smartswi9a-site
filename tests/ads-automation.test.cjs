@@ -216,6 +216,82 @@ check(
     functionsJs.includes("productCount: productIds.length") &&
     functionsJs.includes("utmCampaign: 'carousel_' + campaignSlug")
 );
+check(
+  "budget : mode total + duree + taux USD/MAD",
+  adminAds.includes("budgetEditorHtml") &&
+    adminAds.includes("data-budget-mode") &&
+    adminAds.includes("totalNative * rate") &&
+    adminAds.includes("dailyMad = totalMad / days") &&
+    adminAds.includes("adsBudgetSummary")
+);
+const usdMad = 20 * 10;
+const usdDaily = 20 / 5;
+const madDaily = usdMad / 5;
+check(
+  "budget : 20 USD / 5 jours = 4 USD = 40 MAD/j",
+  usdMad === 200 && usdDaily === 4 && madDaily === 40
+);
+check(
+  "editeur : modale textes medias et preview FB/IG/TikTok",
+  adminAds.includes("openCreativeEditor") &&
+    adminAds.includes("ads-editor-modal") &&
+    adminAds.includes("data-editor-copy") &&
+    adminAds.includes("data-preview-tab") &&
+    adminAds.includes("ads-phone-facebook") &&
+    adminAds.includes("ads-phone-instagram") &&
+    adminAds.includes("ads-phone-tiktok")
+);
+check(
+  "editeur : ajout / remplacement / suppression photos et videos",
+  adminAds.includes("uploadEditorFile") &&
+    adminAds.includes("compressEditorImage") &&
+    adminAds.includes("captureEditorVideoPoster") &&
+    adminAds.includes("100 * 1024 * 1024") &&
+    adminAds.includes("data-media-action") &&
+    adminAds.includes("ads_creatives/videos") &&
+    adminAds.includes("customMedia")
+);
+check(
+  "editeur : sauvegarde brouillon et callable update",
+  adminAds.includes("saveEditorDraft") &&
+    adminAds.includes("updateAdCampaignSettings") &&
+    adminAds.includes("data-editor-save")
+);
+check(
+  "pilotage : apercu / modifier / pause et badge DRAFT",
+  adminAds.includes("data-preview-campaign") &&
+    adminAds.includes("data-edit-campaign") &&
+    adminAds.includes("data-toggle-campaign") &&
+    adminAds.includes("adsCampaignVideoBadge") &&
+    adminAds.includes("adsCampaignDaysLeft") &&
+    adminAds.includes("adsStatusDraft")
+);
+check(
+  "backend : updateAdCampaignSettings + auto-pause planifiee",
+  functionsJs.includes("exports.updateAdCampaignSettings") &&
+    functionsJs.includes("exports.autoPauseExpiredAdCampaigns") &&
+    functionsJs.includes("schedule: 'every 60 minutes'") &&
+    functionsJs.includes("status: 'PAUSED'") &&
+    functionsJs.includes("autoPausedAt")
+);
+check(
+  "backend : medias video Meta advideos/video_data + TikTok upload",
+  functionsJs.includes("/advideos") &&
+    functionsJs.includes("video_data") &&
+    functionsJs.includes("/file/video/ad/upload/") &&
+    functionsJs.includes("customMedia") &&
+    functionsJs.includes("carouselCards") &&
+    functionsJs.includes("totalBudgetUsd") &&
+    functionsJs.includes("durationDays") &&
+    functionsJs.includes("endsAt")
+);
+check(
+  "storage : ads_creatives images 10 Mo / videos 100 Mo",
+  read("storage.rules").includes("match /ads_creatives/{allPaths=**}") &&
+    read("storage.rules").includes("image/(webp|jpeg|png)") &&
+    read("storage.rules").includes("video/(mp4|webm|quicktime)") &&
+    read("storage.rules").includes("100 * 1024 * 1024")
+);
 
 /* --------------------------------------------- 6. admin UI */
 
@@ -344,8 +420,14 @@ check(
     (key) => (adminUi.match(new RegExp(key, "g")) || []).length === 3
   )
 );
-check("admin : cache-busting v6 / ads2026c4", adminHtml.includes("/js/admin-ui.js?v=6") && adminHtml.includes("/js/admin.js?v=ads2026c4"));
-check("admin : module ads v4", read("js/admin.js").includes("admin-ads.js?v=4"));
+check(
+  "admin : i18n budget/editeur/videos en 3 langues",
+  ["adsBudgetSummary:", "adsEditorTitle:", "adsEditorAddVideo:", "adsCampaignPreview:"].every(
+    (key) => (adminUi.match(new RegExp(key, "g")) || []).length === 3
+  )
+);
+check("admin : cache-busting v7 / ads2026c5", adminHtml.includes("/js/admin-ui.js?v=7") && adminHtml.includes("/js/admin.js?v=ads2026c5"));
+check("admin : module ads v5", read("js/admin.js").includes("admin-ads.js?v=5"));
 
 /* --------------------------------------------- 7. regles Firestore */
 
@@ -361,12 +443,17 @@ check(
 const cspLine = headers.split(/\r?\n/).find((line) => line.includes("Content-Security-Policy:")) || "";
 check("CSP : ligne _headers <= 2048", cspLine.length > 0 && cspLine.length <= 2048, `${cspLine.length} caracteres`);
 check(
+  "CSP : medias Firebase Storage + blob autorises",
+  cspLine.includes("https://firebasestorage.googleapis.com") &&
+    /media-src[^;]*blob:/.test(cspLine)
+);
+check(
   "CSP : domaines TikTok/Meta",
   ["analytics.tiktok.com", "*.tiktok.com", "*.tiktokw.us", "*.byteoversea.com", "connect.facebook.net", "*.facebook.com"].every(
     (domain) => cspLine.includes(domain)
   )
 );
-check("cache : SW v12", sw.includes("'sw-2026-11-26-v12'"));
+check("cache : SW v13", sw.includes("'sw-2026-11-26-v13'"));
 check(
   "cache : ads-attribution v3 sur les 7 pages",
   ["index.html", "koulchi.html", "produit.html", "panier.html", "boutique.html", "blog.html", "villesmaroc.html"].every(

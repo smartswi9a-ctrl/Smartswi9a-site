@@ -147,7 +147,7 @@ check(
   )
 );
 check("admin : tableau responsive (tbody dédié)", adminHtml.includes('id="abandonedCartsBody"'));
-check("admin : module chargé avec cache-busting", adminHtml.includes("/js/admin.js?v=ads2026c4") && adminHtml.includes("/js/admin-ui.js?v=6"));
+check("admin : module chargé avec cache-busting", adminHtml.includes("/js/admin.js?v=ads2026c5") && adminHtml.includes("/js/admin-ui.js?v=7"));
 
 check("admin module : relance WhatsApp wa.me", adminModule.includes("https://wa.me/"));
 check(
@@ -198,7 +198,7 @@ check(
 
 /* --------------------------------------------- 5. Cache / tests */
 
-check("service worker : version sw-2026-11-26-v12", sw.includes("'sw-2026-11-26-v12'"));
+check("service worker : version sw-2026-11-26-v13", sw.includes("'sw-2026-11-26-v13'"));
 check(
   "package.json : suite abandoned-cart branchée sur npm test",
   String(pkg.scripts && pkg.scripts.test).includes("tests/abandoned-cart.test.cjs")
