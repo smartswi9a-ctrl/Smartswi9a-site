@@ -4332,6 +4332,68 @@ exports.productCatalogFeed = onRequest(
   }
 );
 
+/* ============================================================
+   SUPPRESSION VIDEO R2 (ADMIN)
+   ------------------------------------------------------------
+   Le champ `products.video` contient le nom du fichier servi par
+   https://videos.smartswika.ma (bucket R2 smartswi9a-videos).
+   Cette fonction :
+     1. verifie le jeton Firebase + le role admin ;
+     2. delegue la suppression au Worker Cloudflare (secret partage) ;
+     3. repond success meme si l'objet est deja absent (idempotent).
+   ============================================================ */
+exports.adminDeleteVideo = onRequest(
+  { invoker: 'public', region: 'europe-west1', cors: [...ALLOWED_ORIGINS], timeoutSeconds: 30 },
+  async (req, res) => {
+    if (cors(req, res)) return;
+    if (req.method !== 'POST') {
+      return res.status(405).json({ success: false, message: 'Methode non autorisee.' });
+    }
+    try {
+      const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
+      if (!match) return res.status(401).json({ success: false, message: 'Connexion requise.' });
+      let decoded;
+      try {
+        decoded = await getAuth().verifyIdToken(match[1], true);
+      } catch (_) {
+        return res.status(401).json({ success: false, message: 'Session invalide.' });
+      }
+      let isAdmin = decoded.admin === true;
+      if (!isAdmin) {
+        const snap = await db.doc('users/' + decoded.uid).get();
+        isAdmin = snap.exists && (snap.data() || {}).role === 'admin';
+      }
+      if (!isAdmin) return res.status(403).json({ success: false, message: 'Administrateur requis.' });
+
+      const key = String((req.body && req.body.key) || '').trim();
+      if (!key || key.length > 200 || key.includes('/') || key.includes('..')) {
+        return res.status(400).json({ success: false, message: 'Cle invalide.' });
+      }
+
+      const endpoint = process.env.R2_DELETE_URL || 'https://smartswika.ma/api/internal/r2-delete';
+      const secret = process.env.R2_DELETE_SECRET;
+      if (!secret) {
+        return res.status(503).json({ success: false, message: 'Suppression R2 non configuree.' });
+      }
+
+      const upstream = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-internal-secret': secret },
+        body: JSON.stringify({ key })
+      });
+      const payload = await upstream.json().catch(() => ({}));
+      if (!upstream.ok) {
+        console.error('[adminDeleteVideo] R2', upstream.status, payload);
+        return res.status(502).json({ success: false, message: 'Suppression R2 impossible.' });
+      }
+      return res.json({ success: true, key });
+    } catch (error) {
+      console.error('[adminDeleteVideo]', error && (error.code || error.message));
+      return res.status(500).json({ success: false, message: 'Erreur serveur.' });
+    }
+  }
+);
+
 async function metaGraphRequest(path, method, payload, token) {
   const response = await fetch('https://graph.facebook.com/' + META_GRAPH_VERSION + '/' + path, {
     method: method || 'GET',

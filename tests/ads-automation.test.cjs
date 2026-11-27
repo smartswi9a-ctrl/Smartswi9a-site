@@ -426,7 +426,7 @@ check(
     (key) => (adminUi.match(new RegExp(key, "g")) || []).length === 3
   )
 );
-check("admin : cache-busting v7 / gallery2026c", adminHtml.includes("/js/admin-ui.js?v=7") && adminHtml.includes("/js/admin.js?v=gallery2026c"));
+check("admin : cache-busting v7 / gallery2026d", adminHtml.includes("/js/admin-ui.js?v=7") && adminHtml.includes("/js/admin.js?v=gallery2026d"));
 check("admin : module ads v5", read("js/admin.js").includes("admin-ads.js?v=5"));
 
 /* --------------------------------------------- 7. regles Firestore */
@@ -453,7 +453,7 @@ check(
     (domain) => cspLine.includes(domain)
   )
 );
-check("cache : SW v13", sw.includes("'sw-2026-11-26-v13'"));
+check("cache : SW v13", sw.includes("'sw-2026-11-27-v14'"));
 check(
   "cache : ads-attribution v3 sur les 7 pages",
   ["index.html", "koulchi.html", "produit.html", "panier.html", "boutique.html", "blog.html", "villesmaroc.html"].every(

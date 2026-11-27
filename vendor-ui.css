@@ -66,6 +66,7 @@ body.vendor-page {
 .v-nav-link {
     min-height: 44px; padding: 0.5rem 0.6rem; border-radius: 10px;
     gap: 0.6rem; font-size: 0.86rem; text-align: start;
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent;
     transition: background var(--v-transition), color var(--v-transition);
 }
 .v-nav-link:hover { background: rgba(180, 131, 62, 0.09); color: var(--v-gold); }
@@ -329,6 +330,13 @@ body.vendor-page {
         border-radius: 0 18px 18px 0;
     }
     .v-sidebar.open { transform: translateX(0); box-shadow: var(--shadow-lg); }
+    /* Tiroir ferme : aucun clic capte ; ouvert : interactif. */
+    .v-sidebar {
+        pointer-events: none; visibility: hidden;
+    }
+    .v-sidebar.open {
+        pointer-events: auto; visibility: visible;
+    }
     .v-content { margin-left: 0; padding: 0.8rem 0.7rem 2rem; }
     .v-mobile-toggle { display: inline-flex; }
     .v-mobile-overlay { z-index: 110; }

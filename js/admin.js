@@ -337,7 +337,11 @@ function loadProductGallery(product) {
     const urls = [];
     const pushUrl = (value) => {
         const url = typeof value === 'string' ? value.trim() : '';
-        if (url && !urls.includes(url)) urls.push(url);
+        /* Filtre strict : seules les URLs http(s) ou chemin interne sont
+           conservees. Toute valeur vide / invalide est ignoree (pas d'icone
+           cassee dans le formulaire). */
+        const valid = url && (/^https?:\/\//i.test(url) || url.startsWith('/'));
+        if (valid && !urls.includes(url)) urls.push(url);
     };
     if (product) {
         pushUrl(product.img);
@@ -391,6 +395,17 @@ function renderProductGallery() {
         const img = document.createElement('img');
         img.src = item.previewUrl || item.url;
         img.alt = 'Photo ' + (index + 1) + (item.name ? ' — ' + item.name : '');
+        /* Aucune icone cassée : si l'URL Firestore est morte, on retire
+           l'image et on affiche un placeholder supprimable. */
+        img.addEventListener('error', () => {
+            img.remove();
+            if (!card.querySelector('.admin-gallery-broken')) {
+                const broken = document.createElement('div');
+                broken.className = 'admin-gallery-broken';
+                broken.textContent = 'Image indisponible';
+                card.insertBefore(broken, card.firstChild);
+            }
+        });
         card.appendChild(img);
         if (index === 0) {
             const badge = document.createElement('span');
@@ -516,12 +531,37 @@ function moveGalleryItemTo(from, to) {
     renderProductGallery();
 }
 
-function removeGalleryImage(index) {
+async function removeGalleryImage(index) {
     if (index < 0 || index >= productGalleryState.length) return;
     const [item] = productGalleryState.splice(index, 1);
     if (item && item.previewUrl) URL.revokeObjectURL(item.previewUrl);
     renderProductGallery();
-    showToast('Photo retiree — fichier supprime a l enregistrement');
+
+    const editId = document.getElementById('productEditId').value;
+    const storedUrl = item && item.url && isStorageUrl(item.url) ? item.url : '';
+
+    if (!storedUrl) {
+        showToast('Photo retiree de la galerie');
+        return;
+    }
+
+    /* Suppression IMMEDIATE : fichier Firebase Storage + document Firestore.
+       storage/object-not-found est ignore (deja purge). */
+    const deleted = await deleteStorageImage(storedUrl);
+    if (editId) {
+        try {
+            await updateDoc(doc(db, 'products', editId), {
+                img: (productGalleryState[0] && productGalleryState[0].url) || '',
+                gallery: productGalleryState.filter(i => i.url).map(i => i.url),
+                updatedAt: Timestamp.now()
+            });
+        } catch (error) {
+            console.error('[admin] galerie : mise a jour Firestore impossible', error);
+        }
+    }
+    showToast(deleted
+        ? 'Photo supprimee (Firestore + Storage)'
+        : 'Reference retiree (fichier deja absent)');
 }
 
 async function uploadProductGallery(onProgress) {
@@ -551,6 +591,72 @@ async function uploadProductGallery(onProgress) {
         if (onProgress) onProgress(index, total);
     }
     return urls;
+}
+
+/* ============================================================
+   VIDEO DE DEMONSTRATION (Cloudflare R2)
+   ------------------------------------------------------------
+   Le champ `video` contient le NOM DU FICHIER servi par
+   https://videos.smartswika.ma/. La suppression reelle passe par la
+   Cloud Function `adminDeleteVideo` (verifie le jeton admin, puis
+   supprime l'objet dans le bucket R2 via le Worker).
+   ============================================================ */
+async function requestR2VideoDelete(filename) {
+    try {
+        const { auth } = await import('./firebase.js');
+        const user = auth.currentUser;
+        if (!user) return { success: false, error: 'AUTH_REQUIRED' };
+        const idToken = await user.getIdToken();
+        const response = await fetch('/api/adminDeleteVideo', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + idToken },
+            body: JSON.stringify({ key: filename })
+        });
+        const payload = await response.json().catch(() => ({}));
+        return { success: response.ok && payload.success !== false, payload };
+    } catch (error) {
+        console.warn('[admin] suppression video R2 :', error);
+        return { success: false, error: error.message };
+    }
+}
+
+async function clearProductVideo() {
+    const input = document.getElementById('pVideo');
+    if (!input) return;
+    const editId = document.getElementById('productEditId').value;
+    let filename = (input.value || '').trim();
+
+    if (editId && !filename) {
+        try {
+            const snap = await getDoc(doc(db, 'products', editId));
+            if (snap.exists()) filename = String(snap.data().video || '').trim();
+        } catch (error) {
+            console.warn('[admin] lecture video produit :', error);
+        }
+    }
+
+    let r2Deleted = false;
+    if (filename) {
+        const result = await requestR2VideoDelete(filename);
+        r2Deleted = !!result.success;
+    }
+
+    input.value = '';
+
+    if (editId) {
+        try {
+            await updateDoc(doc(db, 'products', editId), {
+                video: deleteField(),
+                updatedAt: Timestamp.now()
+            });
+        } catch (error) {
+            console.warn('[admin] suppression champ video Firestore :', error);
+        }
+    }
+
+    if (!filename) showToast('Champ video vide');
+    else if (r2Deleted) showToast('Video supprimee (R2 + Firestore)');
+    else showToast('Champ video vide (fichier R2 deja absent)');
 }
 
 function initProductGalleryEditor() {
@@ -1880,8 +1986,7 @@ function attachProductFormEvents() {
     initProductGalleryEditor();
 
     document.getElementById('clearVideoBtn')?.addEventListener('click', () => {
-        document.getElementById('pVideo').value = '';
-        showToast('Champ vidéo vidé');
+        clearProductVideo();
     });
 
     document.getElementById('saveProductBtn')?.addEventListener('click', saveProduct);

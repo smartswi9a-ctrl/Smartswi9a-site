@@ -1148,7 +1148,10 @@ function initCitySearchOnPage() {
 async function handleCheckoutFromPage() {
   const user = getCurrentUser();
   if (!user) {
-    showToast(t("loginRequired"));
+    /* Commande interdite hors connexion : on memorise la cible pour y revenir
+       juste apres la connexion / creation de compte. */
+    rememberPostLoginRedirect("/panier");
+    showToast("🔒 " + t("loginRequiredCheckout"));
     document.dispatchEvent(new CustomEvent("open-account"));
     return;
   }
@@ -1261,6 +1264,45 @@ async function handleCheckoutFromPage() {
     }
   }
 }
+
+/* ============================================================ RETOUR AU CHECKOUT APRES CONNEXION ============================================================ */
+/* Un visiteur non connecte ne peut pas valider de commande. On memorise
+   « /panier » avant d'ouvrir la modale de compte, puis on y revient (ou on
+   recharge la page) des que la session existe. */
+const POST_LOGIN_REDIRECT_KEY = "swi9a_post_login_redirect";
+
+function rememberPostLoginRedirect(target) {
+  try {
+    sessionStorage.setItem(POST_LOGIN_REDIRECT_KEY, target);
+  } catch (e) {
+    /* stockage indisponible : non bloquant */
+  }
+}
+
+function bindPostLoginRedirect() {
+  if (window.__swi9aPostLoginBound) return;
+  window.__swi9aPostLoginBound = true;
+  document.addEventListener("auth-updated", (event) => {
+    const user = (event && event.detail && event.detail.user) || getCurrentUser();
+    if (!user) return;
+    let target = null;
+    try {
+      target = sessionStorage.getItem(POST_LOGIN_REDIRECT_KEY);
+      if (target) sessionStorage.removeItem(POST_LOGIN_REDIRECT_KEY);
+    } catch (e) {
+      target = null;
+    }
+    if (!target) return;
+    document.dispatchEvent(new CustomEvent("close-account"));
+    if (window.location.pathname === target) {
+      window.location.reload();
+    } else {
+      window.location.assign(target);
+    }
+  });
+}
+
+bindPostLoginRedirect();
 
 /* ============================================================ DÉMARRAGE ============================================================ */
 if (document.readyState === "loading")

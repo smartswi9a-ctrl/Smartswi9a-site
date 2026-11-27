@@ -214,6 +214,13 @@
         }
       },
       {
+        "source": "/api/adminDeleteVideo",
+        "function": {
+          "functionId": "adminDeleteVideo",
+          "region": "europe-west1"
+        }
+      },
+      {
         "source": "/api/requestWithdrawal",
         "function": {
           "functionId": "requestWithdrawal",

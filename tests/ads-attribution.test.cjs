@@ -198,14 +198,14 @@ check("admin module : cartes mobile", adminSrc.includes("ads-card"));
 
 /* --------------------------------------------- 5. cache / tests */
 
-check("service worker : version sw-2026-11-26-v13", sw.includes("'sw-2026-11-26-v13'"));
+check("service worker : version sw-2026-11-27-v14", sw.includes("'sw-2026-11-27-v14'"));
 check(
   "package.json : suite ads-attribution branchée",
   String(pkg.scripts && pkg.scripts.test).includes("tests/ads-attribution.test.cjs")
 );
 check(
-  "admin : cache-busting admin-ui v7 + admin gallery2026c",
-  adminHtml.includes("/js/admin-ui.js?v=7") && adminHtml.includes("/js/admin.js?v=gallery2026c")
+  "admin : cache-busting admin-ui v7 + admin gallery2026d",
+  adminHtml.includes("/js/admin-ui.js?v=7") && adminHtml.includes("/js/admin.js?v=gallery2026d")
 );
 
 /* --------------------------------------------- 6. logique pure */
