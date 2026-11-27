@@ -147,7 +147,7 @@ check(
   )
 );
 check("admin : tableau responsive (tbody dédié)", adminHtml.includes('id="abandonedCartsBody"'));
-check("admin : module chargé avec cache-busting", adminHtml.includes("/js/admin.js?v=gallery2026a") && adminHtml.includes("/js/admin-ui.js?v=7"));
+check("admin : module chargé avec cache-busting", adminHtml.includes("/js/admin.js?v=gallery2026b") && adminHtml.includes("/js/admin-ui.js?v=7"));
 
 check("admin module : relance WhatsApp wa.me", adminModule.includes("https://wa.me/"));
 check(

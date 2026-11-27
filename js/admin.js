@@ -466,8 +466,11 @@ async function addProductGalleryFiles(fileList) {
 function addProductGalleryUrl(rawUrl) {
     const url = String(rawUrl || '').trim();
     if (!url) return;
-    if (!/^https?:\/\//i.test(url) && !url.startsWith('/')) {
-        showToast('URL invalide');
+    const isLocal = url.startsWith('/');
+    const isFirebase = /^https:\/\/firebasestorage\.googleapis\.com\//i.test(url);
+    const isGoogle = /^https:\/\/[a-z0-9.-]+\.(googleapis|googleusercontent)\.com\//i.test(url);
+    if (!isLocal && !isFirebase && !isGoogle) {
+        showToast('URL refusee par la securite du site : utilisez Firebase Storage ou un fichier interne (/assets/...).');
         return;
     }
     if (productGalleryState.some(item => item.url === url)) {

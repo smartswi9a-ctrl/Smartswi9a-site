@@ -426,7 +426,7 @@ check(
     (key) => (adminUi.match(new RegExp(key, "g")) || []).length === 3
   )
 );
-check("admin : cache-busting v7 / gallery2026a", adminHtml.includes("/js/admin-ui.js?v=7") && adminHtml.includes("/js/admin.js?v=gallery2026a"));
+check("admin : cache-busting v7 / gallery2026b", adminHtml.includes("/js/admin-ui.js?v=7") && adminHtml.includes("/js/admin.js?v=gallery2026b"));
 check("admin : module ads v5", read("js/admin.js").includes("admin-ads.js?v=5"));
 
 /* --------------------------------------------- 7. regles Firestore */
