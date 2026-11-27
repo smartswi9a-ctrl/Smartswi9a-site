@@ -343,7 +343,10 @@ function loadProductGallery(product) {
         pushUrl(product.img);
         (Array.isArray(product.gallery) ? product.gallery : []).forEach(pushUrl);
     }
-    productGalleryState = urls.slice(0, MAX_PRODUCT_IMAGES).map(url => ({
+    /* Toutes les photos existantes sont chargees (pas de troncature) : sinon
+       une sauvegarde supprimerait du Storage les images non affichees. Le
+       plafond de 8 ne limite que les NOUVEAUX ajouts. */
+    productGalleryState = urls.map(url => ({
         id: nextGalleryId(), url, blob: null, previewUrl: '', name: ''
     }));
     renderProductGallery();
@@ -371,7 +374,11 @@ function renderProductGallery() {
     const empty = document.getElementById('pGalleryEmpty');
     const counter = document.getElementById('pGalleryCount');
     const fileInput = document.getElementById('pGalleryFiles');
-    if (counter) counter.textContent = productGalleryState.length + ' / ' + MAX_PRODUCT_IMAGES;
+    if (counter) {
+        counter.textContent = productGalleryState.length > MAX_PRODUCT_IMAGES
+            ? productGalleryState.length + ' photos'
+            : productGalleryState.length + ' / ' + MAX_PRODUCT_IMAGES;
+    }
     if (empty) empty.style.display = productGalleryState.length ? 'none' : 'block';
     if (fileInput) fileInput.disabled = productGalleryState.length >= MAX_PRODUCT_IMAGES;
     grid.innerHTML = '';

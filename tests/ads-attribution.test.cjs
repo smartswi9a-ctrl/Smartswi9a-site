@@ -204,8 +204,8 @@ check(
   String(pkg.scripts && pkg.scripts.test).includes("tests/ads-attribution.test.cjs")
 );
 check(
-  "admin : cache-busting admin-ui v7 + admin gallery2026b",
-  adminHtml.includes("/js/admin-ui.js?v=7") && adminHtml.includes("/js/admin.js?v=gallery2026b")
+  "admin : cache-busting admin-ui v7 + admin gallery2026c",
+  adminHtml.includes("/js/admin-ui.js?v=7") && adminHtml.includes("/js/admin.js?v=gallery2026c")
 );
 
 /* --------------------------------------------- 6. logique pure */
