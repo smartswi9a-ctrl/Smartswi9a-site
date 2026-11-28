@@ -1443,10 +1443,47 @@
         .ads-editor-text-actions button,
         .ads-editor-media-tools button { font-size: 0.7rem; padding: 0.35rem 0.55rem; }
         .ads-editor-media { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5rem; }
-        .ads-editor-media-item { position: relative; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--bg-card); }
-        .ads-editor-media-item.is-primary { border-color: #B4833E; }
-        .ads-editor-media-item img,
-        .ads-editor-media-item video { width: 100%; height: 100px; object-fit: cover; display: block; }
+        .ads-editor-media-item { position: relative; display: flex; flex-direction: column; align-items: center; gap: 0.2rem; }
+        .ads-editor-media-item.is-primary .ads-editor-thumb { border-color: #B4833E; }
+        /* Apercus produits 1080x1080 : conteneur carre, image entiere (aucune coupe) */
+        .ads-editor-thumb {
+          width: 140px;
+          height: 140px;
+          aspect-ratio: 1 / 1;
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
+          border-radius: 10px;
+          overflow: hidden;
+          display: block;
+          flex: none;
+        }
+        .ads-editor-thumb img,
+        .ads-editor-thumb video {
+          display: block;
+          width: 100%;
+          height: 100%;
+          object-fit: contain;
+          background: #ffffff;
+        }
+        /* Alias historiques de la modale creative : meme rendu carre */
+        .creative-media-thumb,
+        .creative-card-preview {
+          width: 140px;
+          height: 140px;
+          aspect-ratio: 1 / 1;
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
+          border-radius: 10px;
+          overflow: hidden;
+        }
+        .creative-media-thumb img,
+        .creative-card-preview img {
+          display: block;
+          width: 100%;
+          height: 100%;
+          object-fit: contain;
+          background: #ffffff;
+        }
         .ads-media-kind,
         .ads-media-primary { position: absolute; top: 0.2rem; inset-inline-start: 0.2rem; background: rgba(0, 0, 0, 0.68); color: #fff; padding: 0.08rem 0.3rem; border-radius: 999px; font-size: 0.56rem; font-weight: 800; }
         .ads-media-primary { inset-inline-start: auto; inset-inline-end: 0.2rem; background: rgba(180, 131, 62, 0.9); }
@@ -1458,11 +1495,11 @@
         .ads-editor-url-row input { flex: 1; }
         .ads-editor-product-gallery { display: flex; gap: 0.35rem; overflow-x: auto; padding-bottom: 0.2rem; }
         .ads-editor-product-gallery button { flex: none; width: 46px; height: 46px; padding: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--bg-card); cursor: pointer; }
-        .ads-editor-product-gallery img { width: 100%; height: 100%; object-fit: cover; }
+        .ads-editor-product-gallery img { width: 100%; height: 100%; object-fit: contain; background: #ffffff; }
         .ads-editor-cards { display: grid; gap: 0.5rem; }
         .ads-editor-card { display: grid; gap: 0.35rem; padding: 0.5rem; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-card); }
-        .ads-editor-card img,
-        .ads-editor-card video { width: 100%; height: 90px; object-fit: cover; border-radius: 8px; }
+        .ads-editor-card > img,
+        .ads-editor-card > video { width: 140px; height: 140px; aspect-ratio: 1 / 1; object-fit: contain; background: #ffffff; border: 1px solid #e5e7eb; border-radius: 10px; }
         .ads-editor-card label { display: flex; flex-direction: column; gap: 0.2rem; color: var(--text-muted); font-size: 0.68rem; }
         .ads-editor-card input,
         .ads-editor-card textarea { padding: 0.35rem 0.45rem; border: 1px solid var(--border); border-radius: 7px; background: var(--bg-surface); color: var(--text); font-family: inherit; font-size: 0.76rem; }

@@ -197,6 +197,38 @@ async function main() {
     })()
   );
 
+  /* --- 5. Apercus carres de la colonne gauche (modale creative) --- */
+  const adminHtml = read("admin.html");
+  const thumbBlocks = adminHtml.match(/\.ads-editor-thumb\s*\{[^}]*\}/g) || [];
+  const thumbCss = thumbBlocks.find((block) => /aspect-ratio/.test(block)) || "";
+  check(
+    "admin.html : conteneur carre 140x140",
+    /width:\s*140px/.test(thumbCss) && /height:\s*140px/.test(thumbCss) && /aspect-ratio:\s*1\s*\/\s*1/.test(thumbCss),
+    thumbCss.replace(/\s+/g, " ").slice(0, 120)
+  );
+  check(
+    "admin.html : fond blanc + bordure #e5e7eb + radius 10px + overflow hidden",
+    /background:\s*#ffffff/i.test(thumbCss) &&
+      /border:\s*1px solid #e5e7eb/i.test(thumbCss) &&
+      /border-radius:\s*10px/.test(thumbCss) &&
+      /overflow:\s*hidden/.test(thumbCss)
+  );
+  check(
+    "admin.html : image 100% + object-fit contain",
+    /\.ads-editor-thumb img[\s\S]{0,160}width:\s*100%[\s\S]{0,80}height:\s*100%[\s\S]{0,80}object-fit:\s*contain/.test(
+      adminHtml
+    )
+  );
+  check(
+    "admin-ads : galerie + cartes carrousel enveloppees dans .ads-editor-thumb",
+    adminAds.split('class="ads-editor-thumb"').length - 1 >= 2,
+    String(adminAds.split('class="ads-editor-thumb"').length - 1) + " wrappers"
+  );
+  check(
+    "admin.html : alias modale creative (.creative-media-thumb / .creative-card-preview)",
+    /\.creative-media-thumb[\s\S]{0,200}object-fit:\s*contain/.test(adminHtml)
+  );
+
   console.log(verifications + " verification(s), " + echecs + " echec(s).");
   if (echecs) process.exitCode = 1;
 }

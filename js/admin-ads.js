@@ -1405,7 +1405,7 @@ function renderEditorMedia() {
           (media, index) => `<div class="ads-editor-media-item${
             index === 0 ? " is-primary" : ""
           }">
-            ${editorMediaPreview(media)}
+            <div class="ads-editor-thumb">${editorMediaPreview(media)}</div>
             <span class="ads-media-kind">${
               media.type === "video" ? "🎬 " + escapeHTML(adsT("adsEditorVideo")) : "🖼️ " + escapeHTML(adsT("adsEditorImage"))
             }</span>
@@ -1459,11 +1459,11 @@ function renderEditorCards() {
         ? cards
             .map(
               (card, index) => `<div class="ads-editor-card" data-editor-card="${index}">
-                ${editorMediaPreview({
+                <div class="ads-editor-thumb">${editorMediaPreview({
                   type: card.mediaType === "video" ? "video" : "image",
                   url: card.mediaUrl || card.imageUrl,
                   posterUrl: card.posterUrl,
-                })}
+                })}</div>
                 <label>${escapeHTML(adsT("adsEditorCardTitle"))}
                   <input type="text" data-card-field="title" data-card-index="${index}" value="${escapeHTML(
                     card.title || ""
