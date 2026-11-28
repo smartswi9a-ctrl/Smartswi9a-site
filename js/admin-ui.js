@@ -416,6 +416,11 @@ const ADMIN_I18N = {
     adsCampaignDaysLeft: "Jours restants",
     adsCampaignPreview: "Aperçu",
     adsCampaignEdit: "Modifier",
+    adsCampaignDelete: "Supprimer",
+    adsDeleteActiveBlocked: "Mettez la campagne en pause avant de la supprimer.",
+    adsDeleteError: "Suppression impossible.",
+    adsAutoPausedStockZero: "Pause auto (Stock 0)",
+    adsAutoPausedStockZeroHint: "Campagne mise en pause automatiquement car le produit est en rupture de stock.",
   },
   en: {
     pageTitle: "Administration | Smartswika",
@@ -809,6 +814,11 @@ const ADMIN_I18N = {
     adsCampaignDaysLeft: "Days left",
     adsCampaignPreview: "Preview",
     adsCampaignEdit: "Edit",
+    adsCampaignDelete: "Delete",
+    adsDeleteActiveBlocked: "Pause the campaign before deleting it.",
+    adsDeleteError: "Deletion failed.",
+    adsAutoPausedStockZero: "Auto-paused (Stock 0)",
+    adsAutoPausedStockZeroHint: "Campaign paused automatically because the product is out of stock.",
   },
   ar: {
     pageTitle: "الإدارة | سمارت سويقة",
@@ -1202,6 +1212,11 @@ const ADMIN_I18N = {
     adsCampaignDaysLeft: "الأيام المتبقية",
     adsCampaignPreview: "معاينة",
     adsCampaignEdit: "تعديل",
+    adsCampaignDelete: "حذف",
+    adsDeleteActiveBlocked: "أوقف الحملة مؤقتًا قبل حذفها.",
+    adsDeleteError: "تعذر الحذف.",
+    adsAutoPausedStockZero: "إيقاف تلقائي (المخزون 0)",
+    adsAutoPausedStockZeroHint: "تم إيقاف الحملة تلقائيًا لأن المنتج نفد من المخزون.",
   },
 };
 
@@ -1526,6 +1541,10 @@ export function applyAdminLang(lang, { persist = true, notify = true } = {}) {
    ============================================================ */
 const mqMobile = window.matchMedia("(max-width: 767px)");
 const mqTablet = window.matchMedia("(min-width: 768px) and (max-width: 1023px)");
+/* Un seul point de bascule pour le TIROIR : mobile + tablette. Au-dela,
+   le toggle masque completement la sidebar (desktop). */
+const mqDrawer = window.matchMedia("(max-width: 1024px)");
+const SIDEBAR_HIDDEN_KEY = "swi9a_admin_sidebar_hidden";
 
 function initAdminLayout() {
   const shell = document.getElementById("adminShell");
@@ -1533,65 +1552,193 @@ function initAdminLayout() {
   const backdrop = document.getElementById("adminSidebarBackdrop");
   const menuToggle = document.getElementById("adminMenuToggle");
   const sidebarToggle = document.getElementById("adminSidebarToggle");
+  /* Garde-fou : le module peut être instancié deux fois (imports versionnés
+     différemment). Sans ce flag, deux listeners s'annulent à chaque clic. */
+  if (!menuToggle || menuToggle.dataset.sidebarBound === "1") return;
+  menuToggle.dataset.sidebarBound = "1";
 
-  const closeMobile = () => {
+  /* Le tiroir s'ouvre SOUS la topbar : le bouton menu reste visible et
+     cliquable (aucun element ne le recouvre). */
+  const topbar = document.querySelector(".admin-topbar");
+  const syncTopbarOffset = () => {
+    /* Position absolue du bas de la topbar (sticky en haut) : le tiroir et
+       le voile demarrent juste en dessous, le bouton menu reste cliquable. */
+    const rect = topbar ? topbar.getBoundingClientRect() : null;
+    const bottom = rect ? Math.ceil(rect.bottom) : 0;
+    const offset = Math.min(180, Math.max(72, bottom + 8));
+    document.documentElement.style.setProperty("--admin-topbar-offset", offset + "px");
+  };
+  syncTopbarOffset();
+
+  const sidebar = document.getElementById("adminSidebar");
+  const homeParent = sidebar ? sidebar.parentElement : null;
+  const homeNext = sidebar ? sidebar.nextElementSibling : null;
+  const isRtl = () => (document.documentElement.getAttribute("dir") || "ltr").toLowerCase() === "rtl";
+  const topbarBottom = () => {
+    const rect = topbar ? topbar.getBoundingClientRect() : null;
+    return Math.min(180, Math.max(56, rect ? Math.ceil(rect.bottom) : 72));
+  };
+  /* Sort le tiroir de tout stacking context parent (admin-shell, container
+     avec z-index/transform/overflow) : il devient enfant direct de <body>. */
+  const portalSidebar = () => {
+    if (sidebar && sidebar.parentElement !== document.body) document.body.appendChild(sidebar);
+    syncTopbarOffset();
+  };
+  const unportalSidebar = () => {
+    if (sidebar && homeParent && sidebar.parentElement === document.body) {
+      if (homeNext && homeNext.parentElement === homeParent) homeParent.insertBefore(sidebar, homeNext);
+      else homeParent.appendChild(sidebar);
+    }
+    if (sidebar) sidebar.removeAttribute("style");
+  };
+  if (backdrop && backdrop.parentElement !== document.body) document.body.appendChild(backdrop);
+
+  const closeDrawer = () => {
     shell.classList.remove("is-open");
+    if (sidebar) {
+      sidebar.style.transform = isRtl() ? "translateX(105%)" : "translateX(-105%)";
+      sidebar.style.visibility = "hidden";
+      sidebar.style.pointerEvents = "none";
+    }
     if (backdrop) backdrop.hidden = true;
     menuToggle?.setAttribute("aria-expanded", "false");
   };
 
-  const openMobile = () => {
+  const openDrawer = () => {
+    portalSidebar();
+    const offset = topbarBottom() + "px";
+    document.documentElement.style.setProperty("--topbar-height", offset);
+    document.documentElement.style.setProperty("--admin-topbar-offset", offset);
     shell.classList.add("is-open");
-    if (backdrop) backdrop.hidden = false;
+    const rtl = isRtl();
+    if (sidebar) {
+      Object.assign(sidebar.style, {
+        position: "fixed",
+        top: offset,
+        bottom: "0",
+        left: rtl ? "auto" : "0",
+        right: rtl ? "0" : "auto",
+        height: "calc(100dvh - " + offset + ")",
+        width: "min(300px, 88vw)",
+        maxHeight: "none",
+        zIndex: "9500",
+        background: "#ffffff",
+        opacity: "1",
+        filter: "none",
+        backdropFilter: "none",
+        pointerEvents: "auto",
+        visibility: "visible",
+        overflowY: "auto",
+        transform: "translateX(0)",
+        transition: "transform 0.18s ease",
+        boxShadow: "0 18px 40px rgba(0,0,0,0.25)",
+        borderRadius: "0",
+      });
+    }
+    if (backdrop) {
+      backdrop.hidden = false;
+      Object.assign(backdrop.style, {
+        position: "fixed",
+        top: offset,
+        left: "0",
+        right: "0",
+        bottom: "0",
+        zIndex: "9000",
+        background: "rgba(15, 23, 42, 0.45)",
+        backdropFilter: "none",
+        webkitBackdropFilter: "none",
+        pointerEvents: "auto",
+      });
+    }
+    if (topbar) {
+      topbar.style.position = "sticky";
+      topbar.style.top = "0";
+      topbar.style.zIndex = "9999";
+      topbar.style.filter = "none";
+    }
     menuToggle?.setAttribute("aria-expanded", "true");
   };
 
-  const applyDefault = () => {
-    shell.classList.remove("is-open", "is-expanded", "is-collapsed");
-    if (backdrop) backdrop.hidden = true;
-    menuToggle?.setAttribute("aria-expanded", "false");
-    if (mqMobile.matches) return;
-    if (mqTablet.matches) return; /* CSS : 72px par defaut, extensible */
-    try {
-      if (localStorage.getItem(SIDEBAR_KEY) === "1") shell.classList.add("is-collapsed");
-    } catch (e) { /* ignore */ }
+  const syncMenuLabel = () => {
+    if (!menuToggle) return;
+    const hiddenMobile = mqDrawer.matches && !shell.classList.contains("is-open");
+    const hiddenDesktop = !mqDrawer.matches && shell.classList.contains("is-sidebar-hidden");
+    const label = (hiddenMobile || hiddenDesktop) ? "Afficher le menu" : "Masquer le menu";
+    menuToggle.setAttribute("aria-label", label);
+    menuToggle.setAttribute("title", label);
+    menuToggle.setAttribute("aria-expanded", (hiddenMobile || hiddenDesktop) ? "false" : "true");
   };
 
-  const toggle = () => {
-    if (mqMobile.matches) {
-      shell.classList.contains("is-open") ? closeMobile() : openMobile();
+  const applyDefault = () => {
+    shell.classList.remove("is-open", "is-expanded", "is-sidebar-hidden");
+    if (backdrop) backdrop.hidden = true;
+    if (!mqDrawer.matches) {
+      unportalSidebar();
+      try {
+        if (localStorage.getItem(SIDEBAR_HIDDEN_KEY) === "1") shell.classList.add("is-sidebar-hidden");
+        if (localStorage.getItem(SIDEBAR_KEY) === "1") shell.classList.add("is-collapsed");
+      } catch (e) { /* ignore */ }
+    } else {
+      closeDrawer();
+    }
+    syncMenuLabel();
+  };
+
+  /* Bouton principal (barre du haut) :
+     - tiroir (<= 1024px) : ouvre / ferme le tiroir + backdrop ;
+     - desktop (> 1024px) : masque / reaffiche completement la sidebar. */
+  const toggleMenu = () => {
+    if (mqDrawer.matches) {
+      if (shell.classList.contains("is-open")) closeDrawer();
+      else openDrawer();
+      syncMenuLabel();
       return;
     }
-    if (mqTablet.matches) {
-      shell.classList.toggle("is-expanded");
+    const hidden = shell.classList.toggle("is-sidebar-hidden");
+    try { localStorage.setItem(SIDEBAR_HIDDEN_KEY, hidden ? "1" : "0"); } catch (e) { /* ignore */ }
+    syncMenuLabel();
+  };
+
+  /* Fleche interne de la sidebar : ouvre le tiroir sur <= 1024px,
+     replie la rail (72px) sur desktop. */
+  const toggleRail = () => {
+    if (mqDrawer.matches) {
+      /* Deja ouvert : la fleche referme le tiroir. */
+      if (shell.classList.contains("is-open")) closeDrawer();
+      else openDrawer();
+      syncMenuLabel();
       return;
     }
     const collapsed = shell.classList.toggle("is-collapsed");
     try { localStorage.setItem(SIDEBAR_KEY, collapsed ? "1" : "0"); } catch (e) { /* ignore */ }
   };
 
-  menuToggle?.addEventListener("click", toggle);
-  sidebarToggle?.addEventListener("click", toggle);
-  backdrop?.addEventListener("click", closeMobile);
+  menuToggle?.addEventListener("click", toggleMenu);
+  sidebarToggle?.addEventListener("click", toggleRail);
+  backdrop?.addEventListener("click", () => { closeDrawer(); syncMenuLabel(); });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") closeMobile();
+    if (event.key === "Escape") { closeDrawer(); syncMenuLabel(); }
   });
   document.getElementById("adminTabs")?.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-tab]");
     if (!button) return;
-    closeMobile();
+    closeDrawer();
+    syncMenuLabel();
     document.querySelectorAll("#adminTabs button[data-tab]").forEach((btn) => {
       btn.setAttribute("aria-selected", btn === button ? "true" : "false");
     });
   });
 
   const onBreakpoint = () => applyDefault();
-  if (mqMobile.addEventListener) {
-    mqMobile.addEventListener("change", onBreakpoint);
-    mqTablet.addEventListener("change", onBreakpoint);
+  if (mqDrawer.addEventListener) {
+    mqDrawer.addEventListener("change", onBreakpoint);
   } else {
-    mqMobile.addListener(onBreakpoint);
-    mqTablet.addListener(onBreakpoint);
+    mqDrawer.addListener(onBreakpoint);
+  }
+  window.addEventListener("resize", syncTopbarOffset, { passive: true });
+  window.addEventListener("orientationchange", syncTopbarOffset, { passive: true });
+  if (topbar && "ResizeObserver" in window) {
+    try { new ResizeObserver(syncTopbarOffset).observe(topbar); } catch (e) { /* ignore */ }
   }
   applyDefault();
 }

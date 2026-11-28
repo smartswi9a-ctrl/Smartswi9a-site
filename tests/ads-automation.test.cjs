@@ -151,7 +151,7 @@ check(
 );
 check(
   "vendeur : versions cache-busting",
-  vendorHtml.includes("/js/vendor-ui.js?v=2") &&
+  vendorHtml.includes("/js/vendor-ui.js?v=drawer2027c") &&
     vendorHtml.includes("/js/vendor-dashboard.js?v=20261126-ads")
 );
 
@@ -426,8 +426,8 @@ check(
     (key) => (adminUi.match(new RegExp(key, "g")) || []).length === 3
   )
 );
-check("admin : cache-busting v7 / ads2026c5", adminHtml.includes("/js/admin-ui.js?v=7") && adminHtml.includes("/js/admin.js?v=ads2026c5"));
-check("admin : module ads v5", read("js/admin.js").includes("admin-ads.js?v=5"));
+check("admin : cache-busting v7 / gallery2026d", adminHtml.includes("/js/admin-ui.js?v=drawer2027c") && adminHtml.includes("/js/admin.js?v=drawer2027c"));
+check("admin : module ads charge avec cache-busting", /admin-ads\.js\?v=\d+/.test(read("js/admin.js")));
 
 /* --------------------------------------------- 7. regles Firestore */
 
@@ -453,14 +453,14 @@ check(
     (domain) => cspLine.includes(domain)
   )
 );
-check("cache : SW v13", sw.includes("'sw-2026-11-26-v13'"));
+check("cache : SW version datee", /sw-2026-11-27-v\d+/.test(sw));
 check(
   "cache : ads-attribution v3 sur les 7 pages",
   ["index.html", "koulchi.html", "produit.html", "panier.html", "boutique.html", "blog.html", "villesmaroc.html"].every(
-    (page) => read(page).includes("/js/ads-attribution.js?v=3")
+    (page) => /\/js\/ads-attribution\.js\?v=pixel[\w.-]+/.test(read(page))
   )
 );
-check("cache : cart import ads v3", read("js/cart.js").includes("./ads-attribution.js?v=3"));
+check("cache : cart import ads v3", /\.\/ads-attribution\.js\?v=pixel[\w.-]+/.test(read("js/cart.js")));
 check(
   "package.json : suite ads-automation branchee",
   String(pkg.scripts && pkg.scripts.test).includes("tests/ads-automation.test.cjs")

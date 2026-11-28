@@ -516,6 +516,10 @@ export function applyVendorLang(lang, { persist = true, notify = true } = {}) {
    ============================================================ */
 const vMqMobile = window.matchMedia("(max-width: 767px)");
 const vMqTablet = window.matchMedia("(min-width: 768px) and (max-width: 1023px)");
+/* Point de bascule unique du TIROIR (mobile + tablette). Au-dela, le
+   bouton menu masque completement la sidebar sur desktop. */
+const vMqDrawer = window.matchMedia("(max-width: 1024px)");
+const VENDOR_HIDDEN_KEY = "vendor_sidebar_hidden";
 
 /**
  * Le tiroir mobile s'ouvre sous la Topbar sticky : on mesure sa hauteur
@@ -535,13 +539,83 @@ function initVendorLayout() {
   if (!layout) return;
   const toggle = document.getElementById("vSidebarToggle");
   const sidebar = document.getElementById("vSidebar");
+  const vHomeParent = sidebar ? sidebar.parentElement : document.body;
+  const vHomeNext = sidebar ? sidebar.nextElementSibling : null;
   const overlay = document.getElementById("vOverlay");
   const mobileToggle = document.getElementById("vMobileToggle");
   const topbar = document.querySelector(".v-topbar");
+  /* Garde-fou anti double-binding (module instancié deux fois). */
+  if (!mobileToggle || mobileToggle.dataset.sidebarBound === "1") return;
+  mobileToggle.dataset.sidebarBound = "1";
 
   const setDrawerOpen = (open) => {
     sidebar?.classList.toggle("open", open);
     overlay?.classList.toggle("open", open);
+    const offset = (getComputedStyle(document.documentElement)
+      .getPropertyValue("--v-topbar-offset") || "76px").trim() || "76px";
+    const rtl = (document.documentElement.getAttribute("dir") || "ltr").toLowerCase() === "rtl";
+    if (open && sidebar) {
+      /* Sortir du stacking context de .v-layout (z-index/overflow) : le
+         tiroir devient enfant direct de <body>, au-dessus du voile. */
+      if (sidebar.parentElement !== document.body) document.body.appendChild(sidebar);
+      if (overlay && overlay.parentElement !== document.body) document.body.appendChild(overlay);
+      document.documentElement.style.setProperty("--topbar-height", offset);
+      Object.assign(sidebar.style, {
+        position: "fixed",
+        top: offset,
+        bottom: "0",
+        left: rtl ? "auto" : "0",
+        right: rtl ? "0" : "auto",
+        height: "calc(100dvh - " + offset + ")",
+        width: "min(300px, 88vw)",
+        maxHeight: "none",
+        zIndex: "9500",
+        background: "#ffffff",
+        opacity: "1",
+        filter: "none",
+        backdropFilter: "none",
+        pointerEvents: "auto",
+        visibility: "visible",
+        overflowY: "auto",
+        transform: "translateX(0)",
+        transition: "transform 0.18s ease",
+        boxShadow: "0 18px 40px rgba(0,0,0,0.25)",
+        borderRadius: "0",
+      });
+      if (overlay) {
+        Object.assign(overlay.style, {
+          position: "fixed",
+          top: offset,
+          left: "0",
+          right: "0",
+          bottom: "0",
+          zIndex: "9000",
+          background: "rgba(15, 23, 42, 0.45)",
+          backdropFilter: "none",
+          webkitBackdropFilter: "none",
+          pointerEvents: "auto",
+          opacity: "1",
+        });
+      }
+      if (topbar) {
+        topbar.style.position = "sticky";
+        topbar.style.top = "0";
+        topbar.style.zIndex = "9999";
+        topbar.style.filter = "none";
+      }
+    } else {
+      if (vMqDrawer.matches) {
+        if (sidebar) {
+          sidebar.style.transform = rtl ? "translateX(105%)" : "translateX(-105%)";
+          sidebar.style.visibility = "hidden";
+          sidebar.style.pointerEvents = "none";
+        }
+        if (overlay) {
+          overlay.style.pointerEvents = "none";
+          overlay.style.opacity = "0";
+        }
+      }
+    }
     document.body.classList.toggle("v-drawer-open", open);
     if (mobileToggle) {
       mobileToggle.setAttribute("aria-expanded", open ? "true" : "false");
@@ -553,10 +627,17 @@ function initVendorLayout() {
   const closeDrawer = () => setDrawerOpen(false);
 
   const applyDefault = () => {
-    layout.classList.remove("v-collapsed", "v-expanded");
+    layout.classList.remove("v-collapsed", "v-expanded", "v-sidebar-hidden");
+    /* Retour au layout desktop : le tiroir reprend sa place dans .v-layout. */
+    if (!vMqDrawer.matches && sidebar && sidebar.parentElement === document.body) {
+      if (vHomeNext && vHomeNext.parentElement === vHomeParent) vHomeParent.insertBefore(sidebar, vHomeNext);
+      else vHomeParent.appendChild(sidebar);
+      sidebar.removeAttribute("style");
+    }
     setDrawerOpen(false);
-    if (!vMqMobile.matches && !vMqTablet.matches) {
+    if (!vMqDrawer.matches) {
       try {
+        if (localStorage.getItem(VENDOR_HIDDEN_KEY) === "1") layout.classList.add("v-sidebar-hidden");
         if (localStorage.getItem(VENDOR_SIDEBAR_KEY) === "1") layout.classList.add("v-collapsed");
       } catch (e) { /* ignore */ }
     }
@@ -566,14 +647,10 @@ function initVendorLayout() {
     syncVendorTopbarOffset();
   };
 
+  /* Fleche interne : ouvre le tiroir sur <= 1024px, replie la rail sur desktop. */
   const toggleFn = () => {
-    if (vMqMobile.matches) {
-      closeDrawer();
-      return;
-    }
-    if (vMqTablet.matches) {
-      const expanded = layout.classList.toggle("v-expanded");
-      mobileToggle?.setAttribute("aria-expanded", expanded ? "true" : "false");
+    if (vMqDrawer.matches) {
+      setDrawerOpen(true);
       return;
     }
     const collapsed = layout.classList.toggle("v-collapsed");
@@ -587,25 +664,28 @@ function initVendorLayout() {
     toggle.addEventListener("click", toggleFn);
   }
 
-  /* Menu principal : tiroir mobile ET depliage de la rail tablette.
-     Le handler est attache des le shell, avant l'authentification. */
+  /* Bouton menu de la topbar :
+     - tiroir (<= 1024px) : ouvre / ferme le tiroir + overlay ;
+     - desktop (> 1024px) : masque / reaffiche completement la sidebar. */
   mobileToggle?.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    if (vMqMobile.matches) {
-      setDrawerOpen(!sidebar?.classList.contains("open"));
+    if (vMqDrawer.matches) {
+      const willOpen = !sidebar?.classList.contains("open");
+      setDrawerOpen(willOpen);
+      mobileToggle.setAttribute("aria-expanded", willOpen ? "true" : "false");
       return;
     }
-    if (vMqTablet.matches) {
-      const expanded = layout.classList.toggle("v-expanded");
-      mobileToggle.setAttribute("aria-expanded", expanded ? "true" : "false");
-    }
+    const hidden = layout.classList.toggle("v-sidebar-hidden");
+    try { localStorage.setItem(VENDOR_HIDDEN_KEY, hidden ? "1" : "0"); } catch (e) { /* ignore */ }
+    mobileToggle.setAttribute("aria-expanded", hidden ? "false" : "true");
+    mobileToggle.setAttribute("aria-label", vendorT(hidden ? "menuOpen" : "menuClose"));
   });
   mobileToggle?.setAttribute("aria-label", vendorT("menuOpen"));
 
-  /* Sur mobile, un clic sur un onglet referme le tiroir. */
+  /* Sur tiroir, un clic sur un onglet referme le panneau. */
   document.getElementById("vNav")?.addEventListener("click", (event) => {
-    if (!vMqMobile.matches) return;
+    if (!vMqDrawer.matches) return;
     if (event.target.closest(".v-nav-link")) closeDrawer();
   });
 

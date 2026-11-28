@@ -427,6 +427,15 @@ export async function addToCart(productId, variant = null, options = {}) {
     }
     showToast("🔒 " + t("loginRequired"));
     document.dispatchEvent(new CustomEvent("open-account"));
+    /* AddToCart pixel (intention) : le panier n'est pas encore persiste
+       (compte obligatoire), mais l'evenement e-commerce doit partir.
+       ads-attribution resout le prix via Firestore et envoie
+       Meta/TikTok avec content_ids = [id Firestore]. */
+    try {
+      document.dispatchEvent(new CustomEvent("smartswika:add-to-cart", {
+        detail: { productId: String(productId), variant: variant || null, quantity: 1, guest: true }
+      }));
+    } catch (e) { /* non bloquant */ }
     return;
   }
 
@@ -1015,7 +1024,7 @@ export async function checkout( cartItems, deliveryInfo, appliedCoupon = null, w
 async function attachOrderAttribution(orderId) {
   if (!orderId) return false;
   try {
-    const { buildOrderAttribution } = await import("./ads-attribution.js?v=3");
+    const { buildOrderAttribution } = await import("./ads-attribution.js?v=pixel2027b");
     const raw = buildOrderAttribution();
     const landedAtMs = Number(raw.landedAt);
     const attribution = {

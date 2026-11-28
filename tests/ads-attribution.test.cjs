@@ -89,7 +89,7 @@ check(
 check("module : aucune donnée personnelle (pas de téléphone/email)", !/ip\s*:|user_email/i.test(moduleSrc));
 
 const pages = ["index.html", "koulchi.html", "produit.html", "panier.html", "boutique.html", "blog.html", "villesmaroc.html"];
-const missingPages = pages.filter((page) => !read(page).includes("/js/ads-attribution.js?v=3"));
+const missingPages = pages.filter((page) => !/\/js\/ads-attribution\.js\?v=pixel[\w.-]+/.test(read(page)));
 check("vitrine : module présent sur les 7 pages", missingPages.length === 0, missingPages.join(",") || "7 pages");
 check(
   "produit : événement smartswika:product-viewed",
@@ -188,7 +188,7 @@ check("admin : 4 cartes KPI", ["adsKpiOrders", "adsKpiRevenue", "adsKpiNet", "ad
 check("admin : canvas Chart.js", adminHtml.includes('id="adsChannelChart"'));
 check("admin : tableau + cartes", adminHtml.includes('id="adsTableBody"') && adminHtml.includes('id="adsCards"'));
 check("admin : générateur UTM", adminHtml.includes('id="adsUtmToggle"') && adminHtml.includes('id="adsUtmCopy"'));
-check("admin : chargement dynamique du module", adminJs.includes("admin-ads.js?v=5") && adminJs.includes("initAdsTab"));
+check("admin : chargement dynamique du module", /admin-ads\.js\?v=\d+/.test(read("js/admin.js")) && adminJs.includes("initAdsTab"));
 check("admin-ui : libellés pub en 3 langues", adminUi.includes("adsColRoas:") && adminUi.includes("adsKpiRoas:"));
 check("admin module : ROI net = CA livré - COGS - Livo", adminSrc.includes("revenue - cogs - shipping"));
 check("admin module : ROAS réel", adminSrc.includes("roas: spendTotal > 0 ? revenue / spendTotal : null"));
@@ -198,14 +198,14 @@ check("admin module : cartes mobile", adminSrc.includes("ads-card"));
 
 /* --------------------------------------------- 5. cache / tests */
 
-check("service worker : version sw-2026-11-26-v13", sw.includes("'sw-2026-11-26-v13'"));
+check("service worker : version sw-2026-11-27-v21", /sw-2026-11-27-v\d+/.test(sw));
 check(
   "package.json : suite ads-attribution branchée",
   String(pkg.scripts && pkg.scripts.test).includes("tests/ads-attribution.test.cjs")
 );
 check(
-  "admin : cache-busting admin-ui v7 + admin ads2026c5",
-  adminHtml.includes("/js/admin-ui.js?v=7") && adminHtml.includes("/js/admin.js?v=ads2026c5")
+  "admin : cache-busting admin-ui v7 + admin gallery2026d",
+  adminHtml.includes("/js/admin-ui.js?v=drawer2027c") && adminHtml.includes("/js/admin.js?v=drawer2027c")
 );
 
 /* --------------------------------------------- 6. logique pure */

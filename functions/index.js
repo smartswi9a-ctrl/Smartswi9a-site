@@ -4332,9 +4332,80 @@ exports.productCatalogFeed = onRequest(
   }
 );
 
+/* ============================================================
+   SUPPRESSION VIDEO R2 (ADMIN)
+   ------------------------------------------------------------
+   Le champ `products.video` contient le nom du fichier servi par
+   https://videos.smartswika.ma (bucket R2 smartswi9a-videos).
+   Cette fonction :
+     1. verifie le jeton Firebase + le role admin ;
+     2. delegue la suppression au Worker Cloudflare (secret partage) ;
+     3. repond success meme si l'objet est deja absent (idempotent).
+   ============================================================ */
+exports.adminDeleteVideo = onRequest(
+  { invoker: 'public', region: 'europe-west1', cors: [...ALLOWED_ORIGINS], timeoutSeconds: 30 },
+  async (req, res) => {
+    if (cors(req, res)) return;
+    if (req.method !== 'POST') {
+      return res.status(405).json({ success: false, message: 'Methode non autorisee.' });
+    }
+    try {
+      const match = String(req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
+      if (!match) return res.status(401).json({ success: false, message: 'Connexion requise.' });
+      let decoded;
+      try {
+        decoded = await getAuth().verifyIdToken(match[1], true);
+      } catch (_) {
+        return res.status(401).json({ success: false, message: 'Session invalide.' });
+      }
+      let isAdmin = decoded.admin === true;
+      if (!isAdmin) {
+        const snap = await db.doc('users/' + decoded.uid).get();
+        isAdmin = snap.exists && (snap.data() || {}).role === 'admin';
+      }
+      if (!isAdmin) return res.status(403).json({ success: false, message: 'Administrateur requis.' });
+
+      const key = String((req.body && req.body.key) || '').trim();
+      if (!key || key.length > 200 || key.includes('/') || key.includes('..')) {
+        return res.status(400).json({ success: false, message: 'Cle invalide.' });
+      }
+
+      const endpoint = process.env.R2_DELETE_URL || 'https://smartswika.ma/api/internal/r2-delete';
+      const secret = process.env.R2_DELETE_SECRET;
+      if (!secret) {
+        return res.status(503).json({ success: false, message: 'Suppression R2 non configuree.' });
+      }
+
+      const upstream = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-internal-secret': secret },
+        body: JSON.stringify({ key })
+      });
+      const payload = await upstream.json().catch(() => ({}));
+      if (!upstream.ok) {
+        console.error('[adminDeleteVideo] R2', upstream.status, payload);
+        return res.status(502).json({ success: false, message: 'Suppression R2 impossible.' });
+      }
+      return res.json({ success: true, key });
+    } catch (error) {
+      console.error('[adminDeleteVideo]', error && (error.code || error.message));
+      return res.status(500).json({ success: false, message: 'Erreur serveur.' });
+    }
+  }
+);
+
 async function metaGraphRequest(path, method, payload, token) {
-  const response = await fetch('https://graph.facebook.com/' + META_GRAPH_VERSION + '/' + path, {
-    method: method || 'GET',
+  const httpMethod = String(method || 'GET').toUpperCase();
+  let url = 'https://graph.facebook.com/' + META_GRAPH_VERSION + '/' + path;
+  /* DELETE n accepte pas de body JSON : le token doit passer en query. */
+  if (httpMethod === 'DELETE') {
+    url +=
+      (url.indexOf('?') >= 0 ? '&' : '?') +
+      'access_token=' +
+      encodeURIComponent(String(token || ''));
+  }
+  const response = await fetch(url, {
+    method: httpMethod,
     headers: { 'Content-Type': 'application/json' },
     body: payload ? JSON.stringify({ ...payload, access_token: token }) : undefined
   });
@@ -4343,7 +4414,11 @@ async function metaGraphRequest(path, method, payload, token) {
     const message =
       (json.error && (json.error.error_user_msg || json.error.message)) ||
       'Meta API HTTP ' + response.status;
-    throw new Error(message);
+    const error = new Error(message);
+    /* On conserve code/subcode Graph pour tolerer "objet deja supprime". */
+    if (json.error) error.metaError = json.error;
+    error.metaStatus = response.status;
+    throw error;
   }
   return json;
 }
@@ -4376,40 +4451,341 @@ function tiktokAdsManagerUrl(advertiserId) {
   );
 }
 
+async function deleteMetaCampaign(accountId, token, campaignId) {
+  const id = String(campaignId || '').trim();
+  if (!id) return false;
+  const url =
+    'https://graph.facebook.com/' +
+    META_GRAPH_VERSION +
+    '/' +
+    encodeURIComponent(id) +
+    '?access_token=' +
+    encodeURIComponent(String(token || ''));
+  try {
+    const response = await fetch(url, { method: 'DELETE' });
+    const json = await response.json().catch(() => ({}));
+    if (!response.ok || json.error) {
+      console.error(
+        '[meta] suppression campagne orpheline refusee',
+        id,
+        json.error && json.error.message
+      );
+      return false;
+    }
+    console.log('[meta] campagne orpheline supprimee', id, String(accountId || ''));
+    return true;
+  } catch (error) {
+    console.error(
+      '[meta] suppression campagne orpheline echouee',
+      id,
+      error && error.message
+    );
+    return false;
+  }
+}
+
+const META_ALREADY_GONE_PATTERN =
+  /does not exist|Unsupported get request|Unknown path components|was deleted|Object with ID/i;
+
+/* Suppression distante Meta : DELETE /{campaignId} (cascade Graph : ad sets,
+   ads et brouillons rattaches). Un objet deja supprime n est pas une erreur. */
+async function deleteMetaCampaignRemote(input) {
+  const options = input || {};
+  const campaignId = String(options.campaignId || '').trim();
+  const token = String(options.token || '');
+  if (!campaignId) return { deleted: false, skipped: true, alreadyGone: false };
+  if (!token) throw new Error('Meta access token missing.');
+  const request = options.request || metaGraphRequest;
+  try {
+    await request(campaignId, 'DELETE', null, token);
+    return { deleted: true, skipped: false, alreadyGone: false };
+  } catch (error) {
+    const metaError = (error && error.metaError) || {};
+    const subcode = Number(metaError.subcode);
+    const code = Number(metaError.code);
+    const message = String((error && error.message) || '');
+    const alreadyGone =
+      subcode === 33 ||
+      (code === 100 && META_ALREADY_GONE_PATTERN.test(message)) ||
+      META_ALREADY_GONE_PATTERN.test(message);
+    if (alreadyGone) return { deleted: false, skipped: false, alreadyGone: true };
+    throw error;
+  }
+}
+
+/* Suppression distante TikTok (archivage campagne via status/update DELETE). */
+async function deleteTiktokCampaignRemote(input) {
+  const options = input || {};
+  const campaignId = String(options.campaignId || '').trim();
+  const advertiserId = String(options.advertiserId || '');
+  const token = String(options.token || '');
+  if (!campaignId) return { deleted: false, skipped: true, alreadyGone: false };
+  if (!advertiserId || !token) throw new Error('TikTok credentials missing.');
+  const request = options.request || tiktokRequest;
+  try {
+    await request(
+      '/campaign/status/update/',
+      'POST',
+      {
+        advertiser_id: advertiserId,
+        campaign_ids: [campaignId],
+        operation_status: 'DELETE'
+      },
+      token
+    );
+    return { deleted: true, skipped: false, alreadyGone: false };
+  } catch (error) {
+    const message = String((error && error.message) || '');
+    if (/not exist|not found|deleted|invalid campaign_id/i.test(message)) {
+      return { deleted: false, skipped: false, alreadyGone: true };
+    }
+    /* TikTok ne permet pas toujours la suppression dure : on n empeche pas
+       le nettoyage local, on remonte l avertissement a l admin. */
+    console.warn('[tiktok] suppression distante impossible', campaignId, message);
+    return {
+      deleted: false,
+      skipped: false,
+      alreadyGone: false,
+      warning: message.slice(0, 200)
+    };
+  }
+}
+
+/* Coeur testable : refuse ACTIVE, supprime a distance puis le document. */
+async function deleteAdCampaignEverywhereCore(input) {
+  const options = input || {};
+  const campaign = options.campaign || {};
+  const docId = String(options.docId || '').trim();
+  const status = String(options.status || campaign.status || '').toUpperCase();
+  if (status === 'ACTIVE') {
+    const error = new Error(
+      'Campagne ACTIVE : mettez-la en pause avant de la supprimer.'
+    );
+    error.status = 'failed-precondition';
+    throw error;
+  }
+  if (!docId) {
+    const error = new Error('docId is required.');
+    error.status = 'invalid-argument';
+    throw error;
+  }
+  const platform = String(options.platform || campaign.platform || 'meta').toLowerCase();
+  const externalId = String(
+    options.externalCampaignId || campaign.externalCampaignId || ''
+  ).trim();
+  const deleteMeta = options.deleteMeta || deleteMetaCampaignRemote;
+  const deleteTiktok = options.deleteTiktok || deleteTiktokCampaignRemote;
+  const removeDocument =
+    options.removeDocument ||
+    (async (id) => {
+      await db.collection(AD_CAMPAIGNS_COLLECTION).doc(id).delete();
+    });
+  const result = {
+    ok: true,
+    docId: docId,
+    platform: platform,
+    remoteDeleted: false,
+    remoteSkipped: !externalId,
+    alreadyGone: false
+  };
+  if (externalId && platform === 'meta') {
+    const remote = await deleteMeta({
+      campaignId: externalId,
+      token: options.metaToken,
+      request: options.metaRequest
+    });
+    result.remoteDeleted = Boolean(remote && remote.deleted);
+    result.alreadyGone = Boolean(remote && remote.alreadyGone);
+    result.remoteSkipped = Boolean(remote && remote.skipped);
+  } else if (externalId && platform === 'tiktok') {
+    const remote = await deleteTiktok({
+      campaignId: externalId,
+      advertiserId: options.tiktokAdvertiserId,
+      token: options.tiktokToken,
+      request: options.tiktokRequest
+    });
+    result.remoteDeleted = Boolean(remote && remote.deleted);
+    result.alreadyGone = Boolean(remote && remote.alreadyGone);
+    if (remote && remote.warning) result.warning = remote.warning;
+  }
+  await removeDocument(docId);
+  return result;
+}
+
+const metaAccountCurrencyCache = new Map();
+
+/* Devise reelle du compte publicitaire Meta (GET /act_{id}?fields=currency).
+   Mise en cache par compte pour ne pas ajouter un appel a chaque campagne. */
+async function metaAccountCurrency(accountId, token) {
+  const account = String(accountId || '').replace(/^act_/, '');
+  if (!account || !token) return '';
+  if (metaAccountCurrencyCache.has(account)) return metaAccountCurrencyCache.get(account);
+  const url =
+    'https://graph.facebook.com/' +
+    META_GRAPH_VERSION +
+    '/act_' +
+    encodeURIComponent(account) +
+    '?fields=currency&access_token=' +
+    encodeURIComponent(String(token));
+  try {
+    const response = await fetch(url);
+    const json = await response.json().catch(() => ({}));
+    const currency = String((json && json.currency) || '').toUpperCase();
+    if (/^[A-Z]{3}$/.test(currency)) {
+      metaAccountCurrencyCache.set(account, currency);
+      return currency;
+    }
+    console.warn(
+      '[meta] devise du compte illisible',
+      account,
+      json && json.error && json.error.message
+    );
+  } catch (error) {
+    console.warn('[meta] devise du compte indisponible', account, error && error.message);
+  }
+  return '';
+}
+
+/* Convertit un budget saisi (MAD et/ou USD) en CENTIMES de la devise reelle
+   du compte publicitaire Meta. Compte USD : 10 $ -> 1000 (jamais 10000).
+   Compte MAD : 100 MAD -> 10000. */
+function metaBudgetToCents(options) {
+  const opts = options || {};
+  const accountCurrency = String(opts.accountCurrency || 'MAD').toUpperCase();
+  const usdMadRate =
+    Number(opts.usdMadRate) > 0 ? Number(opts.usdMadRate) : USD_MAD_DEFAULT_RATE;
+  const madAmount = Number(opts.madAmount) || 0;
+  const usdAmount =
+    Number(opts.usdAmount) > 0 ? Number(opts.usdAmount) : madAmount / usdMadRate;
+  const value = accountCurrency === 'MAD' ? madAmount : usdAmount;
+  if (!(value > 0)) return 0;
+  return Math.max(0, Math.round(value * 100));
+}
+
 async function createMetaCampaign(options) {
   const account = String(options.accountId || '').replace(/^act_/, '');
   if (!account) throw new Error('Meta Ad Account ID missing.');
   const status = options.startPaused ? 'PAUSED' : 'ACTIVE';
+  const accountCurrency =
+    String(options.accountCurrency || '').toUpperCase() ||
+    (await metaAccountCurrency(account, options.token)) ||
+    'MAD';
+  const usdMadRate =
+    Number(options.usdMadRate) > 0 ? Number(options.usdMadRate) : USD_MAD_DEFAULT_RATE;
+  const campaignPayload = {
+    name: options.campaignName,
+    objective: options.objective || 'OUTCOME_TRAFFIC',
+    status,
+    special_ad_categories: Array.isArray(options.specialAdCategories)
+      ? options.specialAdCategories
+      : []
+  };
+  const campaignDailyBudget = Number(options.campaignDailyBudgetMad);
+  const campaignLifetimeBudget = Number(options.campaignLifetimeBudgetMad);
+  if (Number.isFinite(campaignDailyBudget) && campaignDailyBudget > 0) {
+    campaignPayload.daily_budget = metaBudgetToCents({
+      accountCurrency: accountCurrency,
+      usdMadRate: usdMadRate,
+      madAmount: campaignDailyBudget,
+      usdAmount: options.campaignDailyBudgetUsd
+    });
+  } else if (Number.isFinite(campaignLifetimeBudget) && campaignLifetimeBudget > 0) {
+    campaignPayload.lifetime_budget = metaBudgetToCents({
+      accountCurrency: accountCurrency,
+      usdMadRate: usdMadRate,
+      madAmount: campaignLifetimeBudget,
+      usdAmount: options.campaignLifetimeBudgetUsd
+    });
+  }
+  /* ABO (budget porte par l ad set) : depuis Graph v20 Meta exige explicitement
+     ce booleen sur /campaigns, sinon la creation echoue avec
+     "You must specify True or False in the field is_adset_budget_sharing_enabled".
+     On le met a false : aucun budget de campagne, donc aucun partage a activer. */
+  if (!campaignPayload.daily_budget && !campaignPayload.lifetime_budget) {
+    campaignPayload.is_adset_budget_sharing_enabled = false;
+  }
   const campaign = await metaGraphRequest(
     'act_' + account + '/campaigns',
     'POST',
-    {
-      name: options.campaignName,
-      objective: 'OUTCOME_TRAFFIC',
-      status,
-      special_ad_categories: []
-    },
+    campaignPayload,
     options.token
   );
-  const adset = await metaGraphRequest(
-    'act_' + account + '/adsets',
-    'POST',
-    {
-      name: options.campaignName + ' - MA 21-55',
-      campaign_id: campaign.id,
-      daily_budget: Math.round(options.dailyBudgetMad * 100),
-      billing_event: 'IMPRESSIONS',
-      optimization_goal: 'LINK_CLICKS',
-      destination_type: 'WEBSITE',
-      targeting: {
-        geo_locations: { countries: ['MA'] },
-        age_min: 21,
-        age_max: 55
-      },
-      status
+  const durationDays = Math.max(0, Math.round(Number(options.durationDays) || 0));
+  const totalBudgetMad = Number(options.totalBudgetMad) || 0;
+  const totalBudgetUsd =
+    Number(options.totalBudgetUsd) > 0
+      ? Number(options.totalBudgetUsd)
+      : totalBudgetMad / usdMadRate;
+  /* Mode "budget total + duree" (ex: 10 $ sur 4 jours) : l ad set porte un
+     lifetime_budget (converti dans la devise du compte) et un end_time ISO futur. */
+  const lifetimeMode =
+    durationDays > 0 &&
+    (totalBudgetMad > 0 || totalBudgetUsd > 0) &&
+    !campaignPayload.daily_budget &&
+    !campaignPayload.lifetime_budget;
+  const adsetPayload = {
+    name: options.campaignName + ' - MA 21+',
+    campaign_id: campaign.id,
+    billing_event: 'IMPRESSIONS',
+    optimization_goal: options.optimizationGoal || 'LINK_CLICKS',
+    destination_type: 'WEBSITE',
+    targeting: {
+      geo_locations: { countries: ['MA'] },
+      age_min: 21,
+      /* Pas de age_max strict : avec advantage_audience=1 Meta refuse une borne
+         haute < 65 ("You can add a lower maximum age as a suggestion instead").
+         On laisse donc l age maximum ouvert (65 par defaut cote Meta). */
+      /* Meta Graph exige explicitement le flag Advantage audience :
+         "you need to enable or disable the Advantage audience feature ...
+          setting the advantage_audience flag to either 1 or 0". */
+      targeting_automation: { advantage_audience: 1 }
     },
-    options.token
-  );
+    status,
+    /* Enchere automatique explicite : sans bid_amount, Meta refuse la creation
+       ("For a bid cap, provide bid_amount...") si la strategie est ambigue. */
+    bid_strategy: options.bidStrategy || 'LOWEST_COST_WITHOUT_CAP'
+  };
+  if (lifetimeMode) {
+    adsetPayload.lifetime_budget = metaBudgetToCents({
+      accountCurrency: accountCurrency,
+      usdMadRate: usdMadRate,
+      madAmount: totalBudgetMad,
+      usdAmount: totalBudgetUsd
+    });
+    adsetPayload.end_time = new Date(
+      Date.now() + durationDays * 24 * 60 * 60 * 1000
+    ).toISOString();
+  } else if (!campaignPayload.daily_budget && !campaignPayload.lifetime_budget) {
+    adsetPayload.daily_budget = metaBudgetToCents({
+      accountCurrency: accountCurrency,
+      usdMadRate: usdMadRate,
+      madAmount: Number(options.dailyBudgetMad) || 0,
+      usdAmount: options.dailyBudgetUsd
+    });
+  }
+  const bidAmountCents = Math.round(Number(options.bidAmount) * 100);
+  if (Number.isFinite(bidAmountCents) && bidAmountCents > 0) {
+    adsetPayload.bid_strategy = 'LOWEST_COST_WITH_BID_CAP';
+    adsetPayload.bid_amount = bidAmountCents;
+  }
+  /* Aucun bid_amount / bid_constraints vide ne doit partir vers Meta. */
+  if (!adsetPayload.bid_amount) {
+    delete adsetPayload.bid_amount;
+    delete adsetPayload.bid_constraints;
+  }
+  let adset;
+  try {
+    adset = await metaGraphRequest(
+      'act_' + account + '/adsets',
+      'POST',
+      adsetPayload,
+      options.token
+    );
+  } catch (error) {
+    /* Nettoyage : pas de campagne vide dans Ads Manager si l ad set echoue. */
+    await deleteMetaCampaign(account, options.token, campaign.id);
+    throw error;
+  }
   return {
     externalCampaignId: String(campaign.id),
     externalAdSetId: String(adset.id),
@@ -4444,7 +4820,7 @@ async function createTiktokCampaign(options) {
     {
       advertiser_id: advertiserId,
       campaign_id: campaignId,
-      adgroup_name: options.campaignName + ' - MA 21-55',
+      adgroup_name: options.campaignName + ' - MA 21+',
       budget_mode: 'BUDGET_MODE_DAY',
       budget,
       schedule_type: 'SCHEDULE_FROM_NOW',
@@ -4506,8 +4882,14 @@ async function createMetaCarouselCampaign(options) {
     token: options.token,
     campaignName: options.campaignName,
     dailyBudgetMad: options.dailyBudgetMad,
+    dailyBudgetUsd: options.dailyBudgetUsd,
+    totalBudgetMad: options.totalBudgetMad,
+    totalBudgetUsd: options.totalBudgetUsd,
+    usdMadRate: options.usdMadRate,
+    durationDays: options.durationDays,
     startPaused: options.startPaused
   });
+  try {
   const cards = options.products.slice(0, META_CAROUSEL_MAX_CARDS).map((product) => ({
     link: product.link,
     name: String(product.title || '').slice(0, 80),
@@ -4554,6 +4936,11 @@ async function createMetaCarouselCampaign(options) {
     externalAdId: String(ad.id),
     metaCardCount: cards.length
   };
+  } catch (error) {
+    /* Nettoyage : une campagne sans visuel ne doit pas rester dans Ads Manager. */
+    await deleteMetaCampaign(account, options.token, base.externalCampaignId);
+    throw error;
+  }
 }
 
 function normalizeAdCopy(value) {
@@ -4569,6 +4956,88 @@ function normalizeAdCopy(value) {
 }
 
 const USD_MAD_DEFAULT_RATE = 10;
+
+/* Variantes A/B/C normalisees (3 max) : { key, label, copies, message }. */
+function normalizeAdVariants(value) {
+  if (!Array.isArray(value)) return [];
+  const keys = ['A', 'B', 'C'];
+  return value
+    .slice(0, 3)
+    .map((variant, index) => {
+      const copies = normalizeAdCopy(
+        variant && variant.copies ? variant.copies : variant
+      );
+      const message = String(
+        (variant && variant.message) || copies.fr || ''
+      )
+        .trim()
+        .slice(0, 2000);
+      return {
+        key: String((variant && variant.key) || keys[index] || index + 1).slice(0, 8),
+        label: String(
+          (variant && variant.label) || 'Variante ' + (keys[index] || index + 1)
+        ).slice(0, 60),
+        copies,
+        message
+      };
+    })
+    .filter((variant) => Boolean(variant.message));
+}
+
+/**
+ * Plan d annonces dans UN SEUL ad set (budget non fragmente) :
+ * - mode A/B/C : une annonce par variante de texte ;
+ * - mode mixte : une annonce Image 1080x1080 + une annonce Video.
+ */
+function planMetaAds(options) {
+  const opts = options || {};
+  const hasImage = Boolean(opts.hasImage);
+  const hasVideo = Boolean(opts.hasVideo);
+  const baseMessage = String(opts.message || '').trim();
+  const variants = normalizeAdVariants(opts.variants);
+  const plan = [];
+  if (variants.length >= 2) {
+    variants.forEach((variant) => {
+      plan.push({
+        key: 'variant-' + variant.key.toLowerCase(),
+        label: variant.label,
+        format: hasImage ? 'image' : 'video',
+        message: variant.message,
+        variant: variant.key
+      });
+    });
+    return plan;
+  }
+  const mix = Boolean(opts.mixImageVideo) && hasImage && hasVideo;
+  if (hasImage) {
+    plan.push({
+      key: 'image',
+      label: 'Visuel Image 1080x1080',
+      format: 'image',
+      message: baseMessage,
+      variant: ''
+    });
+  }
+  if (hasVideo && (mix || !hasImage)) {
+    plan.push({
+      key: 'video',
+      label: 'Video Demo',
+      format: 'video',
+      message: baseMessage,
+      variant: ''
+    });
+  }
+  if (!plan.length) {
+    plan.push({
+      key: 'image',
+      label: 'Visuel Image',
+      format: 'image',
+      message: baseMessage,
+      variant: ''
+    });
+  }
+  return plan;
+}
 
 function roundMoney(value) {
   const number = Number(value);
@@ -4640,6 +5109,7 @@ function resolveCampaignBudget(data) {
     totalBudgetUsd > 0 ? totalBudgetUsd : roundMoney(totalBudgetMad / usdMadRate);
   return {
     dailyBudgetMad,
+    dailyBudgetUsd: roundMoney(dailyBudgetMad / usdMadRate),
     durationDays,
     totalBudgetMad: roundMoney(totalBudgetMad),
     totalBudgetUsd: roundMoney(totalUsd),
@@ -4678,8 +5148,10 @@ function campaignBudgetPatch(budget) {
 async function createMetaSingleCreativeAd(options) {
   if (!options.pageId) return null;
   const media = Array.isArray(options.customMedia) ? options.customMedia : [];
-  const video = media.find((item) => item.type === 'video');
-  const image = media.find((item) => item.type === 'image');
+  const forceFormat = String(options.forceFormat || '').toLowerCase();
+  const video = forceFormat === 'image' ? null : media.find((item) => item.type === 'video');
+  const image = forceFormat === 'video' ? null : media.find((item) => item.type === 'image');
+  if (forceFormat === 'video' && !video) return null;
   if (!video && !image && !options.headline) return null;
   const account = String(options.accountId || '').replace(/^act_/, '');
   let storySpec;
@@ -4693,6 +5165,49 @@ async function createMetaSingleCreativeAd(options) {
       },
       options.token
     );
+    /* Sous-titres .srt : heberges puis attaches a la video (muet en Reels). */
+    if (options.captionsSrt) {
+      try {
+        const bucket = getStorage().bucket();
+        const captionPath =
+          'ad_captions/' +
+          Date.now() +
+          '-' +
+          Math.random().toString(36).slice(2, 8) +
+          '.srt';
+        const captionFile = bucket.file(captionPath);
+        await captionFile.save(String(options.captionsSrt), {
+          contentType: 'application/x-subrip',
+          resumable: false,
+          metadata: { cacheControl: 'public, max-age=31536000' }
+        });
+        let captionsUrl = '';
+        try {
+          await captionFile.makePublic();
+          captionsUrl =
+            'https://storage.googleapis.com/' + bucket.name + '/' + captionPath;
+        } catch (publicError) {
+          const signed = await captionFile.getSignedUrl({
+            action: 'read',
+            expires: Date.now() + 30 * 24 * 3600 * 1000
+          });
+          captionsUrl = signed && signed[0];
+        }
+        if (captionsUrl) {
+          await metaGraphRequest(
+            String(uploaded.id) + '/captions',
+            'POST',
+            { captions_file: captionsUrl, default_locale: 'fr_FR' },
+            options.token
+          );
+        }
+      } catch (error) {
+        console.warn(
+          '[meta] sous-titres non attaches',
+          error && (error.code || error.message)
+        );
+      }
+    }
     storySpec = {
       page_id: String(options.pageId),
       video_data: {
@@ -4724,7 +5239,7 @@ async function createMetaSingleCreativeAd(options) {
     'act_' + account + '/adcreatives',
     'POST',
     {
-      name: options.campaignName + ' - Creative',
+      name: (options.creativeName || options.campaignName) + ' - Creative',
       object_story_spec: storySpec
     },
     options.token
@@ -4733,7 +5248,7 @@ async function createMetaSingleCreativeAd(options) {
     'act_' + account + '/ads',
     'POST',
     {
-      name: options.campaignName + ' - Ad',
+      name: (options.creativeName || options.campaignName) + ' - Ad',
       adset_id: options.externalAdSetId,
       creative: { creative_id: creative.id },
       status: options.startPaused ? 'PAUSED' : 'ACTIVE'
@@ -4772,10 +5287,22 @@ async function syncCampaignBudgetToPlatform(campaign, budget, secrets) {
       secrets.metaAccessToken &&
       secrets.metaAdAccountId
     ) {
+      const accountCurrency =
+        (await metaAccountCurrency(
+          String(secrets.metaAdAccountId),
+          String(secrets.metaAccessToken)
+        )) || 'MAD';
       await metaGraphRequest(
         String(campaign.externalAdSetId),
         'POST',
-        { daily_budget: Math.round(budget.dailyBudgetMad * 100) },
+        {
+          daily_budget: metaBudgetToCents({
+            accountCurrency: accountCurrency,
+            usdMadRate: budget.usdMadRate,
+            madAmount: budget.dailyBudgetMad,
+            usdAmount: budget.dailyBudgetUsd
+          })
+        },
         String(secrets.metaAccessToken)
       );
     } else if (
@@ -4910,6 +5437,11 @@ exports.launchSuggestedAdCampaign = onCall(
               token,
               campaignName,
               dailyBudgetMad,
+              dailyBudgetUsd: budget.dailyBudgetUsd,
+              totalBudgetMad: budget.totalBudgetMad,
+              totalBudgetUsd: budget.totalBudgetUsd,
+              usdMadRate: budget.usdMadRate,
+              durationDays: budget.durationDays,
               startPaused
             })
           : await createTiktokCampaign({
@@ -4920,32 +5452,75 @@ exports.launchSuggestedAdCampaign = onCall(
               startPaused
             });
         let extraCreative = {};
-        if (isMeta && secrets.metaPageId) {
-          const metaCreative = await createMetaSingleCreativeAd({
-            accountId,
-            token,
-            pageId: String(secrets.metaPageId),
-            campaignName,
-            externalAdSetId: created.externalAdSetId,
-            message,
-            headline: creative.headline,
-            description: creative.description,
-            customMedia: creative.customMedia,
-            destinationUrl,
-            startPaused
-          });
-          if (metaCreative) extraCreative = metaCreative;
-        } else if (!isMeta) {
-          const uploadedVideo = await uploadTiktokVideo(
-            accountId,
-            token,
-            creative.customMedia
-          ).catch(() => null);
-          if (uploadedVideo) {
-            extraCreative.externalVideoId = String(
-              uploadedVideo.video_id || uploadedVideo.videoId || ''
-            );
+        try {
+          if (isMeta && secrets.metaPageId) {
+            const mediaList = creative.customMedia;
+            const hasImage = mediaList.some((item) => item.type === 'image');
+            const hasVideo = mediaList.some((item) => item.type === 'video');
+            const adPlan = planMetaAds({
+              mixImageVideo: data.mixImageVideo === true,
+              hasImage: hasImage,
+              hasVideo: hasVideo,
+              message: message,
+              variants: data.abTest === true ? data.variants : []
+            });
+            const createdAds = [];
+            for (const adSpec of adPlan) {
+              const adResult = await createMetaSingleCreativeAd({
+                accountId,
+                token,
+                pageId: String(secrets.metaPageId),
+                campaignName,
+                creativeName: campaignName + ' - ' + adSpec.label,
+                externalAdSetId: created.externalAdSetId,
+                message: adSpec.message || message,
+                headline: creative.headline,
+                description: creative.description,
+                customMedia: mediaList,
+                forceFormat: adSpec.format,
+                captionsSrt:
+                  adSpec.format === 'video' && data.captionsSrt
+                    ? String(data.captionsSrt).slice(0, 8000)
+                    : '',
+                destinationUrl,
+                startPaused
+              });
+              if (adResult) {
+                createdAds.push({
+                  ...adResult,
+                  key: adSpec.key,
+                  label: adSpec.label,
+                  format: adSpec.format,
+                  variant: adSpec.variant || ''
+                });
+              }
+            }
+            if (createdAds.length) {
+              extraCreative = {
+                externalCreativeId: createdAds[0].externalCreativeId,
+                externalAdId: createdAds[0].externalAdId,
+                metaAds: createdAds,
+                metaAdCount: createdAds.length
+              };
+            }
+          } else if (!isMeta) {
+            const uploadedVideo = await uploadTiktokVideo(
+              accountId,
+              token,
+              creative.customMedia
+            ).catch(() => null);
+            if (uploadedVideo) {
+              extraCreative.externalVideoId = String(
+                uploadedVideo.video_id || uploadedVideo.videoId || ''
+              );
+            }
           }
+        } catch (error) {
+          /* Nettoyage : campagne Meta sans annonce -> suppression. */
+          if (isMeta) {
+            await deleteMetaCampaign(accountId, token, created.externalCampaignId);
+          }
+          throw error;
         }
         const docRef = await db.collection(AD_CAMPAIGNS_COLLECTION).add({
           platform: current,
@@ -4954,6 +5529,18 @@ exports.launchSuggestedAdCampaign = onCall(
           externalCreativeId: extraCreative.externalCreativeId || '',
           externalAdId: extraCreative.externalAdId || '',
           externalVideoId: extraCreative.externalVideoId || '',
+          metaAdCount: extraCreative.metaAdCount || 0,
+          adVariants: Array.isArray(extraCreative.metaAds)
+            ? extraCreative.metaAds.map((ad) => ad.key)
+            : [],
+          abTest: data.abTest === true,
+          mixImageVideo: data.mixImageVideo === true,
+          captionsSrt: String(data.captionsSrt || '').slice(0, 8000),
+          eventBanner: String(data.eventBanner || '').slice(0, 38),
+          showLogo: data.showLogo !== false,
+          showBanner: data.showBanner !== false,
+          splitScreen: data.splitScreen === true,
+          secondImage: String(data.secondImage || '').slice(0, 500),
           productId,
           productTitle: title,
           campaignName,
@@ -5147,6 +5734,11 @@ exports.launchMultiProductCarouselCampaign = onCall(
               pageId,
               campaignName,
               dailyBudgetMad,
+              dailyBudgetUsd: budget.dailyBudgetUsd,
+              totalBudgetMad: budget.totalBudgetMad,
+              totalBudgetUsd: budget.totalBudgetUsd,
+              usdMadRate: budget.usdMadRate,
+              durationDays: budget.durationDays,
               startPaused,
               products: productsForPlatform,
               message
@@ -5337,6 +5929,114 @@ exports.updateAdCampaignSettings = onCall(
   }
 );
 
+/* Notifie les admins (collection `notifications`, double schema cloche). */
+async function notifyAdminsAdsPaused(campaign, productId) {
+  try {
+    const admins = await db.collection('users').where('role', '==', 'admin').limit(10).get();
+    if (admins.empty) return 0;
+    const batch = db.batch();
+    const message =
+      'Campagne ' +
+      (campaign.campaignName || campaign.id) +
+      ' mise en pause automatiquement : produit ' +
+      productId +
+      ' en rupture de stock.';
+    admins.docs.forEach((adminDoc) => {
+      batch.set(db.collection('notifications').doc(), {
+        userId: adminDoc.id,
+        recipientId: adminDoc.id,
+        recipientRole: 'admin',
+        type: 'ads_auto_paused_stock_zero',
+        title: 'Campagne mise en pause (stock 0)',
+        message: message,
+        body: message,
+        targetUrl: '/admin',
+        read: false,
+        isRead: false,
+        campaignDocId: campaign.id,
+        productId: productId,
+        createdAt: FieldValue.serverTimestamp()
+      });
+    });
+    await batch.commit();
+    return admins.size;
+  } catch (error) {
+    console.warn(
+      '[auto-pause-stock-zero] notification admin impossible',
+      error && (error.code || error.message)
+    );
+    return 0;
+  }
+}
+
+/**
+ * Coeur testable : met en pause les campagnes ACTIVE quand un produit tombe a 0.
+ * - Mono-produit : pause des que le produit cible est a stock <= 0.
+ * - Carrousel : pause seulement si TOUS les produits du carrousel sont a 0.
+ */
+async function pauseCampaignsOnStockZeroCore(input) {
+  const options = input || {};
+  const productId = String(options.productId || '').trim();
+  const prevStock = Number(options.prevStock);
+  const nextStock = Number(options.nextStock);
+  const result = { ok: true, transition: false, paused: [], skipped: [], failed: [] };
+  if (!productId || !(prevStock > 0 && nextStock <= 0)) return result;
+  result.transition = true;
+  const campaigns = Array.isArray(options.campaigns) ? options.campaigns : [];
+  const stockOf = options.stockOf || (async () => nextStock);
+  const pauseRemote = options.pauseRemote || (async () => true);
+  const markPaused =
+    options.markPaused ||
+    (async () => {
+      /* no-op par defaut : injecte en production */
+    });
+  const notify = options.notify || (async () => 0);
+
+  for (const campaign of campaigns) {
+    const campaignId = String(campaign.id || '').trim();
+    if (!campaignId) continue;
+    if (String(campaign.status || '').toUpperCase() !== 'ACTIVE') continue;
+    const productIds = Array.isArray(campaign.productIds) ? campaign.productIds : [];
+    const isCarousel =
+      String(campaign.type || '').toLowerCase() === 'carousel' || productIds.length > 1;
+    if (isCarousel) {
+      let stillInStock = 0;
+      for (const id of productIds) {
+        const stock = Number(await stockOf(String(id)));
+        if (stock > 0) {
+          stillInStock += 1;
+          break;
+        }
+      }
+      if (stillInStock > 0) {
+        result.skipped.push(campaignId);
+        continue;
+      }
+    }
+    try {
+      await pauseRemote(campaign);
+      await markPaused(campaign, { status: 'PAUSED', autoPausedReason: 'stock_zero' });
+      await notify(campaign, productId);
+      result.paused.push(campaignId);
+      console.log(
+        '[auto-pause-stock-zero] Campagne ' +
+          campaignId +
+          ' (' +
+          productId +
+          ') mise en pause automatiquement'
+      );
+    } catch (error) {
+      result.failed.push(campaignId);
+      console.error(
+        '[auto-pause-stock-zero] echec',
+        campaignId,
+        error && (error.code || error.message)
+      );
+    }
+  }
+  return result;
+}
+
 exports.autoPauseExpiredAdCampaigns = onSchedule(
   {
     schedule: 'every 60 minutes',
@@ -5379,6 +6079,86 @@ exports.autoPauseExpiredAdCampaigns = onSchedule(
       paused += 1;
     }
     console.log('[autoPauseExpiredAdCampaigns]', JSON.stringify({ scanned: snapshot.size, paused }));
+  }
+);
+
+exports.onProductStockZeroPauseAds = onDocumentUpdated(
+  {
+    document: 'products/{productId}',
+    region: 'europe-west1',
+    timeoutSeconds: 120,
+    maxInstances: 5
+  },
+  async (event) => {
+    const beforeData =
+      event.data && event.data.before && typeof event.data.before.data === 'function'
+        ? event.data.before.data() || {}
+        : {};
+    const afterData =
+      event.data && event.data.after && typeof event.data.after.data === 'function'
+        ? event.data.after.data() || {}
+        : {};
+    const prevStock = Number(beforeData.stock ?? 0);
+    const nextStock = Number(afterData.stock ?? 0);
+    if (!(prevStock > 0 && nextStock <= 0)) return null;
+    const productId = String((event.params && event.params.productId) || '').trim();
+    if (!productId) return null;
+
+    const [directSnap, carouselSnap] = await Promise.all([
+      db
+        .collection(AD_CAMPAIGNS_COLLECTION)
+        .where('status', '==', 'ACTIVE')
+        .where('productId', '==', productId)
+        .limit(50)
+        .get(),
+      db
+        .collection(AD_CAMPAIGNS_COLLECTION)
+        .where('status', '==', 'ACTIVE')
+        .where('productIds', 'array-contains', productId)
+        .limit(50)
+        .get()
+    ]);
+    const byId = new Map();
+    directSnap.docs.concat(carouselSnap.docs).forEach((docSnap) => {
+      byId.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
+    });
+    if (!byId.size) {
+      console.log('[auto-pause-stock-zero] aucune campagne ACTIVE pour', productId);
+      return null;
+    }
+
+    const secrets = await readAdsSecrets();
+    const stockCache = new Map();
+    const stockOf = async (id) => {
+      if (id === productId) return nextStock;
+      if (stockCache.has(id)) return stockCache.get(id);
+      const snap = await db.doc('products/' + id).get();
+      const value = snap.exists ? Number(snap.data().stock ?? 0) : 0;
+      stockCache.set(id, value);
+      return value;
+    };
+
+    const result = await pauseCampaignsOnStockZeroCore({
+      productId: productId,
+      prevStock: prevStock,
+      nextStock: nextStock,
+      campaigns: [...byId.values()],
+      stockOf: stockOf,
+      pauseRemote: (campaign) => pauseExternalCampaign(campaign, secrets),
+      markPaused: async (campaign, patch) => {
+        await db
+          .collection(AD_CAMPAIGNS_COLLECTION)
+          .doc(campaign.id)
+          .update({
+            ...patch,
+            autoPausedAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp()
+          });
+      },
+      notify: (campaign, id) => notifyAdminsAdsPaused(campaign, id)
+    });
+    console.log('[auto-pause-stock-zero]', JSON.stringify(result));
+    return result;
   }
 );
 
@@ -5434,11 +6214,56 @@ exports.toggleAdCampaignStatus = onCall(
       }
     }
 
-    await ref.update({
+    const campaignPatch = {
       status: action,
       updatedAt: FieldValue.serverTimestamp()
-    });
+    };
+    if (action === 'ACTIVE') {
+      /* Reactivation manuelle apres un stock 0 : on efface la pause auto. */
+      campaignPatch.autoPausedReason = FieldValue.delete();
+      campaignPatch.autoPausedAt = FieldValue.delete();
+    }
+    await ref.update(campaignPatch);
     return { campaignDocId, status: action, synced };
+  }
+);
+
+exports.deleteAdCampaignEverywhere = onCall(
+  { region: 'europe-west1', timeoutSeconds: 60, maxInstances: 5 },
+  async (request) => {
+    await requireAdminCallable(request);
+    const data = request.data || {};
+    const docId = String(data.docId || data.campaignDocId || '').trim();
+    if (!docId) throw new HttpsError('invalid-argument', 'docId is required.');
+    const snap = await db.collection(AD_CAMPAIGNS_COLLECTION).doc(docId).get();
+    if (!snap.exists) throw new HttpsError('not-found', 'Campaign not found.');
+    const campaign = snap.data() || {};
+    const secrets = await readAdsSecrets();
+    try {
+      return await deleteAdCampaignEverywhereCore({
+        docId: docId,
+        campaign: campaign,
+        platform: data.platform || campaign.platform,
+        externalCampaignId: data.externalCampaignId || campaign.externalCampaignId,
+        metaToken: String(secrets.metaAccessToken || ''),
+        tiktokToken: String(secrets.tiktokAccessToken || ''),
+        tiktokAdvertiserId: String(secrets.tiktokAdvertiserId || '')
+      });
+    } catch (error) {
+      const code = error && error.status;
+      if (code === 'failed-precondition' || code === 'invalid-argument') {
+        throw new HttpsError(code, String(error.message || 'Suppression refusee.'));
+      }
+      console.error(
+        '[deleteAdCampaignEverywhere]',
+        docId,
+        error && (error.code || error.message)
+      );
+      throw new HttpsError(
+        'internal',
+        String((error && error.message) || 'Suppression impossible.').slice(0, 300)
+      );
+    }
   }
 );
 

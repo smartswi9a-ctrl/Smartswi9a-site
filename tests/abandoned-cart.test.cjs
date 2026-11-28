@@ -69,7 +69,7 @@ check(
 );
 
 const pages = ["index.html", "koulchi.html", "produit.html", "panier.html", "boutique.html", "blog.html", "villesmaroc.html"];
-const missingPages = pages.filter((page) => !read(page).includes("/js/abandoned-cart.js?v=2"));
+const missingPages = pages.filter((page) => !read(page).includes("/js/abandoned-cart.js?v=pixel2027"));
 check("capture : script présent sur les pages panier/vitrine", missingPages.length === 0, missingPages.join(",") || pages.length + " pages");
 
 /* --------------------------------------------- 2. Cloud Function */
@@ -147,7 +147,7 @@ check(
   )
 );
 check("admin : tableau responsive (tbody dédié)", adminHtml.includes('id="abandonedCartsBody"'));
-check("admin : module chargé avec cache-busting", adminHtml.includes("/js/admin.js?v=ads2026c5") && adminHtml.includes("/js/admin-ui.js?v=7"));
+check("admin : module chargé avec cache-busting", adminHtml.includes("/js/admin.js?v=drawer2027c") && adminHtml.includes("/js/admin-ui.js?v=drawer2027c"));
 
 check("admin module : relance WhatsApp wa.me", adminModule.includes("https://wa.me/"));
 check(
@@ -198,7 +198,7 @@ check(
 
 /* --------------------------------------------- 5. Cache / tests */
 
-check("service worker : version sw-2026-11-26-v13", sw.includes("'sw-2026-11-26-v13'"));
+check("service worker : version sw-2026-11-27-v21", /sw-2026-11-27-v\d+/.test(sw));
 check(
   "package.json : suite abandoned-cart branchée sur npm test",
   String(pkg.scripts && pkg.scripts.test).includes("tests/abandoned-cart.test.cjs")

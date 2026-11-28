@@ -43,8 +43,9 @@ import {
   getDownloadURL,
 } from "firebase/storage";
 import { db, storage } from "./firebase.js";
-import { adminT, getAdminLang } from "./admin-ui.js";
+import { adminT, getAdminLang } from "./admin-ui.js?v=drawer2027e";
 import { escapeHTML } from "./utils.js";
+import { showToast } from "./ui-core.js";
 
 /* ============================================================
    ÉTAT
@@ -829,16 +830,370 @@ function suggestedBadge(score, margin) {
   return { key: "adsBadgeStrong", emoji: "📈" };
 }
 
-function buildAdCopy(product, price) {
-  const nameFr = product.nameFr || product.nameEn || product.nameAr || "Produit";
-  const nameEn = product.nameEn || nameFr;
-  const nameAr = product.nameAr || nameFr;
-  const priceText = fmtNumber(price);
+/* ============================================================
+   MOTEUR CREATIF COD MAROC (v31)
+   3 blocs courts : benefice / re assurances REELLES / CTA.
+   Regle stricte : aucun chiffre de client invente.
+   ============================================================ */
+
+const COD_GUARANTEES = {
+  fr: "✅ Paiement à la livraison 🇲🇦 · Livraison 24-72h (404 villes) · Garantie 15 jours",
+  en: "✅ Cash on delivery 🇲🇦 · 24-72h delivery (404 cities) · 15-day warranty",
+  ar: "✅ الدفع عند الاستلام 🇲🇦 · التوصيل 24-72 ساعة (404 مدن) · ضمان 15 يومًا",
+};
+const COD_CTA_TEXT = {
+  fr: "👉 Commandez maintenant, payez à la livraison.",
+  en: "👉 Order now, pay on delivery.",
+  ar: "👉 اطلب الآن وادفع عند الاستلام.",
+};
+const FORBIDDEN_PROOF_PATTERN =
+  /(\d[\d\s.,]*\s*(?:clients?|avis|personnes|commandes?|t[ée]moignages?|زبون|عميل|طلب))/i;
+
+function firstSentence(text) {
+  return String(text || "")
+    .split(/[.!?\n]/)[0]
+    .trim()
+    .slice(0, 70);
+}
+
+/** Vraie note Firestore uniquement si rating > 0 et au moins 3 avis. */
+function realSocialProof(input) {
+  const source = input || {};
+  const rating = Number(source.rating) || 0;
+  const reviews = Number(source.reviewsCount || source.reviewCount) || 0;
+  if (rating > 0 && reviews >= 3) {
+    const ratingText = Number.isInteger(rating)
+      ? String(rating)
+      : rating.toFixed(1).replace(".", ",");
+    return {
+      fr: `⭐ ${ratingText}/5 (${reviews} avis vérifiés)`,
+      en: `⭐ ${ratingText}/5 (${reviews} verified reviews)`,
+      ar: `⭐ ${ratingText}/5 (${reviews} تقييم موثق)`,
+    };
+  }
+  return null;
+}
+
+function containsForbiddenClaims(text) {
+  const cleaned = String(text || "").replace(
+    /⭐\s*\d(?:[.,]\d)?\/5\s*\(\d+\s*(?:avis vérifiés|verified reviews|تقييم موثق)\)/gi,
+    " "
+  );
+  return FORBIDDEN_PROOF_PATTERN.test(cleaned);
+}
+
+function buildConversionCopy(input) {
+  const source = input || {};
+  const nameFr = String(source.name || source.nameFr || "ce produit").trim();
+  const nameEn = String(source.nameEn || nameFr).trim();
+  const nameAr = String(source.nameAr || nameFr).trim();
+  const price = Number(source.price) || 0;
+  const benefitFr =
+    String(source.benefit || "").trim() ||
+    firstSentence(source.description) ||
+    "simple, efficace, prêt à l'emploi";
+  const benefitEn =
+    String(source.benefitEn || "").trim() || "easy to use, ready in minutes";
+  const benefitAr =
+    String(source.benefitAr || "").trim() || "سهل الاستخدام وجاهز فورًا";
+  const priceFr = price > 0 ? ` dès ${fmtNumber(price)} MAD` : "";
+  const priceEn = price > 0 ? ` from ${fmtNumber(price)} MAD` : "";
+  const priceAr = price > 0 ? ` بـ ${fmtNumber(price)} درهم` : "";
+  const proof = realSocialProof(source);
+  const line2Fr = proof ? `${COD_GUARANTEES.fr} · ${proof.fr}` : COD_GUARANTEES.fr;
+  const line2En = proof ? `${COD_GUARANTEES.en} · ${proof.en}` : COD_GUARANTEES.en;
+  const line2Ar = proof ? `${COD_GUARANTEES.ar} · ${proof.ar}` : COD_GUARANTEES.ar;
   return {
-    fr: `🔥 ${nameFr} à ${priceText} MAD seulement !\n✅ Paiement à la livraison 24-72h partout au Maroc\n👉 Commandez maintenant`,
-    en: `🔥 ${nameEn} for only ${priceText} MAD!\n✅ Cash on Delivery 24-72h across Morocco\n👉 Order now`,
-    ar: `🔥 ${nameAr} بسعر ${priceText} درهم فقط!\n✅ الدفع عند الاستلام خلال 24-72 ساعة في كل المغرب\n👉 اطلب الآن`,
+    fr: `🔥 ${nameFr} — ${benefitFr}${priceFr}\n${line2Fr}\n${COD_CTA_TEXT.fr}`,
+    en: `🔥 ${nameEn} — ${benefitEn}${priceEn}\n${line2En}\n${COD_CTA_TEXT.en}`,
+    ar: `🔥 ${nameAr} — ${benefitAr}${priceAr}\n${line2Ar}\n${COD_CTA_TEXT.ar}`,
   };
+}
+
+/** 3 angles creatifs reels (A urgence, B demo, C reassurance COD). */
+function buildAbVariants(input) {
+  const source = input || {};
+  const nameFr = String(source.name || source.nameFr || "ce produit").trim();
+  const nameEn = String(source.nameEn || nameFr).trim();
+  const nameAr = String(source.nameAr || nameFr).trim();
+  const price = Number(source.price) || 0;
+  const proof = realSocialProof(source);
+  const reassure = {
+    fr: proof ? `${COD_GUARANTEES.fr} · ${proof.fr}` : COD_GUARANTEES.fr,
+    en: proof ? `${COD_GUARANTEES.en} · ${proof.en}` : COD_GUARANTEES.en,
+    ar: proof ? `${COD_GUARANTEES.ar} · ${proof.ar}` : COD_GUARANTEES.ar,
+  };
+  const priceText = {
+    fr: price > 0 ? ` dès ${fmtNumber(price)} MAD` : "",
+    en: price > 0 ? ` from ${fmtNumber(price)} MAD` : "",
+    ar: price > 0 ? ` بـ ${fmtNumber(price)} درهم` : "",
+  };
+  const angles = [
+    {
+      key: "A",
+      label: "Variante A · Problème / Urgence",
+      fr: `😤 Marre des solutions compliquées ? ${nameFr} règle ça en quelques secondes${priceText.fr}.`,
+      en: `😤 Tired of complicated solutions? ${nameEn} fixes it in seconds${priceText.en}.`,
+      ar: `😤 تعبت من الحلول المعقدة؟ ${nameAr} يحل الأمر في ثوان${priceText.ar}.`,
+    },
+    {
+      key: "B",
+      label: "Variante B · Bénéfice & Démonstration",
+      fr: `⚡ ${nameFr} — prêt à l'emploi en 1 minute, qualité vérifiée${priceText.fr}.`,
+      en: `⚡ ${nameEn} — ready in 1 minute, quality checked${priceText.en}.`,
+      ar: `⚡ ${nameAr} — جاهز في دقيقة، بجودة مضمونة${priceText.ar}.`,
+    },
+    {
+      key: "C",
+      label: "Variante C · Réassurance COD & Garanties",
+      fr: `🇲🇦 Commandez ${nameFr} en toute confiance${priceText.fr} : paiement à la livraison.`,
+      en: `🇲🇦 Order ${nameEn} with confidence${priceText.en}: pay on delivery.`,
+      ar: `🇲🇦 اطلب ${nameAr} بثقة${priceText.ar}: الدفع عند الاستلام.`,
+    },
+  ];
+  return angles.map((angle) => ({
+    key: angle.key,
+    label: angle.label,
+    copies: {
+      fr: `${angle.fr}\n${reassure.fr}\n${COD_CTA_TEXT.fr}`,
+      en: `${angle.en}\n${reassure.en}\n${COD_CTA_TEXT.en}`,
+      ar: `${angle.ar}\n${reassure.ar}\n${COD_CTA_TEXT.ar}`,
+    },
+  }));
+}
+
+/** Recommandation Focus (budget/stock limite) vs Scaling A/B/C. */
+function creativeStrategy(input) {
+  const source = input || {};
+  const budgetUsd = Number(source.budgetUsd) || 0;
+  const stock = Number(source.stock) || 0;
+  const focusMode = budgetUsd < 25 || stock < 10;
+  return {
+    budgetUsd: budgetUsd,
+    stock: stock,
+    focusMode: focusMode,
+    abRecommended: !focusMode && budgetUsd >= 25 && stock >= 10,
+    advice: focusMode
+      ? "Mode Focus activé (stock/budget limité) : budget concentré sur 1 annonce optimale + auto-pause dès stock = 0"
+      : "Mode Scaling recommandé : testez 3 angles créatifs sur 7 jours (budget ≥ 25 $ et stock ≥ 10).",
+  };
+}
+
+/** 4 voyants de controle avant lancement. */
+function creativeChecklist(input) {
+  const source = input || {};
+  const stock = Number(source.stock) || 0;
+  const url = String(source.destinationUrl || "").trim();
+  const copy = String(source.copy || "").trim();
+  const pixelsOk = Boolean(source.metaPixelId) && Boolean(source.tiktokPixelId);
+  const mediaOk = Boolean(source.hasMedia);
+  const copyOk = Boolean(copy) && !containsForbiddenClaims(copy);
+  const urlOk = /^https:\/\/[^\s]+\.[a-z]{2,}/i.test(url);
+  return [
+    {
+      key: "stock",
+      ok: stock > 0,
+      label:
+        stock > 0
+          ? `Stock : ${stock} pièce(s) · Auto-pause à 0 activée`
+          : "Stock épuisé : lancement bloqué",
+    },
+    {
+      key: "url",
+      ok: urlOk,
+      label: urlOk ? "Lien de destination valide" : "Lien de destination manquant ou invalide",
+    },
+    {
+      key: "pixels",
+      ok: pixelsOk,
+      label: pixelsOk ? "Pixels Meta & TikTok configurés" : "Pixels Meta/TikTok incomplets",
+    },
+    {
+      key: "creative",
+      ok: mediaOk && copyOk,
+      label:
+        mediaOk && copyOk
+          ? "Créatif + accroche conformes"
+          : !mediaOk
+          ? "Visuel 1080x1080 ou vidéo manquant"
+          : "Accroche invalide ou promesse interdite",
+    },
+  ];
+}
+
+/* ============================================================
+   STUDIO VISUEL & SOUS-TITRES (v32)
+   ============================================================ */
+
+const EVENT_BANNER_RULES = [
+  { key: "ramadan", label: "🌙 Ramadan", pattern: /ramadan|رمضان/i },
+  { key: "blackfriday", label: "🖤 Black Friday", pattern: /black\s*friday|بلاك\s*فرايداي/i },
+  { key: "soldes", label: "🏷️ Soldes", pattern: /soldes?|تخفيضات/i },
+  { key: "aid", label: "🎉 Aïd", pattern: /a[iï]d\b|عيد/i },
+  { key: "noel", label: "🎄 Noël", pattern: /no[eë]l|كريسماس/i },
+];
+const EVENT_BANNER_PROMO = "⚡ Vente Flash · Paiement à la livraison";
+const EVENT_BANNER_DEFAULT = "🛍️ Koulchi dialk : jusqu'à −15 %";
+const EVENT_BANNER_MAX = 38;
+
+function resolveEventBanner(input) {
+  const source = input || {};
+  const events = Array.isArray(source.events)
+    ? source.events
+    : source.eventText
+    ? [source.eventText]
+    : [];
+  const joined = events.map((item) => String(item || "")).join(" | ");
+  const matched = EVENT_BANNER_RULES.find((rule) =>
+    rule.pattern.test(joined) || (source.eventKey && source.eventKey === rule.key)
+  );
+  const banner = matched
+    ? matched.label
+    : source.isPromo
+    ? EVENT_BANNER_PROMO
+    : EVENT_BANNER_DEFAULT;
+  return String(banner).slice(0, EVENT_BANNER_MAX);
+}
+
+/** Ecran partage 1080x1080 : 2 visuels cote a cote + separateur 4 px. */
+function buildSplitScreenLayout(input) {
+  const source = input || {};
+  const images = Array.isArray(source.images)
+    ? source.images.filter(Boolean)
+    : [];
+  const requested = source.splitScreen === true;
+  const canSplit = images.length >= 2;
+  const enabled = requested && canSplit;
+  const separatorPx = 4;
+  const half = Math.floor((1080 - separatorPx) / 2);
+  return {
+    enabled: enabled,
+    reason: enabled
+      ? ""
+      : !requested
+      ? "option_off"
+      : "need_two_images",
+    width: 1080,
+    height: 1080,
+    separatorPx: separatorPx,
+    panels: enabled
+      ? [
+          { x: 0, y: 0, width: half, height: 1080, url: images[0] },
+          {
+            x: half + separatorPx,
+            y: 0,
+            width: 1080 - half - separatorPx,
+            height: 1080,
+            url: String(source.secondImage || images[1] || ""),
+          },
+        ]
+      : [],
+    logo: { url: "/assets/logo-64.png", widthRatio: 0.11, position: "top-right" },
+    banner: { text: resolveEventBanner(source), position: "top-left" },
+  };
+}
+
+function formatSrtTime(ms) {
+  const total = Math.max(0, Math.round(Number(ms) || 0));
+  const hours = String(Math.floor(total / 3600000)).padStart(2, "0");
+  const minutes = String(Math.floor((total % 3600000) / 60000)).padStart(2, "0");
+  const seconds = String(Math.floor((total % 60000) / 1000)).padStart(2, "0");
+  const millis = String(total % 1000).padStart(3, "0");
+  return `${hours}:${minutes}:${seconds},${millis}`;
+}
+
+function buildSrt(cues) {
+  const list = Array.isArray(cues) ? cues : [];
+  const blocks = list.map((cue, index) => {
+    const text = String((cue && cue.text) || "").trim();
+    const startMs = Number(cue && cue.startMs) || 0;
+    const endMs = Number(cue && cue.endMs) || startMs + 1000;
+    return `${index + 1}\n${formatSrtTime(startMs)} --> ${formatSrtTime(
+      endMs
+    )}\n${text}`;
+  });
+  return blocks.length ? blocks.join("\n\n") + "\n" : "";
+}
+
+/** 3 sous-titres synchronises 0-4s / 4-9s / 9-15s. */
+function buildVideoCaptions(input) {
+  const source = input || {};
+  const lines = Array.isArray(source.lines) ? source.lines : [];
+  const fallback = buildConversionCopy(source).fr.split("\n");
+  const first = String(lines[0] || fallback[0] || "🔥 Découvrez ce produit").trim();
+  const second = String(lines[1] || fallback[1] || COD_GUARANTEES.fr).trim();
+  const third = String(lines[2] || "👉 smartswika.ma · Paiement à la livraison").trim();
+  return [
+    { index: 1, startMs: 0, endMs: 4000, start: "00:00:00,000", end: "00:00:04,000", text: first },
+    { index: 2, startMs: 4000, endMs: 9000, start: "00:00:04,000", end: "00:00:09,000", text: second },
+    { index: 3, startMs: 9000, endMs: 15000, start: "00:00:09,000", end: "00:00:15,000", text: third },
+  ];
+}
+
+function editorGalleryImages(state) {
+  const list = [];
+  ((state && state.productIds) || []).forEach((id) => {
+    const product = cachedProducts.find((item) => String(item.id) === String(id));
+    if (!product) return;
+    [product.img, ...(Array.isArray(product.gallery) ? product.gallery : [])]
+      .filter(Boolean)
+      .forEach((url) => {
+        if (!list.includes(url)) list.push(url);
+      });
+  });
+  return list;
+}
+
+function editorSplitScreenHtml(state) {
+  const images = editorGalleryImages(state);
+  if (images.length < 2) return "";
+  return `<label class="ads-check"><input type="checkbox" data-studio-split ${
+    state.splitScreen === true ? "checked" : ""
+  }> 📐 Mode Écran partagé (Photo produit + Photo usage/app côte à côte)</label>
+    <label>2ᵉ visuel
+      <select data-studio-second>
+        ${images
+          .slice(1, 6)
+          .map(
+            (url, index) =>
+              `<option value="${escapeHTML(url)}" ${
+                String(state.secondImage) === String(url) || (!state.secondImage && index === 0)
+                  ? "selected"
+                  : ""
+              }>Visuel ${index + 2}</option>`
+          )
+          .join("")}
+      </select>
+    </label>`;
+}
+
+function renderStudioCaptions() {
+  const container = document.querySelector("#adsEditorModal [data-studio-captions]");
+  if (!container || !editorState) return;
+  const cues = Array.isArray(editorState.captions) ? editorState.captions : [];
+  container.innerHTML = `<h4>💬 Sous-titres vidéo (0-4s / 4-9s / 9-15s)</h4>
+    ${cues
+      .map(
+        (cue, index) => `<label>${cue.start} → ${cue.end}
+          <input type="text" maxlength="90" data-caption-index="${index}" value="${escapeHTML(
+          cue.text || ""
+        )}">
+        </label>`
+      )
+      .join("")}
+    <pre class="ads-srt-preview" data-srt-preview>${escapeHTML(buildSrt(cues))}</pre>`;
+}
+
+function buildAdCopy(product, price) {
+  return buildConversionCopy({
+    name: product.nameFr || product.nameEn || product.nameAr || "Produit",
+    nameEn: product.nameEn,
+    nameAr: product.nameAr,
+    description: product.description,
+    price: price,
+    rating: product.rating,
+    reviewsCount: product.reviewsCount || product.reviewCount,
+  });
 }
 
 function buildDestinationUrl(productId, source) {
@@ -1269,6 +1624,38 @@ function editorModalHtml() {
               adsT("adsEditorQuickWarranty")
             )}</button>
           </div>
+          <div class="ads-editor-strategy">
+            <p class="ads-strategy-advice">🧠 ${escapeHTML(
+              state.strategy ? state.strategy.advice : ""
+            )}</p>
+            <label class="ads-check">
+              <input type="checkbox" data-editor-abtest>
+              🧪 Activer le Test A/B/C sur 7 jours (3 angles créatifs réels · recommandé dès 25 $ et stock ≥ 10)
+            </label>
+            ${
+              (state.media || []).some((item) => item.type === "video") &&
+              (state.media || []).some((item) => item.type === "image")
+                ? `<label class="ads-check"><input type="checkbox" data-editor-mixmedia checked> 🎬 Mixer Image + Vidéo dans le même ensemble (recommandé pour Fil + Reels)</label>`
+                : ""
+            }
+            <div class="ads-editor-variants" data-editor-variants></div>
+          </div>
+          <div class="ads-studio">
+            <h4>🎬 Studio visuel &amp; sous-titres</h4>
+            <label>Bandeau événement / promo (38 caractères max)
+              <input type="text" maxlength="38" data-studio-banner value="${escapeHTML(
+                state.eventBanner || ""
+              )}">
+            </label>
+            <label class="ads-check"><input type="checkbox" data-studio-logo ${
+              state.showLogo === false ? "" : "checked"
+            }> 🏷️ Logo Smartswika en haut à droite</label>
+            <label class="ads-check"><input type="checkbox" data-studio-banner-toggle ${
+              state.showBanner === false ? "" : "checked"
+            }> 🎀 Bandeau événement / promo en haut à gauche</label>
+            ${editorSplitScreenHtml(state)}
+            <div class="ads-captions" data-studio-captions></div>
+          </div>
           <label>${escapeHTML(adsT("adsEditorHeadline"))}
             <input type="text" data-editor-headline maxlength="120" value="${escapeHTML(
               state.headline
@@ -1340,6 +1727,7 @@ function editorModalHtml() {
           <div class="ads-phone" data-editor-preview></div>
         </div>
       </div>
+      <div class="ads-preflight" data-editor-checklist role="status" aria-live="polite"></div>
       <footer class="ads-editor-footer">
         <span class="ads-status" data-editor-status role="status" aria-live="polite"></span>
         <button type="button" class="admin-btn-secondary" data-editor-save>💾 ${escapeHTML(
@@ -1355,9 +1743,174 @@ function editorModalHtml() {
   </div>`;
 }
 
+function renderEditorVariants() {
+  const container = document.querySelector("#adsEditorModal [data-editor-variants]");
+  if (!container || !editorState) return;
+  const variants = Array.isArray(editorState.variants) ? editorState.variants : [];
+  if (!editorState.abTest || !variants.length) {
+    container.innerHTML = "";
+    return;
+  }
+  const lang = getAdminLang();
+  container.innerHTML =
+    `<h4>🧪 ${escapeHTML("Variantes A/B/C (même Ad Set, 7 jours)")}</h4>` +
+    variants
+      .map(
+        (variant) => `<div class="ads-variant"><strong>${escapeHTML(
+          variant.label
+        )}</strong><p dir="${lang === "ar" ? "rtl" : "ltr"}">${escapeHTML(
+          variant.copies[lang] || variant.copies.fr
+        )}</p></div>`
+      )
+      .join("");
+}
+
+function renderEditorChecklist() {
+  const container = document.querySelector("#adsEditorModal [data-editor-checklist]");
+  if (!container || !editorState) return;
+  const copy = editorState.adCopy[getAdminLang()] || editorState.adCopy.fr || "";
+  const first = (editorState.media || [])[0];
+  const destinationUrl =
+    editorState.destinationUrl ||
+    (editorState.productId ? buildDestinationUrl(editorState.productId, "meta") : "");
+  const items = creativeChecklist({
+    stock: editorState.stock,
+    destinationUrl: destinationUrl,
+    copy: copy,
+    hasMedia: Boolean(first && first.url),
+    metaPixelId: adsConfig.metaPixelId || adsConfig.metaPixel || "",
+    tiktokPixelId: adsConfig.tiktokPixelId || adsConfig.tiktokPixel || "",
+  });
+  container.innerHTML = items
+    .map(
+      (item) =>
+        `<span class="ads-check-item ${item.ok ? "is-ok" : "is-ko"}">${
+          item.ok ? "🟢" : "🔴"
+        } ${escapeHTML(item.label)}</span>`
+    )
+    .join("");
+}
+
+function bindCreativeEngine() {
+  const modal = document.getElementById("adsEditorModal");
+  if (!modal || !editorState) return;
+  const abCheck = modal.querySelector("[data-editor-abtest]");
+  if (abCheck) {
+    abCheck.addEventListener("change", () => {
+      editorState.abTest = Boolean(abCheck.checked);
+      if (abCheck.checked) {
+        const daysInput = modal.querySelector("[data-budget-days]");
+        if (daysInput && Number(daysInput.value) < 7) daysInput.value = "7";
+        const product =
+          cachedProducts.find((item) => String(item.id) === String(editorState.productId)) || {};
+        editorState.variants = buildAbVariants({
+          name: productDisplayName(product) || editorState.headline,
+          nameEn: product.nameEn,
+          nameAr: product.nameAr,
+          description: product.description,
+          price: Number(product.price) || 0,
+          rating: product.rating,
+          reviewsCount: product.reviewsCount || product.reviewCount,
+        });
+      } else {
+        editorState.variants = [];
+      }
+      renderEditorVariants();
+      renderEditorPreview();
+      renderEditorChecklist();
+    });
+  }
+  const mixCheck = modal.querySelector("[data-editor-mixmedia]");
+  if (mixCheck) {
+    mixCheck.addEventListener("change", () => {
+      editorState.mixImageVideo = Boolean(mixCheck.checked);
+      renderEditorChecklist();
+    });
+  }
+  modal
+    .querySelectorAll("[data-editor-copy], [data-editor-headline], [data-budget-days]")
+    .forEach((input) => input.addEventListener("input", renderEditorChecklist));
+  const bannerInput = modal.querySelector("[data-studio-banner]");
+  if (bannerInput) {
+    bannerInput.addEventListener("input", () => {
+      editorState.eventBanner = String(bannerInput.value || "").slice(0, 38);
+      renderEditorPreview();
+    });
+  }
+  const logoToggle = modal.querySelector("[data-studio-logo]");
+  if (logoToggle) {
+    logoToggle.addEventListener("change", () => {
+      editorState.showLogo = Boolean(logoToggle.checked);
+      renderEditorPreview();
+    });
+  }
+  const bannerToggle = modal.querySelector("[data-studio-banner-toggle]");
+  if (bannerToggle) {
+    bannerToggle.addEventListener("change", () => {
+      editorState.showBanner = Boolean(bannerToggle.checked);
+      renderEditorPreview();
+    });
+  }
+  const splitToggle = modal.querySelector("[data-studio-split]");
+  if (splitToggle) {
+    splitToggle.addEventListener("change", () => {
+      editorState.splitScreen = Boolean(splitToggle.checked);
+      renderEditorChecklist();
+      renderEditorPreview();
+    });
+  }
+  const secondSelect = modal.querySelector("[data-studio-second]");
+  if (secondSelect) {
+    secondSelect.addEventListener("change", () => {
+      editorState.secondImage = String(secondSelect.value || "");
+    });
+  }
+  modal.querySelectorAll("[data-caption-index]").forEach((input) => {
+    input.addEventListener("input", () => {
+      const index = Number(input.dataset.captionIndex) || 0;
+      if (!Array.isArray(editorState.captions) || !editorState.captions[index]) return;
+      editorState.captions[index].text = String(input.value || "").slice(0, 90);
+      const preview = modal.querySelector("[data-srt-preview]");
+      if (preview) preview.textContent = buildSrt(editorState.captions);
+    });
+  });
+}
+
 function openCreativeEditor(options) {
   const state = editorInitialState(options || {});
   if (!state) return;
+  /* Moteur creatif v31 : analyse budget + stock reel avant l ouverture. */
+  const linkedProduct = cachedProducts.find(
+    (product) => String(product.id) === String(state.productId)
+  );
+  const budget = state.budget || {};
+  const rate = Number(budget.rate) > 0 ? Number(budget.rate) : 10;
+  const budgetUsd =
+    String(budget.currency || "USD").toUpperCase() === "USD"
+      ? Number(budget.total) || 0
+      : (Number(budget.total) || 0) / rate;
+  state.stock = linkedProduct ? Number(linkedProduct.stock) || 0 : 0;
+  state.strategy = creativeStrategy({ budgetUsd: budgetUsd, stock: state.stock });
+  state.abTest = false;
+  state.variants = [];
+  const mediaTypes = (state.media || []).map((item) => item.type);
+  state.mixImageVideo =
+    mediaTypes.includes("image") && mediaTypes.includes("video");
+  const galleryImages = editorGalleryImages(state);
+  state.eventBanner = resolveEventBanner({
+    isPromo: Boolean(
+      linkedProduct &&
+        Number(linkedProduct.oldPrice) > Number(linkedProduct.price)
+    ),
+  });
+  state.showLogo = true;
+  state.showBanner = true;
+  state.splitScreen = false;
+  state.secondImage = galleryImages[1] || "";
+  state.captions = buildVideoCaptions({
+    name: linkedProduct ? productDisplayName(linkedProduct) : state.headline,
+    price: linkedProduct ? Number(linkedProduct.price) || 0 : 0,
+  });
   state.original = JSON.parse(JSON.stringify({ ...state, original: null }));
   editorState = state;
   editorPreviewTab = "facebook";
@@ -1367,7 +1920,11 @@ function openCreativeEditor(options) {
   bindEditorEvents();
   renderEditorMedia();
   renderEditorCards();
+  renderEditorVariants();
   renderEditorPreview();
+  renderEditorChecklist();
+  renderStudioCaptions();
+  bindCreativeEngine();
   updateBudgetEditor(document.querySelector("#adsEditorModal [data-budget-editor]"));
 }
 
@@ -1405,7 +1962,7 @@ function renderEditorMedia() {
           (media, index) => `<div class="ads-editor-media-item${
             index === 0 ? " is-primary" : ""
           }">
-            ${editorMediaPreview(media)}
+            <div class="ads-editor-thumb">${editorMediaPreview(media)}</div>
             <span class="ads-media-kind">${
               media.type === "video" ? "🎬 " + escapeHTML(adsT("adsEditorVideo")) : "🖼️ " + escapeHTML(adsT("adsEditorImage"))
             }</span>
@@ -1459,11 +2016,11 @@ function renderEditorCards() {
         ? cards
             .map(
               (card, index) => `<div class="ads-editor-card" data-editor-card="${index}">
-                ${editorMediaPreview({
+                <div class="ads-editor-thumb">${editorMediaPreview({
                   type: card.mediaType === "video" ? "video" : "image",
                   url: card.mediaUrl || card.imageUrl,
                   posterUrl: card.posterUrl,
-                })}
+                })}</div>
                 <label>${escapeHTML(adsT("adsEditorCardTitle"))}
                   <input type="text" data-card-field="title" data-card-index="${index}" value="${escapeHTML(
                     card.title || ""
@@ -1507,13 +2064,13 @@ function editorPreviewCards() {
     ? `<div class="ads-preview-carousel">${editorState.carouselCards
         .map(
           (card) => `<div class="ads-preview-card">
-            ${
+            <div class="ads-preview-card-media">${
               card.mediaType === "video"
                 ? `<video src="${escapeHTML(card.mediaUrl || "")}" muted playsinline poster="${escapeHTML(
                     card.posterUrl || ""
                   )}"></video>`
                 : `<img src="${escapeHTML(card.mediaUrl || card.imageUrl || "")}" alt="" loading="lazy">`
-            }
+            }</div>
             <strong>${escapeHTML(card.title || "")}</strong>
             <span>${escapeHTML(card.priceMad || "")}</span>
             ${card.text ? `<small>${escapeHTML(card.text)}</small>` : ""}
@@ -1521,6 +2078,26 @@ function editorPreviewCards() {
         )
         .join("")}</div>`
     : editorMediaPreview((editorState.media || [])[0]);
+}
+
+function editorIsArabic(text) {
+  return /[\u0600-\u06FF]/.test(String(text || ""));
+}
+
+function editorPriceLabel(state) {
+  const source = state || editorState;
+  if (!source) return "";
+  if (source.kind === "carousel") {
+    const first = (source.carouselCards || [])[0];
+    if (first && first.priceMad) {
+      return String(first.priceMad).replace(/[\u2066-\u2069]/g, "").trim();
+    }
+  }
+  const product = cachedProducts.find(
+    (item) => String(item.id) === String(source.productId)
+  );
+  const value = product ? Number(product.price) : NaN;
+  return Number.isFinite(value) && value > 0 ? money(value) : "";
 }
 
 function renderEditorPreview() {
@@ -1539,49 +2116,66 @@ function renderEditorPreview() {
   const cardsHtml = editorState.kind === "carousel" ? editorPreviewCards() : "";
   const imageHtml =
     !hasVideo && editorState.kind !== "carousel"
-      ? editorMediaPreview(media)
+      ? `<div class="ads-preview-image">${editorMediaPreview(media)}</div>`
       : "";
-  const ticker = editorState.kind === "carousel" ? "" : imageHtml;
   const cta = editorState.ctaLabel || adsT("adsEditorCtaOrder");
   const headline = editorState.headline || "";
-  const description = editorState.description || "";
+  const price = editorPriceLabel();
+  /* RTL automatique des que l accroche contient de l arabe. */
+  const copyDir = editorIsArabic(copy) ? ' dir="rtl"' : "";
   const avatar = "/assets/favicon-32.png";
+  const priceHtml = price ? `<p class="ads-preview-price">${escapeHTML(price)}</p>` : "";
+
   if (editorPreviewTab === "instagram") {
+    const mediaBlock = cardsHtml || mediaHtml || imageHtml;
     container.innerHTML = `<div class="ads-phone-instagram">
       <div class="ads-preview-top"><span class="ads-preview-avatar"><img src="${avatar}" alt=""></span><div><strong>@smartswi9a</strong><small>${escapeHTML(
         adsT("adsEditorSponsored")
       )}</small></div><span class="ads-preview-more">•••</span></div>
-      <div class="ads-preview-media">${cardsHtml || mediaHtml || ticker}</div>
-      <div class="ads-preview-body"><p>${escapeHTML(copy)}</p><strong>@smartswi9a</strong><p>${escapeHTML(
-        headline
-      )}</p><span class="ads-preview-domain">smartswika.ma</span><button type="button">${escapeHTML(
-        cta
-      )}</button></div>
+      <div class="ads-preview-media ads-preview-media--square">${mediaBlock}</div>
+      <div class="ads-preview-ig-actions"><span>${escapeHTML(cta)} ›</span></div>
+      <div class="ads-preview-body ads-preview-body--ig"${copyDir}>
+        <p class="ads-preview-copy">${escapeHTML(copy)}</p>
+        <strong class="ads-preview-account">@smartswi9a</strong>
+        ${priceHtml}
+      </div>
     </div>`;
     return;
   }
+
   if (editorPreviewTab === "tiktok") {
+    /* Bloc sombre statique : @smartswi9a n est plus jamais pose sur la photo blanche. */
+    const mediaBlock = hasVideo ? mediaHtml : cardsHtml || imageHtml;
     container.innerHTML = `<div class="ads-phone-tiktok">
-      <div class="ads-preview-media">${mediaHtml || cardsHtml || ticker}</div>
-      <div class="ads-preview-tiktok-overlay"><strong>@smartswika</strong><span>${escapeHTML(
-        adsT("adsEditorSponsored")
-      )}</span><p>${escapeHTML(copy)}</p><small>${escapeHTML(headline)}</small><button type="button">${escapeHTML(
-        cta
-      )}</button></div>
+      <div class="ads-preview-tiktok-media">${mediaBlock}</div>
+      <div class="ads-preview-tiktok-info"${copyDir}>
+        <div class="ads-preview-tiktok-account"><strong>@smartswi9a</strong><span class="ads-preview-badge">${escapeHTML(
+          adsT("adsEditorSponsored")
+        )}</span></div>
+        <p class="ads-preview-tiktok-copy">${escapeHTML(copy)}</p>
+        <div class="ads-preview-tiktok-product"><strong>${escapeHTML(headline)}</strong>${
+      price ? `<span>${escapeHTML(price)}</span>` : ""
+    }</div>
+        <button type="button" class="ads-preview-cta">${escapeHTML(cta)}</button>
+      </div>
     </div>`;
     return;
   }
+
   container.innerHTML = `<div class="ads-phone-facebook">
     <div class="ads-preview-top"><span class="ads-preview-avatar"><img src="${avatar}" alt=""></span><div><strong>Smartswi9a</strong><small>${escapeHTML(
       adsT("adsEditorSponsored")
     )} · 🌍</small></div><span class="ads-preview-more">•••</span></div>
-    <div class="ads-preview-body"><p>${escapeHTML(copy)}</p></div>
-    <div class="ads-preview-media">${mediaHtml || cardsHtml || ticker}</div>
-    <div class="ads-preview-link"><div><strong>${escapeHTML(headline)}</strong><span>${escapeHTML(
-      description
-    )}</span><small>smartswika.ma</small></div><button type="button">${escapeHTML(
-      cta
-    )}</button></div>
+    <div class="ads-preview-body"${copyDir}><p class="ads-preview-copy">${escapeHTML(copy)}</p></div>
+    <div class="ads-preview-media ads-preview-media--square">${mediaHtml || cardsHtml || imageHtml}</div>
+    <div class="ads-preview-link">
+      <div>
+        <small class="ads-preview-domain">SMARTSWIKA.MA</small>
+        <strong class="ads-preview-title">${escapeHTML(headline)}</strong>
+        ${priceHtml}
+      </div>
+      <button type="button" class="ads-preview-cta">${escapeHTML(cta)}</button>
+    </div>
   </div>`;
 }
 
@@ -1907,6 +2501,16 @@ async function launchEditorCampaign() {
         destinationUrl: editorState.destinationUrl,
         startPaused: editorState.startPaused,
         language: getAdminLang(),
+        mixImageVideo: editorState.mixImageVideo === true,
+        abTest: editorState.abTest === true,
+        variants: editorState.abTest === true ? editorState.variants : [],
+        eventBanner: editorState.eventBanner || "",
+        showLogo: editorState.showLogo !== false,
+        showBanner: editorState.showBanner !== false,
+        splitScreen: editorState.splitScreen === true,
+        secondImage: editorState.secondImage || "",
+        captions: Array.isArray(editorState.captions) ? editorState.captions : [],
+        captionsSrt: buildSrt(editorState.captions),
         ...budgetPayload(editorBudgetValues()),
       });
       setEditorStatus(
@@ -2175,6 +2779,19 @@ function captureCarouselDraft() {
     const lang = textarea.dataset.carouselCopy;
     if (lang) draft.copies[lang] = textarea.value;
   });
+}
+
+function carouselSelectedProducts() {
+  const draft = ensureCarouselDraft();
+  const livoFee = averageLivoFee();
+  const available = new Map(
+    officialProducts().map((product) => [String(product.id), product])
+  );
+  const ids = draft.selected instanceof Set ? [...draft.selected] : [];
+  return ids
+    .map((id) => available.get(String(id)))
+    .filter(Boolean)
+    .map((product) => buildSuggestion(product, livoFee));
 }
 
 function topCarouselProducts() {
@@ -2810,14 +3427,17 @@ function renderCampaigns() {
   container.innerHTML = cachedCampaigns
     .map((campaign) => {
       const stats = campaignStats(campaign);
-      const active = String(campaign.status || "").toUpperCase() === "ACTIVE";
+      const statusUpper = String(campaign.status || "").toUpperCase();
+      const active = statusUpper === "ACTIVE";
       const nextAction = active ? "PAUSED" : "ACTIVE";
+      /* Suppression autorisee uniquement hors diffusion (DRAFT / PAUSED). */
+      const canDelete = statusUpper === "DRAFT" || statusUpper === "PAUSED";
       const platformLabel =
         campaign.platform === "tiktok"
           ? adsT("adsChannelTiktok")
           : adsT("adsChannelMeta");
       const isCarousel = campaign.type === "carousel";
-      const isDraft = String(campaign.status || "").toUpperCase() === "DRAFT";
+      const isDraft = statusUpper === "DRAFT";
       const carouselCount = Number(campaign.productCount) ||
         (Array.isArray(campaign.productIds) ? campaign.productIds.length : 0);
       const linkedProduct = cachedProducts.find(
@@ -2870,6 +3490,13 @@ function renderCampaigns() {
                 <span class="ads-campaign-status ${
                   active ? "is-active" : isDraft ? "is-draft" : "is-paused"
                 }">${escapeHTML(campaignStatusLabel(campaign.status))}</span>
+                ${
+                  String(campaign.autoPausedReason || "") === "stock_zero"
+                    ? `<span class="ads-campaign-status is-auto-paused" title="${escapeHTML(
+                        adsT("adsAutoPausedStockZeroHint") || ""
+                      )}">⏸️ ${escapeHTML(adsT("adsAutoPausedStockZero") || "Pause auto (Stock 0)")}</span>`
+                    : ""
+                }
                 <span>${escapeHTML(adsT("adsCampaignBudget"))} : ${money(
                   campaign.dailyBudgetMad
                 )}/j${totalBudget ? ` · ${escapeHTML(totalBudget)}` : ""}${
@@ -2885,6 +3512,13 @@ function renderCampaigns() {
             <button type="button" class="admin-btn-secondary" data-edit-campaign="${escapeHTML(
               campaign.id
             )}">✏️ ${escapeHTML(adsT("adsCampaignEdit"))}</button>
+            ${
+              canDelete
+                ? `<button type="button" class="admin-btn-secondary ads-btn-danger" data-delete-campaign="${escapeHTML(
+                    campaign.id
+                  )}">🗑️ ${escapeHTML(adsT("adsCampaignDelete") || "Supprimer")}</button>`
+                : ""
+            }
             ${
               isDraft
                 ? ""
@@ -2935,6 +3569,71 @@ function renderCampaigns() {
       openCreativeEditor({ kind: campaign.type === "carousel" ? "carousel" : "suggestion", campaign });
     });
   });
+  container.querySelectorAll("[data-delete-campaign]").forEach((button) => {
+    button.addEventListener("click", () => {
+      deleteCampaign(button.dataset.deleteCampaign, button);
+    });
+  });
+}
+
+/**
+ * Supprime une campagne/brouillon partout : Firestore + Meta/TikTok Ads Manager.
+ * Refuse les campagnes ACTIVE (il faut d'abord les mettre en pause).
+ */
+async function deleteCampaign(campaignDocId, button) {
+  if (!campaignDocId) return;
+  const campaign = cachedCampaigns.find((item) => String(item.id) === String(campaignDocId));
+  const status = String((campaign && campaign.status) || "").toUpperCase();
+  if (status === "ACTIVE") {
+    showToast(
+      adsT("adsDeleteActiveBlocked") ||
+        "Mettez la campagne en pause avant de la supprimer."
+    );
+    return;
+  }
+  const confirmed = window.confirm(
+    "Supprimer définitivement cette campagne/brouillon sur Smartswika ET sur Meta / TikTok Ads Manager ?"
+  );
+  if (!confirmed) return;
+  const originalLabel = button ? button.textContent : "";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "⏳";
+  }
+  try {
+    const result = await callAdsFunction("deleteAdCampaignEverywhere", {
+      docId: campaignDocId,
+      platform: campaign ? campaign.platform : undefined,
+      externalCampaignId: campaign ? campaign.externalCampaignId : undefined,
+    });
+    cachedCampaigns = cachedCampaigns.filter(
+      (item) => String(item.id) !== String(campaignDocId)
+    );
+    document
+      .querySelector(
+        `.ads-campaign-card[data-campaign-id="${String(campaignDocId).replace(/"/g, "")}"]`
+      )
+      ?.remove();
+    renderCampaigns();
+    showToast(
+      result && result.alreadyGone
+        ? "Campagne supprimée sur Smartswika (déjà absente de Meta/TikTok)"
+        : "Campagne supprimée sur Smartswika et Meta/TikTok"
+    );
+  } catch (error) {
+    console.error("[admin-ads] suppression impossible :", error);
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalLabel || "🗑️ Supprimer";
+    }
+    showToast(
+      String(
+        (error && error.message) ||
+          adsT("adsDeleteError") ||
+          "Suppression impossible."
+      )
+    );
+  }
 }
 
 async function toggleCampaignStatus(campaignDocId, action, button) {

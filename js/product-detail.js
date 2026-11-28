@@ -356,12 +356,49 @@ function renderMediaGallery(product) {
     currentVideoElement = null;
   }
   wrapper.innerHTML = "";
+  wrapper.classList.remove("is-zooming");
+
+  /* --- Overlays premium : compteur + fleches glassmorphism --- */
+  const counterEl = document.createElement("div");
+  counterEl.className = "pdp-media-counter";
+  counterEl.setAttribute("aria-hidden", "true");
+  const prevBtn = document.createElement("button");
+  prevBtn.type = "button";
+  prevBtn.className = "pdp-nav pdp-nav-prev";
+  prevBtn.setAttribute("aria-label", "Média précédent");
+  const nextBtn = document.createElement("button");
+  nextBtn.type = "button";
+  nextBtn.className = "pdp-nav pdp-nav-next";
+  nextBtn.setAttribute("aria-label", "Média suivant");
+  const ensureOverlay = () => {
+    if (counterEl.parentElement !== wrapper) wrapper.appendChild(counterEl);
+    if (prevBtn.parentElement !== wrapper) wrapper.appendChild(prevBtn);
+    if (nextBtn.parentElement !== wrapper) wrapper.appendChild(nextBtn);
+  };
+  const mediaThumbs = () => [
+    ...galleryContainer.querySelectorAll(".thumb-img, .thumb-video"),
+  ];
+  const updateCounter = (activeThumb) => {
+    const all = mediaThumbs();
+    const idx = all.indexOf(activeThumb);
+    counterEl.textContent = `${(idx < 0 ? 0 : idx) + 1} / ${all.length}`;
+    if (
+      activeThumb &&
+      window.matchMedia("(max-width: 767px)").matches &&
+      typeof activeThumb.scrollIntoView === "function"
+    ) {
+      try {
+        activeThumb.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
+      } catch (error) { /* ignore */ }
+    }
+  };
 
   const showImage = (src, activeThumb) => {
     if (currentVideoElement) {
       currentVideoElement.pause();
       currentVideoElement = null;
     }
+    wrapper.classList.remove("is-video-active");
     /* B-PD-2 : fallback si src vide/null. */
     const safeSrc =
       (src && String(src).trim()) || getFallbackImage(getProductName(product));
@@ -379,10 +416,15 @@ function renderMediaGallery(product) {
       activeThumb.classList.add("active");
       activeThumb.setAttribute("aria-current", "true");
     }
+    ensureOverlay();
+    updateCounter(activeThumb);
   };
 
   const showVideo = (videoUrl, activeThumb) => {
-    wrapper.innerHTML = `<video id="mainVideo" class="main-media-element" src="${escapeHTML( videoUrl )}" controls preload="metadata" playsinline poster="${escapeHTML( mainImageUrl )}" style="background: #000;"></video>`;
+    /* Le slide actif est une video : on coupe le zoom/loupe de la galerie
+       pour que les controles natifs et le bouton Play restent cliquables. */
+    wrapper.classList.add("is-video-active");
+    wrapper.innerHTML = `<video id="mainVideo" class="main-media-element" src="${escapeHTML( videoUrl )}" controls preload="metadata" playsinline poster="${escapeHTML( mainImageUrl )}" style="background: #000; position: relative; z-index: 20; pointer-events: auto; width: 100%; height: 100%; object-fit: contain;"></video>`;
     currentVideoElement = document.getElementById("mainVideo");
     galleryContainer
       .querySelectorAll(".thumb-img, .thumb-video")
@@ -394,6 +436,8 @@ function renderMediaGallery(product) {
       activeThumb.classList.add("active");
       activeThumb.setAttribute("aria-current", "true");
     }
+    ensureOverlay();
+    updateCounter(activeThumb);
   };
 
   /* B10 : déduplique [img, ...gallery] via Set. */
@@ -438,7 +482,12 @@ function renderMediaGallery(product) {
     const baseUrl = VIDEO_BASE_URL.endsWith("/")
       ? VIDEO_BASE_URL
       : VIDEO_BASE_URL + "/";
-    const videoUrl = baseUrl + product.video.trim();
+    const rawVideo = product.video.trim();
+    /* URL complete (https://...) : utilisee telle quelle. Sinon nom de
+       fichier R2 -> prefixe videos.smartswika.ma. */
+    const videoUrl = /^https?:\/\//i.test(rawVideo)
+      ? rawVideo
+      : baseUrl + rawVideo.replace(/^\/+/, "");
 
     videoThumb = document.createElement("div");
     videoThumb.className = "thumb-video";
@@ -459,6 +508,80 @@ function renderMediaGallery(product) {
   } else {
     showImage(mainImageUrl, firstImageThumb);
   }
+
+  /* ===== Navigation premium : fleches, survol, swipe, loupe ===== */
+  const isRtl = () => (document.documentElement.getAttribute("dir") || "ltr") === "rtl";
+  const go = (delta) => {
+    const all = mediaThumbs();
+    if (!all.length) return;
+    const current = all.findIndex((el) => el.classList.contains("active"));
+    const next = (current + delta + all.length) % all.length;
+    all[next].click();
+  };
+  const paintArrows = () => {
+    const rtl = isRtl();
+    prevBtn.textContent = rtl ? "→" : "←";
+    nextBtn.textContent = rtl ? "←" : "→";
+  };
+  paintArrows();
+  prevBtn.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    go(-1);
+  });
+  nextBtn.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    go(1);
+  });
+
+  /* Aperçu instantané au survol (desktop / tablette avec pointeur) */
+  const hoverFine = window.matchMedia("(hover: hover) and (pointer: fine)");
+  mediaThumbs().forEach((thumb) => {
+    thumb.addEventListener("mouseenter", () => {
+      if (!hoverFine.matches) return;
+      if (!thumb.classList.contains("active")) thumb.click();
+    });
+  });
+
+  /* Loupe progressive suivant la souris — photos uniquement */
+  wrapper.addEventListener("mousemove", (event) => {
+    if (!hoverFine.matches) return;
+    if (wrapper.classList.contains("is-video-active")) return;
+    const img = wrapper.querySelector("img.main-media-element");
+    if (!img) return;
+    const rect = wrapper.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const x = Math.min(100, Math.max(0, ((event.clientX - rect.left) / rect.width) * 100));
+    const y = Math.min(100, Math.max(0, ((event.clientY - rect.top) / rect.height) * 100));
+    wrapper.classList.add("is-zooming");
+    img.style.transformOrigin = `${x}% ${y}%`;
+    img.style.transform = "scale(1.65)";
+  });
+  wrapper.addEventListener("mouseleave", () => {
+    wrapper.classList.remove("is-zooming");
+    const img = wrapper.querySelector("img.main-media-element");
+    if (img) {
+      img.style.transform = "";
+      img.style.transformOrigin = "";
+    }
+  });
+
+  /* Swipe tactile (mobile) — direction inversee en RTL */
+  let touchStartX = 0;
+  let touchStartY = 0;
+  wrapper.addEventListener("touchstart", (event) => {
+    const t = event.changedTouches[0];
+    touchStartX = t.clientX;
+    touchStartY = t.clientY;
+  }, { passive: true });
+  wrapper.addEventListener("touchend", (event) => {
+    const t = event.changedTouches[0];
+    const dx = t.clientX - touchStartX;
+    const dy = t.clientY - touchStartY;
+    if (Math.abs(dx) < 45 || Math.abs(dx) < Math.abs(dy)) return;
+    go(isRtl() ? (dx > 0 ? 1 : -1) : (dx < 0 ? 1 : -1));
+  }, { passive: true });
 }
 
 /* ============================================================ SECTION INFO (Prix, Stock, Boutons) ============================================================ */
@@ -1275,6 +1398,19 @@ function attachProductEvents(product) {
       e.stopPropagation();
 
       if (!currentProduct) return;
+
+      /* Pixel AddToCart : emis des le clic, avant toute modale de connexion,
+         pour que Meta/TikTok recoivent l intention meme en visiteur non connecte. */
+      try {
+        document.dispatchEvent(new CustomEvent("smartswika:add-to-cart", {
+          detail: {
+            productId: String(currentProduct.id),
+            quantity: 1,
+            price: Number((currentVariant && currentVariant.price) || currentProduct.price) || 0,
+            guest: true,
+          },
+        }));
+      } catch (error) { /* non bloquant */ }
 
       if (currentProduct.variants && currentProduct.variants.length > 0) {
         if (!selectedSize && currentProduct.variants.some((v) => v.size)) {

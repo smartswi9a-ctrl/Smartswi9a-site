@@ -34,3 +34,4 @@ audit-report/
 # Configuration locale de l'editeur (VS Code)
 .vscode/
 *.code-workspace
+.pages-deploy/

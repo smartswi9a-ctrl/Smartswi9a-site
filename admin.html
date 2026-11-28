@@ -215,6 +215,85 @@
             border: 1px solid var(--border); border-radius: var(--radius-sm);
         }
 
+        /* ============================================================
+           GALERIE PHOTOS PRODUIT — ajout multiple, principale, ordre,
+           suppression (cf. js/admin.js : productGalleryState)
+           ============================================================ */
+        .admin-media-block {
+            margin-top: 1rem; padding: 1rem;
+            border: 1px solid var(--border); border-radius: var(--radius-sm, 10px);
+            background: var(--bg-surface, rgba(0, 0, 0, 0.02));
+        }
+        .admin-media-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.3rem; }
+        .admin-media-head h4 { margin: 0; font-size: 1rem; }
+        .admin-media-count {
+            font-size: 0.72rem; font-weight: 700; color: var(--gold);
+            background: rgba(var(--gold-rgb), 0.12); border: 1px solid var(--border-gold);
+            padding: 0.12rem 0.55rem; border-radius: 30px; white-space: nowrap;
+        }
+        .admin-media-hint { margin: 0 0 0.75rem; font-size: 0.78rem; line-height: 1.45; color: var(--text-muted); }
+        .admin-dropzone {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            gap: 0.2rem; padding: 1.1rem 0.8rem; text-align: center; cursor: pointer;
+            border: 2px dashed var(--border); border-radius: var(--radius-sm, 10px);
+            background: var(--bg-card, #fff); color: var(--text-muted); font-size: 0.85rem;
+            transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+        }
+        .admin-dropzone:hover, .admin-dropzone:focus-visible, .admin-dropzone.is-drag {
+            border-color: var(--gold); background: rgba(var(--gold-rgb), 0.06); outline: none;
+        }
+        .admin-dropzone.is-drag { transform: scale(1.01); }
+        .admin-dropzone.is-busy { opacity: 0.6; pointer-events: none; }
+        .admin-dropzone strong { color: var(--gold); }
+        .admin-dropzone-icon { font-size: 1.45rem; line-height: 1; }
+        .admin-dropzone small { font-size: 0.72rem; opacity: 0.8; }
+        .admin-gallery-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(102px, 1fr));
+            gap: 0.6rem; margin-top: 0.8rem;
+        }
+        .admin-gallery-grid:empty { margin-top: 0; }
+        .admin-gallery-item {
+            position: relative; aspect-ratio: 1 / 1; overflow: hidden;
+            border: 2px solid var(--border); border-radius: var(--radius-sm, 10px);
+            background: #ffffff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+        }
+        .admin-gallery-item.is-main { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(var(--gold-rgb), 0.18); }
+        .admin-gallery-item.is-dragging { opacity: 0.45; }
+        .admin-gallery-item img { display: block; width: 100%; height: 100%; object-fit: cover; }
+        .admin-gallery-broken {
+            display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;
+            padding: 0.4rem; text-align: center; font-size: 0.68rem; line-height: 1.3;
+            color: var(--text-muted); background: repeating-linear-gradient(45deg, #f6f6f6, #f6f6f6 8px, #efefef 8px, #efefef 16px);
+        }
+        .admin-gallery-badge {
+            position: absolute; top: 5px; left: 5px; z-index: 2;
+            background: var(--gold); color: #ffffff; font-size: 0.6rem; font-weight: 700;
+            padding: 0.1rem 0.4rem; border-radius: 30px; letter-spacing: 0.02em;
+        }
+        .admin-gallery-tools {
+            position: absolute; inset: auto 0 0 0; z-index: 2;
+            display: flex; justify-content: center; gap: 3px; padding: 4px;
+            background: linear-gradient(to top, rgba(0, 0, 0, 0.62), rgba(0, 0, 0, 0));
+            opacity: 0; transform: translateY(6px);
+            transition: opacity 0.18s ease, transform 0.18s ease;
+        }
+        .admin-gallery-item:hover .admin-gallery-tools,
+        .admin-gallery-item:focus-within .admin-gallery-tools { opacity: 1; transform: none; }
+        .admin-gallery-tools button {
+            width: 26px; height: 26px; padding: 0; display: inline-flex; align-items: center;
+            justify-content: center; border: none; border-radius: 50%;
+            background: rgba(255, 255, 255, 0.94); color: #222;
+            font-size: 0.75rem; line-height: 1; cursor: pointer;
+        }
+        .admin-gallery-tools button:hover:not(:disabled) { background: #ffffff; }
+        .admin-gallery-tools button:disabled { opacity: 0.35; cursor: default; }
+        .admin-gallery-tools button.is-danger { color: #c62828; }
+        .admin-gallery-empty { margin-top: 0.55rem; text-align: center; font-size: 0.78rem; color: var(--text-muted); }
+        @media (max-width: 520px) {
+            .admin-gallery-grid { grid-template-columns: repeat(auto-fill, minmax(82px, 1fr)); }
+            .admin-gallery-tools { opacity: 1; transform: none; }
+        }
+
         .admin-loading { text-align: center; padding: 1rem; color: var(--text-muted); }
         .admin-empty { text-align: center; padding: 2rem; color: var(--text-muted); }
 
@@ -413,7 +492,7 @@
            ============================================================ */
         .admin-container { max-width: 1680px; margin: 1rem auto; padding: 0 1rem; }
         .admin-topbar {
-            position: sticky; top: 0; z-index: 60; margin-bottom: 1rem;
+            position: sticky; top: 0; z-index: 100; margin-bottom: 1rem;
             padding: 0.7rem 1rem; border-radius: var(--radius-lg);
             background: var(--bg-card);
             backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
@@ -421,10 +500,12 @@
         .admin-topbar-left { display: flex; align-items: center; gap: 0.6rem; min-width: 0; }
         .admin-topbar-left h1 { font-size: 1.15rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .admin-menu-toggle {
-            display: none; width: 44px; height: 44px; flex: 0 0 44px;
-            border-radius: 12px; border: 1px solid var(--border);
+            display: inline-flex !important; width: 44px; height: 44px; min-width: 44px; min-height: 44px;
+            flex: 0 0 44px; border-radius: 12px; border: 1px solid var(--border);
             background: var(--bg-surface); color: var(--text); cursor: pointer;
             align-items: center; justify-content: center;
+            position: relative; z-index: 9999; pointer-events: auto !important;
+            touch-action: manipulation; -webkit-tap-highlight-color: transparent;
         }
         .admin-menu-toggle:hover { border-color: var(--gold); color: var(--gold); }
         .admin-user-email { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -481,6 +562,7 @@
             min-height: 44px; padding: 0.52rem 0.6rem; border: 0; border-radius: 10px;
             background: transparent; color: var(--text-muted); font-size: 0.86rem;
             font-weight: 600; text-align: start; cursor: pointer; position: relative;
+            touch-action: manipulation; -webkit-tap-highlight-color: transparent;
             transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
         }
         #adminTabs > button[data-tab]:hover { background: rgba(165, 123, 46, 0.09); color: var(--gold); }
@@ -612,7 +694,10 @@
             .admin-chart-box, .admin-donut-box { height: 280px; }
         }
 
-        /* --- Desktop >= 1024px : sidebar 240px, repliable a 72px --- */
+        /* --- Desktop >= 1024px : sidebar 240px, masquage total via le toggle --- */
+        .admin-shell.is-sidebar-hidden { grid-template-columns: 0 minmax(0, 1fr); gap: 0; }
+        .admin-shell.is-sidebar-hidden .admin-sidebar { display: none !important; }
+        .admin-shell.is-sidebar-hidden .admin-main { width: 100%; }
         @media (min-width: 1024px) {
             .admin-shell.is-collapsed { grid-template-columns: 72px minmax(0, 1fr); }
             .admin-shell.is-collapsed .nav-label, .admin-shell.is-collapsed .nav-badge,
@@ -620,6 +705,28 @@
             .admin-shell.is-collapsed .admin-sidebar-title { display: none; }
             .admin-shell.is-collapsed #adminTabs > button[data-tab] {
                 justify-content: center; padding-inline: 0.4rem;
+            }
+        }
+
+        /* --- Tablette 768-1024px : tiroir lateral (comme le mobile) --- */
+        @media (min-width: 768px) and (max-width: 1024px) {
+            .admin-shell { grid-template-columns: minmax(0, 1fr); }
+            .admin-sidebar {
+                position: fixed; inset-inline-start: 0;
+                top: var(--admin-topbar-offset, 76px); bottom: 0;
+                width: 300px; max-height: none; height: auto; z-index: 90;
+                border-radius: 0; transform: translateX(-105%);
+                transition: transform 0.18s ease;
+                pointer-events: none; visibility: hidden;
+            }
+            .admin-shell.is-open .admin-sidebar {
+                transform: translateX(0);
+                pointer-events: auto; visibility: visible;
+            }
+            [dir="rtl"] .admin-sidebar { transform: translateX(105%); }
+            [dir="rtl"] .admin-shell.is-open .admin-sidebar { transform: translateX(0); }
+            .admin-sidebar-backdrop {
+                position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); z-index: 85;
             }
         }
 
@@ -631,12 +738,18 @@
             .admin-user-email { display: none; }
             .admin-shell { grid-template-columns: minmax(0, 1fr); }
             .admin-sidebar {
-                position: fixed; inset-block: 0; inset-inline-start: 0;
-                width: 286px; max-height: none; height: 100vh; height: 100dvh; z-index: 90;
+                position: fixed; inset-inline-start: 0;
+                top: var(--admin-topbar-offset, 76px); bottom: 0;
+                width: 286px; max-height: none; height: auto; z-index: 90;
                 border-radius: 0; transform: translateX(-105%);
                 transition: transform 0.18s ease;
+                /* Tiroir ferme : ne capte JAMAIS de clic (aucun overlay invisible). */
+                pointer-events: none; visibility: hidden;
             }
-            .admin-shell.is-open .admin-sidebar { transform: translateX(0); }
+            .admin-shell.is-open .admin-sidebar {
+                transform: translateX(0);
+                pointer-events: auto; visibility: visible;
+            }
             [dir="rtl"] .admin-sidebar { transform: translateX(105%); }
             [dir="rtl"] .admin-shell.is-open .admin-sidebar { transform: translateX(0); }
             .admin-sidebar-backdrop {
@@ -1307,6 +1420,10 @@
         .ads-campaign-thumb-empty { display: flex; align-items: center; justify-content: center; width: 100%; font-size: 1.4rem; }
         .ads-video-badge { position: absolute; inset-inline-start: 0.1rem; bottom: 0.1rem; padding: 0.05rem 0.3rem; border-radius: 999px; background: rgba(0, 0, 0, 0.7); color: #fff; font-size: 0.56rem; font-weight: 800; }
         .ads-campaign-actions { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+        .ads-campaign-actions .ads-btn-danger { color: #b91c1c; border-color: #fca5a5; background: #fef2f2; }
+        .ads-campaign-actions .ads-btn-danger:hover { background: #fee2e2; border-color: #ef4444; }
+        .ads-campaign-actions .ads-btn-danger:disabled { opacity: 0.6; cursor: progress; }
+        .ads-campaign-status.is-auto-paused { background: #fef3c7; color: #92400e; border-color: #fcd34d; }
         .ads-campaign-status.is-draft { color: #6B7280; background: rgba(107, 114, 128, 0.12); border: 1px solid rgba(107, 114, 128, 0.35); }
         .ads-editor-modal { position: fixed; inset: 0; z-index: 5000; background: rgba(18, 16, 14, 0.72); backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center; padding: 1rem; }
         #adsEditorModal.ads-editor-modal { position: fixed; inset: 0; z-index: 5000; }
@@ -1326,14 +1443,66 @@
         .ads-editor-quick,
         .ads-editor-text-actions,
         .ads-editor-media-tools { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+        .ads-editor-strategy { display: grid; gap: 0.35rem; padding: 0.6rem; border: 1px dashed var(--border-gold); border-radius: 10px; background: var(--bg-surface); }
+        .ads-strategy-advice { margin: 0; font-size: 0.72rem; line-height: 1.35; color: #7c5a1e; background: #fff7e6; border-radius: 8px; padding: 0.4rem 0.5rem; }
+        .ads-editor-variants { display: grid; gap: 0.35rem; }
+        .ads-editor-variants h4 { margin: 0; font-size: 0.72rem; }
+        .ads-variant { border: 1px solid var(--border); border-radius: 8px; padding: 0.35rem 0.5rem; background: var(--bg-card); }
+        .ads-variant strong { font-size: 0.68rem; color: #B4833E; }
+        .ads-variant p { margin: 0.2rem 0 0; font-size: 0.68rem; white-space: pre-wrap; line-height: 1.35; }
+        .ads-preflight { display: flex; flex-wrap: wrap; gap: 0.35rem; padding: 0.55rem 1rem; border-top: 1px solid var(--border); background: #f8fafc; }
+        .ads-check-item { font-size: 0.66rem; font-weight: 700; padding: 0.2rem 0.45rem; border-radius: 999px; border: 1px solid transparent; }
+        .ads-check-item.is-ok { color: #166534; background: #dcfce7; border-color: #86efac; }
+        .ads-check-item.is-ko { color: #991b1b; background: #fee2e2; border-color: #fca5a5; }
+        .ads-studio { display: grid; gap: 0.35rem; padding: 0.6rem; border: 1px dashed var(--border); border-radius: 10px; background: var(--bg-card); }
+        .ads-studio h4 { margin: 0; font-size: 0.74rem; }
+        .ads-captions { display: grid; gap: 0.3rem; }
+        .ads-srt-preview { margin: 0; max-height: 130px; overflow: auto; font-size: 0.62rem; line-height: 1.35; background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 0.5rem; white-space: pre-wrap; }
         .ads-editor-quick button,
         .ads-editor-text-actions button,
         .ads-editor-media-tools button { font-size: 0.7rem; padding: 0.35rem 0.55rem; }
         .ads-editor-media { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5rem; }
-        .ads-editor-media-item { position: relative; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--bg-card); }
-        .ads-editor-media-item.is-primary { border-color: #B4833E; }
-        .ads-editor-media-item img,
-        .ads-editor-media-item video { width: 100%; height: 100px; object-fit: cover; display: block; }
+        .ads-editor-media-item { position: relative; display: flex; flex-direction: column; align-items: center; gap: 0.2rem; }
+        .ads-editor-media-item.is-primary .ads-editor-thumb { border-color: #B4833E; }
+        /* Apercus produits 1080x1080 : conteneur carre, image entiere (aucune coupe) */
+        .ads-editor-thumb {
+          width: 140px;
+          height: 140px;
+          aspect-ratio: 1 / 1;
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
+          border-radius: 10px;
+          overflow: hidden;
+          display: block;
+          flex: none;
+        }
+        .ads-editor-thumb img,
+        .ads-editor-thumb video {
+          display: block;
+          width: 100%;
+          height: 100%;
+          object-fit: contain;
+          background: #ffffff;
+        }
+        /* Alias historiques de la modale creative : meme rendu carre */
+        .creative-media-thumb,
+        .creative-card-preview {
+          width: 140px;
+          height: 140px;
+          aspect-ratio: 1 / 1;
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
+          border-radius: 10px;
+          overflow: hidden;
+        }
+        .creative-media-thumb img,
+        .creative-card-preview img {
+          display: block;
+          width: 100%;
+          height: 100%;
+          object-fit: contain;
+          background: #ffffff;
+        }
         .ads-media-kind,
         .ads-media-primary { position: absolute; top: 0.2rem; inset-inline-start: 0.2rem; background: rgba(0, 0, 0, 0.68); color: #fff; padding: 0.08rem 0.3rem; border-radius: 999px; font-size: 0.56rem; font-weight: 800; }
         .ads-media-primary { inset-inline-start: auto; inset-inline-end: 0.2rem; background: rgba(180, 131, 62, 0.9); }
@@ -1345,22 +1514,22 @@
         .ads-editor-url-row input { flex: 1; }
         .ads-editor-product-gallery { display: flex; gap: 0.35rem; overflow-x: auto; padding-bottom: 0.2rem; }
         .ads-editor-product-gallery button { flex: none; width: 46px; height: 46px; padding: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--bg-card); cursor: pointer; }
-        .ads-editor-product-gallery img { width: 100%; height: 100%; object-fit: cover; }
+        .ads-editor-product-gallery img { width: 100%; height: 100%; object-fit: contain; background: #ffffff; }
         .ads-editor-cards { display: grid; gap: 0.5rem; }
         .ads-editor-card { display: grid; gap: 0.35rem; padding: 0.5rem; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-card); }
-        .ads-editor-card img,
-        .ads-editor-card video { width: 100%; height: 90px; object-fit: cover; border-radius: 8px; }
+        .ads-editor-card > img,
+        .ads-editor-card > video { width: 140px; height: 140px; aspect-ratio: 1 / 1; object-fit: contain; background: #ffffff; border: 1px solid #e5e7eb; border-radius: 10px; }
         .ads-editor-card label { display: flex; flex-direction: column; gap: 0.2rem; color: var(--text-muted); font-size: 0.68rem; }
         .ads-editor-card input,
         .ads-editor-card textarea { padding: 0.35rem 0.45rem; border: 1px solid var(--border); border-radius: 7px; background: var(--bg-surface); color: var(--text); font-family: inherit; font-size: 0.76rem; }
         .ads-editor-card-actions { display: flex; gap: 0.3rem; flex-wrap: wrap; }
         .ads-editor-footer { display: flex; justify-content: flex-end; align-items: center; gap: 0.5rem; padding: 0.7rem 1rem; border-top: 1px solid var(--border); flex-wrap: wrap; }
         .ads-editor-footer .ads-status { margin-inline-end: auto; font-size: 0.72rem; }
-        .ads-editor-preview { border-inline-start: 1px solid var(--border); background: #f1eee9; padding: 0.75rem; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem; }
+        .ads-editor-preview { border-inline-start: 1px solid var(--border); background: #f1eee9; padding: 0.75rem 0.75rem 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem; scroll-behavior: smooth; }
         .ads-preview-tabs { display: flex; gap: 0.25rem; }
         .ads-preview-tabs button { flex: 1; border: 1px solid var(--border); background: var(--bg-surface); color: var(--text); border-radius: 8px; padding: 0.35rem; font-size: 0.7rem; font-weight: 800; cursor: pointer; }
         .ads-preview-tabs button.is-active { background: #B4833E; border-color: #B4833E; color: #fff; }
-        .ads-phone { width: min(360px, 100%); margin: 0 auto; border: 8px solid #241f1a; border-radius: 28px; overflow: hidden; background: #fff; min-height: 540px; }
+        .ads-phone { width: min(360px, 100%); margin: 0 auto; border: 8px solid #241f1a; border-radius: 28px; overflow: hidden; background: #fff; min-height: 540px; height: auto; flex: 0 0 auto; }
         .ads-preview-top { display: flex; align-items: center; gap: 0.45rem; padding: 0.55rem; }
         .ads-preview-avatar { width: 36px; height: 36px; border-radius: 50%; overflow: hidden; background: #f4e7d5; flex: none; }
         .ads-preview-avatar img { width: 100%; height: 100%; object-fit: cover; }
@@ -1370,36 +1539,59 @@
         .ads-preview-body { padding: 0.25rem 0.6rem 0.5rem; color: #1a1a2e; font-size: 0.78rem; }
         .ads-preview-body p { margin: 0 0 0.25rem; white-space: pre-wrap; }
         .ads-preview-media img,
-        .ads-preview-media video { width: 100%; max-height: 360px; object-fit: cover; display: block; }
-        .ads-preview-link { display: flex; gap: 0.5rem; align-items: center; padding: 0.55rem; background: #f7f7f7; }
-        .ads-preview-link div { flex: 1; min-width: 0; }
-        .ads-preview-link strong,
-        .ads-preview-link span,
-        .ads-preview-link small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .ads-preview-link strong { color: #1a1a2e; font-size: 0.78rem; }
-        .ads-preview-link span { color: #666; font-size: 0.68rem; }
-        .ads-preview-link small { color: #999; font-size: 0.6rem; text-transform: uppercase; }
-        .ads-preview-link button,
+        .ads-preview-media video { width: 100%; max-height: 360px; object-fit: contain; display: block; background: #ffffff; }
+        /* Media principal carre 1:1 (Facebook / Instagram), produit entier visible */
+        .ads-preview-media--square { width: 100%; aspect-ratio: 1 / 1; background: #ffffff; display: block; }
+        .ads-preview-media--square img,
+        .ads-preview-media--square video { width: 100%; height: 100%; object-fit: contain; background: #ffffff; }
+        /* Apercu mono-produit (colonne de droite) : conteneur carre, image entiere */
+        .ads-preview-image { width: 100%; aspect-ratio: 1 / 1; height: auto; background: #ffffff; display: block; }
+        .ads-preview-image img,
+        .ads-preview-image video { width: 100%; height: 100%; object-fit: contain; background: #ffffff; display: block; }
+        .ads-preview-copy { margin: 0; white-space: pre-wrap; line-height: 1.45; }
+        /* Bandeau bas Facebook : gris clair, domaine + titre 2 lignes + prix + CTA */
+        .ads-preview-link { display: flex; gap: 10px; align-items: center; padding: 12px 14px 16px; background: #f0f2f5; }
+        .ads-preview-link > div { flex: 1; min-width: 0; }
+        .ads-preview-domain { display: block; color: #65676b; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; margin-bottom: 2px; }
+        .ads-preview-title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: #050505; font-size: 0.82rem; line-height: 1.3; font-weight: 700; }
+        .ads-preview-price { display: block; margin: 2px 0 0; color: #B4833E; font-size: 0.8rem; font-weight: 800; }
+        .ads-preview-cta { border: 0; border-radius: 6px; background: #B4833E; color: #fff; font-size: 0.7rem; font-weight: 800; padding: 0.45rem 0.6rem; cursor: default; white-space: nowrap; }
         .ads-preview-body button,
-        .ads-preview-tiktok-overlay button { border: 0; border-radius: 6px; background: #B4833E; color: #fff; font-size: 0.68rem; font-weight: 800; padding: 0.4rem 0.55rem; cursor: default; }
+        .ads-preview-link button { border: 0; border-radius: 6px; background: #B4833E; color: #fff; font-size: 0.68rem; font-weight: 800; padding: 0.4rem 0.55rem; cursor: default; }
+        /* Bandeau d action Instagram : contraste garanti */
+        .ads-preview-ig-actions { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: #f0f2f5; border-top: 1px solid #e4e6eb; border-bottom: 1px solid #e4e6eb; }
+        .ads-preview-ig-actions span { color: #0f172a; font-size: 0.76rem; font-weight: 800; }
+        .ads-preview-body--ig { padding-bottom: 18px; }
+        .ads-preview-account { display: block; margin-top: 4px; color: #1a1a2e; font-size: 0.74rem; font-weight: 800; }
         .ads-preview-carousel { display: flex; overflow-x: auto; gap: 0.25rem; background: #f7f7f7; }
         .ads-preview-card { flex: 0 0 145px; padding: 0.3rem; }
+        /* Cartes carrousel de l apercu droit : carre 1080x1080, aucune coupe */
+        .ads-preview-card-media { width: 100%; aspect-ratio: 1 / 1; height: auto; background: #ffffff; border-radius: 5px; overflow: hidden; }
+        .ads-preview-card-media img,
+        .ads-preview-card-media video { width: 100%; height: 100%; object-fit: contain; background: #ffffff; display: block; }
         .ads-preview-card img,
-        .ads-preview-card video { width: 100%; height: 125px; object-fit: cover; border-radius: 5px; }
+        .ads-preview-card video { width: 100%; height: 100%; object-fit: contain; background: #ffffff; border-radius: 5px; display: block; }
         .ads-preview-card strong,
         .ads-preview-card span,
         .ads-preview-card small { display: block; font-size: 0.66rem; color: #1a1a2e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .ads-preview-card span { color: #B4833E; font-weight: 800; }
-        .ads-phone-tiktok { position: relative; min-height: 540px; background: #111; }
-        .ads-phone-tiktok .ads-preview-media { height: 540px; }
-        .ads-phone-tiktok .ads-preview-media img,
-        .ads-phone-tiktok .ads-preview-media video { height: 540px; }
-        .ads-preview-tiktok-overlay { position: absolute; inset-inline: 0; bottom: 0; padding: 0.75rem; color: #fff; background: linear-gradient(transparent, rgba(0, 0, 0, 0.82)); }
-        .ads-preview-tiktok-overlay strong,
-        .ads-preview-tiktok-overlay span,
-        .ads-preview-tiktok-overlay small { display: block; }
-        .ads-preview-tiktok-overlay span { font-size: 0.62rem; opacity: 0.8; }
-        .ads-preview-tiktok-overlay p { margin: 0.35rem 0; font-size: 0.76rem; white-space: pre-wrap; }
+        /* TikTok mono-produit : media carre centre (max 270px) + bloc sombre statique */
+        .ads-phone-tiktok { position: relative; background: #111; display: flex; flex-direction: column; }
+        .ads-preview-tiktok-media { width: 100%; aspect-ratio: 1 / 1; height: auto; max-height: none; background: #ffffff; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        .ads-preview-tiktok-media img { width: 100%; height: 100%; object-fit: contain; background: #ffffff; display: block; }
+        .ads-preview-tiktok-media video { width: 100%; height: 100%; object-fit: contain; background: #000000; display: block; }
+        .ads-preview-tiktok-media .ads-preview-carousel { width: 100%; }
+        .ads-preview-tiktok-info { background: linear-gradient(180deg, rgba(15, 23, 42, 0.92) 0%, #090d16 100%); color: #ffffff; padding: 14px 14px 20px 14px; }
+        .ads-preview-tiktok-account { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+        .ads-preview-tiktok-account strong { font-weight: 700; color: #ffffff; font-size: 0.78rem; }
+        .ads-preview-badge { background: #fbbf24; color: #0f172a; border-radius: 999px; padding: 1px 7px; font-size: 0.58rem; font-weight: 700; letter-spacing: 0.01em; }
+        .ads-preview-tiktok-copy { margin: 0 0 6px; line-height: 1.45; font-size: 12.5px; color: #f1f5f9; white-space: pre-wrap; }
+        .ads-preview-tiktok-product { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; margin: 0; }
+        .ads-preview-tiktok-product strong,
+        .ads-preview-tiktok-product span { font-weight: 700; color: #fbbf24; font-size: 0.8rem; }
+        .ads-preview-tiktok-info .ads-preview-cta { margin-top: 8px; margin-bottom: 6px; display: inline-block; }
+        .ads-preview-body[dir="rtl"],
+        .ads-preview-tiktok-info[dir="rtl"] { text-align: right; }
         .ads-phone-instagram .ads-preview-body strong { display: block; margin-top: 0.2rem; }
         @media (max-width: 1023px) {
             .ads-editor-grid { grid-template-columns: minmax(0, 1fr) 360px; }
@@ -1933,19 +2125,40 @@
                 <label>🇬🇧 Caractéristiques EN (une par ligne)</label>
                 <textarea id="pFeaturesEn" placeholder="Bluetooth 5.3&#10;30h battery"></textarea>
 
-                <label>📸 Image principale (URL ou upload)</label>
-                <input type="text" id="pImg" placeholder="https://... ou /photos/image.jpg">
-                <input type="file" id="pImgFile" accept="image/*" style="margin-top:0.5rem;">
-                <img id="pImgPreview" class="admin-preview-img" alt="Aperçu">
+                <div class="admin-media-block">
+                    <div class="admin-media-head">
+                        <h4>📸 Galerie Photos du Produit</h4>
+                        <span class="admin-media-count" id="pGalleryCount">0 / 8</span>
+                    </div>
+                    <p class="admin-media-hint">
+                        Glissez-déposez vos photos ou cliquez pour parcourir. Chaque image est convertie
+                        en <strong>WebP 1080×1080</strong> (qualité 85) dans le navigateur avant l'envoi.
+                        La première photo est la <strong>photo principale</strong> ; utilisez ⭐ pour en changer,
+                        ◀ ▶ ou le glisser-déposer pour réordonner, ✖ pour supprimer.
+                    </p>
+                    <div class="admin-dropzone" id="pGalleryDropzone" role="button" tabindex="0"
+                         aria-label="Ajouter des photos au produit">
+                        <span class="admin-dropzone-icon" aria-hidden="true">🖼️</span>
+                        <span>Glissez vos images ici ou <strong>parcourir</strong></span>
+                        <small>JPG, PNG, WebP, GIF — 8 photos maximum</small>
+                        <input type="file" id="pGalleryFiles" accept="image/*" multiple hidden>
+                    </div>
+                    <div class="admin-gallery-grid" id="pGalleryPreview" role="list" aria-label="Photos du produit"></div>
+                    <div class="admin-gallery-empty" id="pGalleryEmpty">Aucune photo pour le moment.</div>
+                    <div style="display:flex;gap:0.5rem;margin-top:0.6rem;flex-wrap:wrap;">
+                        <input type="url" id="pGalleryUrl" placeholder="https://firebasestorage... ou /assets/photo.webp"
+                               style="flex:1;min-width:180px;margin:0;">
+                        <button type="button" id="pGalleryUrlAdd" class="admin-btn-secondary" style="white-space:nowrap;">➕ Ajouter l'URL</button>
+                    </div>
+                    <input type="hidden" id="pImg">
+                    <input type="hidden" id="pGallery">
+                    <input type="hidden" id="pImgFile">
+                    <img id="pImgPreview" class="admin-preview-img" alt="" aria-hidden="true">
+                </div>
 
-                <label>🖼️ Galerie (URLs séparées par des virgules, ou upload multiple)</label>
-                <input type="text" id="pGallery" placeholder="url1, url2, url3">
-                <input type="file" id="pGalleryFiles" accept="image/*" multiple style="margin-top:0.5rem;">
-                <div class="admin-gallery-preview" id="pGalleryPreview"></div>
-
-                <label>🎥 Vidéo de démonstration (Nom du fichier R2)</label>
+                <label>🎥 Vidéo de démonstration (URL complète ou nom de fichier R2)</label>
                 <div style="display:flex;gap:0.5rem;align-items:center;">
-                    <input type="text" id="pVideo" placeholder="Ex: demo-montre.mp4" style="flex:1;">
+                    <input type="text" id="pVideo" placeholder="Ex: https://pub-....r2.dev/video.mp4" style="flex:1;">
                     <button type="button" id="clearVideoBtn" class="admin-btn-secondary" style="white-space:nowrap;">❌ Effacer</button>
                 </div>
 
@@ -2985,8 +3198,8 @@
     <div class="toast" id="cartToast" role="status" aria-live="polite"></div>
 
     <script src="/js/navbar.js"></script>
-    <script type="module" src="/js/admin-ui.js?v=7"></script>
-    <script type="module" src="/js/admin.js?v=ads2026c5"></script>
+    <script type="module" src="/js/admin-ui.js?v=drawer2027c"></script>
+    <script type="module" src="/js/admin.js?v=drawer2027c"></script>
 
 <footer class="page-legal-footer" role="contentinfo">
     <nav class="footer-legal footer-legal--bar" aria-label="Informations légales">

@@ -1071,18 +1071,23 @@ async function openProductModal(product = null) {
     document.getElementById('vProdGalleryFiles').value = '';
     document.getElementById('vProdGalleryPreview').innerHTML = '';
     (product?.gallery || []).forEach(url => {
+        const safe = safeImageUrl(url);
+        if (!safe) return;
         const img = document.createElement('img');
-        img.src = safeImageUrl(url);
+        img.src = safe;
         img.alt = '';
         img.style.cssText = 'width:64px;height:64px;object-fit:cover;border-radius:8px;';
+        img.addEventListener('error', () => img.remove());
         document.getElementById('vProdGalleryPreview').appendChild(img);
     });
     renderVendorVariantRows(product?.variants || []);
 
     const preview = document.getElementById('vProdImagePreview');
     if (preview) {
-        if (product && product.img) {
-            preview.innerHTML = `<img src="${safeImageUrl(product.img)}" alt="" style="width:80px;height:80px;object-fit:cover;border-radius:8px;">`;
+        const mainSafe = product && product.img ? safeImageUrl(product.img) : '';
+        if (mainSafe) {
+            preview.innerHTML = `<img src="${mainSafe}" alt="" style="width:80px;height:80px;object-fit:cover;border-radius:8px;">`;
+            preview.querySelector('img')?.addEventListener('error', (event) => event.target.remove());
         } else {
             preview.innerHTML = '';
         }

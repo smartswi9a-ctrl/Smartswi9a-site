@@ -463,6 +463,19 @@ function attachGridEvents(grid) {
             e.preventDefault(); e.stopPropagation();
             const id = normalizeProductId(btn.dataset.id);
             if (id == null) return;
+            /* Pixel AddToCart : emis des le clic, avant la modale de connexion. */
+            try {
+                const card = btn.closest('.product-card, [data-product-id]');
+                const rawPrice = (card && (card.dataset.price || card.dataset.productPrice)) || btn.dataset.price || '';
+                document.dispatchEvent(new CustomEvent('smartswika:add-to-cart', {
+                    detail: {
+                        productId: String(id),
+                        quantity: 1,
+                        price: Number(String(rawPrice).replace(/[^0-9.]/g, '')) || 0,
+                        guest: true,
+                    },
+                }));
+            } catch (error) { /* non bloquant */ }
             try {
                 const { addToCart } = await import('./cart.js');
                 addToCart(id);
