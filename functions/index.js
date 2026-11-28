@@ -4521,7 +4521,11 @@ async function createMetaCampaign(options) {
     targeting: {
       geo_locations: { countries: ['MA'] },
       age_min: 21,
-      age_max: 55
+      age_max: 55,
+      /* Meta Graph exige explicitement le flag Advantage audience :
+         "you need to enable or disable the Advantage audience feature ...
+          setting the advantage_audience flag to either 1 or 0". */
+      targeting_automation: { advantage_audience: 1 }
     },
     status,
     /* Enchere automatique explicite : sans bid_amount, Meta refuse la creation

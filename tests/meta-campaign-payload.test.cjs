@@ -323,6 +323,14 @@ async function main() {
     String(adset.payload && adset.payload.bid_strategy)
   );
   check(
+    "meta adset : targeting_automation.advantage_audience = 1",
+    Boolean(adset.payload) &&
+      Boolean(adset.payload.targeting) &&
+      Boolean(adset.payload.targeting.targeting_automation) &&
+      adset.payload.targeting.targeting_automation.advantage_audience === 1,
+    JSON.stringify(adset.payload && adset.payload.targeting && adset.payload.targeting.targeting_automation)
+  );
+  check(
     "meta adset : aucun bid_amount / bid_constraints vide",
     Boolean(adset.payload) &&
       !Object.prototype.hasOwnProperty.call(adset.payload, "bid_amount") &&
