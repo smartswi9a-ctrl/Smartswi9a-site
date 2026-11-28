@@ -229,6 +229,27 @@ async function main() {
     /\.creative-media-thumb[\s\S]{0,200}object-fit:\s*contain/.test(adminHtml)
   );
 
+  /* --- 6. Apercu telephone (colonne de droite) --- */
+  check(
+    "admin.html : apercu mono-produit carre (.ads-preview-image)",
+    /\.ads-preview-image\s*\{[^}]*aspect-ratio:\s*1\s*\/\s*1[^}]*\}/.test(adminHtml) &&
+      /\.ads-preview-image img[\s\S]{0,160}object-fit:\s*contain/.test(adminHtml)
+  );
+  check(
+    "admin.html : cartes carrousel carrees dans l apercu (.ads-preview-card-media)",
+    /\.ads-preview-card-media\s*\{[^}]*aspect-ratio:\s*1\s*\/\s*1[^}]*\}/.test(adminHtml) &&
+      /\.ads-preview-card-media img[\s\S]{0,160}object-fit:\s*contain/.test(adminHtml)
+  );
+  check(
+    "admin-ads : apercu droit enveloppe image mono-produit + cartes",
+    adminAds.includes('class="ads-preview-image"') &&
+      adminAds.split('class="ads-preview-card-media"').length - 1 >= 1
+  );
+  check(
+    "admin.html : plus de hauteur fixe cover sur les cartes d apercu",
+    !/\.ads-preview-card img,\s*\n\s*\.ads-preview-card video \{ width: 100%; height: 125px; object-fit: cover/.test(adminHtml)
+  );
+
   console.log(verifications + " verification(s), " + echecs + " echec(s).");
   if (echecs) process.exitCode = 1;
 }

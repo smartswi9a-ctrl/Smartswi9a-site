@@ -1507,13 +1507,13 @@ function editorPreviewCards() {
     ? `<div class="ads-preview-carousel">${editorState.carouselCards
         .map(
           (card) => `<div class="ads-preview-card">
-            ${
+            <div class="ads-preview-card-media">${
               card.mediaType === "video"
                 ? `<video src="${escapeHTML(card.mediaUrl || "")}" muted playsinline poster="${escapeHTML(
                     card.posterUrl || ""
                   )}"></video>`
                 : `<img src="${escapeHTML(card.mediaUrl || card.imageUrl || "")}" alt="" loading="lazy">`
-            }
+            }</div>
             <strong>${escapeHTML(card.title || "")}</strong>
             <span>${escapeHTML(card.priceMad || "")}</span>
             ${card.text ? `<small>${escapeHTML(card.text)}</small>` : ""}
@@ -1539,7 +1539,7 @@ function renderEditorPreview() {
   const cardsHtml = editorState.kind === "carousel" ? editorPreviewCards() : "";
   const imageHtml =
     !hasVideo && editorState.kind !== "carousel"
-      ? editorMediaPreview(media)
+      ? `<div class="ads-preview-image">${editorMediaPreview(media)}</div>`
       : "";
   const ticker = editorState.kind === "carousel" ? "" : imageHtml;
   const cta = editorState.ctaLabel || adsT("adsEditorCtaOrder");
