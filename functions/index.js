@@ -4957,6 +4957,88 @@ function normalizeAdCopy(value) {
 
 const USD_MAD_DEFAULT_RATE = 10;
 
+/* Variantes A/B/C normalisees (3 max) : { key, label, copies, message }. */
+function normalizeAdVariants(value) {
+  if (!Array.isArray(value)) return [];
+  const keys = ['A', 'B', 'C'];
+  return value
+    .slice(0, 3)
+    .map((variant, index) => {
+      const copies = normalizeAdCopy(
+        variant && variant.copies ? variant.copies : variant
+      );
+      const message = String(
+        (variant && variant.message) || copies.fr || ''
+      )
+        .trim()
+        .slice(0, 2000);
+      return {
+        key: String((variant && variant.key) || keys[index] || index + 1).slice(0, 8),
+        label: String(
+          (variant && variant.label) || 'Variante ' + (keys[index] || index + 1)
+        ).slice(0, 60),
+        copies,
+        message
+      };
+    })
+    .filter((variant) => Boolean(variant.message));
+}
+
+/**
+ * Plan d annonces dans UN SEUL ad set (budget non fragmente) :
+ * - mode A/B/C : une annonce par variante de texte ;
+ * - mode mixte : une annonce Image 1080x1080 + une annonce Video.
+ */
+function planMetaAds(options) {
+  const opts = options || {};
+  const hasImage = Boolean(opts.hasImage);
+  const hasVideo = Boolean(opts.hasVideo);
+  const baseMessage = String(opts.message || '').trim();
+  const variants = normalizeAdVariants(opts.variants);
+  const plan = [];
+  if (variants.length >= 2) {
+    variants.forEach((variant) => {
+      plan.push({
+        key: 'variant-' + variant.key.toLowerCase(),
+        label: variant.label,
+        format: hasImage ? 'image' : 'video',
+        message: variant.message,
+        variant: variant.key
+      });
+    });
+    return plan;
+  }
+  const mix = Boolean(opts.mixImageVideo) && hasImage && hasVideo;
+  if (hasImage) {
+    plan.push({
+      key: 'image',
+      label: 'Visuel Image 1080x1080',
+      format: 'image',
+      message: baseMessage,
+      variant: ''
+    });
+  }
+  if (hasVideo && (mix || !hasImage)) {
+    plan.push({
+      key: 'video',
+      label: 'Video Demo',
+      format: 'video',
+      message: baseMessage,
+      variant: ''
+    });
+  }
+  if (!plan.length) {
+    plan.push({
+      key: 'image',
+      label: 'Visuel Image',
+      format: 'image',
+      message: baseMessage,
+      variant: ''
+    });
+  }
+  return plan;
+}
+
 function roundMoney(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return 0;
@@ -5066,8 +5148,10 @@ function campaignBudgetPatch(budget) {
 async function createMetaSingleCreativeAd(options) {
   if (!options.pageId) return null;
   const media = Array.isArray(options.customMedia) ? options.customMedia : [];
-  const video = media.find((item) => item.type === 'video');
-  const image = media.find((item) => item.type === 'image');
+  const forceFormat = String(options.forceFormat || '').toLowerCase();
+  const video = forceFormat === 'image' ? null : media.find((item) => item.type === 'video');
+  const image = forceFormat === 'video' ? null : media.find((item) => item.type === 'image');
+  if (forceFormat === 'video' && !video) return null;
   if (!video && !image && !options.headline) return null;
   const account = String(options.accountId || '').replace(/^act_/, '');
   let storySpec;
@@ -5327,20 +5411,51 @@ exports.launchSuggestedAdCampaign = onCall(
         let extraCreative = {};
         try {
           if (isMeta && secrets.metaPageId) {
-            const metaCreative = await createMetaSingleCreativeAd({
-              accountId,
-              token,
-              pageId: String(secrets.metaPageId),
-              campaignName,
-              externalAdSetId: created.externalAdSetId,
-              message,
-              headline: creative.headline,
-              description: creative.description,
-              customMedia: creative.customMedia,
-              destinationUrl,
-              startPaused
+            const mediaList = creative.customMedia;
+            const hasImage = mediaList.some((item) => item.type === 'image');
+            const hasVideo = mediaList.some((item) => item.type === 'video');
+            const adPlan = planMetaAds({
+              mixImageVideo: data.mixImageVideo === true,
+              hasImage: hasImage,
+              hasVideo: hasVideo,
+              message: message,
+              variants: data.abTest === true ? data.variants : []
             });
-            if (metaCreative) extraCreative = metaCreative;
+            const createdAds = [];
+            for (const adSpec of adPlan) {
+              const adResult = await createMetaSingleCreativeAd({
+                accountId,
+                token,
+                pageId: String(secrets.metaPageId),
+                campaignName,
+                creativeName: campaignName + ' - ' + adSpec.label,
+                externalAdSetId: created.externalAdSetId,
+                message: adSpec.message || message,
+                headline: creative.headline,
+                description: creative.description,
+                customMedia: mediaList,
+                forceFormat: adSpec.format,
+                destinationUrl,
+                startPaused
+              });
+              if (adResult) {
+                createdAds.push({
+                  ...adResult,
+                  key: adSpec.key,
+                  label: adSpec.label,
+                  format: adSpec.format,
+                  variant: adSpec.variant || ''
+                });
+              }
+            }
+            if (createdAds.length) {
+              extraCreative = {
+                externalCreativeId: createdAds[0].externalCreativeId,
+                externalAdId: createdAds[0].externalAdId,
+                metaAds: createdAds,
+                metaAdCount: createdAds.length
+              };
+            }
           } else if (!isMeta) {
             const uploadedVideo = await uploadTiktokVideo(
               accountId,
@@ -5367,6 +5482,12 @@ exports.launchSuggestedAdCampaign = onCall(
           externalCreativeId: extraCreative.externalCreativeId || '',
           externalAdId: extraCreative.externalAdId || '',
           externalVideoId: extraCreative.externalVideoId || '',
+          metaAdCount: extraCreative.metaAdCount || 0,
+          adVariants: Array.isArray(extraCreative.metaAds)
+            ? extraCreative.metaAds.map((ad) => ad.key)
+            : [],
+          abTest: data.abTest === true,
+          mixImageVideo: data.mixImageVideo === true,
           productId,
           productTitle: title,
           campaignName,

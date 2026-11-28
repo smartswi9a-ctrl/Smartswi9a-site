@@ -828,6 +828,203 @@ async function main() {
     JSON.stringify(tiktokPauses[0] || {})
   );
 
+  /* --- 12. Moteur creatif COD v31 : A/B/C + image/video + zero fausse preuve --- */
+  const adminAdsCreative = read("js/admin-ads.js");
+  const planBody = extractAsyncFunction(functionsSource, "planMetaAds");
+  const variantsBody = extractAsyncFunction(functionsSource, "normalizeAdVariants");
+  check(
+    "creative : planMetaAds + normalizeAdVariants extraits",
+    Boolean(planBody) && Boolean(variantsBody)
+  );
+  const buildPlan = new Function(
+    "normalizeAdCopy",
+    variantsBody + "\n" + planBody + "\nreturn planMetaAds;"
+  )((value) => {
+    if (value && typeof value === "object") {
+      return {
+        fr: String(value.fr || ""),
+        en: String(value.en || ""),
+        ar: String(value.ar || ""),
+      };
+    }
+    return { fr: String(value || ""), en: String(value || ""), ar: String(value || "") };
+  });
+
+  const mixedPlan = buildPlan({
+    mixImageVideo: true,
+    hasImage: true,
+    hasVideo: true,
+    message: "Texte principal",
+  });
+  check(
+    "creative : image + video -> 2 annonces dans le meme ad set",
+    mixedPlan.length === 2 &&
+      mixedPlan[0].format === "image" &&
+      mixedPlan[1].format === "video" &&
+      mixedPlan[0].key === "image" &&
+      mixedPlan[1].key === "video",
+    JSON.stringify(mixedPlan.map((ad) => ad.key + ":" + ad.format))
+  );
+
+  const variantPlan = buildPlan({
+    hasImage: true,
+    hasVideo: true,
+    message: "Texte principal",
+    variants: [
+      { key: "A", label: "Variante A", copies: { fr: "Copy A" } },
+      { key: "B", label: "Variante B", copies: { fr: "Copy B" } },
+      { key: "C", label: "Variante C", copies: { fr: "Copy C" } },
+    ],
+  });
+  check(
+    "creative : A/B/C -> 3 annonces dans le meme ad set",
+    variantPlan.length === 3 &&
+      variantPlan[0].key === "variant-a" &&
+      variantPlan[2].key === "variant-c" &&
+      variantPlan[1].message === "Copy B",
+    JSON.stringify(variantPlan.map((ad) => ad.key))
+  );
+
+  const extractConst = (source, name) => {
+    const start = source.indexOf("const " + name + " = {");
+    if (start < 0) return "const " + name + " = {};";
+    let depth = 0;
+    for (let i = source.indexOf("{", start); i < source.length; i++) {
+      if (source[i] === "{") depth++;
+      else if (source[i] === "}") {
+        depth--;
+        if (depth === 0) return source.slice(start, i + 1) + ";";
+      }
+    }
+    return "const " + name + " = {};";
+  };
+  const forbiddenMatch = adminAdsCreative.match(/const FORBIDDEN_PROOF_PATTERN =\s*([\s\S]*?);\s*\n/);
+  const prelude = [
+    "const fmtNumber = (n) => String(n);",
+    extractConst(adminAdsCreative, "COD_GUARANTEES"),
+    extractConst(adminAdsCreative, "COD_CTA_TEXT"),
+    "const FORBIDDEN_PROOF_PATTERN = " + (forbiddenMatch ? forbiddenMatch[1].trim() : "/(?!)/") + ";",
+  ].join("\n");
+  const creativeFns = new Function(
+    prelude +
+      "\n" +
+      [
+        "firstSentence",
+        "realSocialProof",
+        "containsForbiddenClaims",
+        "buildConversionCopy",
+        "buildAbVariants",
+        "creativeStrategy",
+        "creativeChecklist",
+      ]
+        .map((name) => extractAsyncFunction(adminAdsCreative, name) || "")
+        .join("\n") +
+      "\nreturn { buildConversionCopy, buildAbVariants, containsForbiddenClaims, creativeStrategy, creativeChecklist, realSocialProof };"
+  )();
+
+  const honestCopy = creativeFns.buildConversionCopy({
+    name: "SinoTrack ST-901M",
+    nameEn: "SinoTrack ST-901M",
+    nameAr: "سينو تراك",
+    price: 470,
+    description: "Traceur GPS temps reel.",
+  });
+  check(
+    "creative : garanties COD reelles presentes (FR)",
+    honestCopy.fr.includes("Paiement à la livraison") &&
+      honestCopy.fr.includes("404 villes") &&
+      honestCopy.fr.includes("Garantie 15 jours")
+  );
+  check(
+    "creative : 3 blocs (accroche / reassurance / CTA)",
+    honestCopy.fr.split("\n").length === 3 && honestCopy.fr.includes("Commandez maintenant")
+  );
+  check(
+    "creative : aucun faux chiffre ni fausse preuve quand rating absent",
+    !honestCopy.fr.includes("⭐") &&
+      !honestCopy.en.includes("⭐") &&
+      !creativeFns.containsForbiddenClaims(honestCopy.fr) &&
+      !creativeFns.containsForbiddenClaims(honestCopy.en)
+  );
+
+  const withReviews = creativeFns.buildConversionCopy({
+    name: "SinoTrack ST-901M",
+    price: 470,
+    rating: 4.6,
+    reviewsCount: 12,
+  });
+  check(
+    "creative : vraie note uniquement si reviewCount >= 3",
+    withReviews.fr.includes("⭐ 4,6/5 (12 avis vérifiés)") &&
+      !creativeFns.containsForbiddenClaims(withReviews.fr)
+  );
+  check(
+    "creative : note ignoree si moins de 3 avis",
+    !creativeFns
+      .buildConversionCopy({ name: "X", rating: 4.8, reviewsCount: 2 })
+      .fr.includes("⭐")
+  );
+  check(
+    "creative : '3000 clients satisfaits' detecte comme interdit",
+    creativeFns.containsForbiddenClaims("Rejoint par 3000 clients satisfaits au Maroc")
+  );
+
+  const abVariants = creativeFns.buildAbVariants({ name: "SinoTrack ST-901M", price: 470 });
+  check(
+    "creative : 3 variantes A/B/C generees",
+    abVariants.length === 3 &&
+      abVariants[0].key === "A" &&
+      abVariants[2].key === "C" &&
+      abVariants.every((variant) => variant.copies.fr.includes("Paiement à la livraison"))
+  );
+  check(
+    "creative : variantes sans fausse preuve sociale",
+    abVariants.every(
+      (variant) =>
+        !variant.copies.fr.includes("⭐") &&
+        !creativeFns.containsForbiddenClaims(variant.copies.fr) &&
+        !creativeFns.containsForbiddenClaims(variant.copies.ar)
+    )
+  );
+
+  const focus = creativeFns.creativeStrategy({ budgetUsd: 10, stock: 40 });
+  const scaling = creativeFns.creativeStrategy({ budgetUsd: 60, stock: 20 });
+  check(
+    "creative : mode Focus si budget < 25 $",
+    focus.focusMode === true && focus.abRecommended === false && /Mode Focus/.test(focus.advice)
+  );
+  check(
+    "creative : mode Scaling si budget >= 25 $ et stock >= 10",
+    scaling.focusMode === false && scaling.abRecommended === true && /Scaling/.test(scaling.advice)
+  );
+
+  const checklist = creativeFns.creativeChecklist({
+    stock: 12,
+    destinationUrl: "https://www.smartswika.ma/produit.html?id=1",
+    copy: honestCopy.fr,
+    hasMedia: true,
+    metaPixelId: "2021976911744667",
+    tiktokPixelId: "DC44DJ3C77U9PR64VE10",
+  });
+  const checklistZero = creativeFns.creativeChecklist({
+    stock: 0,
+    destinationUrl: "",
+    copy: "3000 clients satisfaits",
+    hasMedia: false,
+    metaPixelId: "",
+    tiktokPixelId: "",
+  });
+  check(
+    "creative : checklist 4 voyants verts quand tout est valide",
+    checklist.length === 4 && checklist.every((item) => item.ok === true),
+    JSON.stringify(checklist.map((item) => item.key + ":" + item.ok))
+  );
+  check(
+    "creative : checklist bloque stock 0 et promesse interdite",
+    checklistZero.every((item) => item.ok === false) &&
+      /Stock épuisé/.test(checklistZero[0].label)
+  );
+
   console.log(verifications + " verification(s), " + echecs + " echec(s).");
   if (echecs) process.exitCode = 1;
 }
