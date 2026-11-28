@@ -245,9 +245,69 @@ async function main() {
     adminAds.includes('class="ads-preview-image"') &&
       adminAds.split('class="ads-preview-card-media"').length - 1 >= 1
   );
+  /* --- 7. Aperçu mono-produit TikTok / Facebook / Instagram --- */
   check(
-    "admin.html : plus de hauteur fixe cover sur les cartes d apercu",
-    !/\.ads-preview-card img,\s*\n\s*\.ads-preview-card video \{ width: 100%; height: 125px; object-fit: cover/.test(adminHtml)
+    "admin.html : TikTok media carre centre max 270px",
+    /\.ads-preview-tiktok-media\s*\{[^}]*aspect-ratio:\s*1\s*\/\s*1[^}]*max-height:\s*270px[^}]*background:\s*#ffffff/i.test(
+      adminHtml
+    ) && /\.ads-preview-tiktok-media img[^}]*object-fit:\s*contain/.test(adminHtml)
+  );
+  check(
+    "admin.html : bloc sombre TikTok (degrade + padding 14/20)",
+    /\.ads-preview-tiktok-info\s*\{[^}]*linear-gradient\(180deg,\s*rgba\(15,\s*23,\s*42,\s*0\.92\)\s*0%,\s*#090d16 100%\)[^}]*padding:\s*14px 14px 20px 14px/.test(
+      adminHtml
+    )
+  );
+  check(
+    "admin.html : CTA TikTok marges 8px / 6px",
+    /\.ads-preview-tiktok-info \.ads-preview-cta\s*\{[^}]*margin-top:\s*8px[^}]*margin-bottom:\s*6px/.test(adminHtml)
+  );
+  check(
+    "admin.html : bandeau Facebook #f0f2f5 padding 12/14/16",
+    /\.ads-preview-link\s*\{[^}]*padding:\s*12px 14px 16px[^}]*background:\s*#f0f2f5/.test(adminHtml)
+  );
+  check(
+    "admin.html : titre FB limite a 2 lignes + prix or",
+    /\.ads-preview-title[^}]*-webkit-line-clamp:\s*2/.test(adminHtml) &&
+      /\.ads-preview-price\s*\{[^}]*color:\s*#B4833E/i.test(adminHtml)
+  );
+  check(
+    "admin.html : Instagram bandeau action + padding-bottom 18px",
+    /\.ads-preview-ig-actions\s*\{[^}]*background:\s*#f0f2f5/.test(adminHtml) &&
+      /\.ads-preview-body--ig\s*\{[^}]*padding-bottom:\s*18px/.test(adminHtml)
+  );
+  check(
+    "admin.html : media carre 1:1 FB/IG (ads-preview-media--square)",
+    /\.ads-preview-media--square\s*\{[^}]*aspect-ratio:\s*1\s*\/\s*1[^}]*background:\s*#ffffff/.test(adminHtml)
+  );
+  check(
+    "admin.html : colonne droite scrollable avec padding-bottom 24px",
+    (function () {
+      const block = (adminHtml.match(/\.ads-editor-preview\s*\{[^}]*\}/) || [""])[0];
+      return /overflow-y:\s*auto/.test(block) && /padding:[^;]*24px/.test(block);
+    })()
+  );
+  check(
+    "admin-ads : TikTok @smartswi9a dans le bloc sombre (plus d overlay)",
+    adminAds.includes('class="ads-preview-tiktok-info"') &&
+      adminAds.includes('class="ads-preview-badge"') &&
+      !adminAds.includes("ads-preview-tiktok-overlay") &&
+      !adminHtml.includes("ads-preview-tiktok-overlay")
+  );
+  check(
+    "admin-ads : RTL auto (editorIsArabic) + prix mono-produit",
+    adminAds.includes("function editorIsArabic(") &&
+      adminAds.includes('dir="rtl"') &&
+      adminAds.includes("function editorPriceLabel(")
+  );
+  check(
+    "admin.html : mockup telephone non compresse (flex 0 0 auto)",
+    /\.ads-phone\s*\{[^}]*flex:\s*0 0 auto/.test(adminHtml) &&
+      /\.ads-phone\s*\{[^}]*min-height:\s*540px/.test(adminHtml)
+  );
+  check(
+    "admin-ads : FB domaine SMARTSWIKA.MA + bandeau IG",
+    adminAds.includes("SMARTSWIKA.MA") && adminAds.includes("ads-preview-ig-actions")
   );
 
   console.log(verifications + " verification(s), " + echecs + " echec(s).");

@@ -1506,11 +1506,11 @@
         .ads-editor-card-actions { display: flex; gap: 0.3rem; flex-wrap: wrap; }
         .ads-editor-footer { display: flex; justify-content: flex-end; align-items: center; gap: 0.5rem; padding: 0.7rem 1rem; border-top: 1px solid var(--border); flex-wrap: wrap; }
         .ads-editor-footer .ads-status { margin-inline-end: auto; font-size: 0.72rem; }
-        .ads-editor-preview { border-inline-start: 1px solid var(--border); background: #f1eee9; padding: 0.75rem; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem; }
+        .ads-editor-preview { border-inline-start: 1px solid var(--border); background: #f1eee9; padding: 0.75rem 0.75rem 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem; scroll-behavior: smooth; }
         .ads-preview-tabs { display: flex; gap: 0.25rem; }
         .ads-preview-tabs button { flex: 1; border: 1px solid var(--border); background: var(--bg-surface); color: var(--text); border-radius: 8px; padding: 0.35rem; font-size: 0.7rem; font-weight: 800; cursor: pointer; }
         .ads-preview-tabs button.is-active { background: #B4833E; border-color: #B4833E; color: #fff; }
-        .ads-phone { width: min(360px, 100%); margin: 0 auto; border: 8px solid #241f1a; border-radius: 28px; overflow: hidden; background: #fff; min-height: 540px; }
+        .ads-phone { width: min(360px, 100%); margin: 0 auto; border: 8px solid #241f1a; border-radius: 28px; overflow: hidden; background: #fff; min-height: 540px; height: auto; flex: 0 0 auto; }
         .ads-preview-top { display: flex; align-items: center; gap: 0.45rem; padding: 0.55rem; }
         .ads-preview-avatar { width: 36px; height: 36px; border-radius: 50%; overflow: hidden; background: #f4e7d5; flex: none; }
         .ads-preview-avatar img { width: 100%; height: 100%; object-fit: cover; }
@@ -1521,21 +1521,29 @@
         .ads-preview-body p { margin: 0 0 0.25rem; white-space: pre-wrap; }
         .ads-preview-media img,
         .ads-preview-media video { width: 100%; max-height: 360px; object-fit: contain; display: block; background: #ffffff; }
+        /* Media principal carre 1:1 (Facebook / Instagram), produit entier visible */
+        .ads-preview-media--square { width: 100%; aspect-ratio: 1 / 1; background: #ffffff; display: block; }
+        .ads-preview-media--square img,
+        .ads-preview-media--square video { width: 100%; height: 100%; object-fit: contain; background: #ffffff; }
         /* Apercu mono-produit (colonne de droite) : conteneur carre, image entiere */
         .ads-preview-image { width: 100%; aspect-ratio: 1 / 1; height: auto; background: #ffffff; display: block; }
         .ads-preview-image img,
         .ads-preview-image video { width: 100%; height: 100%; object-fit: contain; background: #ffffff; display: block; }
-        .ads-preview-link { display: flex; gap: 0.5rem; align-items: center; padding: 0.55rem; background: #f7f7f7; }
-        .ads-preview-link div { flex: 1; min-width: 0; }
-        .ads-preview-link strong,
-        .ads-preview-link span,
-        .ads-preview-link small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .ads-preview-link strong { color: #1a1a2e; font-size: 0.78rem; }
-        .ads-preview-link span { color: #666; font-size: 0.68rem; }
-        .ads-preview-link small { color: #999; font-size: 0.6rem; text-transform: uppercase; }
-        .ads-preview-link button,
+        .ads-preview-copy { margin: 0; white-space: pre-wrap; line-height: 1.45; }
+        /* Bandeau bas Facebook : gris clair, domaine + titre 2 lignes + prix + CTA */
+        .ads-preview-link { display: flex; gap: 10px; align-items: center; padding: 12px 14px 16px; background: #f0f2f5; }
+        .ads-preview-link > div { flex: 1; min-width: 0; }
+        .ads-preview-domain { display: block; color: #65676b; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; margin-bottom: 2px; }
+        .ads-preview-title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: #050505; font-size: 0.82rem; line-height: 1.3; font-weight: 700; }
+        .ads-preview-price { display: block; margin: 2px 0 0; color: #B4833E; font-size: 0.8rem; font-weight: 800; }
+        .ads-preview-cta { border: 0; border-radius: 6px; background: #B4833E; color: #fff; font-size: 0.7rem; font-weight: 800; padding: 0.45rem 0.6rem; cursor: default; white-space: nowrap; }
         .ads-preview-body button,
-        .ads-preview-tiktok-overlay button { border: 0; border-radius: 6px; background: #B4833E; color: #fff; font-size: 0.68rem; font-weight: 800; padding: 0.4rem 0.55rem; cursor: default; }
+        .ads-preview-link button { border: 0; border-radius: 6px; background: #B4833E; color: #fff; font-size: 0.68rem; font-weight: 800; padding: 0.4rem 0.55rem; cursor: default; }
+        /* Bandeau d action Instagram : contraste garanti */
+        .ads-preview-ig-actions { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: #f0f2f5; border-top: 1px solid #e4e6eb; border-bottom: 1px solid #e4e6eb; }
+        .ads-preview-ig-actions span { color: #0f172a; font-size: 0.76rem; font-weight: 800; }
+        .ads-preview-body--ig { padding-bottom: 18px; }
+        .ads-preview-account { display: block; margin-top: 4px; color: #1a1a2e; font-size: 0.74rem; font-weight: 800; }
         .ads-preview-carousel { display: flex; overflow-x: auto; gap: 0.25rem; background: #f7f7f7; }
         .ads-preview-card { flex: 0 0 145px; padding: 0.3rem; }
         /* Cartes carrousel de l apercu droit : carre 1080x1080, aucune coupe */
@@ -1548,16 +1556,23 @@
         .ads-preview-card span,
         .ads-preview-card small { display: block; font-size: 0.66rem; color: #1a1a2e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .ads-preview-card span { color: #B4833E; font-weight: 800; }
-        .ads-phone-tiktok { position: relative; min-height: 540px; background: #111; }
-        .ads-phone-tiktok .ads-preview-media { height: 540px; }
-        /* Plein ecran TikTok : uniquement la video (les images gardent leur cadre carre) */
-        .ads-phone-tiktok .ads-preview-media > video { height: 540px; }
-        .ads-preview-tiktok-overlay { position: absolute; inset-inline: 0; bottom: 0; padding: 0.75rem; color: #fff; background: linear-gradient(transparent, rgba(0, 0, 0, 0.82)); }
-        .ads-preview-tiktok-overlay strong,
-        .ads-preview-tiktok-overlay span,
-        .ads-preview-tiktok-overlay small { display: block; }
-        .ads-preview-tiktok-overlay span { font-size: 0.62rem; opacity: 0.8; }
-        .ads-preview-tiktok-overlay p { margin: 0.35rem 0; font-size: 0.76rem; white-space: pre-wrap; }
+        /* TikTok mono-produit : media carre centre (max 270px) + bloc sombre statique */
+        .ads-phone-tiktok { position: relative; background: #111; display: flex; flex-direction: column; }
+        .ads-preview-tiktok-media { width: 100%; aspect-ratio: 1 / 1; max-height: 270px; background: #ffffff; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        .ads-preview-tiktok-media img { width: 100%; height: 100%; object-fit: contain; background: #ffffff; display: block; }
+        .ads-preview-tiktok-media video { width: 100%; height: 100%; object-fit: contain; background: #000000; display: block; }
+        .ads-preview-tiktok-media .ads-preview-carousel { width: 100%; }
+        .ads-preview-tiktok-info { background: linear-gradient(180deg, rgba(15, 23, 42, 0.92) 0%, #090d16 100%); color: #ffffff; padding: 14px 14px 20px 14px; }
+        .ads-preview-tiktok-account { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+        .ads-preview-tiktok-account strong { font-weight: 700; color: #ffffff; font-size: 0.78rem; }
+        .ads-preview-badge { background: #fbbf24; color: #0f172a; border-radius: 999px; padding: 1px 7px; font-size: 0.58rem; font-weight: 700; letter-spacing: 0.01em; }
+        .ads-preview-tiktok-copy { margin: 0 0 6px; line-height: 1.45; font-size: 12.5px; color: #f1f5f9; white-space: pre-wrap; }
+        .ads-preview-tiktok-product { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; margin: 0; }
+        .ads-preview-tiktok-product strong,
+        .ads-preview-tiktok-product span { font-weight: 700; color: #fbbf24; font-size: 0.8rem; }
+        .ads-preview-tiktok-info .ads-preview-cta { margin-top: 8px; margin-bottom: 6px; display: inline-block; }
+        .ads-preview-body[dir="rtl"],
+        .ads-preview-tiktok-info[dir="rtl"] { text-align: right; }
         .ads-phone-instagram .ads-preview-body strong { display: block; margin-top: 0.2rem; }
         @media (max-width: 1023px) {
             .ads-editor-grid { grid-template-columns: minmax(0, 1fr) 360px; }

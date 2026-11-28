@@ -1523,6 +1523,26 @@ function editorPreviewCards() {
     : editorMediaPreview((editorState.media || [])[0]);
 }
 
+function editorIsArabic(text) {
+  return /[\u0600-\u06FF]/.test(String(text || ""));
+}
+
+function editorPriceLabel(state) {
+  const source = state || editorState;
+  if (!source) return "";
+  if (source.kind === "carousel") {
+    const first = (source.carouselCards || [])[0];
+    if (first && first.priceMad) {
+      return String(first.priceMad).replace(/[\u2066-\u2069]/g, "").trim();
+    }
+  }
+  const product = cachedProducts.find(
+    (item) => String(item.id) === String(source.productId)
+  );
+  const value = product ? Number(product.price) : NaN;
+  return Number.isFinite(value) && value > 0 ? money(value) : "";
+}
+
 function renderEditorPreview() {
   if (!editorState) return;
   const container = document.querySelector("#adsEditorModal [data-editor-preview]");
@@ -1541,47 +1561,64 @@ function renderEditorPreview() {
     !hasVideo && editorState.kind !== "carousel"
       ? `<div class="ads-preview-image">${editorMediaPreview(media)}</div>`
       : "";
-  const ticker = editorState.kind === "carousel" ? "" : imageHtml;
   const cta = editorState.ctaLabel || adsT("adsEditorCtaOrder");
   const headline = editorState.headline || "";
-  const description = editorState.description || "";
+  const price = editorPriceLabel();
+  /* RTL automatique des que l accroche contient de l arabe. */
+  const copyDir = editorIsArabic(copy) ? ' dir="rtl"' : "";
   const avatar = "/assets/favicon-32.png";
+  const priceHtml = price ? `<p class="ads-preview-price">${escapeHTML(price)}</p>` : "";
+
   if (editorPreviewTab === "instagram") {
+    const mediaBlock = cardsHtml || mediaHtml || imageHtml;
     container.innerHTML = `<div class="ads-phone-instagram">
       <div class="ads-preview-top"><span class="ads-preview-avatar"><img src="${avatar}" alt=""></span><div><strong>@smartswi9a</strong><small>${escapeHTML(
         adsT("adsEditorSponsored")
       )}</small></div><span class="ads-preview-more">•••</span></div>
-      <div class="ads-preview-media">${cardsHtml || mediaHtml || ticker}</div>
-      <div class="ads-preview-body"><p>${escapeHTML(copy)}</p><strong>@smartswi9a</strong><p>${escapeHTML(
-        headline
-      )}</p><span class="ads-preview-domain">smartswika.ma</span><button type="button">${escapeHTML(
-        cta
-      )}</button></div>
+      <div class="ads-preview-media ads-preview-media--square">${mediaBlock}</div>
+      <div class="ads-preview-ig-actions"><span>${escapeHTML(cta)} ›</span></div>
+      <div class="ads-preview-body ads-preview-body--ig"${copyDir}>
+        <p class="ads-preview-copy">${escapeHTML(copy)}</p>
+        <strong class="ads-preview-account">@smartswi9a</strong>
+        ${priceHtml}
+      </div>
     </div>`;
     return;
   }
+
   if (editorPreviewTab === "tiktok") {
+    /* Bloc sombre statique : @smartswi9a n est plus jamais pose sur la photo blanche. */
+    const mediaBlock = hasVideo ? mediaHtml : cardsHtml || imageHtml;
     container.innerHTML = `<div class="ads-phone-tiktok">
-      <div class="ads-preview-media">${mediaHtml || cardsHtml || ticker}</div>
-      <div class="ads-preview-tiktok-overlay"><strong>@smartswika</strong><span>${escapeHTML(
-        adsT("adsEditorSponsored")
-      )}</span><p>${escapeHTML(copy)}</p><small>${escapeHTML(headline)}</small><button type="button">${escapeHTML(
-        cta
-      )}</button></div>
+      <div class="ads-preview-tiktok-media">${mediaBlock}</div>
+      <div class="ads-preview-tiktok-info"${copyDir}>
+        <div class="ads-preview-tiktok-account"><strong>@smartswi9a</strong><span class="ads-preview-badge">${escapeHTML(
+          adsT("adsEditorSponsored")
+        )}</span></div>
+        <p class="ads-preview-tiktok-copy">${escapeHTML(copy)}</p>
+        <div class="ads-preview-tiktok-product"><strong>${escapeHTML(headline)}</strong>${
+      price ? `<span>${escapeHTML(price)}</span>` : ""
+    }</div>
+        <button type="button" class="ads-preview-cta">${escapeHTML(cta)}</button>
+      </div>
     </div>`;
     return;
   }
+
   container.innerHTML = `<div class="ads-phone-facebook">
     <div class="ads-preview-top"><span class="ads-preview-avatar"><img src="${avatar}" alt=""></span><div><strong>Smartswi9a</strong><small>${escapeHTML(
       adsT("adsEditorSponsored")
     )} · 🌍</small></div><span class="ads-preview-more">•••</span></div>
-    <div class="ads-preview-body"><p>${escapeHTML(copy)}</p></div>
-    <div class="ads-preview-media">${mediaHtml || cardsHtml || ticker}</div>
-    <div class="ads-preview-link"><div><strong>${escapeHTML(headline)}</strong><span>${escapeHTML(
-      description
-    )}</span><small>smartswika.ma</small></div><button type="button">${escapeHTML(
-      cta
-    )}</button></div>
+    <div class="ads-preview-body"${copyDir}><p class="ads-preview-copy">${escapeHTML(copy)}</p></div>
+    <div class="ads-preview-media ads-preview-media--square">${mediaHtml || cardsHtml || imageHtml}</div>
+    <div class="ads-preview-link">
+      <div>
+        <small class="ads-preview-domain">SMARTSWIKA.MA</small>
+        <strong class="ads-preview-title">${escapeHTML(headline)}</strong>
+        ${priceHtml}
+      </div>
+      <button type="button" class="ads-preview-cta">${escapeHTML(cta)}</button>
+    </div>
   </div>`;
 }
 
