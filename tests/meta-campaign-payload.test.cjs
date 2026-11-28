@@ -247,8 +247,8 @@ async function main() {
   );
   /* --- 7. Aperçu mono-produit TikTok / Facebook / Instagram --- */
   check(
-    "admin.html : TikTok media carre centre max 270px",
-    /\.ads-preview-tiktok-media\s*\{[^}]*aspect-ratio:\s*1\s*\/\s*1[^}]*max-height:\s*270px[^}]*background:\s*#ffffff/i.test(
+    "admin.html : TikTok media carre plein (344x344, max-height none)",
+    /\.ads-preview-tiktok-media\s*\{[^}]*aspect-ratio:\s*1\s*\/\s*1[^}]*height:\s*auto[^}]*max-height:\s*none[^}]*background:\s*#ffffff/i.test(
       adminHtml
     ) && /\.ads-preview-tiktok-media img[^}]*object-fit:\s*contain/.test(adminHtml)
   );
