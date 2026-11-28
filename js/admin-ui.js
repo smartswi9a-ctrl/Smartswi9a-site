@@ -416,6 +416,9 @@ const ADMIN_I18N = {
     adsCampaignDaysLeft: "Jours restants",
     adsCampaignPreview: "Aperçu",
     adsCampaignEdit: "Modifier",
+    adsCampaignDelete: "Supprimer",
+    adsDeleteActiveBlocked: "Mettez la campagne en pause avant de la supprimer.",
+    adsDeleteError: "Suppression impossible.",
   },
   en: {
     pageTitle: "Administration | Smartswika",
@@ -809,6 +812,9 @@ const ADMIN_I18N = {
     adsCampaignDaysLeft: "Days left",
     adsCampaignPreview: "Preview",
     adsCampaignEdit: "Edit",
+    adsCampaignDelete: "Delete",
+    adsDeleteActiveBlocked: "Pause the campaign before deleting it.",
+    adsDeleteError: "Deletion failed.",
   },
   ar: {
     pageTitle: "الإدارة | سمارت سويقة",
@@ -1202,6 +1208,9 @@ const ADMIN_I18N = {
     adsCampaignDaysLeft: "الأيام المتبقية",
     adsCampaignPreview: "معاينة",
     adsCampaignEdit: "تعديل",
+    adsCampaignDelete: "حذف",
+    adsDeleteActiveBlocked: "أوقف الحملة مؤقتًا قبل حذفها.",
+    adsDeleteError: "تعذر الحذف.",
   },
 };
 

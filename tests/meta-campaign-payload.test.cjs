@@ -506,6 +506,152 @@ async function main() {
     String(madAdset.payload && madAdset.payload.lifetime_budget)
   );
 
+  /* --- 10. Suppression synchronisee des DRAFT / PAUSED --- */
+  const coreBody = extractAsyncFunction(functionsSource, "deleteAdCampaignEverywhereCore");
+  const metaRemoteBody = extractAsyncFunction(functionsSource, "deleteMetaCampaignRemote");
+  check(
+    "delete : helpers extraits",
+    Boolean(coreBody) && Boolean(metaRemoteBody)
+  );
+  const buildDeleteCore = (deps) => {
+    const core = new Function(
+      "deleteMeta",
+      "deleteTiktok",
+      "removeDocument",
+      coreBody + "\nreturn deleteAdCampaignEverywhereCore;"
+    )(deps.deleteMeta, deps.deleteTiktok, deps.removeDocument);
+    /* Les dependances sont aussi injectees dans les options : le corps extrait
+       resout d abord options.deleteMeta (les identifiants module n existent pas
+       dans le bac a sable du test). */
+    return (input) =>
+      core({
+        ...input,
+        deleteMeta: deps.deleteMeta,
+        deleteTiktok: deps.deleteTiktok,
+        removeDocument: deps.removeDocument,
+      });
+  };
+
+  const deletedDocs = [];
+  const metaCalls = [];
+  const coreDelete = buildDeleteCore({
+    deleteMeta: async (input) => {
+      metaCalls.push(input);
+      return { deleted: true, skipped: false, alreadyGone: false };
+    },
+    deleteTiktok: async () => ({ deleted: true, skipped: false, alreadyGone: false }),
+    removeDocument: async (id) => {
+      deletedDocs.push(id);
+    },
+  });
+  const draftResult = await coreDelete({
+    docId: "doc-draft",
+    campaign: { status: "DRAFT", platform: "meta", externalCampaignId: "1200" },
+    metaToken: "tok",
+  });
+  check(
+    "delete : Meta DELETE /{campaignId} appele",
+    metaCalls.length === 1 &&
+      metaCalls[0].campaignId === "1200" &&
+      metaCalls[0].token === "tok",
+    JSON.stringify(metaCalls[0] || {})
+  );
+  check(
+    "delete : document Firestore supprime",
+    deletedDocs.length === 1 && deletedDocs[0] === "doc-draft",
+    deletedDocs.join(",")
+  );
+  check(
+    "delete : resultat ok + remoteDeleted",
+    draftResult.ok === true && draftResult.remoteDeleted === true
+  );
+
+  const tikCalls = [];
+  const coreTiktok = buildDeleteCore({
+    deleteMeta: async () => ({ deleted: false, skipped: true }),
+    deleteTiktok: async (input) => {
+      tikCalls.push(input);
+      return { deleted: true, skipped: false, alreadyGone: false };
+    },
+    removeDocument: async (id) => {
+      deletedDocs.push(id);
+    },
+  });
+  await coreTiktok({
+    docId: "doc-paused",
+    campaign: { status: "PAUSED", platform: "tiktok", externalCampaignId: "1799" },
+    tiktokAdvertiserId: "adv-1",
+    tiktokToken: "ttok",
+  });
+  check(
+    "delete : TikTok DELETE/archive appele",
+    tikCalls.length === 1 &&
+      tikCalls[0].campaignId === "1799" &&
+      tikCalls[0].advertiserId === "adv-1" &&
+      deletedDocs.includes("doc-paused"),
+    JSON.stringify(tikCalls[0] || {})
+  );
+
+  /* Campagne deja supprimee cote Meta : code 100 / subcode 33 -> tolere */
+  const realMetaRemote = new Function(
+    "metaGraphRequest",
+    "META_ALREADY_GONE_PATTERN",
+    metaRemoteBody + "\nreturn deleteMetaCampaignRemote;"
+  )(async () => {
+    const error = new Error(
+      "Unsupported get request. Object with ID '1200' does not exist, cannot be loaded"
+    );
+    error.metaError = { code: 100, subcode: 33 };
+    throw error;
+  }, /does not exist|Unsupported get request|was deleted|Object with ID/i);
+  const goneResult = await realMetaRemote({ campaignId: "1200", token: "tok" });
+  check(
+    "delete : Meta deja supprime tolere (code 100 / subcode 33)",
+    goneResult.alreadyGone === true && goneResult.deleted === false,
+    JSON.stringify(goneResult)
+  );
+  const docCountBefore = deletedDocs.length;
+  const coreGone = buildDeleteCore({
+    deleteMeta: (input) => realMetaRemote(input),
+    deleteTiktok: async () => ({ deleted: true }),
+    removeDocument: async (id) => {
+      deletedDocs.push(id);
+    },
+  });
+  const goneDocResult = await coreGone({
+    docId: "doc-gone",
+    campaign: { status: "PAUSED", platform: "meta", externalCampaignId: "1200" },
+    metaToken: "tok",
+  });
+  check(
+    "delete : Firestore supprime meme si Meta a deja l objet",
+    goneDocResult.ok === true &&
+      goneDocResult.alreadyGone === true &&
+      deletedDocs.length === docCountBefore + 1
+  );
+
+  /* Campagne ACTIVE : suppression refusee, rien n est touche */
+  const callsBeforeActive = metaCalls.length + deletedDocs.length;
+  let activeError = null;
+  try {
+    await coreDelete({
+      docId: "doc-active",
+      campaign: { status: "ACTIVE", platform: "meta", externalCampaignId: "1300" },
+      metaToken: "tok",
+    });
+  } catch (error) {
+    activeError = error;
+  }
+  check(
+    "delete : campagne ACTIVE bloquee (failed-precondition)",
+    Boolean(activeError) && activeError.status === "failed-precondition",
+    String(activeError && activeError.message)
+  );
+  check(
+    "delete : aucun appel distant ni suppression Firestore si ACTIVE",
+    metaCalls.length + deletedDocs.length === callsBeforeActive
+  );
+
   console.log(verifications + " verification(s), " + echecs + " echec(s).");
   if (echecs) process.exitCode = 1;
 }

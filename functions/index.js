@@ -4395,8 +4395,17 @@ exports.adminDeleteVideo = onRequest(
 );
 
 async function metaGraphRequest(path, method, payload, token) {
-  const response = await fetch('https://graph.facebook.com/' + META_GRAPH_VERSION + '/' + path, {
-    method: method || 'GET',
+  const httpMethod = String(method || 'GET').toUpperCase();
+  let url = 'https://graph.facebook.com/' + META_GRAPH_VERSION + '/' + path;
+  /* DELETE n accepte pas de body JSON : le token doit passer en query. */
+  if (httpMethod === 'DELETE') {
+    url +=
+      (url.indexOf('?') >= 0 ? '&' : '?') +
+      'access_token=' +
+      encodeURIComponent(String(token || ''));
+  }
+  const response = await fetch(url, {
+    method: httpMethod,
     headers: { 'Content-Type': 'application/json' },
     body: payload ? JSON.stringify({ ...payload, access_token: token }) : undefined
   });
@@ -4405,7 +4414,11 @@ async function metaGraphRequest(path, method, payload, token) {
     const message =
       (json.error && (json.error.error_user_msg || json.error.message)) ||
       'Meta API HTTP ' + response.status;
-    throw new Error(message);
+    const error = new Error(message);
+    /* On conserve code/subcode Graph pour tolerer "objet deja supprime". */
+    if (json.error) error.metaError = json.error;
+    error.metaStatus = response.status;
+    throw error;
   }
   return json;
 }
@@ -4469,6 +4482,134 @@ async function deleteMetaCampaign(accountId, token, campaignId) {
     );
     return false;
   }
+}
+
+const META_ALREADY_GONE_PATTERN =
+  /does not exist|Unsupported get request|Unknown path components|was deleted|Object with ID/i;
+
+/* Suppression distante Meta : DELETE /{campaignId} (cascade Graph : ad sets,
+   ads et brouillons rattaches). Un objet deja supprime n est pas une erreur. */
+async function deleteMetaCampaignRemote(input) {
+  const options = input || {};
+  const campaignId = String(options.campaignId || '').trim();
+  const token = String(options.token || '');
+  if (!campaignId) return { deleted: false, skipped: true, alreadyGone: false };
+  if (!token) throw new Error('Meta access token missing.');
+  const request = options.request || metaGraphRequest;
+  try {
+    await request(campaignId, 'DELETE', null, token);
+    return { deleted: true, skipped: false, alreadyGone: false };
+  } catch (error) {
+    const metaError = (error && error.metaError) || {};
+    const subcode = Number(metaError.subcode);
+    const code = Number(metaError.code);
+    const message = String((error && error.message) || '');
+    const alreadyGone =
+      subcode === 33 ||
+      (code === 100 && META_ALREADY_GONE_PATTERN.test(message)) ||
+      META_ALREADY_GONE_PATTERN.test(message);
+    if (alreadyGone) return { deleted: false, skipped: false, alreadyGone: true };
+    throw error;
+  }
+}
+
+/* Suppression distante TikTok (archivage campagne via status/update DELETE). */
+async function deleteTiktokCampaignRemote(input) {
+  const options = input || {};
+  const campaignId = String(options.campaignId || '').trim();
+  const advertiserId = String(options.advertiserId || '');
+  const token = String(options.token || '');
+  if (!campaignId) return { deleted: false, skipped: true, alreadyGone: false };
+  if (!advertiserId || !token) throw new Error('TikTok credentials missing.');
+  const request = options.request || tiktokRequest;
+  try {
+    await request(
+      '/campaign/status/update/',
+      'POST',
+      {
+        advertiser_id: advertiserId,
+        campaign_ids: [campaignId],
+        operation_status: 'DELETE'
+      },
+      token
+    );
+    return { deleted: true, skipped: false, alreadyGone: false };
+  } catch (error) {
+    const message = String((error && error.message) || '');
+    if (/not exist|not found|deleted|invalid campaign_id/i.test(message)) {
+      return { deleted: false, skipped: false, alreadyGone: true };
+    }
+    /* TikTok ne permet pas toujours la suppression dure : on n empeche pas
+       le nettoyage local, on remonte l avertissement a l admin. */
+    console.warn('[tiktok] suppression distante impossible', campaignId, message);
+    return {
+      deleted: false,
+      skipped: false,
+      alreadyGone: false,
+      warning: message.slice(0, 200)
+    };
+  }
+}
+
+/* Coeur testable : refuse ACTIVE, supprime a distance puis le document. */
+async function deleteAdCampaignEverywhereCore(input) {
+  const options = input || {};
+  const campaign = options.campaign || {};
+  const docId = String(options.docId || '').trim();
+  const status = String(options.status || campaign.status || '').toUpperCase();
+  if (status === 'ACTIVE') {
+    const error = new Error(
+      'Campagne ACTIVE : mettez-la en pause avant de la supprimer.'
+    );
+    error.status = 'failed-precondition';
+    throw error;
+  }
+  if (!docId) {
+    const error = new Error('docId is required.');
+    error.status = 'invalid-argument';
+    throw error;
+  }
+  const platform = String(options.platform || campaign.platform || 'meta').toLowerCase();
+  const externalId = String(
+    options.externalCampaignId || campaign.externalCampaignId || ''
+  ).trim();
+  const deleteMeta = options.deleteMeta || deleteMetaCampaignRemote;
+  const deleteTiktok = options.deleteTiktok || deleteTiktokCampaignRemote;
+  const removeDocument =
+    options.removeDocument ||
+    (async (id) => {
+      await db.collection(AD_CAMPAIGNS_COLLECTION).doc(id).delete();
+    });
+  const result = {
+    ok: true,
+    docId: docId,
+    platform: platform,
+    remoteDeleted: false,
+    remoteSkipped: !externalId,
+    alreadyGone: false
+  };
+  if (externalId && platform === 'meta') {
+    const remote = await deleteMeta({
+      campaignId: externalId,
+      token: options.metaToken,
+      request: options.metaRequest
+    });
+    result.remoteDeleted = Boolean(remote && remote.deleted);
+    result.alreadyGone = Boolean(remote && remote.alreadyGone);
+    result.remoteSkipped = Boolean(remote && remote.skipped);
+  } else if (externalId && platform === 'tiktok') {
+    const remote = await deleteTiktok({
+      campaignId: externalId,
+      advertiserId: options.tiktokAdvertiserId,
+      token: options.tiktokToken,
+      request: options.tiktokRequest
+    });
+    result.remoteDeleted = Boolean(remote && remote.deleted);
+    result.alreadyGone = Boolean(remote && remote.alreadyGone);
+    if (remote && remote.warning) result.warning = remote.warning;
+  }
+  await removeDocument(docId);
+  return result;
 }
 
 const metaAccountCurrencyCache = new Map();
@@ -5716,6 +5857,45 @@ exports.toggleAdCampaignStatus = onCall(
       updatedAt: FieldValue.serverTimestamp()
     });
     return { campaignDocId, status: action, synced };
+  }
+);
+
+exports.deleteAdCampaignEverywhere = onCall(
+  { region: 'europe-west1', timeoutSeconds: 60, maxInstances: 5 },
+  async (request) => {
+    await requireAdminCallable(request);
+    const data = request.data || {};
+    const docId = String(data.docId || data.campaignDocId || '').trim();
+    if (!docId) throw new HttpsError('invalid-argument', 'docId is required.');
+    const snap = await db.collection(AD_CAMPAIGNS_COLLECTION).doc(docId).get();
+    if (!snap.exists) throw new HttpsError('not-found', 'Campaign not found.');
+    const campaign = snap.data() || {};
+    const secrets = await readAdsSecrets();
+    try {
+      return await deleteAdCampaignEverywhereCore({
+        docId: docId,
+        campaign: campaign,
+        platform: data.platform || campaign.platform,
+        externalCampaignId: data.externalCampaignId || campaign.externalCampaignId,
+        metaToken: String(secrets.metaAccessToken || ''),
+        tiktokToken: String(secrets.tiktokAccessToken || ''),
+        tiktokAdvertiserId: String(secrets.tiktokAdvertiserId || '')
+      });
+    } catch (error) {
+      const code = error && error.status;
+      if (code === 'failed-precondition' || code === 'invalid-argument') {
+        throw new HttpsError(code, String(error.message || 'Suppression refusee.'));
+      }
+      console.error(
+        '[deleteAdCampaignEverywhere]',
+        docId,
+        error && (error.code || error.message)
+      );
+      throw new HttpsError(
+        'internal',
+        String((error && error.message) || 'Suppression impossible.').slice(0, 300)
+      );
+    }
   }
 );
 

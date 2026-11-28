@@ -43,8 +43,9 @@ import {
   getDownloadURL,
 } from "firebase/storage";
 import { db, storage } from "./firebase.js";
-import { adminT, getAdminLang } from "./admin-ui.js?v=drawer2027c";
+import { adminT, getAdminLang } from "./admin-ui.js?v=drawer2027d";
 import { escapeHTML } from "./utils.js";
+import { showToast } from "./ui-core.js";
 
 /* ============================================================
    ÉTAT
@@ -2860,14 +2861,17 @@ function renderCampaigns() {
   container.innerHTML = cachedCampaigns
     .map((campaign) => {
       const stats = campaignStats(campaign);
-      const active = String(campaign.status || "").toUpperCase() === "ACTIVE";
+      const statusUpper = String(campaign.status || "").toUpperCase();
+      const active = statusUpper === "ACTIVE";
       const nextAction = active ? "PAUSED" : "ACTIVE";
+      /* Suppression autorisee uniquement hors diffusion (DRAFT / PAUSED). */
+      const canDelete = statusUpper === "DRAFT" || statusUpper === "PAUSED";
       const platformLabel =
         campaign.platform === "tiktok"
           ? adsT("adsChannelTiktok")
           : adsT("adsChannelMeta");
       const isCarousel = campaign.type === "carousel";
-      const isDraft = String(campaign.status || "").toUpperCase() === "DRAFT";
+      const isDraft = statusUpper === "DRAFT";
       const carouselCount = Number(campaign.productCount) ||
         (Array.isArray(campaign.productIds) ? campaign.productIds.length : 0);
       const linkedProduct = cachedProducts.find(
@@ -2936,6 +2940,13 @@ function renderCampaigns() {
               campaign.id
             )}">✏️ ${escapeHTML(adsT("adsCampaignEdit"))}</button>
             ${
+              canDelete
+                ? `<button type="button" class="admin-btn-secondary ads-btn-danger" data-delete-campaign="${escapeHTML(
+                    campaign.id
+                  )}">🗑️ ${escapeHTML(adsT("adsCampaignDelete") || "Supprimer")}</button>`
+                : ""
+            }
+            ${
               isDraft
                 ? ""
                 : `<button type="button" class="admin-btn-secondary" data-toggle-campaign="${escapeHTML(
@@ -2985,6 +2996,71 @@ function renderCampaigns() {
       openCreativeEditor({ kind: campaign.type === "carousel" ? "carousel" : "suggestion", campaign });
     });
   });
+  container.querySelectorAll("[data-delete-campaign]").forEach((button) => {
+    button.addEventListener("click", () => {
+      deleteCampaign(button.dataset.deleteCampaign, button);
+    });
+  });
+}
+
+/**
+ * Supprime une campagne/brouillon partout : Firestore + Meta/TikTok Ads Manager.
+ * Refuse les campagnes ACTIVE (il faut d'abord les mettre en pause).
+ */
+async function deleteCampaign(campaignDocId, button) {
+  if (!campaignDocId) return;
+  const campaign = cachedCampaigns.find((item) => String(item.id) === String(campaignDocId));
+  const status = String((campaign && campaign.status) || "").toUpperCase();
+  if (status === "ACTIVE") {
+    showToast(
+      adsT("adsDeleteActiveBlocked") ||
+        "Mettez la campagne en pause avant de la supprimer."
+    );
+    return;
+  }
+  const confirmed = window.confirm(
+    "Supprimer définitivement cette campagne/brouillon sur Smartswika ET sur Meta / TikTok Ads Manager ?"
+  );
+  if (!confirmed) return;
+  const originalLabel = button ? button.textContent : "";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "⏳";
+  }
+  try {
+    const result = await callAdsFunction("deleteAdCampaignEverywhere", {
+      docId: campaignDocId,
+      platform: campaign ? campaign.platform : undefined,
+      externalCampaignId: campaign ? campaign.externalCampaignId : undefined,
+    });
+    cachedCampaigns = cachedCampaigns.filter(
+      (item) => String(item.id) !== String(campaignDocId)
+    );
+    document
+      .querySelector(
+        `.ads-campaign-card[data-campaign-id="${String(campaignDocId).replace(/"/g, "")}"]`
+      )
+      ?.remove();
+    renderCampaigns();
+    showToast(
+      result && result.alreadyGone
+        ? "Campagne supprimée sur Smartswika (déjà absente de Meta/TikTok)"
+        : "Campagne supprimée sur Smartswika et Meta/TikTok"
+    );
+  } catch (error) {
+    console.error("[admin-ads] suppression impossible :", error);
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalLabel || "🗑️ Supprimer";
+    }
+    showToast(
+      String(
+        (error && error.message) ||
+          adsT("adsDeleteError") ||
+          "Suppression impossible."
+      )
+    );
+  }
 }
 
 async function toggleCampaignStatus(campaignDocId, action, button) {
