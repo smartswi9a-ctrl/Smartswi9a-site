@@ -5196,7 +5196,7 @@ async function createMetaSingleCreativeAd(options) {
     'act_' + account + '/adcreatives',
     'POST',
     {
-      name: options.campaignName + ' - Creative',
+      name: (options.creativeName || options.campaignName) + ' - Creative',
       object_story_spec: storySpec
     },
     options.token
@@ -5205,7 +5205,7 @@ async function createMetaSingleCreativeAd(options) {
     'act_' + account + '/ads',
     'POST',
     {
-      name: options.campaignName + ' - Ad',
+      name: (options.creativeName || options.campaignName) + ' - Ad',
       adset_id: options.externalAdSetId,
       creative: { creative_id: creative.id },
       status: options.startPaused ? 'PAUSED' : 'ACTIVE'
