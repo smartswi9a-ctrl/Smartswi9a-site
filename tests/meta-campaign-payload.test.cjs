@@ -51,7 +51,9 @@ function extractAsyncFunction(source, name) {
 async function main() {
   const functionsSource = read("functions/index.js");
   const body = extractAsyncFunction(functionsSource, "createMetaCampaign");
+  const centsBody = extractAsyncFunction(functionsSource, "metaBudgetToCents");
   check("meta : createMetaCampaign extraite", Boolean(body));
+  check("meta : metaBudgetToCents extraite", Boolean(centsBody));
 
   const calls = [];
   const deleted = [];
@@ -59,7 +61,9 @@ async function main() {
     "metaGraphRequest",
     "metaAdsManagerUrl",
     "deleteMetaCampaign",
-    body + "\nreturn createMetaCampaign;"
+    "metaAccountCurrency",
+    "USD_MAD_DEFAULT_RATE",
+    centsBody + "\n" + body + "\nreturn createMetaCampaign;"
   );
   const createMetaCampaign = factory(
     async (apiPath, method, payload) => {
@@ -70,7 +74,9 @@ async function main() {
     async (accountId, token, campaignId) => {
       deleted.push(String(campaignId));
       return true;
-    }
+    },
+    async () => "MAD",
+    10
   );
 
   /* --- 1. ABO : budget au niveau ad set (mono-produit SinoTrack ST-901M) --- */
@@ -386,7 +392,9 @@ async function main() {
     "metaGraphRequest",
     "metaAdsManagerUrl",
     "deleteMetaCampaign",
-    body + "\nreturn createMetaCampaign;"
+    "metaAccountCurrency",
+    "USD_MAD_DEFAULT_RATE",
+    centsBody + "\n" + body + "\nreturn createMetaCampaign;"
   );
   const deletedIds = [];
   const failing = failingFactory(
@@ -398,7 +406,9 @@ async function main() {
     async (accountId, token, campaignId) => {
       deletedIds.push(String(campaignId));
       return true;
-    }
+    },
+    async () => "MAD",
+    10
   );
   let thrown = null;
   try {
@@ -417,6 +427,83 @@ async function main() {
     "meta : campagne orpheline supprimee (DELETE)",
     deletedIds.length === 1 && deletedIds[0] === "999",
     deletedIds.join(",")
+  );
+
+  /* --- 9. Compte Meta en USD : 10 $ sur 4 jours -> lifetime_budget 1000 --- */
+  const usdFactory = new Function(
+    "metaGraphRequest",
+    "metaAdsManagerUrl",
+    "deleteMetaCampaign",
+    "metaAccountCurrency",
+    "USD_MAD_DEFAULT_RATE",
+    centsBody + "\n" + body + "\nreturn createMetaCampaign;"
+  );
+  const usdCalls = [];
+  const createUsdCampaign = usdFactory(
+    async (apiPath, method, payload) => {
+      usdCalls.push({ apiPath: apiPath, payload: payload });
+      return { id: String(usdCalls.length) };
+    },
+    () => "url",
+    async () => true,
+    async () => "USD",
+    10
+  );
+  await createUsdCampaign({
+    accountId: "act_1714694896973404",
+    token: "tok",
+    campaignName: "Smartswika - 10$ sur 4 jours",
+    dailyBudgetMad: 25,
+    totalBudgetMad: 100,
+    totalBudgetUsd: 10,
+    usdMadRate: 10,
+    durationDays: 4,
+    startPaused: true,
+  });
+  const usdAdset = usdCalls[1] || {};
+  check(
+    "meta USD : lifetime_budget === 1000 (10,00 $)",
+    Boolean(usdAdset.payload) && usdAdset.payload.lifetime_budget === 1000,
+    String(usdAdset.payload && usdAdset.payload.lifetime_budget)
+  );
+  check(
+    "meta USD : jamais 10000 (erreur MAD->USD historique)",
+    Boolean(usdAdset.payload) && usdAdset.payload.lifetime_budget !== 10000
+  );
+
+  /* Budget journalier en USD : 50 MAD -> 5 $ -> 500 centimes */
+  usdCalls.length = 0;
+  await createUsdCampaign({
+    accountId: "act_1714694896973404",
+    token: "tok",
+    campaignName: "Smartswika - 5$/jour",
+    dailyBudgetMad: 50,
+    durationDays: 0,
+    startPaused: true,
+  });
+  const usdDaily = usdCalls[1] || {};
+  check(
+    "meta USD : daily_budget === 500 depuis 50 MAD",
+    Boolean(usdDaily.payload) && usdDaily.payload.daily_budget === 500,
+    String(usdDaily.payload && usdDaily.payload.daily_budget)
+  );
+
+  /* Compte en MAD : 100 MAD restent 10000 centimes */
+  calls.length = 0;
+  await createMetaCampaign({
+    accountId: "act_mad",
+    token: "tok",
+    campaignName: "Smartswika - 100 MAD / 4 jours",
+    dailyBudgetMad: 25,
+    totalBudgetMad: 100,
+    durationDays: 4,
+    startPaused: true,
+  });
+  const madAdset = calls[1] || {};
+  check(
+    "meta MAD : lifetime_budget === 10000",
+    Boolean(madAdset.payload) && madAdset.payload.lifetime_budget === 10000,
+    String(madAdset.payload && madAdset.payload.lifetime_budget)
   );
 
   console.log(verifications + " verification(s), " + echecs + " echec(s).");

@@ -4471,10 +4471,66 @@ async function deleteMetaCampaign(accountId, token, campaignId) {
   }
 }
 
+const metaAccountCurrencyCache = new Map();
+
+/* Devise reelle du compte publicitaire Meta (GET /act_{id}?fields=currency).
+   Mise en cache par compte pour ne pas ajouter un appel a chaque campagne. */
+async function metaAccountCurrency(accountId, token) {
+  const account = String(accountId || '').replace(/^act_/, '');
+  if (!account || !token) return '';
+  if (metaAccountCurrencyCache.has(account)) return metaAccountCurrencyCache.get(account);
+  const url =
+    'https://graph.facebook.com/' +
+    META_GRAPH_VERSION +
+    '/act_' +
+    encodeURIComponent(account) +
+    '?fields=currency&access_token=' +
+    encodeURIComponent(String(token));
+  try {
+    const response = await fetch(url);
+    const json = await response.json().catch(() => ({}));
+    const currency = String((json && json.currency) || '').toUpperCase();
+    if (/^[A-Z]{3}$/.test(currency)) {
+      metaAccountCurrencyCache.set(account, currency);
+      return currency;
+    }
+    console.warn(
+      '[meta] devise du compte illisible',
+      account,
+      json && json.error && json.error.message
+    );
+  } catch (error) {
+    console.warn('[meta] devise du compte indisponible', account, error && error.message);
+  }
+  return '';
+}
+
+/* Convertit un budget saisi (MAD et/ou USD) en CENTIMES de la devise reelle
+   du compte publicitaire Meta. Compte USD : 10 $ -> 1000 (jamais 10000).
+   Compte MAD : 100 MAD -> 10000. */
+function metaBudgetToCents(options) {
+  const opts = options || {};
+  const accountCurrency = String(opts.accountCurrency || 'MAD').toUpperCase();
+  const usdMadRate =
+    Number(opts.usdMadRate) > 0 ? Number(opts.usdMadRate) : USD_MAD_DEFAULT_RATE;
+  const madAmount = Number(opts.madAmount) || 0;
+  const usdAmount =
+    Number(opts.usdAmount) > 0 ? Number(opts.usdAmount) : madAmount / usdMadRate;
+  const value = accountCurrency === 'MAD' ? madAmount : usdAmount;
+  if (!(value > 0)) return 0;
+  return Math.max(0, Math.round(value * 100));
+}
+
 async function createMetaCampaign(options) {
   const account = String(options.accountId || '').replace(/^act_/, '');
   if (!account) throw new Error('Meta Ad Account ID missing.');
   const status = options.startPaused ? 'PAUSED' : 'ACTIVE';
+  const accountCurrency =
+    String(options.accountCurrency || '').toUpperCase() ||
+    (await metaAccountCurrency(account, options.token)) ||
+    'MAD';
+  const usdMadRate =
+    Number(options.usdMadRate) > 0 ? Number(options.usdMadRate) : USD_MAD_DEFAULT_RATE;
   const campaignPayload = {
     name: options.campaignName,
     objective: options.objective || 'OUTCOME_TRAFFIC',
@@ -4486,9 +4542,19 @@ async function createMetaCampaign(options) {
   const campaignDailyBudget = Number(options.campaignDailyBudgetMad);
   const campaignLifetimeBudget = Number(options.campaignLifetimeBudgetMad);
   if (Number.isFinite(campaignDailyBudget) && campaignDailyBudget > 0) {
-    campaignPayload.daily_budget = Math.round(campaignDailyBudget * 100);
+    campaignPayload.daily_budget = metaBudgetToCents({
+      accountCurrency: accountCurrency,
+      usdMadRate: usdMadRate,
+      madAmount: campaignDailyBudget,
+      usdAmount: options.campaignDailyBudgetUsd
+    });
   } else if (Number.isFinite(campaignLifetimeBudget) && campaignLifetimeBudget > 0) {
-    campaignPayload.lifetime_budget = Math.round(campaignLifetimeBudget * 100);
+    campaignPayload.lifetime_budget = metaBudgetToCents({
+      accountCurrency: accountCurrency,
+      usdMadRate: usdMadRate,
+      madAmount: campaignLifetimeBudget,
+      usdAmount: options.campaignLifetimeBudgetUsd
+    });
   }
   /* ABO (budget porte par l ad set) : depuis Graph v20 Meta exige explicitement
      ce booleen sur /campaigns, sinon la creation echoue avec
@@ -4505,11 +4571,15 @@ async function createMetaCampaign(options) {
   );
   const durationDays = Math.max(0, Math.round(Number(options.durationDays) || 0));
   const totalBudgetMad = Number(options.totalBudgetMad) || 0;
+  const totalBudgetUsd =
+    Number(options.totalBudgetUsd) > 0
+      ? Number(options.totalBudgetUsd)
+      : totalBudgetMad / usdMadRate;
   /* Mode "budget total + duree" (ex: 10 $ sur 4 jours) : l ad set porte un
-     lifetime_budget et un end_time Unix/ISO futur, jamais un daily_budget. */
+     lifetime_budget (converti dans la devise du compte) et un end_time ISO futur. */
   const lifetimeMode =
     durationDays > 0 &&
-    totalBudgetMad > 0 &&
+    (totalBudgetMad > 0 || totalBudgetUsd > 0) &&
     !campaignPayload.daily_budget &&
     !campaignPayload.lifetime_budget;
   const adsetPayload = {
@@ -4535,12 +4605,22 @@ async function createMetaCampaign(options) {
     bid_strategy: options.bidStrategy || 'LOWEST_COST_WITHOUT_CAP'
   };
   if (lifetimeMode) {
-    adsetPayload.lifetime_budget = Math.round(totalBudgetMad * 100);
+    adsetPayload.lifetime_budget = metaBudgetToCents({
+      accountCurrency: accountCurrency,
+      usdMadRate: usdMadRate,
+      madAmount: totalBudgetMad,
+      usdAmount: totalBudgetUsd
+    });
     adsetPayload.end_time = new Date(
       Date.now() + durationDays * 24 * 60 * 60 * 1000
     ).toISOString();
   } else if (!campaignPayload.daily_budget && !campaignPayload.lifetime_budget) {
-    adsetPayload.daily_budget = Math.round(Number(options.dailyBudgetMad) * 100);
+    adsetPayload.daily_budget = metaBudgetToCents({
+      accountCurrency: accountCurrency,
+      usdMadRate: usdMadRate,
+      madAmount: Number(options.dailyBudgetMad) || 0,
+      usdAmount: options.dailyBudgetUsd
+    });
   }
   const bidAmountCents = Math.round(Number(options.bidAmount) * 100);
   if (Number.isFinite(bidAmountCents) && bidAmountCents > 0) {
@@ -4661,7 +4741,10 @@ async function createMetaCarouselCampaign(options) {
     token: options.token,
     campaignName: options.campaignName,
     dailyBudgetMad: options.dailyBudgetMad,
+    dailyBudgetUsd: options.dailyBudgetUsd,
     totalBudgetMad: options.totalBudgetMad,
+    totalBudgetUsd: options.totalBudgetUsd,
+    usdMadRate: options.usdMadRate,
     durationDays: options.durationDays,
     startPaused: options.startPaused
   });
@@ -4803,6 +4886,7 @@ function resolveCampaignBudget(data) {
     totalBudgetUsd > 0 ? totalBudgetUsd : roundMoney(totalBudgetMad / usdMadRate);
   return {
     dailyBudgetMad,
+    dailyBudgetUsd: roundMoney(dailyBudgetMad / usdMadRate),
     durationDays,
     totalBudgetMad: roundMoney(totalBudgetMad),
     totalBudgetUsd: roundMoney(totalUsd),
@@ -4935,10 +5019,22 @@ async function syncCampaignBudgetToPlatform(campaign, budget, secrets) {
       secrets.metaAccessToken &&
       secrets.metaAdAccountId
     ) {
+      const accountCurrency =
+        (await metaAccountCurrency(
+          String(secrets.metaAdAccountId),
+          String(secrets.metaAccessToken)
+        )) || 'MAD';
       await metaGraphRequest(
         String(campaign.externalAdSetId),
         'POST',
-        { daily_budget: Math.round(budget.dailyBudgetMad * 100) },
+        {
+          daily_budget: metaBudgetToCents({
+            accountCurrency: accountCurrency,
+            usdMadRate: budget.usdMadRate,
+            madAmount: budget.dailyBudgetMad,
+            usdAmount: budget.dailyBudgetUsd
+          })
+        },
         String(secrets.metaAccessToken)
       );
     } else if (
@@ -5073,7 +5169,10 @@ exports.launchSuggestedAdCampaign = onCall(
               token,
               campaignName,
               dailyBudgetMad,
+              dailyBudgetUsd: budget.dailyBudgetUsd,
               totalBudgetMad: budget.totalBudgetMad,
+              totalBudgetUsd: budget.totalBudgetUsd,
+              usdMadRate: budget.usdMadRate,
               durationDays: budget.durationDays,
               startPaused
             })
@@ -5320,7 +5419,10 @@ exports.launchMultiProductCarouselCampaign = onCall(
               pageId,
               campaignName,
               dailyBudgetMad,
+              dailyBudgetUsd: budget.dailyBudgetUsd,
               totalBudgetMad: budget.totalBudgetMad,
+              totalBudgetUsd: budget.totalBudgetUsd,
+              usdMadRate: budget.usdMadRate,
               durationDays: budget.durationDays,
               startPaused,
               products: productsForPlatform,
