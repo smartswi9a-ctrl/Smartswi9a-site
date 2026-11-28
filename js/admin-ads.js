@@ -1021,6 +1021,169 @@ function creativeChecklist(input) {
   ];
 }
 
+/* ============================================================
+   STUDIO VISUEL & SOUS-TITRES (v32)
+   ============================================================ */
+
+const EVENT_BANNER_RULES = [
+  { key: "ramadan", label: "🌙 Ramadan", pattern: /ramadan|رمضان/i },
+  { key: "blackfriday", label: "🖤 Black Friday", pattern: /black\s*friday|بلاك\s*فرايداي/i },
+  { key: "soldes", label: "🏷️ Soldes", pattern: /soldes?|تخفيضات/i },
+  { key: "aid", label: "🎉 Aïd", pattern: /a[iï]d\b|عيد/i },
+  { key: "noel", label: "🎄 Noël", pattern: /no[eë]l|كريسماس/i },
+];
+const EVENT_BANNER_PROMO = "⚡ Vente Flash · Paiement à la livraison";
+const EVENT_BANNER_DEFAULT = "🛍️ Koulchi dialk : jusqu'à −15 %";
+const EVENT_BANNER_MAX = 38;
+
+function resolveEventBanner(input) {
+  const source = input || {};
+  const events = Array.isArray(source.events)
+    ? source.events
+    : source.eventText
+    ? [source.eventText]
+    : [];
+  const joined = events.map((item) => String(item || "")).join(" | ");
+  const matched = EVENT_BANNER_RULES.find((rule) =>
+    rule.pattern.test(joined) || (source.eventKey && source.eventKey === rule.key)
+  );
+  const banner = matched
+    ? matched.label
+    : source.isPromo
+    ? EVENT_BANNER_PROMO
+    : EVENT_BANNER_DEFAULT;
+  return String(banner).slice(0, EVENT_BANNER_MAX);
+}
+
+/** Ecran partage 1080x1080 : 2 visuels cote a cote + separateur 4 px. */
+function buildSplitScreenLayout(input) {
+  const source = input || {};
+  const images = Array.isArray(source.images)
+    ? source.images.filter(Boolean)
+    : [];
+  const requested = source.splitScreen === true;
+  const canSplit = images.length >= 2;
+  const enabled = requested && canSplit;
+  const separatorPx = 4;
+  const half = Math.floor((1080 - separatorPx) / 2);
+  return {
+    enabled: enabled,
+    reason: enabled
+      ? ""
+      : !requested
+      ? "option_off"
+      : "need_two_images",
+    width: 1080,
+    height: 1080,
+    separatorPx: separatorPx,
+    panels: enabled
+      ? [
+          { x: 0, y: 0, width: half, height: 1080, url: images[0] },
+          {
+            x: half + separatorPx,
+            y: 0,
+            width: 1080 - half - separatorPx,
+            height: 1080,
+            url: String(source.secondImage || images[1] || ""),
+          },
+        ]
+      : [],
+    logo: { url: "/assets/logo-64.png", widthRatio: 0.11, position: "top-right" },
+    banner: { text: resolveEventBanner(source), position: "top-left" },
+  };
+}
+
+function formatSrtTime(ms) {
+  const total = Math.max(0, Math.round(Number(ms) || 0));
+  const hours = String(Math.floor(total / 3600000)).padStart(2, "0");
+  const minutes = String(Math.floor((total % 3600000) / 60000)).padStart(2, "0");
+  const seconds = String(Math.floor((total % 60000) / 1000)).padStart(2, "0");
+  const millis = String(total % 1000).padStart(3, "0");
+  return `${hours}:${minutes}:${seconds},${millis}`;
+}
+
+function buildSrt(cues) {
+  const list = Array.isArray(cues) ? cues : [];
+  const blocks = list.map((cue, index) => {
+    const text = String((cue && cue.text) || "").trim();
+    const startMs = Number(cue && cue.startMs) || 0;
+    const endMs = Number(cue && cue.endMs) || startMs + 1000;
+    return `${index + 1}\n${formatSrtTime(startMs)} --> ${formatSrtTime(
+      endMs
+    )}\n${text}`;
+  });
+  return blocks.length ? blocks.join("\n\n") + "\n" : "";
+}
+
+/** 3 sous-titres synchronises 0-4s / 4-9s / 9-15s. */
+function buildVideoCaptions(input) {
+  const source = input || {};
+  const lines = Array.isArray(source.lines) ? source.lines : [];
+  const fallback = buildConversionCopy(source).fr.split("\n");
+  const first = String(lines[0] || fallback[0] || "🔥 Découvrez ce produit").trim();
+  const second = String(lines[1] || fallback[1] || COD_GUARANTEES.fr).trim();
+  const third = String(lines[2] || "👉 smartswika.ma · Paiement à la livraison").trim();
+  return [
+    { index: 1, startMs: 0, endMs: 4000, start: "00:00:00,000", end: "00:00:04,000", text: first },
+    { index: 2, startMs: 4000, endMs: 9000, start: "00:00:04,000", end: "00:00:09,000", text: second },
+    { index: 3, startMs: 9000, endMs: 15000, start: "00:00:09,000", end: "00:00:15,000", text: third },
+  ];
+}
+
+function editorGalleryImages(state) {
+  const list = [];
+  ((state && state.productIds) || []).forEach((id) => {
+    const product = cachedProducts.find((item) => String(item.id) === String(id));
+    if (!product) return;
+    [product.img, ...(Array.isArray(product.gallery) ? product.gallery : [])]
+      .filter(Boolean)
+      .forEach((url) => {
+        if (!list.includes(url)) list.push(url);
+      });
+  });
+  return list;
+}
+
+function editorSplitScreenHtml(state) {
+  const images = editorGalleryImages(state);
+  if (images.length < 2) return "";
+  return `<label class="ads-check"><input type="checkbox" data-studio-split ${
+    state.splitScreen === true ? "checked" : ""
+  }> 📐 Mode Écran partagé (Photo produit + Photo usage/app côte à côte)</label>
+    <label>2ᵉ visuel
+      <select data-studio-second>
+        ${images
+          .slice(1, 6)
+          .map(
+            (url, index) =>
+              `<option value="${escapeHTML(url)}" ${
+                String(state.secondImage) === String(url) || (!state.secondImage && index === 0)
+                  ? "selected"
+                  : ""
+              }>Visuel ${index + 2}</option>`
+          )
+          .join("")}
+      </select>
+    </label>`;
+}
+
+function renderStudioCaptions() {
+  const container = document.querySelector("#adsEditorModal [data-studio-captions]");
+  if (!container || !editorState) return;
+  const cues = Array.isArray(editorState.captions) ? editorState.captions : [];
+  container.innerHTML = `<h4>💬 Sous-titres vidéo (0-4s / 4-9s / 9-15s)</h4>
+    ${cues
+      .map(
+        (cue, index) => `<label>${cue.start} → ${cue.end}
+          <input type="text" maxlength="90" data-caption-index="${index}" value="${escapeHTML(
+          cue.text || ""
+        )}">
+        </label>`
+      )
+      .join("")}
+    <pre class="ads-srt-preview" data-srt-preview>${escapeHTML(buildSrt(cues))}</pre>`;
+}
+
 function buildAdCopy(product, price) {
   return buildConversionCopy({
     name: product.nameFr || product.nameEn || product.nameAr || "Produit",
@@ -1477,6 +1640,22 @@ function editorModalHtml() {
             }
             <div class="ads-editor-variants" data-editor-variants></div>
           </div>
+          <div class="ads-studio">
+            <h4>🎬 Studio visuel &amp; sous-titres</h4>
+            <label>Bandeau événement / promo (38 caractères max)
+              <input type="text" maxlength="38" data-studio-banner value="${escapeHTML(
+                state.eventBanner || ""
+              )}">
+            </label>
+            <label class="ads-check"><input type="checkbox" data-studio-logo ${
+              state.showLogo === false ? "" : "checked"
+            }> 🏷️ Logo Smartswika en haut à droite</label>
+            <label class="ads-check"><input type="checkbox" data-studio-banner-toggle ${
+              state.showBanner === false ? "" : "checked"
+            }> 🎀 Bandeau événement / promo en haut à gauche</label>
+            ${editorSplitScreenHtml(state)}
+            <div class="ads-captions" data-studio-captions></div>
+          </div>
           <label>${escapeHTML(adsT("adsEditorHeadline"))}
             <input type="text" data-editor-headline maxlength="120" value="${escapeHTML(
               state.headline
@@ -1651,6 +1830,50 @@ function bindCreativeEngine() {
   modal
     .querySelectorAll("[data-editor-copy], [data-editor-headline], [data-budget-days]")
     .forEach((input) => input.addEventListener("input", renderEditorChecklist));
+  const bannerInput = modal.querySelector("[data-studio-banner]");
+  if (bannerInput) {
+    bannerInput.addEventListener("input", () => {
+      editorState.eventBanner = String(bannerInput.value || "").slice(0, 38);
+      renderEditorPreview();
+    });
+  }
+  const logoToggle = modal.querySelector("[data-studio-logo]");
+  if (logoToggle) {
+    logoToggle.addEventListener("change", () => {
+      editorState.showLogo = Boolean(logoToggle.checked);
+      renderEditorPreview();
+    });
+  }
+  const bannerToggle = modal.querySelector("[data-studio-banner-toggle]");
+  if (bannerToggle) {
+    bannerToggle.addEventListener("change", () => {
+      editorState.showBanner = Boolean(bannerToggle.checked);
+      renderEditorPreview();
+    });
+  }
+  const splitToggle = modal.querySelector("[data-studio-split]");
+  if (splitToggle) {
+    splitToggle.addEventListener("change", () => {
+      editorState.splitScreen = Boolean(splitToggle.checked);
+      renderEditorChecklist();
+      renderEditorPreview();
+    });
+  }
+  const secondSelect = modal.querySelector("[data-studio-second]");
+  if (secondSelect) {
+    secondSelect.addEventListener("change", () => {
+      editorState.secondImage = String(secondSelect.value || "");
+    });
+  }
+  modal.querySelectorAll("[data-caption-index]").forEach((input) => {
+    input.addEventListener("input", () => {
+      const index = Number(input.dataset.captionIndex) || 0;
+      if (!Array.isArray(editorState.captions) || !editorState.captions[index]) return;
+      editorState.captions[index].text = String(input.value || "").slice(0, 90);
+      const preview = modal.querySelector("[data-srt-preview]");
+      if (preview) preview.textContent = buildSrt(editorState.captions);
+    });
+  });
 }
 
 function openCreativeEditor(options) {
@@ -1673,6 +1896,21 @@ function openCreativeEditor(options) {
   const mediaTypes = (state.media || []).map((item) => item.type);
   state.mixImageVideo =
     mediaTypes.includes("image") && mediaTypes.includes("video");
+  const galleryImages = editorGalleryImages(state);
+  state.eventBanner = resolveEventBanner({
+    isPromo: Boolean(
+      linkedProduct &&
+        Number(linkedProduct.oldPrice) > Number(linkedProduct.price)
+    ),
+  });
+  state.showLogo = true;
+  state.showBanner = true;
+  state.splitScreen = false;
+  state.secondImage = galleryImages[1] || "";
+  state.captions = buildVideoCaptions({
+    name: linkedProduct ? productDisplayName(linkedProduct) : state.headline,
+    price: linkedProduct ? Number(linkedProduct.price) || 0 : 0,
+  });
   state.original = JSON.parse(JSON.stringify({ ...state, original: null }));
   editorState = state;
   editorPreviewTab = "facebook";
@@ -1685,6 +1923,7 @@ function openCreativeEditor(options) {
   renderEditorVariants();
   renderEditorPreview();
   renderEditorChecklist();
+  renderStudioCaptions();
   bindCreativeEngine();
   updateBudgetEditor(document.querySelector("#adsEditorModal [data-budget-editor]"));
 }
@@ -2265,6 +2504,13 @@ async function launchEditorCampaign() {
         mixImageVideo: editorState.mixImageVideo === true,
         abTest: editorState.abTest === true,
         variants: editorState.abTest === true ? editorState.variants : [],
+        eventBanner: editorState.eventBanner || "",
+        showLogo: editorState.showLogo !== false,
+        showBanner: editorState.showBanner !== false,
+        splitScreen: editorState.splitScreen === true,
+        secondImage: editorState.secondImage || "",
+        captions: Array.isArray(editorState.captions) ? editorState.captions : [],
+        captionsSrt: buildSrt(editorState.captions),
         ...budgetPayload(editorBudgetValues()),
       });
       setEditorStatus(

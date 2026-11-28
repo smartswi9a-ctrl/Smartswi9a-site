@@ -1025,6 +1025,106 @@ async function main() {
       /Stock épuisé/.test(checklistZero[0].label)
   );
 
+  /* --- 13. Studio visuel & sous-titres v32 --- */
+  const studioPrelude = [
+    "const fmtNumber = (n) => String(n);",
+    extractConst(adminAdsCreative, "COD_GUARANTEES"),
+    extractConst(adminAdsCreative, "COD_CTA_TEXT"),
+    "const EVENT_BANNER_PROMO = " + JSON.stringify("⚡ Vente Flash · Paiement à la livraison") + ";",
+    "const EVENT_BANNER_DEFAULT = " + JSON.stringify("🛍️ Koulchi dialk : jusqu'à −15 %") + ";",
+    "const EVENT_BANNER_MAX = 38;",
+    "const EVENT_BANNER_RULES = " +
+      (adminAdsCreative.match(/const EVENT_BANNER_RULES = ([\s\S]*?);\n/) || ["", "[]"])[1] +
+      ";",
+  ].join("\n");
+  const studioFns = new Function(
+    studioPrelude +
+      "\n" +
+      [
+        "firstSentence",
+        "realSocialProof",
+        "buildConversionCopy",
+        "resolveEventBanner",
+        "buildSplitScreenLayout",
+        "formatSrtTime",
+        "buildSrt",
+        "buildVideoCaptions",
+      ]
+        .map((name) => extractAsyncFunction(adminAdsCreative, name) || "")
+        .join("\n") +
+      "\nreturn { resolveEventBanner, buildSplitScreenLayout, buildSrt, buildVideoCaptions };"
+  )();
+
+  check(
+    "studio : bandeau Ramadan / Black Friday detecte",
+    /Ramadan/.test(studioFns.resolveEventBanner({ events: ["Promo Ramadan 2026"] })) &&
+      /Black Friday/.test(studioFns.resolveEventBanner({ events: ["BLACK FRIDAY -50%"] }))
+  );
+  check(
+    "studio : bandeau Vente Flash si produit en promo",
+    /Vente Flash/.test(studioFns.resolveEventBanner({ isPromo: true }))
+  );
+  const fallbackBanner = studioFns.resolveEventBanner({});
+  check(
+    "studio : bandeau Koulchi dialk par defaut (<= 38 car.)",
+    /Koulchi dialk/.test(fallbackBanner) && fallbackBanner.length <= 38,
+    fallbackBanner
+  );
+
+  const cues = studioFns.buildVideoCaptions({ name: "SinoTrack ST-901M", price: 470 });
+  const srt = studioFns.buildSrt(cues);
+  check(
+    "studio : 3 sous-titres synchronises 0-4s / 4-9s / 9-15s",
+    cues.length === 3 &&
+      cues[0].start === "00:00:00,000" &&
+      cues[0].end === "00:00:04,000" &&
+      cues[1].end === "00:00:09,000" &&
+      cues[2].end === "00:00:15,000",
+    JSON.stringify(cues.map((cue) => cue.start + "->" + cue.end))
+  );
+  check(
+    "studio : fichier .srt valide en 3 sequences",
+    srt.split("\n\n").length === 3 &&
+      srt.startsWith("1\n00:00:00,000 --> 00:00:04,000\n") &&
+      /3\n00:00:09,000 --> 00:00:15,000\n/.test(srt) &&
+      /Paiement à la livraison/.test(srt),
+    srt.split("\n")[1]
+  );
+
+  const splitOff = studioFns.buildSplitScreenLayout({
+    images: ["a.webp", "b.webp"],
+    splitScreen: false,
+  });
+  const splitMissing = studioFns.buildSplitScreenLayout({
+    images: ["a.webp"],
+    splitScreen: true,
+  });
+  const splitOn = studioFns.buildSplitScreenLayout({
+    images: ["a.webp", "b.webp"],
+    splitScreen: true,
+    isPromo: true,
+  });
+  check(
+    "studio : ecran partage desactive par defaut",
+    splitOff.enabled === false && splitOff.reason === "option_off" && splitOff.panels.length === 0
+  );
+  check(
+    "studio : ecran partage refuse avec une seule image",
+    splitMissing.enabled === false && splitMissing.reason === "need_two_images"
+  );
+  check(
+    "studio : ecran partage 1080x1080, separateur 4px, logo + bandeau en zone sure",
+    splitOn.enabled === true &&
+      splitOn.width === 1080 &&
+      splitOn.separatorPx === 4 &&
+      splitOn.panels.length === 2 &&
+      splitOn.panels[0].width + splitOn.separatorPx + splitOn.panels[1].width === 1080 &&
+      splitOn.banner.position === "top-left" &&
+      splitOn.logo.position === "top-right" &&
+      splitOn.logo.widthRatio === 0.11,
+    JSON.stringify(splitOn.panels.map((panel) => panel.x + "/" + panel.width))
+  );
+
   console.log(verifications + " verification(s), " + echecs + " echec(s).");
   if (echecs) process.exitCode = 1;
 }

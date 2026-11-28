@@ -5165,6 +5165,49 @@ async function createMetaSingleCreativeAd(options) {
       },
       options.token
     );
+    /* Sous-titres .srt : heberges puis attaches a la video (muet en Reels). */
+    if (options.captionsSrt) {
+      try {
+        const bucket = getStorage().bucket();
+        const captionPath =
+          'ad_captions/' +
+          Date.now() +
+          '-' +
+          Math.random().toString(36).slice(2, 8) +
+          '.srt';
+        const captionFile = bucket.file(captionPath);
+        await captionFile.save(String(options.captionsSrt), {
+          contentType: 'application/x-subrip',
+          resumable: false,
+          metadata: { cacheControl: 'public, max-age=31536000' }
+        });
+        let captionsUrl = '';
+        try {
+          await captionFile.makePublic();
+          captionsUrl =
+            'https://storage.googleapis.com/' + bucket.name + '/' + captionPath;
+        } catch (publicError) {
+          const signed = await captionFile.getSignedUrl({
+            action: 'read',
+            expires: Date.now() + 30 * 24 * 3600 * 1000
+          });
+          captionsUrl = signed && signed[0];
+        }
+        if (captionsUrl) {
+          await metaGraphRequest(
+            String(uploaded.id) + '/captions',
+            'POST',
+            { captions_file: captionsUrl, default_locale: 'fr_FR' },
+            options.token
+          );
+        }
+      } catch (error) {
+        console.warn(
+          '[meta] sous-titres non attaches',
+          error && (error.code || error.message)
+        );
+      }
+    }
     storySpec = {
       page_id: String(options.pageId),
       video_data: {
@@ -5435,6 +5478,10 @@ exports.launchSuggestedAdCampaign = onCall(
                 description: creative.description,
                 customMedia: mediaList,
                 forceFormat: adSpec.format,
+                captionsSrt:
+                  adSpec.format === 'video' && data.captionsSrt
+                    ? String(data.captionsSrt).slice(0, 8000)
+                    : '',
                 destinationUrl,
                 startPaused
               });
@@ -5488,6 +5535,12 @@ exports.launchSuggestedAdCampaign = onCall(
             : [],
           abTest: data.abTest === true,
           mixImageVideo: data.mixImageVideo === true,
+          captionsSrt: String(data.captionsSrt || '').slice(0, 8000),
+          eventBanner: String(data.eventBanner || '').slice(0, 38),
+          showLogo: data.showLogo !== false,
+          showBanner: data.showBanner !== false,
+          splitScreen: data.splitScreen === true,
+          secondImage: String(data.secondImage || '').slice(0, 500),
           productId,
           productTitle: title,
           campaignName,
