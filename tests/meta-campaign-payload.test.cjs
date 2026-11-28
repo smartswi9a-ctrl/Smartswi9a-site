@@ -54,9 +54,11 @@ async function main() {
   check("meta : createMetaCampaign extraite", Boolean(body));
 
   const calls = [];
+  const deleted = [];
   const factory = new Function(
     "metaGraphRequest",
     "metaAdsManagerUrl",
+    "deleteMetaCampaign",
     body + "\nreturn createMetaCampaign;"
   );
   const createMetaCampaign = factory(
@@ -64,7 +66,11 @@ async function main() {
       calls.push({ apiPath: apiPath, method: method, payload: payload });
       return { id: String(calls.length) };
     },
-    () => "https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=x"
+    () => "https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=x",
+    async (accountId, token, campaignId) => {
+      deleted.push(String(campaignId));
+      return true;
+    }
   );
 
   /* --- 1. ABO : budget au niveau ad set (mono-produit SinoTrack ST-901M) --- */
@@ -308,6 +314,85 @@ async function main() {
   check(
     "admin-ads : FB domaine SMARTSWIKA.MA + bandeau IG",
     adminAds.includes("SMARTSWIKA.MA") && adminAds.includes("ads-preview-ig-actions")
+  );
+
+  /* --- 8. Encheres automatiques, budget total + duree, nettoyage --- */
+  check(
+    "meta adset : bid_strategy LOWEST_COST_WITHOUT_CAP",
+    Boolean(adset.payload) && adset.payload.bid_strategy === "LOWEST_COST_WITHOUT_CAP",
+    String(adset.payload && adset.payload.bid_strategy)
+  );
+  check(
+    "meta adset : aucun bid_amount / bid_constraints vide",
+    Boolean(adset.payload) &&
+      !Object.prototype.hasOwnProperty.call(adset.payload, "bid_amount") &&
+      !Object.prototype.hasOwnProperty.call(adset.payload, "bid_constraints")
+  );
+
+  /* Budget total + duree (10 $ / 4 jours) -> lifetime_budget + end_time */
+  calls.length = 0;
+  await createMetaCampaign({
+    accountId: "act_77",
+    token: "tok",
+    campaignName: "Smartswika - 10$ sur 4 jours",
+    dailyBudgetMad: 25,
+    totalBudgetMad: 100,
+    durationDays: 4,
+    startPaused: true,
+  });
+  const lifetimeAdset = calls[1] || {};
+  const endTime = lifetimeAdset.payload && lifetimeAdset.payload.end_time;
+  check(
+    "meta lifetime : lifetime_budget 10000",
+    Boolean(lifetimeAdset.payload) && lifetimeAdset.payload.lifetime_budget === 10000,
+    String(lifetimeAdset.payload && lifetimeAdset.payload.lifetime_budget)
+  );
+  check(
+    "meta lifetime : pas de daily_budget",
+    Boolean(lifetimeAdset.payload) && lifetimeAdset.payload.daily_budget === undefined
+  );
+  check(
+    "meta lifetime : end_time futur (ISO)",
+    Boolean(endTime) && new Date(endTime).getTime() > Date.now() + 3 * 86400000,
+    String(endTime)
+  );
+
+  /* Echec de l ad set -> DELETE de la campagne orpheline */
+  const failingFactory = new Function(
+    "metaGraphRequest",
+    "metaAdsManagerUrl",
+    "deleteMetaCampaign",
+    body + "\nreturn createMetaCampaign;"
+  );
+  const deletedIds = [];
+  const failing = failingFactory(
+    async (apiPath) => {
+      if (apiPath.indexOf("/adsets") >= 0) throw new Error("Meta API: bid cap without bid_amount");
+      return { id: "999" };
+    },
+    () => "url",
+    async (accountId, token, campaignId) => {
+      deletedIds.push(String(campaignId));
+      return true;
+    }
+  );
+  let thrown = null;
+  try {
+    await failing({
+      accountId: "act_9",
+      token: "tok",
+      campaignName: "Campagne test",
+      dailyBudgetMad: 20,
+      startPaused: true,
+    });
+  } catch (error) {
+    thrown = error;
+  }
+  check("meta : erreur adset propagee", Boolean(thrown) && /bid cap/.test(String(thrown.message)));
+  check(
+    "meta : campagne orpheline supprimee (DELETE)",
+    deletedIds.length === 1 && deletedIds[0] === "999",
+    deletedIds.join(",")
   );
 
   console.log(verifications + " verification(s), " + echecs + " echec(s).");

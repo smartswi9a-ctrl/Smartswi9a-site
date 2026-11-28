@@ -4438,6 +4438,39 @@ function tiktokAdsManagerUrl(advertiserId) {
   );
 }
 
+async function deleteMetaCampaign(accountId, token, campaignId) {
+  const id = String(campaignId || '').trim();
+  if (!id) return false;
+  const url =
+    'https://graph.facebook.com/' +
+    META_GRAPH_VERSION +
+    '/' +
+    encodeURIComponent(id) +
+    '?access_token=' +
+    encodeURIComponent(String(token || ''));
+  try {
+    const response = await fetch(url, { method: 'DELETE' });
+    const json = await response.json().catch(() => ({}));
+    if (!response.ok || json.error) {
+      console.error(
+        '[meta] suppression campagne orpheline refusee',
+        id,
+        json.error && json.error.message
+      );
+      return false;
+    }
+    console.log('[meta] campagne orpheline supprimee', id, String(accountId || ''));
+    return true;
+  } catch (error) {
+    console.error(
+      '[meta] suppression campagne orpheline echouee',
+      id,
+      error && error.message
+    );
+    return false;
+  }
+}
+
 async function createMetaCampaign(options) {
   const account = String(options.accountId || '').replace(/^act_/, '');
   if (!account) throw new Error('Meta Ad Account ID missing.');
@@ -4470,30 +4503,62 @@ async function createMetaCampaign(options) {
     campaignPayload,
     options.token
   );
+  const durationDays = Math.max(0, Math.round(Number(options.durationDays) || 0));
+  const totalBudgetMad = Number(options.totalBudgetMad) || 0;
+  /* Mode "budget total + duree" (ex: 10 $ sur 4 jours) : l ad set porte un
+     lifetime_budget et un end_time Unix/ISO futur, jamais un daily_budget. */
+  const lifetimeMode =
+    durationDays > 0 &&
+    totalBudgetMad > 0 &&
+    !campaignPayload.daily_budget &&
+    !campaignPayload.lifetime_budget;
   const adsetPayload = {
     name: options.campaignName + ' - MA 21-55',
     campaign_id: campaign.id,
-    daily_budget: Math.round(options.dailyBudgetMad * 100),
     billing_event: 'IMPRESSIONS',
-    optimization_goal: 'LINK_CLICKS',
+    optimization_goal: options.optimizationGoal || 'LINK_CLICKS',
     destination_type: 'WEBSITE',
     targeting: {
       geo_locations: { countries: ['MA'] },
       age_min: 21,
       age_max: 55
     },
-    status
+    status,
+    /* Enchere automatique explicite : sans bid_amount, Meta refuse la creation
+       ("For a bid cap, provide bid_amount...") si la strategie est ambigue. */
+    bid_strategy: options.bidStrategy || 'LOWEST_COST_WITHOUT_CAP'
   };
-  /* Si le budget est au niveau campagne (CBO), l ad set ne doit pas en porter. */
-  if (campaignPayload.daily_budget || campaignPayload.lifetime_budget) {
-    delete adsetPayload.daily_budget;
+  if (lifetimeMode) {
+    adsetPayload.lifetime_budget = Math.round(totalBudgetMad * 100);
+    adsetPayload.end_time = new Date(
+      Date.now() + durationDays * 24 * 60 * 60 * 1000
+    ).toISOString();
+  } else if (!campaignPayload.daily_budget && !campaignPayload.lifetime_budget) {
+    adsetPayload.daily_budget = Math.round(Number(options.dailyBudgetMad) * 100);
   }
-  const adset = await metaGraphRequest(
-    'act_' + account + '/adsets',
-    'POST',
-    adsetPayload,
-    options.token
-  );
+  const bidAmountCents = Math.round(Number(options.bidAmount) * 100);
+  if (Number.isFinite(bidAmountCents) && bidAmountCents > 0) {
+    adsetPayload.bid_strategy = 'LOWEST_COST_WITH_BID_CAP';
+    adsetPayload.bid_amount = bidAmountCents;
+  }
+  /* Aucun bid_amount / bid_constraints vide ne doit partir vers Meta. */
+  if (!adsetPayload.bid_amount) {
+    delete adsetPayload.bid_amount;
+    delete adsetPayload.bid_constraints;
+  }
+  let adset;
+  try {
+    adset = await metaGraphRequest(
+      'act_' + account + '/adsets',
+      'POST',
+      adsetPayload,
+      options.token
+    );
+  } catch (error) {
+    /* Nettoyage : pas de campagne vide dans Ads Manager si l ad set echoue. */
+    await deleteMetaCampaign(account, options.token, campaign.id);
+    throw error;
+  }
   return {
     externalCampaignId: String(campaign.id),
     externalAdSetId: String(adset.id),
@@ -4590,8 +4655,11 @@ async function createMetaCarouselCampaign(options) {
     token: options.token,
     campaignName: options.campaignName,
     dailyBudgetMad: options.dailyBudgetMad,
+    totalBudgetMad: options.totalBudgetMad,
+    durationDays: options.durationDays,
     startPaused: options.startPaused
   });
+  try {
   const cards = options.products.slice(0, META_CAROUSEL_MAX_CARDS).map((product) => ({
     link: product.link,
     name: String(product.title || '').slice(0, 80),
@@ -4638,6 +4706,11 @@ async function createMetaCarouselCampaign(options) {
     externalAdId: String(ad.id),
     metaCardCount: cards.length
   };
+  } catch (error) {
+    /* Nettoyage : une campagne sans visuel ne doit pas rester dans Ads Manager. */
+    await deleteMetaCampaign(account, options.token, base.externalCampaignId);
+    throw error;
+  }
 }
 
 function normalizeAdCopy(value) {
@@ -4994,6 +5067,8 @@ exports.launchSuggestedAdCampaign = onCall(
               token,
               campaignName,
               dailyBudgetMad,
+              totalBudgetMad: budget.totalBudgetMad,
+              durationDays: budget.durationDays,
               startPaused
             })
           : await createTiktokCampaign({
@@ -5004,32 +5079,40 @@ exports.launchSuggestedAdCampaign = onCall(
               startPaused
             });
         let extraCreative = {};
-        if (isMeta && secrets.metaPageId) {
-          const metaCreative = await createMetaSingleCreativeAd({
-            accountId,
-            token,
-            pageId: String(secrets.metaPageId),
-            campaignName,
-            externalAdSetId: created.externalAdSetId,
-            message,
-            headline: creative.headline,
-            description: creative.description,
-            customMedia: creative.customMedia,
-            destinationUrl,
-            startPaused
-          });
-          if (metaCreative) extraCreative = metaCreative;
-        } else if (!isMeta) {
-          const uploadedVideo = await uploadTiktokVideo(
-            accountId,
-            token,
-            creative.customMedia
-          ).catch(() => null);
-          if (uploadedVideo) {
-            extraCreative.externalVideoId = String(
-              uploadedVideo.video_id || uploadedVideo.videoId || ''
-            );
+        try {
+          if (isMeta && secrets.metaPageId) {
+            const metaCreative = await createMetaSingleCreativeAd({
+              accountId,
+              token,
+              pageId: String(secrets.metaPageId),
+              campaignName,
+              externalAdSetId: created.externalAdSetId,
+              message,
+              headline: creative.headline,
+              description: creative.description,
+              customMedia: creative.customMedia,
+              destinationUrl,
+              startPaused
+            });
+            if (metaCreative) extraCreative = metaCreative;
+          } else if (!isMeta) {
+            const uploadedVideo = await uploadTiktokVideo(
+              accountId,
+              token,
+              creative.customMedia
+            ).catch(() => null);
+            if (uploadedVideo) {
+              extraCreative.externalVideoId = String(
+                uploadedVideo.video_id || uploadedVideo.videoId || ''
+              );
+            }
           }
+        } catch (error) {
+          /* Nettoyage : campagne Meta sans annonce -> suppression. */
+          if (isMeta) {
+            await deleteMetaCampaign(accountId, token, created.externalCampaignId);
+          }
+          throw error;
         }
         const docRef = await db.collection(AD_CAMPAIGNS_COLLECTION).add({
           platform: current,
@@ -5231,6 +5314,8 @@ exports.launchMultiProductCarouselCampaign = onCall(
               pageId,
               campaignName,
               dailyBudgetMad,
+              totalBudgetMad: budget.totalBudgetMad,
+              durationDays: budget.durationDays,
               startPaused,
               products: productsForPlatform,
               message
