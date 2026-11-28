@@ -5755,6 +5755,114 @@ exports.updateAdCampaignSettings = onCall(
   }
 );
 
+/* Notifie les admins (collection `notifications`, double schema cloche). */
+async function notifyAdminsAdsPaused(campaign, productId) {
+  try {
+    const admins = await db.collection('users').where('role', '==', 'admin').limit(10).get();
+    if (admins.empty) return 0;
+    const batch = db.batch();
+    const message =
+      'Campagne ' +
+      (campaign.campaignName || campaign.id) +
+      ' mise en pause automatiquement : produit ' +
+      productId +
+      ' en rupture de stock.';
+    admins.docs.forEach((adminDoc) => {
+      batch.set(db.collection('notifications').doc(), {
+        userId: adminDoc.id,
+        recipientId: adminDoc.id,
+        recipientRole: 'admin',
+        type: 'ads_auto_paused_stock_zero',
+        title: 'Campagne mise en pause (stock 0)',
+        message: message,
+        body: message,
+        targetUrl: '/admin',
+        read: false,
+        isRead: false,
+        campaignDocId: campaign.id,
+        productId: productId,
+        createdAt: FieldValue.serverTimestamp()
+      });
+    });
+    await batch.commit();
+    return admins.size;
+  } catch (error) {
+    console.warn(
+      '[auto-pause-stock-zero] notification admin impossible',
+      error && (error.code || error.message)
+    );
+    return 0;
+  }
+}
+
+/**
+ * Coeur testable : met en pause les campagnes ACTIVE quand un produit tombe a 0.
+ * - Mono-produit : pause des que le produit cible est a stock <= 0.
+ * - Carrousel : pause seulement si TOUS les produits du carrousel sont a 0.
+ */
+async function pauseCampaignsOnStockZeroCore(input) {
+  const options = input || {};
+  const productId = String(options.productId || '').trim();
+  const prevStock = Number(options.prevStock);
+  const nextStock = Number(options.nextStock);
+  const result = { ok: true, transition: false, paused: [], skipped: [], failed: [] };
+  if (!productId || !(prevStock > 0 && nextStock <= 0)) return result;
+  result.transition = true;
+  const campaigns = Array.isArray(options.campaigns) ? options.campaigns : [];
+  const stockOf = options.stockOf || (async () => nextStock);
+  const pauseRemote = options.pauseRemote || (async () => true);
+  const markPaused =
+    options.markPaused ||
+    (async () => {
+      /* no-op par defaut : injecte en production */
+    });
+  const notify = options.notify || (async () => 0);
+
+  for (const campaign of campaigns) {
+    const campaignId = String(campaign.id || '').trim();
+    if (!campaignId) continue;
+    if (String(campaign.status || '').toUpperCase() !== 'ACTIVE') continue;
+    const productIds = Array.isArray(campaign.productIds) ? campaign.productIds : [];
+    const isCarousel =
+      String(campaign.type || '').toLowerCase() === 'carousel' || productIds.length > 1;
+    if (isCarousel) {
+      let stillInStock = 0;
+      for (const id of productIds) {
+        const stock = Number(await stockOf(String(id)));
+        if (stock > 0) {
+          stillInStock += 1;
+          break;
+        }
+      }
+      if (stillInStock > 0) {
+        result.skipped.push(campaignId);
+        continue;
+      }
+    }
+    try {
+      await pauseRemote(campaign);
+      await markPaused(campaign, { status: 'PAUSED', autoPausedReason: 'stock_zero' });
+      await notify(campaign, productId);
+      result.paused.push(campaignId);
+      console.log(
+        '[auto-pause-stock-zero] Campagne ' +
+          campaignId +
+          ' (' +
+          productId +
+          ') mise en pause automatiquement'
+      );
+    } catch (error) {
+      result.failed.push(campaignId);
+      console.error(
+        '[auto-pause-stock-zero] echec',
+        campaignId,
+        error && (error.code || error.message)
+      );
+    }
+  }
+  return result;
+}
+
 exports.autoPauseExpiredAdCampaigns = onSchedule(
   {
     schedule: 'every 60 minutes',
@@ -5797,6 +5905,86 @@ exports.autoPauseExpiredAdCampaigns = onSchedule(
       paused += 1;
     }
     console.log('[autoPauseExpiredAdCampaigns]', JSON.stringify({ scanned: snapshot.size, paused }));
+  }
+);
+
+exports.onProductStockZeroPauseAds = onDocumentUpdated(
+  {
+    document: 'products/{productId}',
+    region: 'europe-west1',
+    timeoutSeconds: 120,
+    maxInstances: 5
+  },
+  async (event) => {
+    const beforeData =
+      event.data && event.data.before && typeof event.data.before.data === 'function'
+        ? event.data.before.data() || {}
+        : {};
+    const afterData =
+      event.data && event.data.after && typeof event.data.after.data === 'function'
+        ? event.data.after.data() || {}
+        : {};
+    const prevStock = Number(beforeData.stock ?? 0);
+    const nextStock = Number(afterData.stock ?? 0);
+    if (!(prevStock > 0 && nextStock <= 0)) return null;
+    const productId = String((event.params && event.params.productId) || '').trim();
+    if (!productId) return null;
+
+    const [directSnap, carouselSnap] = await Promise.all([
+      db
+        .collection(AD_CAMPAIGNS_COLLECTION)
+        .where('status', '==', 'ACTIVE')
+        .where('productId', '==', productId)
+        .limit(50)
+        .get(),
+      db
+        .collection(AD_CAMPAIGNS_COLLECTION)
+        .where('status', '==', 'ACTIVE')
+        .where('productIds', 'array-contains', productId)
+        .limit(50)
+        .get()
+    ]);
+    const byId = new Map();
+    directSnap.docs.concat(carouselSnap.docs).forEach((docSnap) => {
+      byId.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
+    });
+    if (!byId.size) {
+      console.log('[auto-pause-stock-zero] aucune campagne ACTIVE pour', productId);
+      return null;
+    }
+
+    const secrets = await readAdsSecrets();
+    const stockCache = new Map();
+    const stockOf = async (id) => {
+      if (id === productId) return nextStock;
+      if (stockCache.has(id)) return stockCache.get(id);
+      const snap = await db.doc('products/' + id).get();
+      const value = snap.exists ? Number(snap.data().stock ?? 0) : 0;
+      stockCache.set(id, value);
+      return value;
+    };
+
+    const result = await pauseCampaignsOnStockZeroCore({
+      productId: productId,
+      prevStock: prevStock,
+      nextStock: nextStock,
+      campaigns: [...byId.values()],
+      stockOf: stockOf,
+      pauseRemote: (campaign) => pauseExternalCampaign(campaign, secrets),
+      markPaused: async (campaign, patch) => {
+        await db
+          .collection(AD_CAMPAIGNS_COLLECTION)
+          .doc(campaign.id)
+          .update({
+            ...patch,
+            autoPausedAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp()
+          });
+      },
+      notify: (campaign, id) => notifyAdminsAdsPaused(campaign, id)
+    });
+    console.log('[auto-pause-stock-zero]', JSON.stringify(result));
+    return result;
   }
 );
 
@@ -5852,10 +6040,16 @@ exports.toggleAdCampaignStatus = onCall(
       }
     }
 
-    await ref.update({
+    const campaignPatch = {
       status: action,
       updatedAt: FieldValue.serverTimestamp()
-    });
+    };
+    if (action === 'ACTIVE') {
+      /* Reactivation manuelle apres un stock 0 : on efface la pause auto. */
+      campaignPatch.autoPausedReason = FieldValue.delete();
+      campaignPatch.autoPausedAt = FieldValue.delete();
+    }
+    await ref.update(campaignPatch);
     return { campaignDocId, status: action, synced };
   }
 );

@@ -652,6 +652,182 @@ async function main() {
     metaCalls.length + deletedDocs.length === callsBeforeActive
   );
 
+  /* --- 11. Auto-pause des campagnes quand le stock passe a 0 --- */
+  const pauseCoreBody = extractAsyncFunction(functionsSource, "pauseCampaignsOnStockZeroCore");
+  const pauseExternalBody = extractAsyncFunction(functionsSource, "pauseExternalCampaign");
+  check(
+    "stock : helpers extraits",
+    Boolean(pauseCoreBody) && Boolean(pauseExternalBody)
+  );
+  const buildPauseCore = (deps) => {
+    const core = new Function(
+      "pauseRemote",
+      "markPaused",
+      "notify",
+      "stockOf",
+      pauseCoreBody + "\nreturn pauseCampaignsOnStockZeroCore;"
+    )(deps.pauseRemote, deps.markPaused, deps.notify, deps.stockOf);
+    return (input) =>
+      core({
+        ...input,
+        pauseRemote: deps.pauseRemote,
+        markPaused: deps.markPaused,
+        notify: deps.notify,
+        stockOf: deps.stockOf,
+      });
+  };
+
+  const remoteIds = [];
+  const pausePatches = [];
+  const monoCampaign = {
+    id: "camp-mono",
+    status: "ACTIVE",
+    platform: "meta",
+    externalCampaignId: "1200",
+    productId: "p1",
+  };
+  const coreMono = buildPauseCore({
+    pauseRemote: async (campaign) => {
+      remoteIds.push(campaign.id);
+      return true;
+    },
+    markPaused: async (campaign, patch) => {
+      pausePatches.push({ id: campaign.id, patch: patch });
+    },
+    notify: async () => 1,
+    stockOf: async () => 0,
+  });
+  const monoResult = await coreMono({
+    productId: "p1",
+    prevStock: 1,
+    nextStock: 0,
+    campaigns: [monoCampaign],
+  });
+  check(
+    "stock : 1 -> 0 met la campagne mono-produit en pause",
+    monoResult.paused.includes("camp-mono") && remoteIds.includes("camp-mono"),
+    JSON.stringify(monoResult)
+  );
+  check(
+    "stock : Firestore status PAUSED + autoPausedReason stock_zero",
+    pausePatches.length === 1 &&
+      pausePatches[0].patch.status === "PAUSED" &&
+      pausePatches[0].patch.autoPausedReason === "stock_zero",
+    JSON.stringify(pausePatches[0] || {})
+  );
+
+  remoteIds.length = 0;
+  pausePatches.length = 0;
+  const noTransition = await coreMono({
+    productId: "p1",
+    prevStock: 5,
+    nextStock: 4,
+    campaigns: [monoCampaign],
+  });
+  check(
+    "stock : 5 -> 4 ne declenche aucun appel et laisse ACTIVE",
+    noTransition.transition === false &&
+      remoteIds.length === 0 &&
+      pausePatches.length === 0
+  );
+
+  const carouselCampaign = {
+    id: "camp-carousel",
+    status: "ACTIVE",
+    type: "carousel",
+    platform: "meta",
+    externalCampaignId: "1300",
+    productIds: ["p1", "p2", "p3"],
+  };
+  const stockMap = new Map([
+    ["p1", 0],
+    ["p2", 5],
+    ["p3", 2],
+  ]);
+  remoteIds.length = 0;
+  pausePatches.length = 0;
+  const coreCarousel = buildPauseCore({
+    pauseRemote: async (campaign) => {
+      remoteIds.push(campaign.id);
+      return true;
+    },
+    markPaused: async (campaign, patch) => {
+      pausePatches.push({ id: campaign.id, patch: patch });
+    },
+    notify: async () => 1,
+    stockOf: async (id) => (stockMap.has(id) ? stockMap.get(id) : 0),
+  });
+  const partial = await coreCarousel({
+    productId: "p1",
+    prevStock: 1,
+    nextStock: 0,
+    campaigns: [carouselCampaign],
+  });
+  check(
+    "stock : carrousel avec produits encore en stock reste ACTIVE",
+    partial.skipped.includes("camp-carousel") &&
+      partial.paused.length === 0 &&
+      pausePatches.length === 0
+  );
+
+  stockMap.set("p2", 0);
+  stockMap.set("p3", 0);
+  const allZero = await coreCarousel({
+    productId: "p1",
+    prevStock: 1,
+    nextStock: 0,
+    campaigns: [carouselCampaign],
+  });
+  check(
+    "stock : carrousel mis en pause si tous les produits sont a 0",
+    allZero.paused.includes("camp-carousel") &&
+      pausePatches.length === 1 &&
+      pausePatches[0].patch.autoPausedReason === "stock_zero"
+  );
+
+  /* Payloads reels de pause distante (pauseExternalCampaign) */
+  const metaPauses = [];
+  const buildPauseRemote = (metaRequest, tiktokRequest) =>
+    new Function(
+      "metaGraphRequest",
+      "tiktokRequest",
+      pauseExternalBody + "\nreturn pauseExternalCampaign;"
+    )(metaRequest, tiktokRequest);
+  const pauseMetaRemote = buildPauseRemote(async (path, method, payload) => {
+    metaPauses.push({ path: path, method: method, payload: payload });
+    return {};
+  }, async () => ({}));
+  await pauseMetaRemote(
+    { platform: "meta", externalCampaignId: "1200" },
+    { metaAccessToken: "tok" }
+  );
+  check(
+    "stock : pause Meta -> POST /1200 { status: PAUSED }",
+    metaPauses.length === 1 &&
+      metaPauses[0].path === "1200" &&
+      metaPauses[0].method === "POST" &&
+      metaPauses[0].payload.status === "PAUSED",
+    JSON.stringify(metaPauses[0] || {})
+  );
+
+  const tiktokPauses = [];
+  const pauseTiktokRemote = buildPauseRemote(async () => ({}), async (path, method, payload) => {
+    tiktokPauses.push({ path: path, method: method, payload: payload });
+    return {};
+  });
+  await pauseTiktokRemote(
+    { platform: "tiktok", externalCampaignId: "1799" },
+    { tiktokAccessToken: "ttok", tiktokAdvertiserId: "adv-1" }
+  );
+  check(
+    "stock : pause TikTok -> operation_status DISABLE",
+    tiktokPauses.length === 1 &&
+      tiktokPauses[0].path === "/campaign/status/update/" &&
+      tiktokPauses[0].payload.operation_status === "DISABLE" &&
+      tiktokPauses[0].payload.campaign_ids[0] === "1799",
+    JSON.stringify(tiktokPauses[0] || {})
+  );
+
   console.log(verifications + " verification(s), " + echecs + " echec(s).");
   if (echecs) process.exitCode = 1;
 }

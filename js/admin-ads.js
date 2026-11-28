@@ -43,7 +43,7 @@ import {
   getDownloadURL,
 } from "firebase/storage";
 import { db, storage } from "./firebase.js";
-import { adminT, getAdminLang } from "./admin-ui.js?v=drawer2027d";
+import { adminT, getAdminLang } from "./admin-ui.js?v=drawer2027e";
 import { escapeHTML } from "./utils.js";
 import { showToast } from "./ui-core.js";
 
@@ -2924,6 +2924,13 @@ function renderCampaigns() {
                 <span class="ads-campaign-status ${
                   active ? "is-active" : isDraft ? "is-draft" : "is-paused"
                 }">${escapeHTML(campaignStatusLabel(campaign.status))}</span>
+                ${
+                  String(campaign.autoPausedReason || "") === "stock_zero"
+                    ? `<span class="ads-campaign-status is-auto-paused" title="${escapeHTML(
+                        adsT("adsAutoPausedStockZeroHint") || ""
+                      )}">⏸️ ${escapeHTML(adsT("adsAutoPausedStockZero") || "Pause auto (Stock 0)")}</span>`
+                    : ""
+                }
                 <span>${escapeHTML(adsT("adsCampaignBudget"))} : ${money(
                   campaign.dailyBudgetMad
                 )}/j${totalBudget ? ` · ${escapeHTML(totalBudget)}` : ""}${

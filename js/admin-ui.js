@@ -419,6 +419,8 @@ const ADMIN_I18N = {
     adsCampaignDelete: "Supprimer",
     adsDeleteActiveBlocked: "Mettez la campagne en pause avant de la supprimer.",
     adsDeleteError: "Suppression impossible.",
+    adsAutoPausedStockZero: "Pause auto (Stock 0)",
+    adsAutoPausedStockZeroHint: "Campagne mise en pause automatiquement car le produit est en rupture de stock.",
   },
   en: {
     pageTitle: "Administration | Smartswika",
@@ -815,6 +817,8 @@ const ADMIN_I18N = {
     adsCampaignDelete: "Delete",
     adsDeleteActiveBlocked: "Pause the campaign before deleting it.",
     adsDeleteError: "Deletion failed.",
+    adsAutoPausedStockZero: "Auto-paused (Stock 0)",
+    adsAutoPausedStockZeroHint: "Campaign paused automatically because the product is out of stock.",
   },
   ar: {
     pageTitle: "الإدارة | سمارت سويقة",
@@ -1211,6 +1215,8 @@ const ADMIN_I18N = {
     adsCampaignDelete: "حذف",
     adsDeleteActiveBlocked: "أوقف الحملة مؤقتًا قبل حذفها.",
     adsDeleteError: "تعذر الحذف.",
+    adsAutoPausedStockZero: "إيقاف تلقائي (المخزون 0)",
+    adsAutoPausedStockZeroHint: "تم إيقاف الحملة تلقائيًا لأن المنتج نفد من المخزون.",
   },
 };
 

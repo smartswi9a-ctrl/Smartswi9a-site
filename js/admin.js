@@ -1261,7 +1261,7 @@ function initAdmin() {
                le module n'est chargé qu'à l'ouverture de l'onglet. */
             else if (tab === 'ads') {
                 try {
-                    const m = await import('./admin-ads.js?v=12');
+                    const m = await import('./admin-ads.js?v=13');
                     await m.initAdsTab();
                 } catch (e) {
                     console.error('[admin] initAdsTab impossible :', e);
