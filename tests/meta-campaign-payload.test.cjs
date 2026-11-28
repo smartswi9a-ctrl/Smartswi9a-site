@@ -331,6 +331,22 @@ async function main() {
     JSON.stringify(adset.payload && adset.payload.targeting && adset.payload.targeting.targeting_automation)
   );
   check(
+    "meta adset : age_max absent ou >= 65 avec advantage_audience",
+    Boolean(adset.payload) &&
+      Boolean(adset.payload.targeting) &&
+      (adset.payload.targeting.age_max === undefined || adset.payload.targeting.age_max >= 65),
+    String(adset.payload && adset.payload.targeting && adset.payload.targeting.age_max)
+  );
+  check(
+    "meta adset : age_min 21 + geo MA conserves",
+    Boolean(adset.payload) &&
+      Boolean(adset.payload.targeting) &&
+      adset.payload.targeting.age_min === 21 &&
+      Boolean(adset.payload.targeting.geo_locations) &&
+      Array.isArray(adset.payload.targeting.geo_locations.countries) &&
+      adset.payload.targeting.geo_locations.countries[0] === "MA"
+  );
+  check(
     "meta adset : aucun bid_amount / bid_constraints vide",
     Boolean(adset.payload) &&
       !Object.prototype.hasOwnProperty.call(adset.payload, "bid_amount") &&

@@ -4513,7 +4513,7 @@ async function createMetaCampaign(options) {
     !campaignPayload.daily_budget &&
     !campaignPayload.lifetime_budget;
   const adsetPayload = {
-    name: options.campaignName + ' - MA 21-55',
+    name: options.campaignName + ' - MA 21+',
     campaign_id: campaign.id,
     billing_event: 'IMPRESSIONS',
     optimization_goal: options.optimizationGoal || 'LINK_CLICKS',
@@ -4521,7 +4521,9 @@ async function createMetaCampaign(options) {
     targeting: {
       geo_locations: { countries: ['MA'] },
       age_min: 21,
-      age_max: 55,
+      /* Pas de age_max strict : avec advantage_audience=1 Meta refuse une borne
+         haute < 65 ("You can add a lower maximum age as a suggestion instead").
+         On laisse donc l age maximum ouvert (65 par defaut cote Meta). */
       /* Meta Graph exige explicitement le flag Advantage audience :
          "you need to enable or disable the Advantage audience feature ...
           setting the advantage_audience flag to either 1 or 0". */
@@ -4597,7 +4599,7 @@ async function createTiktokCampaign(options) {
     {
       advertiser_id: advertiserId,
       campaign_id: campaignId,
-      adgroup_name: options.campaignName + ' - MA 21-55',
+      adgroup_name: options.campaignName + ' - MA 21+',
       budget_mode: 'BUDGET_MODE_DAY',
       budget,
       schedule_type: 'SCHEDULE_FROM_NOW',
