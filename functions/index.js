@@ -4442,34 +4442,56 @@ async function createMetaCampaign(options) {
   const account = String(options.accountId || '').replace(/^act_/, '');
   if (!account) throw new Error('Meta Ad Account ID missing.');
   const status = options.startPaused ? 'PAUSED' : 'ACTIVE';
+  const campaignPayload = {
+    name: options.campaignName,
+    objective: options.objective || 'OUTCOME_TRAFFIC',
+    status,
+    special_ad_categories: Array.isArray(options.specialAdCategories)
+      ? options.specialAdCategories
+      : []
+  };
+  const campaignDailyBudget = Number(options.campaignDailyBudgetMad);
+  const campaignLifetimeBudget = Number(options.campaignLifetimeBudgetMad);
+  if (Number.isFinite(campaignDailyBudget) && campaignDailyBudget > 0) {
+    campaignPayload.daily_budget = Math.round(campaignDailyBudget * 100);
+  } else if (Number.isFinite(campaignLifetimeBudget) && campaignLifetimeBudget > 0) {
+    campaignPayload.lifetime_budget = Math.round(campaignLifetimeBudget * 100);
+  }
+  /* ABO (budget porte par l ad set) : depuis Graph v20 Meta exige explicitement
+     ce booleen sur /campaigns, sinon la creation echoue avec
+     "You must specify True or False in the field is_adset_budget_sharing_enabled".
+     On le met a false : aucun budget de campagne, donc aucun partage a activer. */
+  if (!campaignPayload.daily_budget && !campaignPayload.lifetime_budget) {
+    campaignPayload.is_adset_budget_sharing_enabled = false;
+  }
   const campaign = await metaGraphRequest(
     'act_' + account + '/campaigns',
     'POST',
-    {
-      name: options.campaignName,
-      objective: 'OUTCOME_TRAFFIC',
-      status,
-      special_ad_categories: []
-    },
+    campaignPayload,
     options.token
   );
+  const adsetPayload = {
+    name: options.campaignName + ' - MA 21-55',
+    campaign_id: campaign.id,
+    daily_budget: Math.round(options.dailyBudgetMad * 100),
+    billing_event: 'IMPRESSIONS',
+    optimization_goal: 'LINK_CLICKS',
+    destination_type: 'WEBSITE',
+    targeting: {
+      geo_locations: { countries: ['MA'] },
+      age_min: 21,
+      age_max: 55
+    },
+    status
+  };
+  /* Si le budget est au niveau campagne (CBO), l ad set ne doit pas en porter. */
+  if (campaignPayload.daily_budget || campaignPayload.lifetime_budget) {
+    delete adsetPayload.daily_budget;
+  }
   const adset = await metaGraphRequest(
     'act_' + account + '/adsets',
     'POST',
-    {
-      name: options.campaignName + ' - MA 21-55',
-      campaign_id: campaign.id,
-      daily_budget: Math.round(options.dailyBudgetMad * 100),
-      billing_event: 'IMPRESSIONS',
-      optimization_goal: 'LINK_CLICKS',
-      destination_type: 'WEBSITE',
-      targeting: {
-        geo_locations: { countries: ['MA'] },
-        age_min: 21,
-        age_max: 55
-      },
-      status
-    },
+    adsetPayload,
     options.token
   );
   return {

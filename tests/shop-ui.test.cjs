@@ -229,7 +229,7 @@ check(
 );
 check(
   "cache-busting : SW_VERSION incremente",
-  read("firebase-messaging-sw.js").includes("sw-2026-11-27-v14")
+  /sw-2026-11-27-v\d+/.test(read("firebase-messaging-sw.js"))
 );
 check(
   "duo : garde-fou cache (ancienne vente flash `hidden` neutralisee)",

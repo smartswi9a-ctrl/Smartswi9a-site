@@ -596,11 +596,26 @@ async function uploadProductGallery(onProgress) {
 /* ============================================================
    VIDEO DE DEMONSTRATION (Cloudflare R2)
    ------------------------------------------------------------
-   Le champ `video` contient le NOM DU FICHIER servi par
-   https://videos.smartswika.ma/. La suppression reelle passe par la
-   Cloud Function `adminDeleteVideo` (verifie le jeton admin, puis
-   supprime l'objet dans le bucket R2 via le Worker).
+   Le champ `video` accepte :
+     - une URL complete (https://pub-....r2.dev/video.mp4) ;
+     - ou un NOM DE FICHIER servi par https://videos.smartswika.ma/.
+   La suppression reelle passe par la Cloud Function
+   `adminDeleteVideo` (verifie le jeton admin, puis supprime l'objet
+   dans le bucket R2 via le Worker).
    ============================================================ */
+function extractVideoKey(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    if (/^https?:\/\//i.test(raw)) {
+        try {
+            return decodeURIComponent(new URL(raw).pathname.replace(/^\/+/, ''));
+        } catch (error) {
+            return raw;
+        }
+    }
+    return raw.replace(/^\/+/, '');
+}
+
 async function requestR2VideoDelete(filename) {
     try {
         const { auth } = await import('./firebase.js');
@@ -624,12 +639,12 @@ async function clearProductVideo() {
     const input = document.getElementById('pVideo');
     if (!input) return;
     const editId = document.getElementById('productEditId').value;
-    let filename = (input.value || '').trim();
+    let filename = extractVideoKey(input.value);
 
     if (editId && !filename) {
         try {
             const snap = await getDoc(doc(db, 'products', editId));
-            if (snap.exists()) filename = String(snap.data().video || '').trim();
+            if (snap.exists()) filename = extractVideoKey(snap.data().video);
         } catch (error) {
             console.warn('[admin] lecture video produit :', error);
         }
@@ -1246,7 +1261,7 @@ function initAdmin() {
                le module n'est chargé qu'à l'ouverture de l'onglet. */
             else if (tab === 'ads') {
                 try {
-                    const m = await import('./admin-ads.js?v=5');
+                    const m = await import('./admin-ads.js?v=6');
                     await m.initAdsTab();
                 } catch (e) {
                     console.error('[admin] initAdsTab impossible :', e);

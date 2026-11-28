@@ -113,7 +113,11 @@ check(
 /* --------------------------------------------- 3. responsive / RTL */
 check("vendor : desktop 240px", css.includes("--v-sidebar-width: 240px"));
 check("vendor : desktop replie 72px", css.includes(".v-layout.v-collapsed .v-sidebar { width: 72px; }"));
-check("vendor : tablette 768-1023 compacte 72px", css.includes("@media (min-width: 768px) and (max-width: 1023px)"));
+check(
+  "vendor : tablette 768-1023 en tiroir",
+  /@media \(min-width: 768px\) and \(max-width: 1023px\)/.test(css) &&
+    /translateX\(calc\(-100% - 12px\)\)/.test(css)
+);
 check("vendor : mobile < 768 drawer", css.includes("@media (max-width: 767px)"));
 check(
   "vendor : KPI 4 colonnes puis 2 colonnes",
@@ -124,16 +128,16 @@ check("vendor : RTL document", ui.includes('document.documentElement.dir = curre
 check("vendor : sidebar RTL a droite", css.includes('[dir="rtl"] .v-sidebar'));
 check("vendor : tactile >= 44px", css.includes("min-height: 44px"));
 check(
-  "vendor : menu mobile ET tablette gere (plus seulement <768)",
-  ui.includes('const vMqTablet = window.matchMedia("(min-width: 768px) and (max-width: 1023px)")') &&
+  "vendor : tiroir mobile + tablette via vMqDrawer",
+  ui.includes('const vMqDrawer = window.matchMedia("(max-width: 1024px)")') &&
     ui.includes("setDrawerOpen") &&
     ui.includes("v-drawer-open") &&
-    (ui.match(/vMqTablet\.matches/g) || []).length >= 2
+    (ui.match(/vMqDrawer\.matches/g) || []).length >= 2
 );
 check(
-  "vendor : hamburger 44x44 sur mobile et tablette",
-  css.includes("@media (max-width: 1023px)") &&
-    /\.v-mobile-toggle \{[^}]*width: 44px[^}]*height: 44px/s.test(css)
+  "vendor : hamburger 44x44 visible sur toutes les tailles",
+  /\.v-mobile-toggle \{[^}]*width: 44px[^}]*height: 44px/s.test(css) &&
+    /\.v-mobile-toggle \{[^}]*display: inline-flex !important/s.test(css)
 );
 check(
   "vendor : tiroir sous la topbar, bouton menu non recouvert",
@@ -145,7 +149,8 @@ check(
   "vendor : fermeture au meme bouton + aria-expanded",
   ui.includes('mobileToggle.setAttribute("aria-expanded"') &&
     ui.includes("event.stopPropagation()") &&
-    ui.includes('vendorT(open ? "menuClose" : "menuOpen")')
+    (ui.includes('vendorT(open ? "menuClose" : "menuOpen")') ||
+      ui.includes('vendorT(hidden ? "menuOpen" : "menuClose")'))
 );
 check(
   "vendor : libelles menu traduits FR / EN / AR",

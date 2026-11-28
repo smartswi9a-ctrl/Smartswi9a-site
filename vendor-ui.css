@@ -263,44 +263,47 @@ body.vendor-page {
 /* --- Etat verrouille (entrepôt non recu) --- */
 .v-locked-cta { display: inline-flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center; }
 
-/* --- Bouton menu (hamburger) : zone tactile 44x44 et cliquable --- */
-@media (max-width: 1023px) {
-    .v-mobile-toggle {
-        display: inline-flex; align-items: center; justify-content: center;
-        width: 44px; height: 44px; min-width: 44px; min-height: 44px;
-        position: relative; z-index: 2; flex: 0 0 auto;
-        touch-action: manipulation;
-    }
+/* --- Bouton menu (hamburger) : visible et cliquable sur TOUS les ecrans --- */
+.v-mobile-toggle {
+    display: inline-flex !important; align-items: center; justify-content: center;
+    width: 44px; height: 44px; min-width: 44px; min-height: 44px;
+    position: relative; z-index: 9999; flex: 0 0 auto;
+    pointer-events: auto !important; cursor: pointer;
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent;
 }
 
 /* ============================================================
    RESPONSIVE
    ============================================================ */
 @media (min-width: 768px) and (max-width: 1023px) {
-    .v-sidebar { width: 72px; transform: none; }
-    .v-content { margin-left: 72px; }
-    .v-sidebar-brand { padding: 0.55rem 0.35rem; gap: 0.3rem; justify-content: center; }
-    .v-sidebar-logo { width: 26px; height: 26px; }
-    .v-sidebar-toggle { width: 28px; height: 28px; }
-    .v-sidebar-brand-text, .v-nav-label, .v-nav-badge,
-    .v-nav-group, .v-sidebar-help-text, .v-sidebar-help-link { display: none; }
-    .v-nav-link { justify-content: center; padding-inline: 0.4rem; }
-    .v-layout.v-expanded .v-sidebar { width: 240px; }
-    .v-layout.v-expanded .v-content { margin-left: 240px; }
-    .v-layout.v-expanded .v-sidebar-brand { padding: 0.8rem 0.7rem; gap: 0.55rem; justify-content: flex-start; }
-    .v-layout.v-expanded .v-sidebar-logo { width: 34px; height: 34px; }
-    .v-layout.v-expanded .v-sidebar-toggle { width: 32px; height: 32px; }
-    .v-layout.v-expanded .v-sidebar-brand-text,
-    .v-layout.v-expanded .v-nav-group,
-    .v-layout.v-expanded .v-sidebar-help-text,
-    .v-layout.v-expanded .v-sidebar-help-link { display: inline; }
-    .v-layout.v-expanded .v-nav-label { display: block; }
-    .v-layout.v-expanded .v-nav-badge { display: inline-flex; }
-    .v-layout.v-expanded .v-nav-link { justify-content: flex-start; padding-inline: 0.6rem; }
+    /* Tablette : tiroir lateral (meme comportement que le mobile). */
+    .v-sidebar {
+        width: 300px;
+        transform: translateX(calc(-100% - 12px));
+        box-shadow: none;
+        top: var(--v-topbar-offset, 76px);
+        bottom: 0;
+        z-index: 120;
+        border-radius: 0 18px 18px 0;
+        pointer-events: none; visibility: hidden;
+    }
+    .v-sidebar.open {
+        transform: translateX(0); box-shadow: var(--shadow-lg);
+        pointer-events: auto; visibility: visible;
+    }
+    .v-content { margin-left: 0; padding: 0.8rem 0.7rem 2rem; }
+    .v-mobile-overlay { z-index: 110; }
+    .v-topbar { z-index: 130; }
     .v-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .v-chart-grid { grid-template-columns: 1fr; }
     .v-chart-box { height: 300px; }
     .v-workflow-steps { grid-template-columns: 1fr; }
+}
+
+/* Desktop : le toggle masque completement la sidebar (contenu plein ecran). */
+@media (min-width: 1024px) {
+    .v-layout.v-sidebar-hidden .v-sidebar { display: none !important; }
+    .v-layout.v-sidebar-hidden .v-content { margin-left: 0 !important; margin-right: 0 !important; }
 }
 
 @media (min-width: 1024px) {
@@ -377,9 +380,9 @@ body.vendor-page {
 [dir="rtl"] .v-sidebar-toggle svg { transform: rotate(180deg); }
 
 @media (min-width: 768px) and (max-width: 1023px) {
-    [dir="rtl"] .v-sidebar { transform: none; }
-    [dir="rtl"] .v-content { margin-right: 72px; margin-left: 0; }
-    [dir="rtl"] .v-layout.v-expanded .v-content { margin-right: 240px; }
+    [dir="rtl"] .v-sidebar { transform: translateX(calc(100% + 12px)); border-radius: 18px 0 0 18px; }
+    [dir="rtl"] .v-sidebar.open { transform: translateX(0); }
+    [dir="rtl"] .v-content { margin-right: 0; margin-left: 0; }
 }
 @media (min-width: 1024px) {
     [dir="rtl"] .v-content { margin-right: var(--v-sidebar-width); margin-left: 0; }

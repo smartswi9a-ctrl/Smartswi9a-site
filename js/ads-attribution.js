@@ -302,6 +302,7 @@ let cartBaseline = null;
 let checkoutFired = false;
 let purchaseTracked = new Set();
 let suppressCartEventsUntil = 0;
+let lastAddIntent = null;
 let flushQueue = new Set();
 let pixels = { meta: false, tiktok: false };
 
@@ -590,7 +591,11 @@ function sendPixels(canonical, payload) {
   }
   if (pixels.tiktok && window.ttq && typeof window.ttq.track === "function") {
     window.ttq.track(TIKTOK_EVENTS[canonical], {
+      /* TikTok Catalog Manager : `content_id` (singulier) est la cle de
+         correspondance ; on ajoute aussi `content_ids` (tableau) pour
+         rester aligne avec Meta et les paniers multi-produits. */
       content_id: payload.content_ids[0] || undefined,
+      content_ids: payload.content_ids,
       content_type: "product",
       content_name: payload.content_name || undefined,
       quantity: payload.num_items,
@@ -790,6 +795,34 @@ async function maybeInitiateCheckout(force) {
   });
 }
 
+async function handleAddToCartIntent(event) {
+  const detail = event && event.detail ? event.detail : null;
+  if (!detail || detail.productId == null) return;
+  const id = String(detail.productId).slice(0, 120);
+  const qty = Math.max(1, Math.floor(Number(detail.quantity) || 1));
+  /* Anti-doublon : la fiche produit emet l intent, puis cart.addToCart
+     (branche invite) peut le re-emettre -> un seul AddToCart par clic. */
+  const now = Date.now();
+  if (lastAddIntent && lastAddIntent.id === id && now - lastAddIntent.at < 1500) return;
+  lastAddIntent = { id: id, at: now };
+  let unit = Number(detail.price) || 0;
+  if (!unit) {
+    try {
+      const prices = await pricesFor([id]);
+      unit = prices.get(id) || 0;
+    } catch (error) {
+      unit = 0;
+    }
+  }
+  track("AddToCart", {
+    content_ids: [id],
+    content_name: "",
+    value: unit * qty,
+    currency: "MAD",
+    num_items: qty,
+  });
+}
+
 function handleProductView(event) {
   const product = event && event.detail ? event.detail.product : null;
   if (!product || product.id == null) return;
@@ -834,6 +867,7 @@ function handleOrderCreated(event) {
 
 function bindEvents() {
   document.addEventListener("smartswika:product-viewed", handleProductView);
+  document.addEventListener("smartswika:add-to-cart", handleAddToCartIntent);
 
   document.addEventListener("cart-updated", () => {
     handleCartUpdated();

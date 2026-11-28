@@ -43,7 +43,7 @@ import {
   getDownloadURL,
 } from "firebase/storage";
 import { db, storage } from "./firebase.js";
-import { adminT, getAdminLang } from "./admin-ui.js";
+import { adminT, getAdminLang } from "./admin-ui.js?v=drawer2027c";
 import { escapeHTML } from "./utils.js";
 
 /* ============================================================
@@ -2175,6 +2175,19 @@ function captureCarouselDraft() {
     const lang = textarea.dataset.carouselCopy;
     if (lang) draft.copies[lang] = textarea.value;
   });
+}
+
+function carouselSelectedProducts() {
+  const draft = ensureCarouselDraft();
+  const livoFee = averageLivoFee();
+  const available = new Map(
+    officialProducts().map((product) => [String(product.id), product])
+  );
+  const ids = draft.selected instanceof Set ? [...draft.selected] : [];
+  return ids
+    .map((id) => available.get(String(id)))
+    .filter(Boolean)
+    .map((product) => buildSuggestion(product, livoFee));
 }
 
 function topCarouselProducts() {

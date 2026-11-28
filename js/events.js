@@ -207,7 +207,7 @@ const eventHandlers = {
         console.warn("[events] Sync title update failed:", err);
       }
 
-      import("./product-detail.js")
+      import("./product-detail.js?v=creativeux2027b")
         .then((m) => m.renderProductDetail?.())
         .catch((err) =>
           console.warn("[events] Re-render product failed:", err)
@@ -414,6 +414,20 @@ export function attachEvents() {
       e.preventDefault();
       const rawId = addBtn.dataset.id || addBtn.dataset.productId;
       if (rawId != null && rawId !== "") {
+        /* Pixel AddToCart : emis des le clic (cartes accueil / boutique /
+           ventes flash), avant la modale de connexion eventuelle. */
+        try {
+          const card = addBtn.closest("[data-product-id], .product-card, .flash-card");
+          const rawPrice = (card && (card.dataset.price || card.dataset.productPrice)) || addBtn.dataset.price || "";
+          document.dispatchEvent(new CustomEvent("smartswika:add-to-cart", {
+            detail: {
+              productId: String(rawId),
+              quantity: 1,
+              price: Number(String(rawPrice).replace(/[^0-9.]/g, "")) || 0,
+              guest: true,
+            },
+          }));
+        } catch (error) { /* non bloquant */ }
         const label = addBtn.querySelector(".btn-label") || addBtn;
         const original = label.textContent;
         addBtn.classList.add("is-adding");

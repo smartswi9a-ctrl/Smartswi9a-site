@@ -20,7 +20,7 @@ import {
   updateCartTotalsUI,
 } from "./ui.js";
 import { initBanners } from "./banner.js";
-import { attachEvents, applyTranslations } from "./events.js";
+import { attachEvents, applyTranslations } from "./events.js?v=pixel2027c";
 import { loadNotifications } from "./notifications.js";
 import { initCategoriesMenuFromUrl } from "./categories-menu.js";
 import { initAnalytics } from "./analytics.js";
@@ -202,7 +202,7 @@ async function init() {
     /* ============================================================ 10. Rendu produit ============================================================ */
     if (isProduct) {
       try {
-        const { renderProductDetail } = await import("./product-detail.js");
+        const { renderProductDetail } = await import("./product-detail.js?v=pixel2027c");
         await renderProductDetail();
         console.log("[app] Page produit rendue");
       } catch (e) {

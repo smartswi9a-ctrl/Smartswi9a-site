@@ -492,7 +492,7 @@
            ============================================================ */
         .admin-container { max-width: 1680px; margin: 1rem auto; padding: 0 1rem; }
         .admin-topbar {
-            position: sticky; top: 0; z-index: 60; margin-bottom: 1rem;
+            position: sticky; top: 0; z-index: 100; margin-bottom: 1rem;
             padding: 0.7rem 1rem; border-radius: var(--radius-lg);
             background: var(--bg-card);
             backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
@@ -500,10 +500,12 @@
         .admin-topbar-left { display: flex; align-items: center; gap: 0.6rem; min-width: 0; }
         .admin-topbar-left h1 { font-size: 1.15rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .admin-menu-toggle {
-            display: none; width: 44px; height: 44px; flex: 0 0 44px;
-            border-radius: 12px; border: 1px solid var(--border);
+            display: inline-flex !important; width: 44px; height: 44px; min-width: 44px; min-height: 44px;
+            flex: 0 0 44px; border-radius: 12px; border: 1px solid var(--border);
             background: var(--bg-surface); color: var(--text); cursor: pointer;
             align-items: center; justify-content: center;
+            position: relative; z-index: 9999; pointer-events: auto !important;
+            touch-action: manipulation; -webkit-tap-highlight-color: transparent;
         }
         .admin-menu-toggle:hover { border-color: var(--gold); color: var(--gold); }
         .admin-user-email { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -692,7 +694,10 @@
             .admin-chart-box, .admin-donut-box { height: 280px; }
         }
 
-        /* --- Desktop >= 1024px : sidebar 240px, repliable a 72px --- */
+        /* --- Desktop >= 1024px : sidebar 240px, masquage total via le toggle --- */
+        .admin-shell.is-sidebar-hidden { grid-template-columns: 0 minmax(0, 1fr); gap: 0; }
+        .admin-shell.is-sidebar-hidden .admin-sidebar { display: none !important; }
+        .admin-shell.is-sidebar-hidden .admin-main { width: 100%; }
         @media (min-width: 1024px) {
             .admin-shell.is-collapsed { grid-template-columns: 72px minmax(0, 1fr); }
             .admin-shell.is-collapsed .nav-label, .admin-shell.is-collapsed .nav-badge,
@@ -700,6 +705,28 @@
             .admin-shell.is-collapsed .admin-sidebar-title { display: none; }
             .admin-shell.is-collapsed #adminTabs > button[data-tab] {
                 justify-content: center; padding-inline: 0.4rem;
+            }
+        }
+
+        /* --- Tablette 768-1024px : tiroir lateral (comme le mobile) --- */
+        @media (min-width: 768px) and (max-width: 1024px) {
+            .admin-shell { grid-template-columns: minmax(0, 1fr); }
+            .admin-sidebar {
+                position: fixed; inset-inline-start: 0;
+                top: var(--admin-topbar-offset, 76px); bottom: 0;
+                width: 300px; max-height: none; height: auto; z-index: 90;
+                border-radius: 0; transform: translateX(-105%);
+                transition: transform 0.18s ease;
+                pointer-events: none; visibility: hidden;
+            }
+            .admin-shell.is-open .admin-sidebar {
+                transform: translateX(0);
+                pointer-events: auto; visibility: visible;
+            }
+            [dir="rtl"] .admin-sidebar { transform: translateX(105%); }
+            [dir="rtl"] .admin-shell.is-open .admin-sidebar { transform: translateX(0); }
+            .admin-sidebar-backdrop {
+                position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); z-index: 85;
             }
         }
 
@@ -711,8 +738,9 @@
             .admin-user-email { display: none; }
             .admin-shell { grid-template-columns: minmax(0, 1fr); }
             .admin-sidebar {
-                position: fixed; inset-block: 0; inset-inline-start: 0;
-                width: 286px; max-height: none; height: 100vh; height: 100dvh; z-index: 90;
+                position: fixed; inset-inline-start: 0;
+                top: var(--admin-topbar-offset, 76px); bottom: 0;
+                width: 286px; max-height: none; height: auto; z-index: 90;
                 border-radius: 0; transform: translateX(-105%);
                 transition: transform 0.18s ease;
                 /* Tiroir ferme : ne capte JAMAIS de clic (aucun overlay invisible). */
@@ -2049,9 +2077,9 @@
                     <img id="pImgPreview" class="admin-preview-img" alt="" aria-hidden="true">
                 </div>
 
-                <label>🎥 Vidéo de démonstration (Nom du fichier R2)</label>
+                <label>🎥 Vidéo de démonstration (URL complète ou nom de fichier R2)</label>
                 <div style="display:flex;gap:0.5rem;align-items:center;">
-                    <input type="text" id="pVideo" placeholder="Ex: demo-montre.mp4" style="flex:1;">
+                    <input type="text" id="pVideo" placeholder="Ex: https://pub-....r2.dev/video.mp4" style="flex:1;">
                     <button type="button" id="clearVideoBtn" class="admin-btn-secondary" style="white-space:nowrap;">❌ Effacer</button>
                 </div>
 
@@ -3091,8 +3119,8 @@
     <div class="toast" id="cartToast" role="status" aria-live="polite"></div>
 
     <script src="/js/navbar.js"></script>
-    <script type="module" src="/js/admin-ui.js?v=7"></script>
-    <script type="module" src="/js/admin.js?v=gallery2026d"></script>
+    <script type="module" src="/js/admin-ui.js?v=drawer2027c"></script>
+    <script type="module" src="/js/admin.js?v=drawer2027c"></script>
 
 <footer class="page-legal-footer" role="contentinfo">
     <nav class="footer-legal footer-legal--bar" aria-label="Informations légales">

@@ -26,7 +26,7 @@ import {
   updateDoc,
 } from "firebase/firestore";
 import { db } from "./firebase.js";
-import { adminT, getAdminLang } from "./admin-ui.js";
+import { adminT, getAdminLang } from "./admin-ui.js?v=drawer2027c";
 import { showToast, confirmAction } from "./ui-core.js";
 import { escapeHTML } from "./utils.js";
 
